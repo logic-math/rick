@@ -53,13 +53,13 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/build.sh 脚本
-- [ ] Task 2: 实现 Go 环境检查（版本 >= 1.21）
-- [ ] Task 3: 实现 `go build` 编译命令
-- [ ] Task 4: 实现 --output 参数支持
-- [ ] Task 5: 实现编译后的二进制验证
-- [ ] Task 6: 实现错误处理和清晰的错误提示
-- [ ] Task 7: 编写测试脚本，验证 build.sh 功能
+- [x] Task 1: 创建 scripts/build.sh 脚本
+- [x] Task 2: 实现 Go 环境检查（版本 >= 1.21）
+- [x] Task 3: 实现 `go build` 编译命令
+- [x] Task 4: 实现 --output 参数支持
+- [x] Task 5: 实现编译后的二进制验证
+- [x] Task 6: 实现错误处理和清晰的错误提示
+- [x] Task 7: 编写测试脚本，验证 build.sh 功能
 
 #### 验证器
 
@@ -76,7 +76,7 @@ type InstallConfig struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
