@@ -164,22 +164,22 @@ type ExecutionResult struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/executor/tasks_json.go，实现 tasks.json 操作
-- [ ] Task 2: 实现 GenerateTasksJSON(dag, sortedTasks) 函数
-- [ ] Task 3: 实现 LoadTasksJSON(filePath) 函数
-- [ ] Task 4: 实现 SaveTasksJSON(filePath, tasks) 函数
-- [ ] Task 5: 实现 UpdateTaskStatus(taskID, status) 方法
-- [ ] Task 6: 实现 GetTaskStatus(taskID) 方法
-- [ ] Task 7: 编写单元测试，覆盖 JSON 生成、加载、更新
+- [x] Task 1: 创建 internal/executor/tasks_json.go，实现 tasks.json 操作
+- [x] Task 2: 实现 GenerateTasksJSON(dag, sortedTasks) 函数
+- [x] Task 3: 实现 LoadTasksJSON(filePath) 函数
+- [x] Task 4: 实现 SaveTasksJSON(filePath, tasks) 函数
+- [x] Task 5: 实现 UpdateTaskStatus(taskID, status) 方法
+- [x] Task 6: 实现 GetTaskStatus(taskID) 方法
+- [x] Task 7: 编写单元测试，覆盖 JSON 生成、加载、更新
 
 #### 验证器
 
-- GenerateTasksJSON() 生成格式正确的 JSON
-- LoadTasksJSON() 能正确加载 JSON 文件
-- SaveTasksJSON() 能正确保存文件
-- 状态更新正确反映在 JSON 中
-- JSON 格式符合规范
-- 单元测试覆盖率 >= 80%
+- ✅ GenerateTasksJSON() 生成格式正确的 JSON
+- ✅ LoadTasksJSON() 能正确加载 JSON 文件
+- ✅ SaveTasksJSON() 能正确保存文件
+- ✅ 状态更新正确反映在 JSON 中
+- ✅ JSON 格式符合规范
+- ✅ 单元测试覆盖率 >= 80%（实际 86.4%）
 
 #### 调试日志
 
@@ -187,7 +187,27 @@ type ExecutionResult struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 完成 - 2026-03-14
+
+**实现摘要**:
+- 创建 internal/executor/tasks_json.go，实现完整的 TaskState 和 TasksJSON 结构体
+- 实现 GenerateTasksJSON(dag, sortedTasks) 函数，从 DAG 生成 JSON 结构
+- 实现 LoadTasksJSON(filePath) 函数，从文件加载 JSON 数据
+- 实现 SaveTasksJSON(filePath, tasks) 函数，将数据持久化到文件
+- 实现 UpdateTaskStatus(taskID, status) 方法，支持状态验证
+- 实现 GetTaskStatus(taskID) 方法，获取任务状态
+- 添加辅助方法：UpdateTaskStatusWithError、UpdateTaskStatusWithOutput、IncrementAttempts
+- 添加查询方法：GetTask、GetAllTasks、GetTasksByStatus 等 10+ 个辅助查询方法
+- 编写 30 个单元测试，涵盖：
+  - JSON 生成和验证
+  - 文件 I/O 操作
+  - 状态更新和验证
+  - 错误处理
+  - 数据持久化验证
+  - 时间戳更新
+  - 任务过滤和计数
+- 测试覆盖率 86.4%，超过 80% 要求
+- 所有验收标准满足
 
 ---
 
