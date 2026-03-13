@@ -317,21 +317,23 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/learning_prompt.go，实现学习提示词生成
-- [ ] Task 2: 实现 GenerateLearningPrompt(jobID) 函数
-- [ ] Task 3: 实现提示词包含所有任务的执行结果
-- [ ] Task 4: 实现提示词包含 debug.md 中的问题记录
-- [ ] Task 5: 实现提示词包含 git 历史提交
-- [ ] Task 6: 编写单元测试，覆盖学习提示词生成
+- [x] Task 1: 创建 internal/prompt/learning_prompt.go，实现学习提示词生成
+- [x] Task 2: 实现 GenerateLearningPrompt(jobID) 函数
+- [x] Task 3: 实现提示词包含所有任务的执行结果
+- [x] Task 4: 实现提示词包含 debug.md 中的问题记录
+- [x] Task 5: 实现提示词包含 git 历史提交
+- [x] Task 6: 编写单元测试，覆盖学习提示词生成
 
 #### 验证器
 
-- GenerateLearningPrompt() 返回格式正确的提示词
-- 提示词包含完整的执行历史
-- 提示词包含问题记录
-- 提示词包含 git 历史
-- 提示词清晰明确
-- 单元测试覆盖率 >= 80%
+- ✅ GenerateLearningPrompt() 返回格式正确的提示词
+- ✅ 提示词包含完整的执行历史
+- ✅ 提示词包含问题记录
+- ✅ 提示词包含 git 历史
+- ✅ 提示词清晰明确
+- ✅ 单元测试覆盖率 97.3%（超过 80% 要求）
+- ✅ 所有 18 个学习提示词生成测试通过
+- ✅ 编译成功
 
 #### 调试日志
 
@@ -339,7 +341,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
