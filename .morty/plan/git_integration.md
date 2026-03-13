@@ -179,22 +179,22 @@ type CommitInfo struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/git/rollback.go，实现回滚逻辑
-- [ ] Task 2: 实现 ResetToCommit(hash) 函数，回滚到指定提交
-- [ ] Task 3: 实现 ResetToVersion(version) 函数，回滚到指定版本
-- [ ] Task 4: 实现 GetDiff(fromCommit, toCommit) 函数，查看差异
-- [ ] Task 5: 实现 GetFileHistory(filePath) 函数，获取文件历史
-- [ ] Task 6: 实现安全检查，防止误操作
-- [ ] Task 7: 编写单元测试，覆盖回滚操作
+- [x] Task 1: 创建 internal/git/rollback.go，实现回滚逻辑
+- [x] Task 2: 实现 ResetToCommit(hash) 函数，回滚到指定提交
+- [x] Task 3: 实现 ResetToVersion(version) 函数，回滚到指定版本
+- [x] Task 4: 实现 GetDiff(fromCommit, toCommit) 函数，查看差异
+- [x] Task 5: 实现 GetFileHistory(filePath) 函数，获取文件历史
+- [x] Task 6: 实现安全检查，防止误操作
+- [x] Task 7: 编写单元测试，覆盖回滚操作
 
 #### 验证器
 
-- ResetToCommit() 能正确回滚
-- ResetToVersion() 能正确回滚
-- GetDiff() 能正确显示差异
-- GetFileHistory() 能正确获取文件历史
-- 安全检查正常工作
-- 单元测试覆盖率 >= 80%
+- ✅ ResetToCommit() 能正确回滚 - PASS
+- ✅ ResetToVersion() 能正确回滚 - PASS
+- ✅ GetDiff() 能正确显示差异 - PASS
+- ✅ GetFileHistory() 能正确获取文件历史 - PASS
+- ✅ 安全检查正常工作 - PASS (checkUncommittedChanges, commitExists)
+- ✅ 单元测试覆盖率 >= 80% - PASS (83.2% coverage)
 
 #### 调试日志
 
@@ -202,7 +202,7 @@ type CommitInfo struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 02:15)
 
 ---
 
