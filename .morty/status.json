@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:19:45.810039+08:00",
+    "last_update": "2026-03-14T03:22:47.084108+08:00",
     "current_module_index": 6,
-    "current_job_index": 40,
+    "current_job_index": 41,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -2375,67 +2375,67 @@
           "index": 1,
           "global_index": 41,
           "name": "install.sh 脚本实现",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 8,
-          "tasks_completed": 0,
+          "tasks_completed": 8,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 scripts/install.sh 脚本",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.074311+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现参数解析（--source, --binary, --dev, --prefix）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.075533+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现源码安装流程（调用 build.sh）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.076371+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现二进制安装流程（从 GitHub releases 下载）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.077167+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现生产版本安装（~/.rick）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.078035+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现开发版本安装（~/.rick_dev）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.079064+08:00"
             },
             {
               "index": 7,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现符号链接创建（rick 或 rick_dev）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.079842+08:00"
             },
             {
               "index": 8,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 PATH 环境变量更新提示",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:22:47.080626+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T03:22:47.084108+08:00"
         },
         {
           "index": 2,
@@ -2708,7 +2708,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:19:45.810039+08:00"
+      "updated_at": "2026-03-14T03:22:47.084108+08:00"
     },
     {
       "index": 7,
