@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:53:06.401043+08:00",
+    "last_update": "2026-03-14T03:57:58.975806+08:00",
     "current_module_index": 8,
     "current_job_index": 49,
     "total_modules": 9,
@@ -2861,55 +2861,55 @@
           "index": 2,
           "global_index": 49,
           "name": "并行版本管理测试",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_2"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "安装生产版本 `./install.sh`",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.967129+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick --version` 可执行",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.968564+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "安装开发版本 `./install.sh --source --dev`",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.969414+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick_dev --version` 可执行",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.970181+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证两个版本使用不同的配置文件",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.971269+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证两个版本使用不同的工作空间",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:57:58.972097+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T03:53:06.401043+08:00"
+          "updated_at": "2026-03-14T03:57:58.975806+08:00"
         },
         {
           "index": 3,
@@ -3177,7 +3177,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:53:06.401043+08:00"
+      "updated_at": "2026-03-14T03:57:58.975806+08:00"
     }
   ]
 }
