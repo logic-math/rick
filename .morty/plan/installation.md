@@ -134,21 +134,21 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/uninstall.sh 脚本
-- [ ] Task 2: 实现参数解析（--dev, --all）
-- [ ] Task 3: 实现卸载生产版本（删除 ~/.rick）
-- [ ] Task 4: 实现卸载开发版本（删除 ~/.rick_dev）
-- [ ] Task 5: 实现删除符号链接
-- [ ] Task 6: 实现卸载确认提示
-- [ ] Task 7: 编写测试脚本，验证 uninstall.sh 功能
+- [x] Task 1: 创建 scripts/uninstall.sh 脚本
+- [x] Task 2: 实现参数解析（--dev, --all）
+- [x] Task 3: 实现卸载生产版本（删除 ~/.rick）
+- [x] Task 4: 实现卸载开发版本（删除 ~/.rick_dev）
+- [x] Task 5: 实现删除符号链接
+- [x] Task 6: 实现卸载确认提示
+- [x] Task 7: 编写测试脚本，验证 uninstall.sh 功能
 
 #### 验证器
 
-- uninstall.sh 能正确卸载生产版本
-- uninstall.sh 能正确卸载开发版本
-- uninstall.sh 能正确卸载所有版本
-- 符号链接被正确删除
-- 测试脚本通过
+- ✅ uninstall.sh 能正确卸载生产版本
+- ✅ uninstall.sh 能正确卸载开发版本
+- ✅ uninstall.sh 能正确卸载所有版本
+- ✅ 符号链接被正确删除
+- ✅ 测试脚本通过
 
 #### 调试日志
 
@@ -156,7 +156,7 @@ type InstallConfig struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
