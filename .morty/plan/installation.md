@@ -211,28 +211,30 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/version.sh 脚本
-- [ ] Task 2: 实现版本号读取（从 VERSION 文件或常量）
-- [ ] Task 3: 实现版本号更新
-- [ ] Task 4: 实现版本号格式验证（vMAJOR.MINOR.PATCH）
-- [ ] Task 5: 实现发布流程（git tag, changelog 生成）
-- [ ] Task 6: 编写测试脚本，验证版本管理
+- [x] Task 1: 创建 scripts/version.sh 脚本
+- [x] Task 2: 实现版本号读取（从 VERSION 文件或常量）
+- [x] Task 3: 实现版本号更新
+- [x] Task 4: 实现版本号格式验证（vMAJOR.MINOR.PATCH）
+- [x] Task 5: 实现发布流程（git tag, changelog 生成）
+- [x] Task 6: 编写测试脚本，验证版本管理
 
 #### 验证器
 
-- 版本号能正确读取
-- 版本号能正确更新
-- 版本号格式验证正确
-- git tag 正确创建
-- 测试脚本通过
+- ✅ 版本号能正确读取
+- ✅ 版本号能正确更新
+- ✅ 版本号格式验证正确
+- ✅ git tag 正确创建
+- ✅ 测试脚本通过（12/12 tests passed）
 
 #### 调试日志
 
-无
+- explore1: [探索发现] 版本号存储在 cmd/rick/main.go 中的 VERSION 常量，脚本需要解析和更新此常量，已确认
+- debug1: macOS grep 不支持 -P 标志, 解决: 使用 sed 替代 Perl 正则, 已修复
+- debug2: validate 命令返回值不正确, 原因: 脚本使用了 set -e 导致函数返回 1 时脚本退出, 解决: 移除 set -e 并在 main 函数中正确处理返回值, 已修复
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
