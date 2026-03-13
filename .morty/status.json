@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:44:21.714333+08:00",
+    "last_update": "2026-03-14T03:48:03.084224+08:00",
     "current_module_index": 8,
     "current_job_index": 47,
     "total_modules": 9,
@@ -2340,7 +2340,7 @@
             {
               "index": 2,
               "status": "COMPLETED",
-              "description": "实现 Go 环境检查（版本 >= 1.21）",
+              "description": "实现 Go 环境检查（版本 \u003e= 1.21）",
               "updated_at": "2026-03-14T03:19:45.800797+08:00"
             },
             {
@@ -2616,7 +2616,7 @@
             {
               "index": 2,
               "status": "COMPLETED",
-              "description": "实现 Go 版本检查（>= 1.21）",
+              "description": "实现 Go 版本检查（\u003e= 1.21）",
               "updated_at": "2026-03-14T03:40:05.620195+08:00"
             },
             {
@@ -2755,41 +2755,41 @@
               "index": 1,
               "status": "COMPLETED",
               "description": "构建完整的 Rick CLI 二进制",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.076066+08:00"
             },
             {
               "index": 2,
               "status": "COMPLETED",
               "description": "运行 `rick --version` 验证版本号",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.077061+08:00"
             },
             {
               "index": 3,
               "status": "COMPLETED",
               "description": "运行 `rick --help` 验证帮助信息",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.077802+08:00"
             },
             {
               "index": 4,
               "status": "COMPLETED",
               "description": "验证 ~/.rick/config.json 配置文件",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.078522+08:00"
             },
             {
               "index": 5,
               "status": "COMPLETED",
               "description": "验证所有依赖库都正确导入",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.079279+08:00"
             },
             {
               "index": 6,
               "status": "COMPLETED",
               "description": "验证日志系统正常工作",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:48:03.080025+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T03:44:21.714333+08:00"
+          "updated_at": "2026-03-14T03:48:03.084224+08:00"
         },
         {
           "index": 1,
@@ -3177,7 +3177,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:44:21.714333+08:00"
+      "updated_at": "2026-03-14T03:48:03.084224+08:00"
     }
   ]
 }
