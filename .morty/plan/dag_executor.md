@@ -117,12 +117,12 @@ type ExecutionResult struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/executor/topological.go，实现拓扑排序
-- [ ] Task 2: 实现 TopologicalSort(dag) 函数，使用 Kahn 算法
-- [ ] Task 3: 实现入度计算逻辑
-- [ ] Task 4: 实现队列处理逻辑
-- [ ] Task 5: 实现循环依赖检测（排序结果与任务数不符）
-- [ ] Task 6: 编写单元测试，覆盖各种 DAG 配置
+- [x] Task 1: 创建 internal/executor/topological.go，实现拓扑排序
+- [x] Task 2: 实现 TopologicalSort(dag) 函数，使用 Kahn 算法
+- [x] Task 3: 实现入度计算逻辑
+- [x] Task 4: 实现队列处理逻辑
+- [x] Task 5: 实现循环依赖检测（排序结果与任务数不符）
+- [x] Task 6: 编写单元测试，覆盖各种 DAG 配置
 
 #### 验证器
 
@@ -138,7 +138,17 @@ type ExecutionResult struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 完成 - 2026-03-14
+
+**实现摘要**:
+- 创建 internal/executor/topological.go，实现 Kahn 算法拓扑排序
+- 实现 TopologicalSort(dag) 函数，返回正确的排序序列
+- 实现 calculateInDegrees(dag) 函数，计算任务入度
+- 实现队列处理逻辑，按入度排序任务
+- 实现循环依赖检测，当排序结果数量不等于任务数时返回错误
+- 编写 10 个单元测试，覆盖各种 DAG 配置（线性、多重、独立、复杂、空、单一、钻石形等）
+- 测试覆盖率 85.6%，超过 80% 要求
+- 所有验收标准满足
 
 ---
 
