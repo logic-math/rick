@@ -278,20 +278,22 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/test_prompt.go，实现测试提示词生成
-- [ ] Task 2: 实现 GenerateTestPrompt(task, code) 函数
-- [ ] Task 3: 实现提示词包含任务的测试方法
-- [ ] Task 4: 实现提示词包含生成的代码
-- [ ] Task 5: 实现提示词包含测试脚本格式规范
-- [ ] Task 6: 编写单元测试，覆盖测试提示词生成
+- [x] Task 1: 创建 internal/prompt/test_prompt.go，实现测试提示词生成
+- [x] Task 2: 实现 GenerateTestPrompt(task, code) 函数
+- [x] Task 3: 实现提示词包含任务的测试方法
+- [x] Task 4: 实现提示词包含生成的代码
+- [x] Task 5: 实现提示词包含测试脚本格式规范
+- [x] Task 6: 编写单元测试，覆盖测试提示词生成
 
 #### 验证器
 
-- GenerateTestPrompt() 返回格式正确的提示词
-- 提示词包含测试方法
-- 提示词包含代码上下文
-- 提示词清晰明确
-- 单元测试覆盖率 >= 80%
+- ✅ GenerateTestPrompt() 返回格式正确的提示词
+- ✅ 提示词包含测试方法
+- ✅ 提示词包含代码上下文
+- ✅ 提示词清晰明确
+- ✅ 单元测试覆盖率 96.8%（超过 80% 要求）
+- ✅ 所有 11 个测试脚本生成提示词测试通过
+- ✅ 编译成功
 
 #### 调试日志
 
@@ -299,7 +301,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 

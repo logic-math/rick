@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:25:42.924586+08:00",
+    "last_update": "2026-03-14T02:18:47.291449+08:00",
     "current_module_index": 4,
     "current_job_index": 30,
     "total_modules": 9,
@@ -1749,7 +1749,7 @@
             "job_5"
           ],
           "tasks_total": 5,
-          "tasks_completed": 5,
+          "tasks_completed": 0,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
@@ -1757,35 +1757,35 @@
               "index": 1,
               "status": "COMPLETED",
               "description": "创建 internal/prompt/test_prompt.go，实现测试提示词生成",
-              "updated_at": "2026-03-14T02:25:42.917113+08:00"
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
               "index": 2,
               "status": "COMPLETED",
               "description": "实现 GenerateTestPrompt(task, code) 函数",
-              "updated_at": "2026-03-14T02:25:42.918274+08:00"
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
               "index": 3,
               "status": "COMPLETED",
               "description": "实现提示词包含任务的测试方法",
-              "updated_at": "2026-03-14T02:25:42.919171+08:00"
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
               "index": 4,
               "status": "COMPLETED",
               "description": "实现提示词包含生成的代码",
-              "updated_at": "2026-03-14T02:25:42.920017+08:00"
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
               "index": 5,
               "status": "COMPLETED",
               "description": "实现提示词包含测试脚本格式规范",
-              "updated_at": "2026-03-14T02:25:42.921036+08:00"
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T02:25:42.924586+08:00"
+          "updated_at": "2026-03-14T02:18:47.291449+08:00"
         },
         {
           "index": 6,
@@ -1897,7 +1897,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:25:42.924586+08:00"
+      "updated_at": "2026-03-14T02:18:47.291449+08:00"
     },
     {
       "index": 5,
@@ -2340,7 +2340,7 @@
             {
               "index": 2,
               "status": "PENDING",
-              "description": "实现 Go 环境检查（版本 \u003e= 1.21）",
+              "description": "实现 Go 环境检查（版本 >= 1.21）",
               "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
@@ -2616,7 +2616,7 @@
             {
               "index": 2,
               "status": "PENDING",
-              "description": "实现 Go 版本检查（\u003e= 1.21）",
+              "description": "实现 Go 版本检查（>= 1.21）",
               "updated_at": "2026-03-14T00:29:13.075341+08:00"
             },
             {
