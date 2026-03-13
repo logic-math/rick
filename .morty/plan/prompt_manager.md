@@ -74,23 +74,23 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/manager.go，实现 PromptManager 类型
-- [ ] Task 2: 创建提示词模板目录 internal/prompt/templates/
-- [ ] Task 3: 创建 plan.md 模板，用于规划阶段
-- [ ] Task 4: 创建 doing.md 模板，用于执行阶段
-- [ ] Task 5: 创建 test.md 模板，用于测试脚本生成
-- [ ] Task 6: 创建 learning.md 模板，用于学习阶段
-- [ ] Task 7: 实现 LoadTemplate(name) 函数，加载模板文件
-- [ ] Task 8: 实现模板缓存机制，避免重复加载
-- [ ] Task 9: 编写单元测试，覆盖模板加载
+- [x] Task 1: 创建 internal/prompt/manager.go，实现 PromptManager 类型
+- [x] Task 2: 创建提示词模板目录 internal/prompt/templates/
+- [x] Task 3: 创建 plan.md 模板，用于规划阶段
+- [x] Task 4: 创建 doing.md 模板，用于执行阶段
+- [x] Task 5: 创建 test.md 模板，用于测试脚本生成
+- [x] Task 6: 创建 learning.md 模板，用于学习阶段
+- [x] Task 7: 实现 LoadTemplate(name) 函数，加载模板文件
+- [x] Task 8: 实现模板缓存机制，避免重复加载
+- [x] Task 9: 编写单元测试，覆盖模板加载
 
 #### 验证器
 
-- 所有模板文件都存在且格式正确
-- LoadTemplate() 能正确加载模板
-- 缓存机制正常工作
-- 模板内容包含必要的变量占位符
-- 单元测试覆盖率 >= 80%
+- ✅ 所有模板文件都存在且格式正确
+- ✅ LoadTemplate() 能正确加载模板
+- ✅ 缓存机制正常工作
+- ✅ 模板内容包含必要的变量占位符
+- ✅ 单元测试覆盖率 100%（超过 80% 要求）
 
 #### 调试日志
 
@@ -98,7 +98,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
