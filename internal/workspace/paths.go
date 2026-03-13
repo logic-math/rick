@@ -3,11 +3,13 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Path constants for the Rick workspace structure
 const (
 	RickDirName    = ".rick"
+	RickDevDirName = ".rick_dev"
 	OKRFileName    = "OKR.md"
 	SpecFileName   = "SPEC.md"
 	WikiDirName    = "wiki"
@@ -23,13 +25,27 @@ func GetHomeDir() (string, error) {
 	return os.UserHomeDir()
 }
 
+// getRickDirName returns the appropriate rick directory name based on the binary name
+func getRickDirName() string {
+	// Get the binary name from os.Args[0]
+	binaryPath := os.Args[0]
+	binaryName := filepath.Base(binaryPath)
+
+	// If the binary name ends with _dev, use .rick_dev
+	if strings.HasSuffix(binaryName, "_dev") {
+		return RickDevDirName
+	}
+	return RickDirName
+}
+
 // GetRickDir returns the path to the .rick directory in the user's home
 func GetRickDir() (string, error) {
 	home, err := GetHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, RickDirName), nil
+	rickDirName := getRickDirName()
+	return filepath.Join(home, rickDirName), nil
 }
 
 // GetJobsDir returns the path to the jobs directory

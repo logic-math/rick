@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // getConfigPath is a variable that can be overridden for testing
@@ -13,7 +14,16 @@ var getConfigPath = func() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(home, ".rick", "config.json"), nil
+
+	// Determine the rick directory name based on the binary name
+	binaryPath := os.Args[0]
+	binaryName := filepath.Base(binaryPath)
+	rickDirName := ".rick"
+	if strings.HasSuffix(binaryName, "_dev") {
+		rickDirName = ".rick_dev"
+	}
+
+	return filepath.Join(home, rickDirName, "config.json"), nil
 }
 
 // GetConfigPath returns the path to the config file
@@ -24,10 +34,19 @@ func GetConfigPath() (string, error) {
 // GetDefaultConfig returns the default configuration
 func GetDefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
+
+	// Determine the rick directory name based on the binary name
+	binaryPath := os.Args[0]
+	binaryName := filepath.Base(binaryPath)
+	rickDirName := ".rick"
+	if strings.HasSuffix(binaryName, "_dev") {
+		rickDirName = ".rick_dev"
+	}
+
 	return &Config{
 		MaxRetries:       5,
 		ClaudeCodePath:   "",
-		DefaultWorkspace: filepath.Join(home, ".rick"),
+		DefaultWorkspace: filepath.Join(home, rickDirName),
 	}
 }
 
