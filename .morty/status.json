@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:48:03.37473+08:00",
+    "last_update": "2026-03-14T03:53:06.125091+08:00",
     "current_module_index": 8,
     "current_job_index": 48,
     "total_modules": 9,
@@ -2795,67 +2795,67 @@
           "index": 1,
           "global_index": 48,
           "name": "完整工作流测试",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 8,
-          "tasks_completed": 0,
+          "tasks_completed": 8,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建测试项目目录",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.109696+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick init` 初始化项目",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.110922+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 .rick 目录结构正确创建",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.111923+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick plan \"测试需求\"` 规划任务",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.112957+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 task.md 和 tasks.json 生成正确",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.114511+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick doing job_1` 执行任务",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.115767+08:00"
             },
             {
               "index": 7,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证任务执行和自动提交正确",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.116655+08:00"
             },
             {
               "index": 8,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick learning job_1` 进行学习",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:53:06.117512+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T03:48:03.37473+08:00"
+          "updated_at": "2026-03-14T03:53:06.125091+08:00"
         },
         {
           "index": 2,
@@ -3177,7 +3177,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:48:03.37473+08:00"
+      "updated_at": "2026-03-14T03:53:06.125091+08:00"
     }
   ]
 }
