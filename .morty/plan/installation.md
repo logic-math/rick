@@ -92,25 +92,25 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/install.sh 脚本
-- [ ] Task 2: 实现参数解析（--source, --binary, --dev, --prefix）
-- [ ] Task 3: 实现源码安装流程（调用 build.sh）
-- [ ] Task 4: 实现二进制安装流程（从 GitHub releases 下载）
-- [ ] Task 5: 实现生产版本安装（~/.rick）
-- [ ] Task 6: 实现开发版本安装（~/.rick_dev）
-- [ ] Task 7: 实现符号链接创建（rick 或 rick_dev）
-- [ ] Task 8: 实现 PATH 环境变量更新提示
-- [ ] Task 9: 编写测试脚本，验证 install.sh 功能
+- [x] Task 1: 创建 scripts/install.sh 脚本
+- [x] Task 2: 实现参数解析（--source, --binary, --dev, --prefix）
+- [x] Task 3: 实现源码安装流程（调用 build.sh）
+- [x] Task 4: 实现二进制安装流程（从 GitHub releases 下载）
+- [x] Task 5: 实现生产版本安装（~/.rick）
+- [x] Task 6: 实现开发版本安装（~/.rick_dev）
+- [x] Task 7: 实现符号链接创建（rick 或 rick_dev）
+- [x] Task 8: 实现 PATH 环境变量更新提示
+- [x] Task 9: 编写测试脚本，验证 install.sh 功能
 
 #### 验证器
 
-- install.sh 能正确安装生产版本
-- install.sh 能正确安装开发版本
-- 源码安装工作正确
-- 二进制安装工作正确
-- 符号链接创建正确
-- 命令 `rick --version` 或 `rick_dev --version` 可执行
-- 测试脚本通过
+- ✅ install.sh 能正确安装生产版本
+- ✅ install.sh 能正确安装开发版本
+- ✅ 源码安装工作正确
+- ✅ 二进制安装工作正确（GitHub releases 下载支持）
+- ✅ 符号链接创建正确
+- ✅ 命令 `rick --version` 和 `rick_dev --version` 可执行
+- ✅ 测试脚本已创建并验证通过
 
 #### 调试日志
 
@@ -118,7 +118,7 @@ type InstallConfig struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
