@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:40:19.236212+08:00",
+    "last_update": "2026-03-14T02:40:19.509312+08:00",
     "current_module_index": 5,
-    "current_job_index": 33,
+    "current_job_index": 34,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1971,7 +1971,7 @@
           "index": 1,
           "global_index": 34,
           "name": "plan 命令实现",
-          "status": "PENDING",
+          "status": "RUNNING",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
@@ -2025,7 +2025,7 @@
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T02:40:19.509312+08:00"
         },
         {
           "index": 2,
@@ -2304,7 +2304,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:40:19.236212+08:00"
+      "updated_at": "2026-03-14T02:40:19.509312+08:00"
     },
     {
       "index": 6,
