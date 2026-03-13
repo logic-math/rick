@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:11:55.999097+08:00",
+    "last_update": "2026-03-14T02:11:56.292279+08:00",
     "current_module_index": 4,
-    "current_job_index": 27,
+    "current_job_index": 28,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1640,7 +1640,7 @@
           "index": 3,
           "global_index": 28,
           "name": "规划阶段提示词生成",
-          "status": "PENDING",
+          "status": "RUNNING",
           "prerequisites": [
             "#### 前置条件",
             "job_2",
@@ -1683,7 +1683,7 @@
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T02:11:56.292279+08:00"
         },
         {
           "index": 4,
@@ -1897,7 +1897,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:11:55.999097+08:00"
+      "updated_at": "2026-03-14T02:11:56.292279+08:00"
     },
     {
       "index": 5,

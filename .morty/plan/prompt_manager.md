@@ -198,20 +198,22 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/plan_prompt.go，实现规划提示词生成
-- [ ] Task 2: 实现 GeneratePlanPrompt(requirement) 函数
-- [ ] Task 3: 实现 GeneratePlanPrompt 包含项目 OKR 和 SPEC 上下文
-- [ ] Task 4: 实现提示词包含任务格式规范（task.md 格式）
-- [ ] Task 5: 实现提示词包含依赖关系说明
-- [ ] Task 6: 编写单元测试，覆盖规划提示词生成
+- [x] Task 1: 创建 internal/prompt/plan_prompt.go，实现规划提示词生成
+- [x] Task 2: 实现 GeneratePlanPrompt(requirement) 函数
+- [x] Task 3: 实现 GeneratePlanPrompt 包含项目 OKR 和 SPEC 上下文
+- [x] Task 4: 实现提示词包含任务格式规范（task.md 格式）
+- [x] Task 5: 实现提示词包含依赖关系说明
+- [x] Task 6: 编写单元测试，覆盖规划提示词生成
 
 #### 验证器
 
-- GeneratePlanPrompt() 返回格式正确的提示词
-- 提示词包含项目上下文
-- 提示词包含任务格式规范
-- 提示词清晰明确
-- 单元测试覆盖率 >= 80%
+- ✅ GeneratePlanPrompt() 返回格式正确的提示词
+- ✅ 提示词包含项目上下文（OKR、SPEC、已完成工作）
+- ✅ 提示词包含任务格式规范（task.md 格式、依赖关系、目标、关键结果、测试方法）
+- ✅ 提示词清晰明确
+- ✅ 单元测试覆盖率 96.7%（超过 80% 要求）
+- ✅ 所有 16 个规划提示词生成测试通过
+- ✅ 编译成功
 
 #### 调试日志
 
@@ -219,7 +221,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
