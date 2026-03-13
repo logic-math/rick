@@ -142,7 +142,14 @@ func (tr *TaskRunner) GenerateTestScript(task *parser.Task) (string, error) {
 	scriptContent.WriteString("# Validation:\n")
 	scriptContent.WriteString("echo \"Testing task: " + task.ID + "\"\n")
 	scriptContent.WriteString("echo \"Task name: " + task.Name + "\"\n")
-	scriptContent.WriteString("echo \"Status: PASS\"\n")
+
+	// Support failure simulation for testing retry mechanism
+	// If the task goal contains "[FAIL_TEST]", simulate a failure
+	if strings.Contains(task.Goal, "[FAIL_TEST]") {
+		scriptContent.WriteString("echo \"Status: FAIL\"\n")
+	} else {
+		scriptContent.WriteString("echo \"Status: PASS\"\n")
+	}
 
 	// Write the script to file
 	err := os.WriteFile(scriptPath, []byte(scriptContent.String()), 0755)

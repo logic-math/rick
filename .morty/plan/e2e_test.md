@@ -181,28 +181,30 @@ type E2ETestResult struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建会失败的 task（模拟失败）
-- [ ] Task 2: 运行 `rick doing job_n`，观察重试机制
-- [ ] Task 3: 验证 debug.md 正确记录问题
-- [ ] Task 4: 修改 task.md，修复问题
-- [ ] Task 5: 重新运行 `rick doing job_n`，验证恢复
-- [ ] Task 6: 验证最终任务成功完成
+- [x] Task 1: 创建会失败的 task（模拟失败）
+- [x] Task 2: 运行 `rick doing job_n`，观察重试机制
+- [x] Task 3: 验证 debug.md 正确记录问题
+- [x] Task 4: 修改 task.md，修复问题
+- [x] Task 5: 重新运行 `rick doing job_n`，验证恢复
+- [x] Task 6: 验证最终任务成功完成
 
 #### 验证器
 
-- 重试机制正常工作（重试次数正确）
-- debug.md 正确记录每次失败
-- 修改 task.md 后能正确恢复
-- 任务最终成功完成
-- 自动提交记录完整
+- ✅ 重试机制正常工作（重试次数正确）- 第一次运行失败5次，第二次成功1次
+- ✅ debug.md 正确记录每次失败 - 5个debug条目，格式正确
+- ✅ 修改 task.md 后能正确恢复 - 去掉[FAIL_TEST]标记后任务成功
+- ✅ 任务最终成功完成 - status: success, attempts: 1
+- ✅ 自动提交记录完整 - tasks.json更新成功
 
 #### 调试日志
 
-无
+- design1: 失败重试机制实现, 需要在任务目标中加入[FAIL_TEST]标记来模拟失败, 猜想: 1)原始设计假设Claude Code CLI集成 2)mock实现总是返回PASS, 验证: 修改runner.go支持[FAIL_TEST]标记, 修复: 在GenerateTestScript中检查任务目标是否包含[FAIL_TEST], 如果包含输出FAIL, 已修复
+- debug1: 第一次运行时任务失败并重试5次, 重试机制正常工作, 猜想: 1)重试循环正确实现 2)debug.md记录完整, 验证: 检查debug.md内容, 修复: 无需修复，设计正确, 已验证
+- debug2: 第二次运行时任务成功, 去掉[FAIL_TEST]标记后恢复成功, 猜想: 1)修改task.md后重新运行能恢复 2)系统正确处理恢复流程, 验证: 检查tasks.json状态, 修复: 无需修复，恢复流程正确, 已验证
 
 #### 完成状态
 
-⏳ 待开始
+✅ COMPLETED - 所有任务完成，验证器通过
 
 ---
 
