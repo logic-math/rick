@@ -101,22 +101,22 @@ type CommitInfo struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/git/commit.go，实现自动提交逻辑
-- [ ] Task 2: 实现 CommitTask(taskID, taskName) 函数
-- [ ] Task 3: 实现提交消息格式：feat(task_id): 任务名称
-- [ ] Task 4: 实现 CommitJob(jobID) 函数，提交整个 job
-- [ ] Task 5: 实现 CommitDebug(jobID, debugInfo) 函数，提交问题记录
-- [ ] Task 6: 实现自动检测修改的文件
-- [ ] Task 7: 编写单元测试，覆盖自动提交流程
+- [x] Task 1: 创建 internal/git/commit.go，实现自动提交逻辑
+- [x] Task 2: 实现 CommitTask(taskID, taskName) 函数
+- [x] Task 3: 实现提交消息格式：feat(task_id): 任务名称
+- [x] Task 4: 实现 CommitJob(jobID) 函数，提交整个 job
+- [x] Task 5: 实现 CommitDebug(jobID, debugInfo) 函数，提交问题记录
+- [x] Task 6: 实现自动检测修改的文件
+- [x] Task 7: 编写单元测试，覆盖自动提交流程
 
 #### 验证器
 
-- CommitTask() 能正确提交任务
-- 提交消息格式正确
-- CommitJob() 能正确提交 job
-- CommitDebug() 能正确提交问题记录
-- 自动检测修改文件正确
-- 单元测试覆盖率 >= 80%
+- ✅ CommitTask() 能正确提交任务 - PASS
+- ✅ 提交消息格式正确 - PASS (feat(task_id): task_name)
+- ✅ CommitJob() 能正确提交 job - PASS
+- ✅ CommitDebug() 能正确提交问题记录 - PASS
+- ✅ 自动检测修改文件正确 - PASS (GetModifiedFiles, GetStagedFiles, GetUntrackedFiles)
+- ✅ 单元测试覆盖率 >= 80% - PASS (83.3% coverage)
 
 #### 调试日志
 
@@ -124,7 +124,7 @@ type CommitInfo struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 01:05)
 
 ---
 
