@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:29:28.874188+08:00",
+    "last_update": "2026-03-14T02:35:49.838101+08:00",
     "current_module_index": 4,
-    "current_job_index": 31,
+    "current_job_index": 32,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1839,7 +1839,7 @@
           "index": 7,
           "global_index": 32,
           "name": "集成测试",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1",
@@ -1851,53 +1851,53 @@
             "job_7"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证所有模板都能正确加载",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.827755+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证提示词构建器能正确构建提示词",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.829212+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证上下文管理器能正确加载上下文",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.830087+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证规划、执行、测试、学习提示词都能生成",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.830911+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证提示词包含所有必要的上下文信息",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.831977+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证重试时提示词包含问题记录",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:35:49.832823+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T02:35:49.838101+08:00"
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:29:28.874188+08:00"
+      "updated_at": "2026-03-14T02:35:49.838101+08:00"
     },
     {
       "index": 5,
