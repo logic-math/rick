@@ -34,13 +34,20 @@ func NewDoingCmd() *cobra.Command {
 				return nil
 			}
 
-			// Get job ID from args or flag
+			// Get job ID from args, local flag, or global flag
 			if len(args) > 0 {
 				jobID = args[0]
+			} else if jobID == "" {
+				jobID = GetJobID()
 			}
 
 			if jobID == "" {
 				return fmt.Errorf("job ID is required. Usage: rick doing [job_id] or rick doing --job job_id")
+			}
+
+			// Validate job ID format
+			if err := validateJobID(jobID); err != nil {
+				return err
 			}
 
 			if GetVerbose() {
