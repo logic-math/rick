@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T01:07:22.951533+08:00",
+    "last_update": "2026-03-14T01:12:27.755265+08:00",
     "current_module_index": 2,
     "current_job_index": 12,
     "total_modules": 9,
@@ -717,55 +717,55 @@
           "index": 0,
           "global_index": 12,
           "name": "Markdown 基础解析器",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "infrastructure:job_1"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/parser/markdown.go，使用 goldmark 库",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.745411+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ParseMarkdown(content) 函数，返回 AST",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.746925+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ExtractHeading(ast, level) 函数，提取指定级别的标题",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.747725+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ExtractListItems(ast) 函数，提取列表项",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.748637+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ExtractParagraph(ast) 函数，提取段落文本",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.749545+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ExtractCodeBlock(ast) 函数，提取代码块",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:12:27.750365+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T01:07:22.951533+08:00"
+          "updated_at": "2026-03-14T01:12:27.755265+08:00"
         },
         {
           "index": 1,
@@ -1045,7 +1045,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T01:07:22.951533+08:00"
+      "updated_at": "2026-03-14T01:12:27.755265+08:00"
     },
     {
       "index": 3,
