@@ -62,22 +62,22 @@ type CommitInfo struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/git/git.go，实现 Git 操作接口
-- [ ] Task 2: 实现 InitRepo(path) 函数，初始化 Git 仓库
-- [ ] Task 3: 实现 AddFiles(paths) 方法，添加文件到暂存区
-- [ ] Task 4: 实现 Commit(message) 方法，提交变更
-- [ ] Task 5: 实现 GetLog(limit) 方法，获取提交历史
-- [ ] Task 6: 实现 GetCurrentBranch() 方法，获取当前分支
-- [ ] Task 7: 编写单元测试，覆盖 Git 基础操作
+- [x] Task 1: 创建 internal/git/git.go，实现 Git 操作接口
+- [x] Task 2: 实现 InitRepo(path) 函数，初始化 Git 仓库
+- [x] Task 3: 实现 AddFiles(paths) 方法，添加文件到暂存区
+- [x] Task 4: 实现 Commit(message) 方法，提交变更
+- [x] Task 5: 实现 GetLog(limit) 方法，获取提交历史
+- [x] Task 6: 实现 GetCurrentBranch() 方法，获取当前分支
+- [x] Task 7: 编写单元测试，覆盖 Git 基础操作
 
 #### 验证器
 
-- InitRepo() 能正确初始化 Git 仓库
-- AddFiles() 能正确添加文件
-- Commit() 能正确提交变更
-- GetLog() 能正确获取提交历史
-- GetCurrentBranch() 返回正确的分支名
-- 单元测试覆盖率 >= 80%
+- ✅ InitRepo() 能正确初始化 Git 仓库 - PASS
+- ✅ AddFiles() 能正确添加文件 - PASS
+- ✅ Commit() 能正确提交变更 - PASS
+- ✅ GetLog() 能正确获取提交历史 - PASS
+- ✅ GetCurrentBranch() 返回正确的分支名 - PASS
+- ✅ 单元测试覆盖率 >= 80% - PASS (86.8% coverage)
 
 #### 调试日志
 
@@ -85,7 +85,7 @@ type CommitInfo struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 00:50)
 
 ---
 
