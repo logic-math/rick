@@ -114,23 +114,23 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/builder.go，实现 PromptBuilder 类型
-- [ ] Task 2: 实现 NewPromptBuilder(template) 函数
-- [ ] Task 3: 实现 SetVariable(key, value) 方法，设置模板变量
-- [ ] Task 4: 实现 SetContext(key, value) 方法，设置上下文
-- [ ] Task 5: 实现 Build() 方法，构建最终提示词
-- [ ] Task 6: 实现变量替换逻辑（{{variable}} 格式）
-- [ ] Task 7: 实现上下文注入逻辑
-- [ ] Task 8: 编写单元测试，覆盖提示词构建流程
+- [x] Task 1: 创建 internal/prompt/builder.go，实现 PromptBuilder 类型
+- [x] Task 2: 实现 NewPromptBuilder(template) 函数
+- [x] Task 3: 实现 SetVariable(key, value) 方法，设置模板变量
+- [x] Task 4: 实现 SetContext(key, value) 方法，设置上下文
+- [x] Task 5: 实现 Build() 方法，构建最终提示词
+- [x] Task 6: 实现变量替换逻辑（{{variable}} 格式）
+- [x] Task 7: 实现上下文注入逻辑
+- [x] Task 8: 编写单元测试，覆盖提示词构建流程
 
 #### 验证器
 
-- NewPromptBuilder() 能正确创建构建器实例
-- SetVariable() 和 SetContext() 能正确设置值
-- Build() 返回格式正确的提示词
-- 变量替换正确（所有 {{variable}} 被替换）
-- 上下文信息正确注入
-- 单元测试覆盖率 >= 80%
+- ✅ NewPromptBuilder() 能正确创建构建器实例
+- ✅ SetVariable() 和 SetContext() 能正确设置值
+- ✅ Build() 返回格式正确的提示词
+- ✅ 变量替换正确（所有 {{variable}} 被替换）
+- ✅ 上下文信息正确注入
+- ✅ 单元测试覆盖率 100%（超过 80% 要求）
 
 #### 调试日志
 
@@ -138,7 +138,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 

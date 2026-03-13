@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:04:23.774245+08:00",
+    "last_update": "2026-03-14T02:08:37.417605+08:00",
     "current_module_index": 4,
-    "current_job_index": 25,
+    "current_job_index": 26,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1520,61 +1520,61 @@
           "index": 1,
           "global_index": 26,
           "name": "提示词构建器",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 7,
-          "tasks_completed": 0,
+          "tasks_completed": 7,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/prompt/builder.go，实现 PromptBuilder 类型",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.407951+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 NewPromptBuilder(template) 函数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.409598+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 SetVariable(key, value) 方法，设置模板变量",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.410431+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 SetContext(key, value) 方法，设置上下文",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.411228+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 Build() 方法，构建最终提示词",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.412335+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现变量替换逻辑（{{variable}} 格式）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.413143+08:00"
             },
             {
               "index": 7,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现上下文注入逻辑",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:08:37.413847+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T02:08:37.417605+08:00"
         },
         {
           "index": 2,
@@ -1897,7 +1897,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:04:23.774245+08:00"
+      "updated_at": "2026-03-14T02:08:37.417605+08:00"
     },
     {
       "index": 5,
