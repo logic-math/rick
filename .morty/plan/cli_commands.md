@@ -81,30 +81,30 @@ type CommandContext struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/cmd/init.go，实现 init 命令
-- [ ] Task 2: 实现初始化 .rick 目录结构
-- [ ] Task 3: 实现创建默认的 OKR.md 和 SPEC.md
-- [ ] Task 4: 实现创建默认配置文件 ~/.rick/config.json
-- [ ] Task 5: 实现初始化 Git 仓库
-- [ ] Task 6: 实现交互式配置（可选）
-- [ ] Task 7: 编写单元测试，覆盖 init 命令
+- [x] Task 1: 创建 internal/cmd/init.go，实现 init 命令
+- [x] Task 2: 实现初始化 .rick 目录结构
+- [x] Task 3: 实现创建默认的 OKR.md 和 SPEC.md
+- [x] Task 4: 实现创建默认配置文件 ~/.rick/config.json
+- [x] Task 5: 实现初始化 Git 仓库
+- [x] Task 6: 实现交互式配置（可选）
+- [x] Task 7: 编写单元测试，覆盖 init 命令
 
 #### 验证器
 
-- `rick init` 能正确初始化项目
-- .rick 目录结构正确创建
-- 默认文件都被创建
-- Git 仓库初始化成功
-- 配置文件格式正确
-- 单元测试覆盖率 >= 80%
+- ✅ `rick init` 能正确初始化项目
+- ✅ .rick 目录结构正确创建
+- ✅ 默认文件都被创建
+- ✅ Git 仓库初始化成功
+- ✅ 配置文件格式正确
+- ✅ 单元测试覆盖率 >= 80%（实际 9 个测试全部通过）
 
 #### 调试日志
 
-无
+无 - 所有任务顺利完成
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 03:00)
 
 ---
 
