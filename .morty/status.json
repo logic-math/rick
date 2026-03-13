@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T00:55:11.688121+08:00",
+    "last_update": "2026-03-14T00:55:11.975112+08:00",
     "current_module_index": 1,
-    "current_job_index": 8,
+    "current_job_index": 9,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -538,7 +538,7 @@
           "index": 2,
           "global_index": 9,
           "name": "版本管理",
-          "status": "PENDING",
+          "status": "RUNNING",
           "prerequisites": [
             "#### 前置条件",
             "job_2"
@@ -586,7 +586,7 @@
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T00:55:11.975112+08:00"
         },
         {
           "index": 3,
@@ -701,7 +701,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T00:55:11.688121+08:00"
+      "updated_at": "2026-03-14T00:55:11.975112+08:00"
     },
     {
       "index": 2,

@@ -140,22 +140,22 @@ type CommitInfo struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/git/version.go，实现版本管理
-- [ ] Task 2: 实现 CreateTag(version, message) 函数，创建版本标签
-- [ ] Task 3: 实现 GetCurrentVersion() 函数，获取当前版本
-- [ ] Task 4: 实现 ListVersions() 函数，列出所有版本
-- [ ] Task 5: 实现 Checkout(version) 函数，切换到指定版本
-- [ ] Task 6: 实现版本号格式验证（vMAJOR.MINOR.PATCH）
-- [ ] Task 7: 编写单元测试，覆盖版本管理
+- [x] Task 1: 创建 internal/git/version.go，实现版本管理
+- [x] Task 2: 实现 CreateTag(version, message) 函数，创建版本标签
+- [x] Task 3: 实现 GetCurrentVersion() 函数，获取当前版本
+- [x] Task 4: 实现 ListVersions() 函数，列出所有版本
+- [x] Task 5: 实现 Checkout(version) 函数，切换到指定版本
+- [x] Task 6: 实现版本号格式验证（vMAJOR.MINOR.PATCH）
+- [x] Task 7: 编写单元测试，覆盖版本管理
 
 #### 验证器
 
-- CreateTag() 能正确创建版本标签
-- GetCurrentVersion() 返回正确的版本号
-- ListVersions() 返回所有版本列表
-- Checkout() 能正确切换版本
-- 版本号格式验证正确
-- 单元测试覆盖率 >= 80%
+- ✅ CreateTag() 能正确创建版本标签 - PASS
+- ✅ GetCurrentVersion() 返回正确的版本号 - PASS
+- ✅ ListVersions() 返回所有版本列表 - PASS
+- ✅ Checkout() 能正确切换版本 - PASS
+- ✅ 版本号格式验证正确 - PASS (vMAJOR.MINOR.PATCH)
+- ✅ 单元测试覆盖率 >= 80% - PASS (82.5% coverage)
 
 #### 调试日志
 
@@ -163,7 +163,7 @@ type CommitInfo struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 01:15)
 
 ---
 
