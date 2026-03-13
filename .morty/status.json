@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T00:52:31.744692+08:00",
+    "last_update": "2026-03-14T00:55:11.688121+08:00",
     "current_module_index": 1,
     "current_job_index": 8,
     "total_modules": 9,
@@ -484,55 +484,55 @@
           "index": 1,
           "global_index": 8,
           "name": "自动提交系统",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/git/commit.go，实现自动提交逻辑",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.678979+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 CommitTask(taskID, taskName) 函数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.681002+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现提交消息格式：feat(task_id): 任务名称",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.681901+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 CommitJob(jobID) 函数，提交整个 job",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.682815+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 CommitDebug(jobID, debugInfo) 函数，提交问题记录",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.683679+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现自动检测修改的文件",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T00:55:11.684833+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:52:31.744692+08:00"
+          "updated_at": "2026-03-14T00:55:11.688121+08:00"
         },
         {
           "index": 2,
@@ -701,7 +701,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T00:52:31.744692+08:00"
+      "updated_at": "2026-03-14T00:55:11.688121+08:00"
     },
     {
       "index": 2,
