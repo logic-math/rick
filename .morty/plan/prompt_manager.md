@@ -154,23 +154,26 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/context.go，实现 ContextManager 类型
-- [ ] Task 2: 实现 NewContextManager(jobID) 函数
-- [ ] Task 3: 实现 LoadTask(task) 方法，加载任务信息
-- [ ] Task 4: 实现 LoadDebug(debugInfo) 方法，加载问题记录
-- [ ] Task 5: 实现 LoadOKR(okrContent) 方法，加载 OKR
-- [ ] Task 6: 实现 LoadSPEC(specContent) 方法，加载 SPEC
-- [ ] Task 7: 实现 LoadHistory(jobID) 方法，加载执行历史
-- [ ] Task 8: 编写单元测试，覆盖上下文加载
+- [x] Task 1: 创建 internal/prompt/context.go，实现 ContextManager 类型
+- [x] Task 2: 实现 NewContextManager(jobID) 函数
+- [x] Task 3: 实现 LoadTask(task) 方法，加载任务信息
+- [x] Task 4: 实现 LoadDebugFromContent/LoadDebugFromFile 方法，加载问题记录
+- [x] Task 5: 实现 LoadOKRFromContent/LoadOKRFromFile 方法，加载 OKR
+- [x] Task 6: 实现 LoadSPECFromContent/LoadSPECFromFile 方法，加载 SPEC
+- [x] Task 7: 实现 LoadHistory 方法，加载执行历史
+- [x] Task 8: 编写单元测试，覆盖上下文加载
 
 #### 验证器
 
-- NewContextManager() 能正确创建实例
-- LoadTask() 能正确加载任务信息
-- LoadDebug() 能正确加载问题记录
-- LoadOKR() 和 LoadSPEC() 能正确加载文件
-- LoadHistory() 能正确加载执行历史
-- 单元测试覆盖率 >= 80%
+- ✅ NewContextManager() 能正确创建实例
+- ✅ LoadTask() 能正确加载任务信息
+- ✅ LoadDebugFromContent/LoadDebugFromFile 能正确加载问题记录
+- ✅ LoadOKRFromContent/LoadOKRFromFile 和 LoadSPECFromContent/LoadSPECFromFile 能正确加载文件
+- ✅ LoadHistory 能正确加载执行历史
+- ✅ 单元测试覆盖率 97%（超过 80% 要求）
+- ✅ 所有 19 个上下文管理器测试通过
+- ✅ 线程安全验证通过
+- ✅ 编译成功
 
 #### 调试日志
 
@@ -178,7 +181,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
