@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T01:18:32.999374+08:00",
+    "last_update": "2026-03-14T01:23:12.826725+08:00",
     "current_module_index": 2,
     "current_job_index": 14,
     "total_modules": 9,
@@ -831,55 +831,55 @@
           "index": 2,
           "global_index": 14,
           "name": "Debug.md 处理器",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/parser/debug.go，实现 DebugInfo 结构体",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.816178+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 ParseDebug(content) 函数，解析 debug.md 内容",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.818844+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 AppendDebug(content, entry) 函数，追加新的 debug 记录",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.819877+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 GetDebugCount(content) 函数，获取当前 debug 记录数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.820884+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 GenerateDebugEntry(id, phenomenon, reproduce, hypothesis, verify, fix, progress) 函数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.822092+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "支持自动编号（debug1, debug2, ...）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:23:12.823017+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T01:18:32.999374+08:00"
+          "updated_at": "2026-03-14T01:23:12.826725+08:00"
         },
         {
           "index": 3,
@@ -1045,7 +1045,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T01:18:32.999374+08:00"
+      "updated_at": "2026-03-14T01:23:12.826725+08:00"
     },
     {
       "index": 3,
