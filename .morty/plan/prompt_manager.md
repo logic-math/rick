@@ -237,22 +237,24 @@ type ContextManager struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/prompt/doing_prompt.go，实现执行提示词生成
-- [ ] Task 2: 实现 GenerateDoingPrompt(task, retryCount) 函数
-- [ ] Task 3: 实现提示词包含任务目标和关键结果
-- [ ] Task 4: 实现提示词包含测试方法
-- [ ] Task 5: 如果是重试，加载 debug.md 作为额外上下文
-- [ ] Task 6: 实现提示词包含项目 SPEC 作为背景
-- [ ] Task 7: 编写单元测试，覆盖执行提示词生成
+- [x] Task 1: 创建 internal/prompt/doing_prompt.go，实现执行提示词生成
+- [x] Task 2: 实现 GenerateDoingPrompt(task, retryCount) 函数
+- [x] Task 3: 实现提示词包含任务目标和关键结果
+- [x] Task 4: 实现提示词包含测试方法
+- [x] Task 5: 如果是重试，加载 debug.md 作为额外上下文
+- [x] Task 6: 实现提示词包含项目 SPEC 作为背景
+- [x] Task 7: 编写单元测试，覆盖执行提示词生成
 
 #### 验证器
 
-- GenerateDoingPrompt() 返回格式正确的提示词
-- 提示词包含完整的任务信息
-- 提示词包含测试方法
-- 重试时包含问题记录上下文
-- 提示词清晰明确
-- 单元测试覆盖率 >= 80%
+- ✅ GenerateDoingPrompt() 返回格式正确的提示词
+- ✅ 提示词包含完整的任务信息
+- ✅ 提示词包含测试方法
+- ✅ 重试时包含问题记录上下文
+- ✅ 提示词清晰明确
+- ✅ 单元测试覆盖率 96.9%（超过 80% 要求）
+- ✅ 所有 9 个执行提示词生成测试通过
+- ✅ 编译成功
 
 #### 调试日志
 
@@ -260,7 +262,7 @@ type ContextManager struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
