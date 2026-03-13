@@ -250,29 +250,30 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/check_env.sh 脚本
-- [ ] Task 2: 实现 Go 版本检查（>= 1.21）
-- [ ] Task 3: 实现 Claude Code CLI 检查
-- [ ] Task 4: 实现 Git 检查
-- [ ] Task 5: 实现 PATH 环境变量检查
-- [ ] Task 6: 实现详细的检查报告
-- [ ] Task 7: 编写测试脚本，验证环境检查
+- [x] Task 1: 创建 scripts/check_env.sh 脚本
+- [x] Task 2: 实现 Go 版本检查（>= 1.21）
+- [x] Task 3: 实现 Claude Code CLI 检查
+- [x] Task 4: 实现 Git 检查
+- [x] Task 5: 实现 PATH 环境变量检查
+- [x] Task 6: 实现详细的检查报告
+- [x] Task 7: 编写测试脚本，验证环境检查
 
 #### 验证器
 
-- 环境检查能正确检测 Go 版本
-- 环境检查能正确检测 Claude Code CLI
-- 环境检查能正确检测 Git
-- 检查报告清晰详细
-- 测试脚本通过
+- ✅ 环境检查能正确检测 Go 版本
+- ✅ 环境检查能正确检测 Claude Code CLI
+- ✅ 环境检查能正确检测 Git
+- ✅ 检查报告清晰详细（支持文本和 JSON 两种格式）
+- ✅ 测试脚本通过（17/17 tests passed）
 
 #### 调试日志
 
-无
+- explore1: [探索发现] 使用 bash 可移植特性（避免 declare -A），使用 grep 代替 [[ ]] 语法，已确认
+- debug1: 初始版本使用 bash 特定特性导致兼容性问题, 解决: 改用 POSIX 兼容的 shell 语法, 已修复
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
