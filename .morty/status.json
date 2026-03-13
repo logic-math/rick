@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:01:17.387779+08:00",
+    "last_update": "2026-03-14T02:04:23.774245+08:00",
     "current_module_index": 4,
     "current_job_index": 25,
     "total_modules": 9,
@@ -1454,67 +1454,67 @@
           "index": 0,
           "global_index": 25,
           "name": "提示词模板管理器",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "infrastructure:job_3"
           ],
           "tasks_total": 8,
-          "tasks_completed": 0,
+          "tasks_completed": 8,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/prompt/manager.go，实现 PromptManager 类型",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.762169+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建提示词模板目录 internal/prompt/templates/",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.763657+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 plan.md 模板，用于规划阶段",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.764726+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 doing.md 模板，用于执行阶段",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.766187+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 test.md 模板，用于测试脚本生成",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.767506+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 learning.md 模板，用于学习阶段",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.768463+08:00"
             },
             {
               "index": 7,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 LoadTemplate(name) 函数，加载模板文件",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.769347+08:00"
             },
             {
               "index": 8,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现模板缓存机制，避免重复加载",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:04:23.770168+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T02:01:17.387779+08:00"
+          "updated_at": "2026-03-14T02:04:23.774245+08:00"
         },
         {
           "index": 1,
@@ -1897,7 +1897,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:01:17.387779+08:00"
+      "updated_at": "2026-03-14T02:04:23.774245+08:00"
     },
     {
       "index": 5,
