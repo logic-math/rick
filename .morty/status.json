@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:40:19.509312+08:00",
+    "last_update": "2026-03-14T02:48:28.711626+08:00",
     "current_module_index": 5,
     "current_job_index": 34,
     "total_modules": 9,
@@ -1971,61 +1971,61 @@
           "index": 1,
           "global_index": 34,
           "name": "plan 命令实现",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1"
           ],
           "tasks_total": 7,
-          "tasks_completed": 0,
+          "tasks_completed": 7,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/cmd/plan.go，实现 plan 命令",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.703826+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现接收用户需求描述（命令行参数或交互式）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.704867+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现生成规划提示词（调用 prompt_manager）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.705579+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现调用 Claude Code CLI 进行规划",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.706293+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现解析 Claude 输出并生成 task*.md 文件",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.707074+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现生成 tasks.json（DAG 拓扑排序）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.707788+08:00"
             },
             {
               "index": 7,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现自动提交规划结果",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:48:28.708677+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T02:40:19.509312+08:00"
+          "updated_at": "2026-03-14T02:48:28.711626+08:00"
         },
         {
           "index": 2,
@@ -2304,7 +2304,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:40:19.509312+08:00"
+      "updated_at": "2026-03-14T02:48:28.711626+08:00"
     },
     {
       "index": 6,
