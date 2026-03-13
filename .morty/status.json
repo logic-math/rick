@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:58:15.05914+08:00",
+    "last_update": "2026-03-14T03:03:41.621297+08:00",
     "current_module_index": 5,
     "current_job_index": 37,
     "total_modules": 9,
@@ -2145,55 +2145,55 @@
           "index": 4,
           "global_index": 37,
           "name": "命令行参数解析",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "infrastructure:job_2"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 --version 标志",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.611053+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 --help 标志",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.612825+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 --verbose 标志（详细输出）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.613681+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 --job 标志（指定 job）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.614545+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 --dry-run 标志（试运行）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.615563+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现参数验证和错误提示",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:03:41.616503+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T02:58:15.05914+08:00"
+          "updated_at": "2026-03-14T03:03:41.621297+08:00"
         },
         {
           "index": 5,
@@ -2304,7 +2304,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:58:15.05914+08:00"
+      "updated_at": "2026-03-14T03:03:41.621297+08:00"
     },
     {
       "index": 6,
