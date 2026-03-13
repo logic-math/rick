@@ -159,15 +159,15 @@ EOF
     # Generate new entry
     local new_entry="$(generate_changelog_entry "$version")"
 
-    # Insert after the header
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        sed -i '' "/^# Changelog/a\\
-$new_entry" "$CHANGELOG_FILE"
-    else
-        # Linux
-        sed -i "/^# Changelog/a\\$new_entry" "$CHANGELOG_FILE"
-    fi
+    # Create temporary file with new entry
+    local tmp_file="$(mktemp)"
+    {
+        head -n 6 "$CHANGELOG_FILE"
+        echo ""
+        echo "$new_entry"
+        tail -n +7 "$CHANGELOG_FILE"
+    } > "$tmp_file"
+    mv "$tmp_file" "$CHANGELOG_FILE"
 
     print_success "Changelog entry generated for version $version"
     return 0
