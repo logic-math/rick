@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:10:44.638027+08:00",
+    "last_update": "2026-03-14T03:16:40.898764+08:00",
     "current_module_index": 5,
-    "current_job_index": 38,
+    "current_job_index": 39,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -2247,7 +2247,7 @@
           "index": 6,
           "global_index": 39,
           "name": "集成测试",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1",
@@ -2258,53 +2258,53 @@
             "job_6"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick init` 能正确初始化项目",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.888333+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick plan` 能正确规划任务",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.889734+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick doing` 能正确执行任务",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.890795+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 `rick learning` 能正确进行学习",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.891863+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证完整的工作流（init → plan → doing → learning）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.893191+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证错误处理和用户反馈正常工作",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:16:40.894495+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T03:16:40.898764+08:00"
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:10:44.638027+08:00"
+      "updated_at": "2026-03-14T03:16:40.898764+08:00"
     },
     {
       "index": 6,
