@@ -113,31 +113,31 @@ type DebugEntry struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/parser/task.go，实现 Task 结构体
-- [ ] Task 2: 实现 ParseTask(content) 函数，解析 task.md 内容
-- [ ] Task 3: 实现 ParseDependencies(content) 函数，从"# 依赖关系"提取依赖列表
-- [ ] Task 4: 实现 ParseTaskName(content) 函数，从"# 任务名称"提取名称
-- [ ] Task 5: 实现 ParseGoal(content) 函数，从"# 任务目标"提取目标
-- [ ] Task 6: 实现 ParseKeyResults(content) 函数，从"# 关键结果"提取列表
-- [ ] Task 7: 实现 ParseTestMethod(content) 函数，从"# 测试方法"提取测试方法
-- [ ] Task 8: 编写单元测试，使用真实的 task.md 示例
+- [x] Task 1: 创建 internal/parser/task.go，实现 Task 结构体
+- [x] Task 2: 实现 ParseTask(content) 函数，解析 task.md 内容
+- [x] Task 3: 实现 ParseDependencies(content) 函数，从"# 依赖关系"提取依赖列表
+- [x] Task 4: 实现 ParseTaskName(content) 函数，从"# 任务名称"提取名称
+- [x] Task 5: 实现 ParseGoal(content) 函数，从"# 任务目标"提取目标
+- [x] Task 6: 实现 ParseKeyResults(content) 函数，从"# 关键结果"提取列表
+- [x] Task 7: 实现 ParseTestMethod(content) 函数，从"# 测试方法"提取测试方法
+- [x] Task 8: 编写单元测试，使用真实的 task.md 示例
 
 #### 验证器
 
-- ParseTask() 能正确解析完整的 task.md 文件
-- 依赖关系解析正确（支持逗号分隔）
-- 任务名称、目标、测试方法都能正确提取
-- 关键结果列表能正确提取
-- 缺少某些字段时能给出清晰的错误提示
-- 单元测试覆盖率 >= 80%
+- ✅ ParseTask() 能正确解析完整的 task.md 文件
+- ✅ 依赖关系解析正确（支持逗号分隔）
+- ✅ 任务名称、目标、测试方法都能正确提取
+- ✅ 关键结果列表能正确提取
+- ✅ 缺少某些字段时能给出清晰的错误提示
+- ✅ 单元测试覆盖率 >= 80% (实际: 81.2%)
 
 #### 调试日志
 
-无
+- debug1: 初始使用 goldmark AST 提取列表失败, 列表项无法被正确识别, 猜想: 1)goldmark 需要完整文档上下文 2)列表解析依赖于特定格式, 验证: 测试单独列表内容, 修复: 改为直接解析行内容，支持 "- " 和 "* " 和 "1." 格式, 已修复
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 01:15)
 
 ---
 
