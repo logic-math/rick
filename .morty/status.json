@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T04:06:03.12682+08:00",
+    "last_update": "2026-03-14T04:12:26.839638+08:00",
     "current_module_index": 8,
     "current_job_index": 51,
     "total_modules": 9,
@@ -2963,49 +2963,49 @@
           "index": 4,
           "global_index": 51,
           "name": "性能和稳定性测试",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_4"
           ],
           "tasks_total": 5,
-          "tasks_completed": 0,
+          "tasks_completed": 5,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建包含 20+ 个任务的 job",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:12:26.828376+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick doing job_n`，测量执行时间",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:12:26.830289+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证内存使用在合理范围内",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:12:26.832954+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证磁盘 I/O 在合理范围内",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:12:26.833889+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行多次完整工作流，验证稳定性",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:12:26.834809+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T04:06:03.12682+08:00"
+          "updated_at": "2026-03-14T04:12:26.839638+08:00"
         },
         {
           "index": 5,
@@ -3177,7 +3177,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T04:06:03.12682+08:00"
+      "updated_at": "2026-03-14T04:12:26.839638+08:00"
     }
   ]
 }
