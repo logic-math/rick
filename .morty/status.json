@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T02:25:42.924586+08:00",
+    "last_update": "2026-03-14T02:29:28.874188+08:00",
     "current_module_index": 4,
-    "current_job_index": 30,
+    "current_job_index": 31,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1791,49 +1791,49 @@
           "index": 6,
           "global_index": 31,
           "name": "学习阶段提示词生成",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_6"
           ],
           "tasks_total": 5,
-          "tasks_completed": 0,
+          "tasks_completed": 5,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/prompt/learning_prompt.go，实现学习提示词生成",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:29:28.864045+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 GenerateLearningPrompt(jobID) 函数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:29:28.865483+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现提示词包含所有任务的执行结果",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:29:28.867443+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现提示词包含 debug.md 中的问题记录",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:29:28.868369+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现提示词包含 git 历史提交",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T02:29:28.869243+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T02:29:28.874188+08:00"
         },
         {
           "index": 7,
@@ -1897,7 +1897,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T02:25:42.924586+08:00"
+      "updated_at": "2026-03-14T02:29:28.874188+08:00"
     },
     {
       "index": 5,
