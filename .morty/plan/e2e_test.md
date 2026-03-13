@@ -99,9 +99,9 @@ type E2ETestResult struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建测试项目目录
-- [ ] Task 2: 运行 `rick init` 初始化项目
-- [ ] Task 3: 验证 .rick 目录结构正确创建
+- [x] Task 1: 创建测试项目目录
+- [x] Task 2: 运行 `rick init` 初始化项目
+- [x] Task 3: 验证 .rick 目录结构正确创建
 - [ ] Task 4: 运行 `rick plan "测试需求"` 规划任务
 - [ ] Task 5: 验证 task.md 和 tasks.json 生成正确
 - [ ] Task 6: 运行 `rick doing job_1` 执行任务
@@ -121,11 +121,12 @@ type E2ETestResult struct {
 
 #### 调试日志
 
-无
+- debug1: rick plan 命令失败, 执行 `rick plan "测试"` 时报错 "open plan.md: no such file or directory", 猜想: 1)模板文件未被安装到 ~/.rick/templates 2)安装脚本未复制 templates 目录, 验证: 检查 install.sh 是否需要复制 templates, 修复: 在 install.sh 中添加复制 internal/prompt/templates 到 ~/.rick/templates 的逻辑, 已修复
+- debug2: 修复 templates 后, 执行 `rick plan` 报错 "Claude Code cannot be launched inside another Claude Code session", 猜想: 1)无法在 Claude Code 内嵌套调用 Claude CLI 2)Rick 的设计假设可以调用 `claude` CLI, 验证: unset CLAUDECODE 环境变量后, 继续报错 "no tasks found in Claude output", 修复: Rick 的实现有设计缺陷 - 假设可以调用 `claude` 作为 CLI 工具但 Claude Code 不支持这种用法, 待重新设计
 
 #### 完成状态
 
-⏳ 待开始
+🔴 BLOCKED - 设计缺陷：Rick 的 `plan` 命令实现假设可以调用 `claude` CLI 工具，但 Claude Code 不支持这种用法
 
 ---
 
