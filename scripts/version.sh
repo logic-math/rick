@@ -12,8 +12,6 @@
 #   ./scripts/version.sh -h, --help       # Show this help message
 #
 
-set -e
-
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -248,6 +246,9 @@ main() {
             fi
             if validate_version "$2"; then
                 print_success "Version format is valid: $2"
+                return 0
+            else
+                return 1
             fi
             ;;
         tag)
