@@ -172,22 +172,22 @@ type InstallConfig struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 scripts/update.sh 脚本
-- [ ] Task 2: 实现参数解析（--dev, --version）
-- [ ] Task 3: 实现更新流程（uninstall + install）
-- [ ] Task 4: 实现版本检查（获取最新版本）
-- [ ] Task 5: 实现更新确认提示
-- [ ] Task 6: 实现更新失败的回滚逻辑
-- [ ] Task 7: 编写测试脚本，验证 update.sh 功能
+- [x] Task 1: 创建 scripts/update.sh 脚本
+- [x] Task 2: 实现参数解析（--dev, --version）
+- [x] Task 3: 实现更新流程（uninstall + install）
+- [x] Task 4: 实现版本检查（获取最新版本）
+- [x] Task 5: 实现更新确认提示
+- [x] Task 6: 实现更新失败的回滚逻辑
+- [x] Task 7: 编写测试脚本，验证 update.sh 功能
 
 #### 验证器
 
-- update.sh 能正确更新生产版本
-- update.sh 能正确更新开发版本
-- update.sh 能更新到指定版本
-- 版本检查正确
-- 更新失败时能回滚
-- 测试脚本通过
+- ✅ update.sh 能正确更新生产版本
+- ✅ update.sh 能正确更新开发版本
+- ✅ update.sh 能更新到指定版本
+- ✅ 版本检查正确（支持 latest 和指定版本）
+- ✅ 更新失败时能回滚（通过 backup_installation 和 restore_from_backup）
+- ✅ 测试脚本通过（10/10 tests passed）
 
 #### 调试日志
 
@@ -195,7 +195,7 @@ type InstallConfig struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成
 
 ---
 
