@@ -1,0 +1,3183 @@
+{
+  "version": "2.0",
+  "global": {
+    "status": "RUNNING",
+    "start_time": "2026-03-14T00:29:13.075341+08:00",
+    "last_update": "2026-03-14T00:50:17.286911+08:00",
+    "current_module_index": 0,
+    "current_job_index": 6,
+    "total_modules": 9,
+    "total_jobs": 55
+  },
+  "modules": [
+    {
+      "index": 0,
+      "name": "infrastructure",
+      "display_name": "infrastructure",
+      "plan_file": "infrastructure.md",
+      "status": "PENDING",
+      "dependencies": [],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 0,
+          "name": "Go 项目初始化",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件"
+          ],
+          "tasks_total": 4,
+          "tasks_completed": 4,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 go.mod 文件（module: github.com/sunquan/rick）",
+              "updated_at": "2026-03-14T00:32:55.720844+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "初始化 go.sum 并添加 cobra 依赖",
+              "updated_at": "2026-03-14T00:32:55.723234+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "添加 goldmark 依赖（Markdown 解析）",
+              "updated_at": "2026-03-14T00:32:55.724169+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "添加 go-git 依赖（Git 操作）",
+              "updated_at": "2026-03-14T00:32:55.725066+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:32:55.729077+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 1,
+          "name": "Cobra CLI 框架搭建",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 9,
+          "tasks_completed": 9,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 cmd/rick/main.go，实现根 cobra.Command",
+              "updated_at": "2026-03-14T00:36:15.126524+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "创建 internal/cmd/root.go，实现全局标志（--verbose, --dry-run）",
+              "updated_at": "2026-03-14T00:36:15.128205+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "创建 internal/cmd/init.go，实现 init 命令（使用 cobra.Command）",
+              "updated_at": "2026-03-14T00:36:15.128973+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "创建 internal/cmd/plan.go，实现 plan 命令（支持 --job 标志）",
+              "updated_at": "2026-03-14T00:36:15.129716+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "创建 internal/cmd/doing.go，实现 doing 命令（支持 --job 标志）",
+              "updated_at": "2026-03-14T00:36:15.130885+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "创建 internal/cmd/learning.go，实现 learning 命令（支持 --job 标志）",
+              "updated_at": "2026-03-14T00:36:15.131851+08:00"
+            },
+            {
+              "index": 7,
+              "status": "COMPLETED",
+              "description": "实现 --version 标志（从 VERSION 常量读取）",
+              "updated_at": "2026-03-14T00:36:15.132578+08:00"
+            },
+            {
+              "index": 8,
+              "status": "COMPLETED",
+              "description": "实现 --help 支持和自动生成帮助文本",
+              "updated_at": "2026-03-14T00:36:15.133263+08:00"
+            },
+            {
+              "index": 9,
+              "status": "COMPLETED",
+              "description": "实现命令参数验证（使用 Args 和 ValidArgs）",
+              "updated_at": "2026-03-14T00:36:15.13395+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:36:15.137364+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 2,
+          "name": "工作空间管理系统",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 6,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 internal/workspace/paths.go，定义所有路径常量",
+              "updated_at": "2026-03-14T00:39:43.775504+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "创建 internal/workspace/workspace.go，实现工作空间操作接口",
+              "updated_at": "2026-03-14T00:39:43.776898+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "实现 InitWorkspace() 方法，创建 .rick 目录结构",
+              "updated_at": "2026-03-14T00:39:43.777855+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "实现 GetJobPath(jobID) 方法，返回 job 目录路径",
+              "updated_at": "2026-03-14T00:39:43.778843+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "实现 CreateJobStructure(jobID) 方法，创建 plan/doing/learning 目录",
+              "updated_at": "2026-03-14T00:39:43.779965+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "实现 EnsureDirectories() 方法，确保所有必要目录存在",
+              "updated_at": "2026-03-14T00:39:43.780888+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:39:43.784391+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 3,
+          "name": "配置系统实现",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 6,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 internal/config/config.go，定义 Config 结构体",
+              "updated_at": "2026-03-14T00:43:04.150241+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "创建 internal/config/loader.go，实现 LoadConfig() 函数",
+              "updated_at": "2026-03-14T00:43:04.151341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "实现 SaveConfig() 函数，保存配置到 ~/.rick/config.json",
+              "updated_at": "2026-03-14T00:43:04.152269+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "实现 GetDefaultConfig() 函数，返回默认配置",
+              "updated_at": "2026-03-14T00:43:04.153322+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "支持配置项：MaxRetries, ClaudeCodePath, DefaultWorkspace",
+              "updated_at": "2026-03-14T00:43:04.154399+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "实现配置验证，检查 ClaudeCodePath 是否存在",
+              "updated_at": "2026-03-14T00:43:04.155237+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:43:04.159068+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 4,
+          "name": "日志系统实现",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_4"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 6,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 internal/logging/logger.go，实现 Logger 类型",
+              "updated_at": "2026-03-14T00:44:56.04541+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "实现 Info(format, args) 方法，输出 [INFO] 前缀",
+              "updated_at": "2026-03-14T00:44:56.047292+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "实现 Warn(format, args) 方法，输出 [WARN] 前缀",
+              "updated_at": "2026-03-14T00:44:56.048283+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "实现 Error(format, args) 方法，输出 [ERROR] 前缀",
+              "updated_at": "2026-03-14T00:44:56.049228+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "实现 Debug(format, args) 方法，输出 [DEBUG] 前缀",
+              "updated_at": "2026-03-14T00:44:56.050182+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "支持日志输出到 stdout 和文件",
+              "updated_at": "2026-03-14T00:44:56.051132+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:44:56.056054+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 5,
+          "name": "错误定义系统",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 7,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "创建 pkg/errors/errors.go，定义自定义错误类型",
+              "updated_at": "2026-03-14T00:46:49.365147+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "定义错误分类：ConfigError, WorkspaceError, ParserError, ExecutorError, GitError",
+              "updated_at": "2026-03-14T00:46:49.366528+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "实现 NewConfigError(msg) 创建配置错误",
+              "updated_at": "2026-03-14T00:46:49.367884+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "实现 NewWorkspaceError(msg) 创建工作空间错误",
+              "updated_at": "2026-03-14T00:46:49.368864+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "实现 NewParserError(msg) 创建解析错误",
+              "updated_at": "2026-03-14T00:46:49.369749+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "实现 NewExecutorError(msg) 创建执行错误",
+              "updated_at": "2026-03-14T00:46:49.370666+08:00"
+            },
+            {
+              "index": 7,
+              "status": "COMPLETED",
+              "description": "实现 NewGitError(msg) 创建 Git 错误",
+              "updated_at": "2026-03-14T00:46:49.371625+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:46:49.375748+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 6,
+          "name": "集成测试",
+          "status": "COMPLETED",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 6,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "COMPLETED",
+              "description": "验证 CLI 框架可以启动且 --version 正常工作",
+              "updated_at": "2026-03-14T00:50:17.278666+08:00"
+            },
+            {
+              "index": 2,
+              "status": "COMPLETED",
+              "description": "验证工作空间初始化可以创建正确的目录结构",
+              "updated_at": "2026-03-14T00:50:17.280076+08:00"
+            },
+            {
+              "index": 3,
+              "status": "COMPLETED",
+              "description": "验证配置系统可以加载和保存配置",
+              "updated_at": "2026-03-14T00:50:17.280876+08:00"
+            },
+            {
+              "index": 4,
+              "status": "COMPLETED",
+              "description": "验证日志系统可以输出正确格式的日志",
+              "updated_at": "2026-03-14T00:50:17.281615+08:00"
+            },
+            {
+              "index": 5,
+              "status": "COMPLETED",
+              "description": "验证所有命令都可以被正确路由",
+              "updated_at": "2026-03-14T00:50:17.282357+08:00"
+            },
+            {
+              "index": 6,
+              "status": "COMPLETED",
+              "description": "验证错误处理机制正常工作",
+              "updated_at": "2026-03-14T00:50:17.283513+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:50:17.286911+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:50:17.286911+08:00"
+    },
+    {
+      "index": 1,
+      "name": "git_integration",
+      "display_name": "git_integration",
+      "plan_file": "git_integration.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 7,
+          "name": "Git 基础操作",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_1"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/git/git.go，实现 Git 操作接口",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 InitRepo(path) 函数，初始化 Git 仓库",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 AddFiles(paths) 方法，添加文件到暂存区",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 Commit(message) 方法，提交变更",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 GetLog(limit) 方法，获取提交历史",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 GetCurrentBranch() 方法，获取当前分支",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 8,
+          "name": "自动提交系统",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/git/commit.go，实现自动提交逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 CommitTask(taskID, taskName) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现提交消息格式：feat(task_id): 任务名称",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 CommitJob(jobID) 函数，提交整个 job",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 CommitDebug(jobID, debugInfo) 函数，提交问题记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现自动检测修改的文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 9,
+          "name": "版本管理",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/git/version.go，实现版本管理",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 CreateTag(version, message) 函数，创建版本标签",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 GetCurrentVersion() 函数，获取当前版本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 ListVersions() 函数，列出所有版本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 Checkout(version) 函数，切换到指定版本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现版本号格式验证（vMAJOR.MINOR.PATCH）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 10,
+          "name": "回滚和恢复",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/git/rollback.go，实现回滚逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ResetToCommit(hash) 函数，回滚到指定提交",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 ResetToVersion(version) 函数，回滚到指定版本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 GetDiff(fromCommit, toCommit) 函数，查看差异",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 GetFileHistory(filePath) 函数，获取文件历史",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现安全检查，防止误操作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 11,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证 Git 仓库初始化正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证文件添加和提交正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证自动提交系统正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证版本管理正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证回滚和恢复正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证提交历史记录正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 2,
+      "name": "parser",
+      "display_name": "parser",
+      "plan_file": "parser.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 12,
+          "name": "Markdown 基础解析器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_1"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/parser/markdown.go，使用 goldmark 库",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ParseMarkdown(content) 函数，返回 AST",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 ExtractHeading(ast, level) 函数，提取指定级别的标题",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 ExtractListItems(ast) 函数，提取列表项",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 ExtractParagraph(ast) 函数，提取段落文本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 ExtractCodeBlock(ast) 函数，提取代码块",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 13,
+          "name": "Task.md 解析器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/parser/task.go，实现 Task 结构体",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ParseTask(content) 函数，解析 task.md 内容",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 ParseDependencies(content) 函数，从\"# 依赖关系\"提取依赖列表",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 ParseTaskName(content) 函数，从\"# 任务名称\"提取名称",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 ParseGoal(content) 函数，从\"# 任务目标\"提取目标",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 ParseKeyResults(content) 函数，从\"# 关键结果\"提取列表",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现 ParseTestMethod(content) 函数，从\"# 测试方法\"提取测试方法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 14,
+          "name": "Debug.md 处理器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/parser/debug.go，实现 DebugInfo 结构体",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ParseDebug(content) 函数，解析 debug.md 内容",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 AppendDebug(content, entry) 函数，追加新的 debug 记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 GetDebugCount(content) 函数，获取当前 debug 记录数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 GenerateDebugEntry(id, phenomenon, reproduce, hypothesis, verify, fix, progress) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "支持自动编号（debug1, debug2, ...）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 15,
+          "name": "OKR.md 和 SPEC.md 解析器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/parser/context.go，实现 ContextInfo 结构体",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ParseOKR(content) 函数，解析 OKR.md 内容",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 ParseSPEC(content) 函数，解析 SPEC.md 内容",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 ExtractObjectives(content) 函数，提取目标",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 ExtractKeyResults(content) 函数，提取关键结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 ExtractSpecifications(content) 函数，提取规范",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 16,
+          "name": "多文件解析协调器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2",
+            "job_3",
+            "job_4"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/parser/coordinator.go，实现协调器",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 LoadJobContext(jobID) 函数，加载指定 job 的所有文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 ValidateConsistency(context) 函数，检查文件一致性",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 MergeTasks(tasks) 函数，合并多个 task 文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现缓存机制，避免重复解析",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 17,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建测试数据（task.md, debug.md, OKR.md, SPEC.md 示例）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 task.md 解析正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 debug.md 解析和追加正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 OKR.md 和 SPEC.md 解析正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证多文件协调加载正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证错误处理机制正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 3,
+      "name": "dag_executor",
+      "display_name": "dag_executor",
+      "plan_file": "dag_executor.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure",
+        "parser"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 18,
+          "name": "DAG 构建器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/dag.go，实现 DAG 结构体",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 NewDAG(tasks) 函数，创建 DAG 实例",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 AddTask(task) 方法，向 DAG 添加任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 AddDependency(from, to) 方法，添加依赖关系",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 ValidateDAG() 方法，验证 DAG 有效性",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现循环依赖检测逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 19,
+          "name": "拓扑排序实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/topological.go，实现拓扑排序",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 TopologicalSort(dag) 函数，使用 Kahn 算法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现入度计算逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现队列处理逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现循环依赖检测（排序结果与任务数不符）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 20,
+          "name": "Tasks.json 生成器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/tasks_json.go，实现 tasks.json 操作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 GenerateTasksJSON(dag, sortedTasks) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 LoadTasksJSON(filePath) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 SaveTasksJSON(filePath, tasks) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 UpdateTaskStatus(taskID, status) 方法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 GetTaskStatus(taskID) 方法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 21,
+          "name": "任务执行器（核心）",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/runner.go，实现任务执行器",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 RunTask(task, config) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 GenerateTestScript(task) 函数，生成测试脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 ExecuteTestScript(scriptPath) 函数，执行测试脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 ParseTestResult(output) 函数，解析测试结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现超时控制逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 22,
+          "name": "重试机制实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_4"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/retry.go，实现重试逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 RetryTask(task, config) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现重试循环逻辑（最多 MaxRetries 次）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现每次重试时加载 debug.md 作为上下文",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现失败记录到 debug.md 的逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现超过重试限制时的退出逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 23,
+          "name": "执行协调器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/executor/executor.go，实现执行协调器",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 ExecuteJob(jobID, config) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现任务串行执行逻辑（按拓扑排序顺序）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现任务状态更新和持久化",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现执行日志记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现错误处理和恢复逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 24,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建测试 job 目录和测试 task 文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 DAG 构建正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证拓扑排序正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 tasks.json 生成正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证任务执行流程正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证重试机制正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 4,
+      "name": "prompt_manager",
+      "display_name": "prompt_manager",
+      "plan_file": "prompt_manager.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure",
+        "parser"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 25,
+          "name": "提示词模板管理器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_3"
+          ],
+          "tasks_total": 8,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/manager.go，实现 PromptManager 类型",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "创建提示词模板目录 internal/prompt/templates/",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "创建 plan.md 模板，用于规划阶段",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "创建 doing.md 模板，用于执行阶段",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "创建 test.md 模板，用于测试脚本生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "创建 learning.md 模板，用于学习阶段",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现 LoadTemplate(name) 函数，加载模板文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 8,
+              "status": "PENDING",
+              "description": "实现模板缓存机制，避免重复加载",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 26,
+          "name": "提示词构建器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/builder.go，实现 PromptBuilder 类型",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 NewPromptBuilder(template) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 SetVariable(key, value) 方法，设置模板变量",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 SetContext(key, value) 方法，设置上下文",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 Build() 方法，构建最终提示词",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现变量替换逻辑（{{variable}} 格式）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现上下文注入逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 27,
+          "name": "上下文管理器",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "parser:job_5"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/context.go，实现 ContextManager 类型",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 NewContextManager(jobID) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 LoadTask(task) 方法，加载任务信息",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 LoadDebug(debugInfo) 方法，加载问题记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 LoadOKR(okrContent) 方法，加载 OKR",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现 LoadSPEC(specContent) 方法，加载 SPEC",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现 LoadHistory(jobID) 方法，加载执行历史",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 28,
+          "name": "规划阶段提示词生成",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2",
+            "job_3"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/plan_prompt.go，实现规划提示词生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 GeneratePlanPrompt(requirement) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 GeneratePlanPrompt 包含项目 OKR 和 SPEC 上下文",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现提示词包含任务格式规范（task.md 格式）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现提示词包含依赖关系说明",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 29,
+          "name": "执行阶段提示词生成",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_4"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/doing_prompt.go，实现执行提示词生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 GenerateDoingPrompt(task, retryCount) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现提示词包含任务目标和关键结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现提示词包含测试方法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "如果是重试，加载 debug.md 作为额外上下文",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现提示词包含项目 SPEC 作为背景",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 30,
+          "name": "测试脚本生成提示词",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/test_prompt.go，实现测试提示词生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 GenerateTestPrompt(task, code) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现提示词包含任务的测试方法",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现提示词包含生成的代码",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现提示词包含测试脚本格式规范",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 31,
+          "name": "学习阶段提示词生成",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_6"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/prompt/learning_prompt.go，实现学习提示词生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 GenerateLearningPrompt(jobID) 函数",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现提示词包含所有任务的执行结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现提示词包含 debug.md 中的问题记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现提示词包含 git 历史提交",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 7,
+          "global_index": 32,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6",
+            "job_7"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证所有模板都能正确加载",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证提示词构建器能正确构建提示词",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证上下文管理器能正确加载上下文",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证规划、执行、测试、学习提示词都能生成",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证提示词包含所有必要的上下文信息",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证重试时提示词包含问题记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 5,
+      "name": "cli_commands",
+      "display_name": "cli_commands",
+      "plan_file": "cli_commands.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure",
+        "parser",
+        "dag_executor",
+        "prompt_manager",
+        "git_integration"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 33,
+          "name": "init 命令实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_7"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/cmd/init.go，实现 init 命令",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现初始化 .rick 目录结构",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现创建默认的 OKR.md 和 SPEC.md",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现创建默认配置文件 ~/.rick/config.json",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现初始化 Git 仓库",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现交互式配置（可选）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 34,
+          "name": "plan 命令实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/cmd/plan.go，实现 plan 命令",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现接收用户需求描述（命令行参数或交互式）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现生成规划提示词（调用 prompt_manager）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现调用 Claude Code CLI 进行规划",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现解析 Claude 输出并生成 task*.md 文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现生成 tasks.json（DAG 拓扑排序）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现自动提交规划结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 35,
+          "name": "doing 命令实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 7,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/cmd/doing.go，实现 doing 命令",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现加载 job 的任务定义（task.md, tasks.json）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现串行执行任务（调用 dag_executor）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现失败重试机制",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现每个任务完成后的自动提交",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现执行日志记录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现错误处理和人工干预提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 36,
+          "name": "learning 命令实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 internal/cmd/learning.go，实现 learning 命令",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现加载 job 的执行结果（debug.md, git 历史）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现生成学习提示词（调用 prompt_manager）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现调用 Claude Code CLI 进行学习总结",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现解析学习结果并更新 OKR.md、SPEC.md、wiki/",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现自动提交学习结果",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 37,
+          "name": "命令行参数解析",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "实现 --version 标志",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 --help 标志",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 --verbose 标志（详细输出）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 --job 标志（指定 job）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 --dry-run 标志（试运行）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现参数验证和错误提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 38,
+          "name": "错误处理和用户反馈",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "实现错误消息国际化（中文/英文）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现清晰的错误堆栈追踪",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现用户友好的建议（当出现错误时）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现进度条和状态提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现详细日志模式（--verbose）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 39,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证 `rick init` 能正确初始化项目",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 `rick plan` 能正确规划任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 `rick doing` 能正确执行任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 `rick learning` 能正确进行学习",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证完整的工作流（init → plan → doing → learning）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证错误处理和用户反馈正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 6,
+      "name": "installation",
+      "display_name": "installation",
+      "plan_file": "installation.md",
+      "status": "PENDING",
+      "dependencies": [
+        "infrastructure",
+        "cli_commands"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 40,
+          "name": "build.sh 脚本实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "cli_commands:job_7"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/build.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 Go 环境检查（版本 \u003e= 1.21）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 `go build` 编译命令",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 --output 参数支持",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现编译后的二进制验证",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现错误处理和清晰的错误提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 41,
+          "name": "install.sh 脚本实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 8,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/install.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现参数解析（--source, --binary, --dev, --prefix）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现源码安装流程（调用 build.sh）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现二进制安装流程（从 GitHub releases 下载）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现生产版本安装（~/.rick）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现开发版本安装（~/.rick_dev）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "实现符号链接创建（rick 或 rick_dev）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 8,
+              "status": "PENDING",
+              "description": "实现 PATH 环境变量更新提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 42,
+          "name": "uninstall.sh 脚本实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/uninstall.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现参数解析（--dev, --all）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现卸载生产版本（删除 ~/.rick）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现卸载开发版本（删除 ~/.rick_dev）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现删除符号链接",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现卸载确认提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 43,
+          "name": "update.sh 脚本实现",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/update.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现参数解析（--dev, --version）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现更新流程（uninstall + install）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现版本检查（获取最新版本）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现更新确认提示",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现更新失败的回滚逻辑",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 44,
+          "name": "版本管理脚本",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_4"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/version.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现版本号读取（从 VERSION 文件或常量）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现版本号更新",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现版本号格式验证（vMAJOR.MINOR.PATCH）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现发布流程（git tag, changelog 生成）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 45,
+          "name": "环境检查和配置",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建 scripts/check_env.sh 脚本",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "实现 Go 版本检查（\u003e= 1.21）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "实现 Claude Code CLI 检查",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "实现 Git 检查",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "实现 PATH 环境变量检查",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "实现详细的检查报告",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 46,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证 build.sh 能正确编译",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 install.sh 能正确安装",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 uninstall.sh 能正确卸载",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 update.sh 能正确更新",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证生产版本和开发版本能并行运行",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证环境检查能正确工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 7,
+      "name": "rick",
+      "display_name": "",
+      "plan_file": "rick.md",
+      "status": "PENDING",
+      "dependencies": [],
+      "jobs": [],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    },
+    {
+      "index": 8,
+      "name": "e2e_test",
+      "display_name": "e2e_test",
+      "plan_file": "e2e_test.md",
+      "status": "PENDING",
+      "dependencies": [
+        "__ALL__"
+      ],
+      "jobs": [
+        {
+          "index": 0,
+          "global_index": 47,
+          "name": "开发环境启动验证",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "infrastructure:job_7",
+            "parser:job_6",
+            "dag_executor:job_7",
+            "prompt_manager:job_8",
+            "git_integration:job_5",
+            "cli_commands:job_7",
+            "installation:job_7"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "构建完整的 Rick CLI 二进制",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "运行 `rick --version` 验证版本号",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "运行 `rick --help` 验证帮助信息",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 ~/.rick/config.json 配置文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证所有依赖库都正确导入",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证日志系统正常工作",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 1,
+          "global_index": 48,
+          "name": "完整工作流测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1"
+          ],
+          "tasks_total": 8,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建测试项目目录",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "运行 `rick init` 初始化项目",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 .rick 目录结构正确创建",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "运行 `rick plan \"测试需求\"` 规划任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证 task.md 和 tasks.json 生成正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "运行 `rick doing job_1` 执行任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 7,
+              "status": "PENDING",
+              "description": "验证任务执行和自动提交正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 8,
+              "status": "PENDING",
+              "description": "运行 `rick learning job_1` 进行学习",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 2,
+          "global_index": 49,
+          "name": "并行版本管理测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_2"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "安装生产版本 `./install.sh`",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 `rick --version` 可执行",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "安装开发版本 `./install.sh --source --dev`",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证 `rick_dev --version` 可执行",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证两个版本使用不同的配置文件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证两个版本使用不同的工作空间",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 3,
+          "global_index": 50,
+          "name": "失败重试和恢复测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_3"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建会失败的 task（模拟失败）",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "运行 `rick doing job_n`，观察重试机制",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 debug.md 正确记录问题",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "修改 task.md，修复问题",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "重新运行 `rick doing job_n`，验证恢复",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 4,
+          "global_index": 51,
+          "name": "性能和稳定性测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_4"
+          ],
+          "tasks_total": 5,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "创建包含 20+ 个任务的 job",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "运行 `rick doing job_n`，测量执行时间",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证内存使用在合理范围内",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "验证磁盘 I/O 在合理范围内",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "运行多次完整工作流，验证稳定性",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 5,
+          "global_index": 52,
+          "name": "自我重构能力验证",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_5"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "使用生产版本 rick 规划重构任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "安装开发版本 rick_dev",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "使用生产版本 rick 执行重构任务",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "使用开发版本 rick_dev 验证重构",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "更新生产版本 `./update.sh`",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证新版本功能正常",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 6,
+          "global_index": 53,
+          "name": "文档和示例验证",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_6"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证 README.md 文档完整",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证 DEVELOPMENT_GUIDE.md 文档正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证 QUICK_REFERENCE.md 快速参考有用",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "运行 README 中的示例代码",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证所有脚本都有使用说明",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证错误消息清晰有帮助",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        },
+        {
+          "index": 7,
+          "global_index": 54,
+          "name": "集成测试",
+          "status": "PENDING",
+          "prerequisites": [
+            "#### 前置条件",
+            "job_1",
+            "job_2",
+            "job_3",
+            "job_4",
+            "job_5",
+            "job_6",
+            "job_7"
+          ],
+          "tasks_total": 6,
+          "tasks_completed": 0,
+          "loop_count": 0,
+          "retry_count": 0,
+          "tasks": [
+            {
+              "index": 1,
+              "status": "PENDING",
+              "description": "验证所有模块协同工作正常",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 2,
+              "status": "PENDING",
+              "description": "验证系统在压力下的稳定性",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 3,
+              "status": "PENDING",
+              "description": "验证生产环境配置正确",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 4,
+              "status": "PENDING",
+              "description": "运行完整的 E2E 测试套件",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 5,
+              "status": "PENDING",
+              "description": "验证所有 CLI 命令都可用",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            },
+            {
+              "index": 6,
+              "status": "PENDING",
+              "description": "验证所有错误处理机制正常",
+              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+            }
+          ],
+          "created_at": "2026-03-14T00:29:13.075341+08:00",
+          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+        }
+      ],
+      "created_at": "2026-03-14T00:29:13.075341+08:00",
+      "updated_at": "2026-03-14T00:29:13.075341+08:00"
+    }
+  ]
+}
