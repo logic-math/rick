@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:57:59.268527+08:00",
+    "last_update": "2026-03-14T04:06:02.85171+08:00",
     "current_module_index": 8,
     "current_job_index": 50,
     "total_modules": 9,
@@ -2915,49 +2915,49 @@
           "index": 3,
           "global_index": 50,
           "name": "失败重试和恢复测试",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_3"
           ],
           "tasks_total": 5,
-          "tasks_completed": 0,
+          "tasks_completed": 5,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建会失败的 task（模拟失败）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:06:02.843921+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "运行 `rick doing job_n`，观察重试机制",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:06:02.845109+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 debug.md 正确记录问题",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:06:02.845995+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "修改 task.md，修复问题",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:06:02.846883+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "重新运行 `rick doing job_n`，验证恢复",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T04:06:02.847696+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T03:57:59.268527+08:00"
+          "updated_at": "2026-03-14T04:06:02.85171+08:00"
         },
         {
           "index": 4,
@@ -3177,7 +3177,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:57:59.268527+08:00"
+      "updated_at": "2026-03-14T04:06:02.85171+08:00"
     }
   ]
 }
