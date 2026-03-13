@@ -3,7 +3,7 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T03:40:05.939133+08:00",
+    "last_update": "2026-03-14T03:44:21.387539+08:00",
     "current_module_index": 6,
     "current_job_index": 46,
     "total_modules": 9,
@@ -2651,7 +2651,7 @@
           "index": 6,
           "global_index": 46,
           "name": "集成测试",
-          "status": "RUNNING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_1",
@@ -2662,53 +2662,53 @@
             "job_6"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 build.sh 能正确编译",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.377313+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 install.sh 能正确安装",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.379264+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 uninstall.sh 能正确卸载",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.380248+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证 update.sh 能正确更新",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.381216+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证生产版本和开发版本能并行运行",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.382196+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "验证环境检查能正确工作",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T03:44:21.38343+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T03:40:05.939133+08:00"
+          "updated_at": "2026-03-14T03:44:21.387539+08:00"
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T03:40:05.939133+08:00"
+      "updated_at": "2026-03-14T03:44:21.387539+08:00"
     },
     {
       "index": 7,
