@@ -153,30 +153,30 @@ type DebugEntry struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/parser/debug.go，实现 DebugInfo 结构体
-- [ ] Task 2: 实现 ParseDebug(content) 函数，解析 debug.md 内容
-- [ ] Task 3: 实现 AppendDebug(content, entry) 函数，追加新的 debug 记录
-- [ ] Task 4: 实现 GetDebugCount(content) 函数，获取当前 debug 记录数
-- [ ] Task 5: 实现 GenerateDebugEntry(id, phenomenon, reproduce, hypothesis, verify, fix, progress) 函数
-- [ ] Task 6: 支持自动编号（debug1, debug2, ...）
-- [ ] Task 7: 编写单元测试，覆盖解析和追加操作
+- [x] Task 1: 创建 internal/parser/debug.go，实现 DebugInfo 结构体
+- [x] Task 2: 实现 ParseDebug(content) 函数，解析 debug.md 内容
+- [x] Task 3: 实现 AppendDebug(content, entry) 函数，追加新的 debug 记录
+- [x] Task 4: 实现 GetDebugCount(content) 函数，获取当前 debug 记录数
+- [x] Task 5: 实现 GenerateDebugEntry(id, phenomenon, reproduce, hypothesis, verify, fix, progress) 函数
+- [x] Task 6: 支持自动编号（debug1, debug2, ...）
+- [x] Task 7: 编写单元测试，覆盖解析和追加操作
 
 #### 验证器
 
-- ParseDebug() 能正确解析 debug.md 文件
-- AppendDebug() 能正确追加新记录
-- 自动编号正确（从 debug1 开始）
-- GetDebugCount() 返回正确的记录数
-- 生成的 debug 记录格式正确
-- 单元测试覆盖率 >= 80%
+- ✅ ParseDebug() 能正确解析 debug.md 文件
+- ✅ AppendDebug() 能正确追加新记录
+- ✅ 自动编号正确（从 debug1 开始）
+- ✅ GetDebugCount() 返回正确的记录数
+- ✅ 生成的 debug 记录格式正确
+- ✅ 单元测试覆盖率 >= 80% (实际: 90%)
 
 #### 调试日志
 
-无
+- 无问题记录
 
 #### 完成状态
 
-⏳ 待开始
+✅ 已完成 (2026-03-14 01:25)
 
 ---
 
