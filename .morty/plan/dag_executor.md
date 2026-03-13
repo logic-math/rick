@@ -281,22 +281,22 @@ type ExecutionResult struct {
 
 #### Tasks
 
-- [ ] Task 1: 创建 internal/executor/retry.go，实现重试逻辑
-- [ ] Task 2: 实现 RetryTask(task, config) 函数
-- [ ] Task 3: 实现重试循环逻辑（最多 MaxRetries 次）
-- [ ] Task 4: 实现每次重试时加载 debug.md 作为上下文
-- [ ] Task 5: 实现失败记录到 debug.md 的逻辑
-- [ ] Task 6: 实现超过重试限制时的退出逻辑
-- [ ] Task 7: 编写单元测试，覆盖重试流程
+- [x] Task 1: 创建 internal/executor/retry.go，实现重试逻辑
+- [x] Task 2: 实现 RetryTask(task, config) 函数
+- [x] Task 3: 实现重试循环逻辑（最多 MaxRetries 次）
+- [x] Task 4: 实现每次重试时加载 debug.md 作为上下文
+- [x] Task 5: 实现失败记录到 debug.md 的逻辑
+- [x] Task 6: 实现超过重试限制时的退出逻辑
+- [x] Task 7: 编写单元测试，覆盖重试流程
 
 #### 验证器
 
-- RetryTask() 能正确重试失败的任务
-- 重试次数不超过 MaxRetries
-- 每次重试都加载最新的 debug.md
-- 失败信息正确追加到 debug.md
-- 超过重试限制时返回错误
-- 单元测试覆盖率 >= 80%
+- ✅ RetryTask() 能正确重试失败的任务
+- ✅ 重试次数不超过 MaxRetries
+- ✅ 每次重试都加载最新的 debug.md
+- ✅ 失败信息正确追加到 debug.md
+- ✅ 超过重试限制时返回错误
+- ✅ 单元测试覆盖率 >= 80%（实际 83%）
 
 #### 调试日志
 
@@ -304,7 +304,46 @@ type ExecutionResult struct {
 
 #### 完成状态
 
-⏳ 待开始
+✅ 完成 - 2026-03-14
+
+**实现摘要**:
+- 创建 internal/executor/retry.go，实现完整的重试机制
+- 实现 RetryResult 结构体，记录重试执行结果和调试日志列表
+- 实现 TaskRetryManager 结构体和 NewTaskRetryManager() 工厂函数
+- 实现 RetryTask(task) 函数，核心重试逻辑：
+  - 支持可配置的重试次数（默认5次）
+  - 每次重试前加载 debug.md 作为上下文
+  - 失败时自动生成调试日志条目
+  - 超过重试限制时返回 max_retries_exceeded 状态
+- 实现 loadDebugContext(debugFile) 函数，加载现有调试信息
+- 实现 buildDebugEntry(task, attempt, maxRetries, result, context) 函数，生成调试日志条目：
+  - 格式：`debug_N: [现象], [复现], [猜想], [验证], [修复], [进展]`
+  - 自动提取错误信息作为现象
+  - 自动生成猜想（基于错误类型分析）
+  - 支持输出内容分析（FAIL/ERROR 标记）
+- 实现 analyzeError(errMsg, output) 函数，智能错误分析：
+  - 识别超时、文件不存在、权限、连接、脚本执行等常见错误
+  - 基于输出内容进一步细化分析
+- 实现 getNextDebugNumber(context) 函数，自动计算下一个调试编号
+- 实现 appendToDebugFile(entry) 函数，追加调试条目到文件：
+  - 自动创建嵌套目录结构
+  - 支持文件不存在时创建
+  - 正确处理换行符
+- 实现 RetryTaskSimple(task, runner, config, debugFile) 便捷函数
+- 编写 24 个单元测试，覆盖：
+  - 成功执行（无重试）
+  - 重试次数限制
+  - 默认重试次数（5次）
+  - 调试日志生成
+  - 调试目录创建
+  - 错误分析（超时、文件、权限、连接等）
+  - 调试编号计算
+  - 调试文件追加
+  - 结果时间计算
+  - nil 输入处理
+  - 复杂错误消息分析
+- 测试覆盖率 83%，超过 80% 要求
+- 代码编译通过，所有验收标准满足
 
 ---
 

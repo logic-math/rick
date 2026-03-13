@@ -3,9 +3,9 @@
   "global": {
     "status": "RUNNING",
     "start_time": "2026-03-14T00:29:13.075341+08:00",
-    "last_update": "2026-03-14T01:45:50.779019+08:00",
+    "last_update": "2026-03-14T01:51:05.411366+08:00",
     "current_module_index": 3,
-    "current_job_index": 21,
+    "current_job_index": 22,
     "total_modules": 9,
     "total_jobs": 55
   },
@@ -1272,55 +1272,55 @@
           "index": 4,
           "global_index": 22,
           "name": "重试机制实现",
-          "status": "PENDING",
+          "status": "COMPLETED",
           "prerequisites": [
             "#### 前置条件",
             "job_4"
           ],
           "tasks_total": 6,
-          "tasks_completed": 0,
+          "tasks_completed": 6,
           "loop_count": 0,
           "retry_count": 0,
           "tasks": [
             {
               "index": 1,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "创建 internal/executor/retry.go，实现重试逻辑",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.402077+08:00"
             },
             {
               "index": 2,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现 RetryTask(task, config) 函数",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.403155+08:00"
             },
             {
               "index": 3,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现重试循环逻辑（最多 MaxRetries 次）",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.403992+08:00"
             },
             {
               "index": 4,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现每次重试时加载 debug.md 作为上下文",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.404885+08:00"
             },
             {
               "index": 5,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现失败记录到 debug.md 的逻辑",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.405729+08:00"
             },
             {
               "index": 6,
-              "status": "PENDING",
+              "status": "COMPLETED",
               "description": "实现超过重试限制时的退出逻辑",
-              "updated_at": "2026-03-14T00:29:13.075341+08:00"
+              "updated_at": "2026-03-14T01:51:05.406538+08:00"
             }
           ],
           "created_at": "2026-03-14T00:29:13.075341+08:00",
-          "updated_at": "2026-03-14T00:29:13.075341+08:00"
+          "updated_at": "2026-03-14T01:51:05.411366+08:00"
         },
         {
           "index": 5,
@@ -1437,7 +1437,7 @@
         }
       ],
       "created_at": "2026-03-14T00:29:13.075341+08:00",
-      "updated_at": "2026-03-14T01:45:50.779019+08:00"
+      "updated_at": "2026-03-14T01:51:05.411366+08:00"
     },
     {
       "index": 4,
