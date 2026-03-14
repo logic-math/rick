@@ -9,14 +9,21 @@
 - [核心概念](./core-concepts.md) - Context Loop、DAG 调度、提示词管理
 
 ### 模块详解
-- [Infrastructure 模块](./modules/infrastructure.md) - 基础设施（CLI、工作空间、配置）
-- [Parser 模块](./modules/parser.md) - 内容解析（Markdown、task.md、debug.md）
-- [DAG Executor 模块](./modules/dag_executor.md) - DAG 执行器（拓扑排序、任务执行）
+
+#### 核心模块
+- [CMD 模块](./modules/cmd.md) - 命令行接口（Cobra、参数解析、命令执行）
+- [Workspace 模块](./modules/workspace.md) - 工作空间管理（目录结构、Job 管理）
 - [Prompt Manager 模块](./modules/prompt_manager.md) - 提示词管理（模板、构建、上下文）
-- [CLI Commands 模块](./modules/cli_commands.md) - 命令处理（plan、doing、learning）
+- [Executor 模块](./modules/dag_executor.md) - DAG 执行器（拓扑排序、任务执行）
+- [Parser 模块](./modules/parser.md) - 内容解析（Markdown、task.md、debug.md）
 - [Git 模块](./modules/git.md) - Git 操作（自动初始化、提交）
+- [Config 模块](./modules/config.md) - 配置管理（加载、验证、持久化）
+- [Logging 模块](./modules/logging.md) - 日志系统（分级日志、文本格式）
+
+#### 辅助模块
+- [CLI Commands 模块](./modules/cli_commands.md) - 命令处理（plan、doing、learning）
 - [CallCLI 模块](./modules/callcli.md) - Claude Code CLI 交互
-- [Workspace 模块](./modules/workspace.md) - 工作空间管理
+- [Infrastructure 模块](./modules/infrastructure.md) - 基础设施（CLI、工作空间、配置）
 
 ## 🎯 快速开始
 
