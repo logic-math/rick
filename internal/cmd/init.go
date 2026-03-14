@@ -11,21 +11,23 @@ import (
 )
 
 func NewInitCmd() *cobra.Command {
+	var skipExplore bool
+
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a new Rick workspace",
-		Long:  `Initialize a new Rick workspace with all necessary directories and configuration files.`,
+		Long:  `Initialize a new Rick workspace with all necessary directories, configuration files, and global context through automated exploration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if GetVerbose() {
 				fmt.Println("[INFO] Initializing Rick workspace...")
 			}
 
 			if GetDryRun() {
-				fmt.Println("[DRY-RUN] Would initialize workspace")
+				fmt.Println("[DRY-RUN] Would initialize workspace with exploration")
 				return nil
 			}
 
-			// Create workspace manager and initialize
+			// Step 1: Create workspace manager and initialize
 			ws, err := workspace.New()
 			if err != nil {
 				return fmt.Errorf("failed to create workspace manager: %w", err)
@@ -39,7 +41,7 @@ func NewInitCmd() *cobra.Command {
 				fmt.Println("[INFO] Workspace directories created")
 			}
 
-			// Initialize default config
+			// Step 2: Initialize default config
 			defaultConfig := config.GetDefaultConfig()
 			if err := config.SaveConfig(defaultConfig); err != nil {
 				return fmt.Errorf("failed to save default config: %w", err)
@@ -49,7 +51,7 @@ func NewInitCmd() *cobra.Command {
 				fmt.Println("[INFO] Config file saved")
 			}
 
-			// Initialize Git repository in the .rick directory
+			// Step 3: Initialize Git repository in the .rick directory
 			rickDir, err := workspace.GetRickDir()
 			if err != nil {
 				return fmt.Errorf("failed to get rick directory: %w", err)
@@ -63,12 +65,89 @@ func NewInitCmd() *cobra.Command {
 				fmt.Println("[INFO] Git repository initialized")
 			}
 
-			fmt.Println("Workspace initialized successfully")
+			fmt.Println("✅ Workspace initialized successfully")
+
+			// Step 4: Automatic exploration if not skipped
+			if skipExplore {
+				if GetVerbose() {
+					fmt.Println("[INFO] Skipping automatic exploration (--skip-explore flag set)")
+				}
+				fmt.Println("\n📝 To generate global context, run:")
+				fmt.Println("   rick plan \"深度探索项目源码结构和架构设计\"")
+				fmt.Println("   rick doing job_0")
+				fmt.Println("   rick learning job_0")
+				return nil
+			}
+
+			fmt.Println("\n🔍 Starting automatic exploration to generate global context...")
+			fmt.Println("   This will execute: plan → doing → learning")
+			fmt.Println("")
+
+			// Execute automatic exploration workflow
+			if err := executeInitExploration(); err != nil {
+				fmt.Printf("\n⚠️  Exploration encountered an error: %v\n", err)
+				fmt.Println("   You can manually complete the exploration by running:")
+				fmt.Println("   rick plan \"深度探索项目源码结构和架构设计\"")
+				fmt.Println("   rick doing job_0")
+				fmt.Println("   rick learning job_0")
+				return nil // Don't fail init, just skip exploration
+			}
+
+			fmt.Println("\n✅ Workspace initialization and exploration completed successfully!")
+			fmt.Println("   Global context has been generated:")
+			fmt.Println("   - .rick/OKR.md")
+			fmt.Println("   - .rick/SPEC.md")
+			fmt.Println("   - .rick/wiki/")
+			fmt.Println("   - .rick/skills/")
 			return nil
 		},
 	}
 
+	initCmd.Flags().BoolVar(&skipExplore, "skip-explore", false, "Skip automatic exploration and only initialize workspace")
+
 	return initCmd
+}
+
+// executeInitExploration performs automatic exploration to generate global context
+func executeInitExploration() error {
+	// Step 1: Execute plan workflow to generate job_0
+	if GetVerbose() {
+		fmt.Println("[INFO] Step 1/3: Executing plan workflow...")
+	}
+	fmt.Println("Step 1/3: Planning source code exploration...")
+
+	requirement := "深度探索项目源码结构和架构设计，分析项目的整体架构、核心模块、关键依赖和最佳实践"
+	if err := executePlanWorkflow(requirement); err != nil {
+		return fmt.Errorf("failed to execute plan workflow: %w", err)
+	}
+
+	fmt.Println("✓ Plan completed: job_0 created")
+
+	// Step 2: Execute doing workflow for job_0
+	if GetVerbose() {
+		fmt.Println("[INFO] Step 2/3: Executing doing workflow...")
+	}
+	fmt.Println("Step 2/3: Executing source code exploration tasks...")
+
+	if err := executeDoingWorkflow("job_0"); err != nil {
+		return fmt.Errorf("failed to execute doing workflow: %w", err)
+	}
+
+	fmt.Println("✓ Exploration completed: tasks executed")
+
+	// Step 3: Execute learning workflow for job_0
+	if GetVerbose() {
+		fmt.Println("[INFO] Step 3/3: Executing learning workflow...")
+	}
+	fmt.Println("Step 3/3: Generating global context from exploration results...")
+
+	if err := executeLearningWorkflow("job_0"); err != nil {
+		return fmt.Errorf("failed to execute learning workflow: %w", err)
+	}
+
+	fmt.Println("✓ Learning completed: global context generated")
+
+	return nil
 }
 
 // initGitRepo initializes a git repository in the given directory

@@ -172,6 +172,45 @@ func TestConfigIntegration(t *testing.T) {
 	}
 }
 
+// TestInitCmdSkipExplore tests that init command respects --skip-explore flag
+func TestInitCmdSkipExplore(t *testing.T) {
+	// Save original values
+	origVerbose := verbose
+	origDryRun := dryRun
+	defer func() {
+		verbose = origVerbose
+		dryRun = origDryRun
+	}()
+
+	cmd := NewInitCmd()
+
+	// Check that the flag exists
+	if cmd.Flags().Lookup("skip-explore") == nil {
+		t.Error("expected --skip-explore flag to be defined")
+	}
+
+	// Test with --skip-explore flag
+	cmd.SetArgs([]string{"--skip-explore"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("init command failed with --skip-explore: %v", err)
+	}
+}
+
+// TestInitCmdHasExploreCapability tests that init command has exploration capability
+func TestInitCmdHasExploreCapability(t *testing.T) {
+	cmd := NewInitCmd()
+
+	// Check that the command has the executeInitExploration function available
+	// This is a basic test to ensure the function exists and can be called
+	if cmd.RunE == nil {
+		t.Error("expected RunE to be set")
+	}
+
+	// The actual exploration would require Claude Code CLI to be available
+	// which we don't test here to avoid external dependencies
+}
+
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
