@@ -472,3 +472,48 @@ func BenchmarkParseDependencies(b *testing.B) {
 		ParseDependencies("# 依赖关系\ntask1, task2, task3")
 	}
 }
+
+import "testing"
+
+func TestParseDependencies_ChineseNone(t *testing.T) {
+	content := `# 依赖关系
+无
+
+# 任务名称
+测试任务
+`
+	deps, err := ParseDependencies(content)
+	if err != nil {
+		t.Fatalf("ParseDependencies failed: %v", err)
+	}
+
+	if len(deps) != 0 {
+		t.Errorf("Expected 0 dependencies for '无', got %d: %v", len(deps), deps)
+	}
+}
+
+func TestIsNoDependency(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"无", true},
+		{"None", true},
+		{"none", true},
+		{"NONE", true},
+		{"null", true},
+		{"nil", true},
+		{"n/a", true},
+		{"N/A", true},
+		{"-", true},
+		{"task1", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		result := isNoDependency(tt.input)
+		if result != tt.expected {
+			t.Errorf("isNoDependency(%q) = %v, want %v", tt.input, result, tt.expected)
+		}
+	}
+}

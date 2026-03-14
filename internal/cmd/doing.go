@@ -91,6 +91,13 @@ func executeDoingWorkflow(jobID string) error {
 		fmt.Printf("[INFO] Using workspace: %s\n", rickDir)
 	}
 
+	// Step 1.5: Auto-initialize Git repository if not exists
+	if err := ensureGitInitialized(rickDir); err != nil {
+		if GetVerbose() {
+			fmt.Printf("[WARN] Failed to initialize Git repository: %v\n", err)
+		}
+	}
+
 	// Step 2: Validate job directory structure
 	jobDir := filepath.Join(rickDir, "jobs", jobID)
 	planDir := filepath.Join(jobDir, "plan")
@@ -392,4 +399,50 @@ func callClaudeCodeForTask(cfg *config.Config, taskPrompt string) (string, error
 	}
 
 	return string(content), nil
+}
+
+// ensureGitInitialized checks if Git is initialized in the project root directory
+// and initializes it if not present
+func ensureGitInitialized(rickDir string) error {
+	// Get current working directory (project root)
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Check if .git directory exists in project root
+	gitDir := filepath.Join(projectRoot, ".git")
+	if _, err := os.Stat(gitDir); err == nil {
+		// Git already initialized
+		if GetVerbose() {
+			fmt.Println("[INFO] Git repository already initialized in project root")
+		}
+		return nil
+	}
+
+	// Initialize Git repository in project root
+	if GetVerbose() {
+		fmt.Printf("[INFO] Initializing Git repository in project root: %s\n", projectRoot)
+	}
+
+	cmd := exec.Command("git", "init")
+	cmd.Dir = projectRoot
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to run git init: %w\nOutput: %s", err, string(output))
+	}
+
+	// Create initial .gitignore if it doesn't exist
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		content := "# Project gitignore\n*.log\n.DS_Store\n"
+		if err := os.WriteFile(gitignorePath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to create .gitignore: %w", err)
+		}
+		if GetVerbose() {
+			fmt.Println("[INFO] Created .gitignore file")
+		}
+	}
+
+	fmt.Printf("✅ Git repository initialized in project root: %s\n", projectRoot)
+	return nil
 }

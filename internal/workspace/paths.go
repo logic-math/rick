@@ -38,14 +38,14 @@ func getRickDirName() string {
 	return RickDirName
 }
 
-// GetRickDir returns the path to the .rick directory in the user's home
+// GetRickDir returns the path to the .rick directory in the current working directory
 func GetRickDir() (string, error) {
-	home, err := GetHomeDir()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 	rickDirName := getRickDirName()
-	return filepath.Join(home, rickDirName), nil
+	return filepath.Join(cwd, rickDirName), nil
 }
 
 // GetJobsDir returns the path to the jobs directory

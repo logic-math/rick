@@ -213,10 +213,18 @@ func TestEnsureDirectoriesIdempotent(t *testing.T) {
 }
 
 func TestGetRickDir(t *testing.T) {
+	// Save current directory
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	// Create temp directory and change to it
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
 
 	ws, err := New()
 	if err != nil {
@@ -228,9 +236,15 @@ func TestGetRickDir(t *testing.T) {
 		t.Error("GetRickDir() returned empty string")
 	}
 
+	// Should be .rick in current directory (tempDir)
 	expectedDir := filepath.Join(tempDir, RickDirName)
-	if rickDir != expectedDir {
-		t.Errorf("GetRickDir() = %s, want %s", rickDir, expectedDir)
+
+	// Resolve symlinks for comparison (macOS /var -> /private/var)
+	rickDirResolved, _ := filepath.EvalSymlinks(rickDir)
+	expectedDirResolved, _ := filepath.EvalSymlinks(expectedDir)
+
+	if rickDirResolved != expectedDirResolved {
+		t.Errorf("GetRickDir() = %s, want %s", rickDirResolved, expectedDirResolved)
 	}
 }
 
@@ -256,12 +270,20 @@ func TestPathConstants(t *testing.T) {
 }
 
 func TestPathFunctions(t *testing.T) {
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
+	// Save current directory
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
 
-	// Test GetRickDir
+	// Create temp directory and change to it
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Test GetRickDir - should return .rick in current directory
 	rickDir, err := GetRickDir()
 	if err != nil {
 		t.Fatalf("GetRickDir() failed: %v", err)

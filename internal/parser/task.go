@@ -69,11 +69,25 @@ func ParseDependencies(content string) ([]string, error) {
 	var deps []string
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			deps = append(deps, trimmed)
+		// Skip empty strings and keywords that mean "no dependencies"
+		if trimmed == "" || isNoDependency(trimmed) {
+			continue
 		}
+		deps = append(deps, trimmed)
 	}
 	return deps, nil
+}
+
+// isNoDependency checks if a string represents "no dependency"
+func isNoDependency(s string) bool {
+	lower := strings.ToLower(s)
+	noDeps := []string{"无", "none", "null", "nil", "n/a", "na", "-"}
+	for _, noDep := range noDeps {
+		if lower == noDep {
+			return true
+		}
+	}
+	return false
 }
 
 // ParseTaskName extracts task name from "# 任务名称" section

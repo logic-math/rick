@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,21 @@ type PromptTemplate struct {
 	Content   string
 	Variables []string
 }
+
+// Embedded templates
+var (
+	//go:embed templates/plan.md
+	planTemplate string
+
+	//go:embed templates/doing.md
+	doingTemplate string
+
+	//go:embed templates/learning.md
+	learningTemplate string
+
+	//go:embed templates/test.md
+	testTemplate string
+)
 
 // PromptManager manages prompt templates with caching
 type PromptManager struct {
@@ -39,17 +55,33 @@ func (pm *PromptManager) LoadTemplate(name string) (*PromptTemplate, error) {
 	}
 	pm.mu.RUnlock()
 
-	// Load from file
-	templatePath := filepath.Join(pm.templateDir, name+".md")
-	content, err := os.ReadFile(templatePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load template %s: %w", name, err)
+	var content string
+
+	// If templateDir is empty or file doesn't exist, use embedded templates
+	if pm.templateDir == "" {
+		content = pm.getEmbeddedTemplate(name)
+		if content == "" {
+			return nil, fmt.Errorf("embedded template %s not found", name)
+		}
+	} else {
+		// Try to load from file
+		templatePath := filepath.Join(pm.templateDir, name+".md")
+		fileContent, err := os.ReadFile(templatePath)
+		if err != nil {
+			// Fallback to embedded template
+			content = pm.getEmbeddedTemplate(name)
+			if content == "" {
+				return nil, fmt.Errorf("failed to load template %s: %w", name, err)
+			}
+		} else {
+			content = string(fileContent)
+		}
 	}
 
 	template := &PromptTemplate{
 		Name:      name,
-		Content:   string(content),
-		Variables: extractVariables(string(content)),
+		Content:   content,
+		Variables: extractVariables(content),
 	}
 
 	// Store in cache
@@ -58,6 +90,22 @@ func (pm *PromptManager) LoadTemplate(name string) (*PromptTemplate, error) {
 	pm.mu.Unlock()
 
 	return template, nil
+}
+
+// getEmbeddedTemplate returns the embedded template content by name
+func (pm *PromptManager) getEmbeddedTemplate(name string) string {
+	switch name {
+	case "plan":
+		return planTemplate
+	case "doing":
+		return doingTemplate
+	case "learning":
+		return learningTemplate
+	case "test":
+		return testTemplate
+	default:
+		return ""
+	}
 }
 
 // extractVariables extracts {{variable}} placeholders from template content

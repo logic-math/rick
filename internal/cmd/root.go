@@ -36,7 +36,6 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.SetVersionTemplate("Rick CLI version {{.Version}}\n")
 
 	// Add subcommands
-	rootCmd.AddCommand(NewInitCmd())
 	rootCmd.AddCommand(NewPlanCmd())
 	rootCmd.AddCommand(NewDoingCmd())
 	rootCmd.AddCommand(NewLearningCmd())

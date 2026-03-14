@@ -2,58 +2,8 @@ package cmd
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"testing"
 )
-
-// TestCLIIntegrationInitCommandExecution tests the init command execution
-func TestCLIIntegrationInitCommandExecution(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	// Create root command with init
-	rootCmd := NewRootCmd("0.1.0")
-
-	// Execute init command
-	rootCmd.SetArgs([]string{"init"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("init command failed: %v", err)
-	}
-
-	// Verify .rick directory was created
-	rickDir := filepath.Join(tmpDir, ".rick")
-	if _, err := os.Stat(rickDir); os.IsNotExist(err) {
-		t.Errorf("expected .rick directory to exist, but it doesn't")
-	}
-
-	// Verify subdirectories were created
-	expectedDirs := []string{"wiki", "skills", "jobs"}
-	for _, dir := range expectedDirs {
-		dirPath := filepath.Join(rickDir, dir)
-		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-			t.Errorf("expected %s directory to exist, but it doesn't", dir)
-		}
-	}
-
-	// Verify files were created
-	expectedFiles := []string{"OKR.md", "SPEC.md", "config.json"}
-	for _, file := range expectedFiles {
-		filePath := filepath.Join(rickDir, file)
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			t.Errorf("expected %s file to exist, but it doesn't", file)
-		}
-	}
-
-	// Verify .git directory was created
-	gitDir := filepath.Join(rickDir, ".git")
-	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		t.Errorf("expected .git directory to exist, but it doesn't")
-	}
-}
 
 // TestCLIIntegrationPlanCommandExists tests that plan command exists and responds to --help
 func TestCLIIntegrationPlanCommandExists(t *testing.T) {
@@ -109,12 +59,12 @@ func TestCLIIntegrationLearningCommandExists(t *testing.T) {
 	}
 }
 
-// TestCLIIntegrationAllCommandsAvailable tests that all four core commands are available
+// TestCLIIntegrationAllCommandsAvailable tests that all core commands are available
 func TestCLIIntegrationAllCommandsAvailable(t *testing.T) {
 	rootCmd := NewRootCmd("0.1.0")
 
 	// Verify all commands are registered
-	expectedCommands := []string{"init", "plan", "doing", "learning"}
+	expectedCommands := []string{"plan", "doing", "learning"}
 	for _, cmdName := range expectedCommands {
 		cmd, _, err := rootCmd.Find([]string{cmdName})
 		if err != nil {
@@ -132,7 +82,6 @@ func TestCLIIntegrationCommandHelpOutput(t *testing.T) {
 		name string
 		cmd  func() interface{}
 	}{
-		{"init", func() interface{} { return NewInitCmd() }},
 		{"plan", func() interface{} { return NewPlanCmd() }},
 		{"doing", func() interface{} { return NewDoingCmd() }},
 		{"learning", func() interface{} { return NewLearningCmd() }},
@@ -172,29 +121,3 @@ func TestCLIIntegrationCommandJobFlag(t *testing.T) {
 	}
 }
 
-// TestCLIIntegrationInitCommandIdempotent tests that running init multiple times is safe
-func TestCLIIntegrationInitCommandIdempotent(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	rootCmd := NewRootCmd("0.1.0")
-
-	// Execute init twice
-	rootCmd.SetArgs([]string{"init"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("first init command failed: %v", err)
-	}
-
-	// Run init again
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("second init command failed: %v", err)
-	}
-
-	// Verify .rick directory still exists
-	rickDir := filepath.Join(tmpDir, ".rick")
-	if _, err := os.Stat(rickDir); os.IsNotExist(err) {
-		t.Errorf("expected .rick directory to exist after second init")
-	}
-}

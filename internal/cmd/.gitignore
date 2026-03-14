@@ -1,0 +1,3 @@
+# Project gitignore
+*.log
+.DS_Store

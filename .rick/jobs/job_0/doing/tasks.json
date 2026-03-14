@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-14T15:32:42.928236+08:00",
+  "updated_at": "2026-03-14T15:32:42.928668+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "分析项目架构并生成 OKR.md",
+      "status": "running",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928668+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "分析代码规范并生成 SPEC.md",
+      "status": "pending",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "创建 Wiki 知识库索引和架构文档",
+      "status": "pending",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "分析核心模块并完善 Wiki 模块文档",
+      "status": "pending",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "提取可复用技能并创建 Skills 库",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task4"
+      ],
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "创建项目使用示例和最佳实践文档",
+      "status": "pending",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4",
+        "task5"
+      ],
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "验证全局上下文完整性并生成总结报告",
+      "status": "pending",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4",
+        "task5",
+        "task6"
+      ],
+      "attempts": 0,
+      "created_at": "2026-03-14T15:32:42.928236+08:00",
+      "updated_at": "2026-03-14T15:32:42.928236+08:00"
+    }
+  ]
+}

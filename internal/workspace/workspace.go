@@ -11,15 +11,23 @@ type Workspace struct {
 	rickDir string
 }
 
-// New creates a new Workspace instance
+// New creates a new Workspace instance and ensures the workspace exists
 func New() (*Workspace, error) {
 	rickDir, err := GetRickDir()
 	if err != nil {
 		return nil, err
 	}
-	return &Workspace{
+
+	ws := &Workspace{
 		rickDir: rickDir,
-	}, nil
+	}
+
+	// Automatically ensure workspace directories exist
+	if err := ws.EnsureDirectories(); err != nil {
+		return nil, fmt.Errorf("failed to ensure workspace directories: %w", err)
+	}
+
+	return ws, nil
 }
 
 // InitWorkspace initializes the .rick directory structure

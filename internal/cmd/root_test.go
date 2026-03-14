@@ -269,7 +269,6 @@ func TestRootCmdSubcommands(t *testing.T) {
 	cmd := NewRootCmd("0.1.0")
 
 	subcommands := map[string]bool{
-		"init":     false,
 		"plan":     false,
 		"doing":    false,
 		"learning": false,
