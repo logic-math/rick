@@ -4,6 +4,18 @@
 
 ## 📚 文档导航
 
+### 🚀 快速开始
+- **[快速入门指南](./getting-started.md)** - 5 分钟快速上手 Rick CLI
+- **[最佳实践](./best-practices.md)** - 任务分解、依赖设计、测试方法
+
+### 📖 实践教程
+- **[教程系列](./tutorials/)** - 通过实践学习 Rick CLI
+  - [Tutorial 1: 管理简单项目](./tutorials/tutorial-1-simple-project.md)
+  - [Tutorial 2: 自我重构](./tutorials/tutorial-2-self-refactor.md)
+  - [Tutorial 3: 并行版本管理](./tutorials/tutorial-3-parallel-versions.md)
+  - [Tutorial 4: 自定义提示词](./tutorials/tutorial-4-custom-prompts.md)
+  - [Tutorial 5: CI/CD 集成](./tutorials/tutorial-5-cicd-integration.md)
+
 ### 核心文档
 - [架构设计](./architecture.md) - 系统架构、模块关系、技术栈
 - [核心概念](./core-concepts.md) - Context Loop、DAG 调度、提示词管理
@@ -47,20 +59,22 @@ rick learning job_n         # 知识积累
 
 ## 📖 学习路径
 
-### 新手入门
-1. 阅读 [核心概念](./core-concepts.md) 理解 Context Loop vs Agent Loop
-2. 阅读 [架构设计](./architecture.md) 了解系统架构
-3. 实践：运行 `rick plan` → `rick doing` → `rick learning` 完整流程
+### 新手入门（~1 小时）
+1. 阅读 **[快速入门指南](./getting-started.md)** - 了解安装和基本使用
+2. 完成 **[Tutorial 1: 管理简单项目](./tutorials/tutorial-1-simple-project.md)** - 动手实践
+3. 阅读 [核心概念](./core-concepts.md) - 理解 Context Loop vs Agent Loop
 
-### 进阶开发
-1. 深入学习 [DAG Executor 模块](./modules/dag_executor.md) 理解任务调度
-2. 研究 [Prompt Manager 模块](./modules/prompt_manager.md) 掌握提示词管理
-3. 实践：使用 `rick_dev` 开发新功能
+### 进阶开发（~2 小时）
+1. 完成 **[Tutorial 2: 自我重构](./tutorials/tutorial-2-self-refactor.md)** - 掌握版本管理
+2. 完成 **[Tutorial 3: 并行版本管理](./tutorials/tutorial-3-parallel-versions.md)** - 掌握双版本工作流
+3. 阅读 **[最佳实践](./best-practices.md)** - 学习任务分解和依赖设计
+4. 深入学习 [DAG Executor 模块](./modules/dag_executor.md) - 理解任务调度
 
-### 高级定制
-1. 学习模块化架构设计
-2. 理解提示词模板机制
-3. 实践：贡献代码或自定义模块
+### 高级定制（~2 小时）
+1. 完成 **[Tutorial 4: 自定义提示词](./tutorials/tutorial-4-custom-prompts.md)** - 定制提示词模板
+2. 完成 **[Tutorial 5: CI/CD 集成](./tutorials/tutorial-5-cicd-integration.md)** - 集成到自动化流程
+3. 研究 [Prompt Manager 模块](./modules/prompt_manager.md) - 掌握提示词管理
+4. 实践：贡献代码或自定义模块
 
 ## 🔗 相关资源
 
