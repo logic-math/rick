@@ -79,8 +79,8 @@ rick learning job_n         # 知识积累
 ## 🔗 相关资源
 
 - [项目 README](../../README.md)
-- [OKR 文档](../../OKR.md)
-- [SPEC 文档](../../SPEC.md)
+- [OKR 文档](../OKR.md)
+- [SPEC 文档](../SPEC.md)
 - [内存库](~/.claude/projects/-Users-sunquan-ai-coding-CODING-rick/memory/MEMORY.md)
 
 ## 📝 文档贡献
