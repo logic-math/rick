@@ -79,6 +79,79 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	return prompt, nil
 }
 
+// GenerateDoingPromptFile generates the execution phase prompt and saves it to a temporary file
+// Returns the file path and any error
+// The caller is responsible for cleaning up the temporary file
+func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+	if task == nil {
+		return "", fmt.Errorf("task cannot be nil")
+	}
+
+	if contextMgr == nil {
+		return "", fmt.Errorf("context manager cannot be nil")
+	}
+
+	if manager == nil {
+		return "", fmt.Errorf("prompt manager cannot be nil")
+	}
+
+	// Load doing template
+	template, err := manager.LoadTemplate("doing")
+	if err != nil {
+		return "", fmt.Errorf("failed to load doing template: %w", err)
+	}
+
+	// Create prompt builder
+	builder := NewPromptBuilder(template)
+
+	// Set task information
+	builder.SetVariable("task_id", task.ID)
+	builder.SetVariable("task_name", task.Name)
+	builder.SetVariable("retry_count", fmt.Sprintf("%d", retryCount))
+
+	// Set task details
+	builder.SetVariable("task_objective", task.Goal)
+	builder.SetVariable("key_results", formatKeyResults(task.KeyResults))
+	builder.SetVariable("test_methods", task.TestMethod)
+
+	// Set project information
+	builder.SetVariable("project_name", "Rick CLI")
+	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+
+	// Set SPEC content
+	specContent := formatSPECContent(contextMgr.GetSPECInfo())
+	builder.SetVariable("spec_content", specContent)
+
+	// Set project architecture
+	projectArch := formatProjectArchitecture()
+	builder.SetVariable("project_architecture", projectArch)
+
+	// Set completed tasks
+	completedTasks := formatCompletedTasks(contextMgr.GetHistory())
+	builder.SetVariable("completed_tasks", completedTasks)
+
+	// Set task dependencies
+	taskDeps := formatTaskDependencies(task.Dependencies)
+	builder.SetVariable("task_dependencies", taskDeps)
+
+	// If it's a retry, include debug context
+	if retryCount > 0 {
+		debugContext := formatDebugContext(contextMgr.GetDebug())
+		builder.SetVariable("debug_context", debugContext)
+	} else {
+		// For non-retry, set empty debug context
+		builder.SetVariable("debug_context", "")
+	}
+
+	// Build and save to temporary file
+	promptFile, err := builder.BuildAndSave(fmt.Sprintf("doing-%s", task.ID))
+	if err != nil {
+		return "", fmt.Errorf("failed to build and save doing prompt: %w", err)
+	}
+
+	return promptFile, nil
+}
+
 // formatKeyResults formats key results for the prompt
 func formatKeyResults(keyResults []string) string {
 	if len(keyResults) == 0 {

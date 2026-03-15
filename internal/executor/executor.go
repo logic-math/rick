@@ -3,7 +3,9 @@ package executor
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sunquan/rick/internal/parser"
@@ -173,6 +175,12 @@ func (e *Executor) ExecuteJob() (*ExecutionJobResult, error) {
 			if err := e.tasksJSON.UpdateTaskStatus(taskID, "success"); err != nil {
 				e.logf("ERROR: Failed to update task status: %v", err)
 			}
+
+			// Record task file name and commit hash after successful completion
+			if err := e.recordTaskMetadata(taskID); err != nil {
+				e.logf("WARN: Failed to record task metadata: %v", err)
+			}
+
 			result.SuccessfulTasks++
 		} else {
 			e.logf("✗ Task failed: %s (status: %s, attempts: %d)", taskID, retryResult.Status, retryResult.TotalAttempts)
@@ -274,4 +282,54 @@ func (e *Executor) SaveExecutionLog(logFilePath string) error {
 	}
 
 	return nil
+}
+
+// recordTaskMetadata records task file name and commit hash after task completion
+func (e *Executor) recordTaskMetadata(taskID string) error {
+	// 1. Record task file name (taskN.md)
+	taskFileName := fmt.Sprintf("%s.md", taskID)
+	if err := e.tasksJSON.UpdateTaskFile(taskID, taskFileName); err != nil {
+		return fmt.Errorf("failed to update task file: %w", err)
+	}
+	e.logf("Recorded task file: %s", taskFileName)
+
+	// 2. Get current git commit hash
+	commitHash, err := e.getCurrentCommitHash()
+	if err != nil {
+		// If git is not available or no commits yet, log warning but don't fail
+		e.logf("WARN: Failed to get commit hash: %v", err)
+		return nil
+	}
+
+	// 3. Record commit hash
+	if err := e.tasksJSON.UpdateTaskCommit(taskID, commitHash); err != nil {
+		return fmt.Errorf("failed to update commit hash: %w", err)
+	}
+	e.logf("Recorded commit hash: %s", commitHash)
+
+	return nil
+}
+
+// getCurrentCommitHash returns the current git commit hash
+func (e *Executor) getCurrentCommitHash() (string, error) {
+	// Get current working directory (project root)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Run git rev-parse HEAD
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = cwd
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to run git rev-parse: %w", err)
+	}
+
+	commitHash := strings.TrimSpace(string(output))
+	if commitHash == "" {
+		return "", fmt.Errorf("git rev-parse returned empty hash")
+	}
+
+	return commitHash, nil
 }

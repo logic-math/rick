@@ -44,9 +44,9 @@ func NewTaskRetryManager(runner *TaskRunner, config *ExecutionConfig, debugFile 
 	}
 }
 
-// RetryTask executes a task with retry logic
-// It retries failed tasks up to MaxRetries times, loading debug context on each retry
-// Returns RetryResult with execution status and debug information
+// RetryTask executes a task with retry logic following the new workflow:
+// 1. Generate test script once (outside retry loop)
+// 2. Retry loop: load debug context -> execute task -> run test -> update debug.md if failed
 func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task cannot be nil")
@@ -71,18 +71,20 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 
 	var lastExecResult *TaskExecutionResult
 
-	// Retry loop
+	// Retry loop - this implements the "while not pass" logic
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		result.TotalAttempts = attempt
 
 		// Load debug context from debug.md if it exists
-		debugContext := ""
-		if trm.debugFile != "" {
-			debugContext = trm.loadDebugContext(trm.debugFile)
-		}
+		debugContext := trm.loadDebugContext(trm.debugFile)
 
-		// Execute the task
-		execResult, err := trm.runner.RunTask(task)
+		// Execute the task with debug context
+		// This will:
+		// 1. Generate doing prompt with task.md + debug.md + OKR.md + SPEC.md
+		// 2. Call Claude to execute the task
+		// 3. Run the test script (already generated)
+		// 4. Return pass/fail result
+		execResult, err := trm.runner.RunTask(task, debugContext)
 		if err != nil {
 			lastExecResult = execResult
 			// Continue to next retry
@@ -99,10 +101,10 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 			return result, nil
 		}
 
-		// Task failed, prepare for retry
+		// Task failed, update debug.md
 		result.LastError = execResult.Error
 
-		// Record failure to debug.md if file is specified
+		// Record failure to debug.md
 		if trm.debugFile != "" {
 			debugEntry := trm.buildDebugEntry(task, attempt, maxRetries, execResult, debugContext)
 			if err := trm.appendToDebugFile(debugEntry); err != nil {
@@ -147,38 +149,81 @@ func (trm *TaskRetryManager) loadDebugContext(debugFile string) string {
 }
 
 // buildDebugEntry constructs a debug log entry for a failed task
-// Format: "debug_N: [现象], [复现], [猜想], [验证], [修复], [进展]"
+// Format follows the standard debug.md format with detailed error information
 func (trm *TaskRetryManager) buildDebugEntry(task *parser.Task, attempt int, maxRetries int, result *TaskExecutionResult, previousContext string) string {
-	// Extract error information
-	phenomenon := result.Error
-	if phenomenon == "" {
-		phenomenon = "task execution failed"
-	}
+	var entry strings.Builder
 
-	// Build reproduction steps
-	reproduction := fmt.Sprintf("Attempt %d of %d: %s", attempt, maxRetries, task.Name)
-
-	// Build hypothesis (guesses about the cause)
-	hypothesis := trm.analyzeError(result.Error, result.Output)
-
-	// Build verification steps
-	verification := fmt.Sprintf("Review output and error logs from attempt %d", attempt)
-
-	// Build fix description (placeholder - to be filled by human)
-	fix := "待人工审查"
-
-	// Build progress status
-	progress := "未解决"
-	if attempt == maxRetries {
-		progress = "超过重试限制，需要人工干预"
-	}
-
-	// Format as debug entry
+	// Get debug number
 	debugNum := trm.getNextDebugNumber(previousContext)
-	entry := fmt.Sprintf("- debug%d: %s, %s, %s, %s, %s, %s",
-		debugNum, phenomenon, reproduction, hypothesis, verification, fix, progress)
 
-	return entry
+	entry.WriteString(fmt.Sprintf("\n## debug%d: Task %s - Attempt %d/%d\n\n", debugNum, task.ID, attempt, maxRetries))
+
+	// Phenomenon (what happened)
+	entry.WriteString("**现象 (Phenomenon)**:\n")
+	if result.Error != "" {
+		entry.WriteString(fmt.Sprintf("- %s\n", result.Error))
+	} else {
+		entry.WriteString("- Task execution failed without specific error\n")
+	}
+	entry.WriteString("\n")
+
+	// Reproduction (how to reproduce)
+	entry.WriteString("**复现 (Reproduction)**:\n")
+	entry.WriteString(fmt.Sprintf("- Task: %s\n", task.Name))
+	entry.WriteString(fmt.Sprintf("- Goal: %s\n", task.Goal))
+	entry.WriteString(fmt.Sprintf("- Attempt: %d of %d\n", attempt, maxRetries))
+	entry.WriteString("\n")
+
+	// Hypothesis (guesses about the cause)
+	entry.WriteString("**猜想 (Hypothesis)**:\n")
+	hypotheses := trm.analyzeError(result.Error, result.Output)
+	entry.WriteString(fmt.Sprintf("- %s\n", hypotheses))
+	entry.WriteString("\n")
+
+	// Verification (how to verify)
+	entry.WriteString("**验证 (Verification)**:\n")
+	entry.WriteString("- Review the output below\n")
+	entry.WriteString("- Check if files were created/modified as expected\n")
+	entry.WriteString("- Verify test script logic is correct\n")
+	entry.WriteString("\n")
+
+	// Fix (what needs to be fixed)
+	entry.WriteString("**修复 (Fix)**:\n")
+	if attempt == maxRetries {
+		entry.WriteString("- ⚠️ Max retries exceeded - manual intervention required\n")
+		entry.WriteString("- Review task.md and test method\n")
+		entry.WriteString("- Update task requirements if needed\n")
+	} else {
+		entry.WriteString("- Will retry with updated context\n")
+		entry.WriteString("- Agent should learn from this failure\n")
+	}
+	entry.WriteString("\n")
+
+	// Progress (current status)
+	entry.WriteString("**进展 (Progress)**:\n")
+	if attempt == maxRetries {
+		entry.WriteString("- Status: ❌ 未解决 - 超过重试限制\n")
+	} else {
+		entry.WriteString(fmt.Sprintf("- Status: 🔄 重试中 - Attempt %d/%d\n", attempt, maxRetries))
+	}
+	entry.WriteString("\n")
+
+	// Output (for reference)
+	entry.WriteString("**输出 (Output)**:\n")
+	entry.WriteString("```\n")
+	if result.Output != "" {
+		// Limit output to first 1000 characters to avoid huge debug files
+		output := result.Output
+		if len(output) > 1000 {
+			output = output[:1000] + "\n... (truncated)"
+		}
+		entry.WriteString(output)
+	} else {
+		entry.WriteString("(no output)")
+	}
+	entry.WriteString("\n```\n")
+
+	return entry.String()
 }
 
 // getNextDebugNumber extracts the next debug number from previous context
@@ -191,7 +236,7 @@ func (trm *TaskRetryManager) getNextDebugNumber(context string) int {
 	maxNum := 0
 	lines := strings.Split(context, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "- debug") {
+		if strings.Contains(line, "## debug") {
 			// Try to extract debug number
 			parts := strings.Split(line, "debug")
 			if len(parts) > 1 {
@@ -214,32 +259,40 @@ func (trm *TaskRetryManager) analyzeError(errMsg string, output string) string {
 
 	// Analyze error message
 	if strings.Contains(errMsg, "timeout") {
-		hypotheses = append(hypotheses, "1)执行超时 2)资源不足 3)外部依赖不可用")
-	} else if strings.Contains(errMsg, "not found") {
-		hypotheses = append(hypotheses, "1)文件不存在 2)命令找不到 3)依赖缺失")
+		hypotheses = append(hypotheses, "执行超时 - 可能是任务太复杂或资源不足")
+	} else if strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "does not exist") {
+		hypotheses = append(hypotheses, "文件或资源不存在 - 可能是路径错误或文件未创建")
 	} else if strings.Contains(errMsg, "permission") {
-		hypotheses = append(hypotheses, "1)权限不足 2)文件权限错误 3)目录访问被拒")
+		hypotheses = append(hypotheses, "权限不足 - 需要检查文件/目录权限")
 	} else if strings.Contains(errMsg, "connection") {
-		hypotheses = append(hypotheses, "1)网络连接失败 2)服务不可用 3)DNS 解析失败")
-	} else if strings.Contains(errMsg, "script execution failed") {
-		hypotheses = append(hypotheses, "1)脚本语法错误 2)环境变量缺失 3)依赖命令不可用")
+		hypotheses = append(hypotheses, "网络连接失败 - 检查网络或服务可用性")
+	} else if strings.Contains(errMsg, "test did not pass") {
+		hypotheses = append(hypotheses, "测试未通过 - 任务执行结果不符合预期")
+	} else if strings.Contains(errMsg, "failed to generate test script") {
+		hypotheses = append(hypotheses, "测试脚本生成失败 - 检查测试方法定义")
 	} else {
-		hypotheses = append(hypotheses, "1)脚本执行异常 2)测试逻辑错误 3)环境配置问题")
+		hypotheses = append(hypotheses, "未知错误 - 需要详细分析输出日志")
 	}
 
 	// Analyze output for additional clues
 	if strings.Contains(output, "FAIL") {
-		hypotheses = append(hypotheses, "4)测试断言失败")
+		hypotheses = append(hypotheses, "测试断言失败")
 	}
 	if strings.Contains(output, "ERROR") {
-		hypotheses = append(hypotheses, "4)运行时错误")
+		hypotheses = append(hypotheses, "运行时错误")
+	}
+	if strings.Contains(output, "SyntaxError") {
+		hypotheses = append(hypotheses, "Python语法错误")
+	}
+	if strings.Contains(output, "ImportError") || strings.Contains(output, "ModuleNotFoundError") {
+		hypotheses = append(hypotheses, "缺少Python模块依赖")
 	}
 
 	if len(hypotheses) == 0 {
-		return "1)未知错误 2)环境问题 3)脚本问题"
+		return "未知错误 - 需要人工分析"
 	}
 
-	return hypotheses[0]
+	return strings.Join(hypotheses, "; ")
 }
 
 // appendToDebugFile appends a debug entry to the debug.md file
@@ -263,13 +316,17 @@ func (trm *TaskRetryManager) appendToDebugFile(entry string) error {
 			return fmt.Errorf("failed to read debug file: %w", err)
 		}
 		content = string(data)
+	} else {
+		// Create initial header if file doesn't exist
+		content = "# Debug Log\n\n"
+		content += "This file contains debugging information for failed task executions.\n\n"
 	}
 
-	// Append new entry with newline
-	if content != "" && !strings.HasSuffix(content, "\n") {
+	// Append new entry
+	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	content += entry + "\n"
+	content += entry
 
 	// Write back to file
 	if err := os.WriteFile(trm.debugFile, []byte(content), 0644); err != nil {

@@ -2,6 +2,8 @@ package prompt
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -97,4 +99,52 @@ func (pb *PromptBuilder) GetMissingVariables() []string {
 		}
 	}
 	return missing
+}
+
+// BuildAndSave builds the prompt and saves it to a temporary file
+// Returns the file path and any error
+// The caller is responsible for cleaning up the temporary file
+func (pb *PromptBuilder) BuildAndSave(prefix string) (string, error) {
+	// Build the prompt content
+	content, err := pb.Build()
+	if err != nil {
+		return "", fmt.Errorf("failed to build prompt: %w", err)
+	}
+
+	// Create temporary file with .md extension
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("rick-%s-*.md", prefix))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	// Write content to file
+	if _, err := tmpFile.WriteString(content); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write prompt to file: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// SaveToFile builds the prompt and saves it to a specific file path
+func (pb *PromptBuilder) SaveToFile(filePath string) error {
+	// Build the prompt content
+	content, err := pb.Build()
+	if err != nil {
+		return fmt.Errorf("failed to build prompt: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Write content to file
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
 }

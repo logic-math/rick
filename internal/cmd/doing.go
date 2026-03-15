@@ -347,8 +347,21 @@ func commitDoingResults(jobID string, result *executor.ExecutionJobResult) error
 			jobID, result.FailedTasks, result.TotalTasks)
 	}
 
-	// Commit using auto committer
-	if err := ac.CommitJob(jobID, commitMsg); err != nil {
+	// Check if there are any changes to commit
+	hasChanges, err := ac.HasChanges()
+	if err != nil {
+		return fmt.Errorf("failed to check for changes: %w", err)
+	}
+
+	if !hasChanges {
+		if GetVerbose() {
+			fmt.Println("[INFO] No changes to commit")
+		}
+		return nil
+	}
+
+	// Add all files before committing
+	if err := ac.AutoAddAndCommitJob(jobID, commitMsg); err != nil {
 		return fmt.Errorf("failed to commit changes: %w", err)
 	}
 
@@ -401,6 +414,56 @@ func callClaudeCodeForTask(cfg *config.Config, taskPrompt string) (string, error
 	return string(content), nil
 }
 
+// ensureGitUserConfigured ensures Git user is configured for the repository
+// Reads user.name and user.email from global config (~/.rick/config.json)
+func ensureGitUserConfigured(projectRoot string) error {
+	// Load global config
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Check if user.name is configured in the repository
+	cmd := exec.Command("git", "config", "user.name")
+	cmd.Dir = projectRoot
+	if output, err := cmd.Output(); err != nil || strings.TrimSpace(string(output)) == "" {
+		// Set user.name from global config
+		userName := cfg.Git.UserName
+		if userName == "" {
+			userName = "Rick CLI" // Fallback default
+		}
+		cmd = exec.Command("git", "config", "user.name", userName)
+		cmd.Dir = projectRoot
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to set git user.name: %w", err)
+		}
+		if GetVerbose() {
+			fmt.Printf("[INFO] Set git user.name to '%s'\n", userName)
+		}
+	}
+
+	// Check if user.email is configured in the repository
+	cmd = exec.Command("git", "config", "user.email")
+	cmd.Dir = projectRoot
+	if output, err := cmd.Output(); err != nil || strings.TrimSpace(string(output)) == "" {
+		// Set user.email from global config
+		userEmail := cfg.Git.UserEmail
+		if userEmail == "" {
+			userEmail = "rick@localhost" // Fallback default
+		}
+		cmd = exec.Command("git", "config", "user.email", userEmail)
+		cmd.Dir = projectRoot
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to set git user.email: %w", err)
+		}
+		if GetVerbose() {
+			fmt.Printf("[INFO] Set git user.email to '%s'\n", userEmail)
+		}
+	}
+
+	return nil
+}
+
 // ensureGitInitialized checks if Git is initialized in the project root directory
 // and initializes it if not present
 func ensureGitInitialized(rickDir string) error {
@@ -429,6 +492,11 @@ func ensureGitInitialized(rickDir string) error {
 	cmd.Dir = projectRoot
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to run git init: %w\nOutput: %s", err, string(output))
+	}
+
+	// Configure Git user if not already configured
+	if err := ensureGitUserConfigured(projectRoot); err != nil {
+		return fmt.Errorf("failed to configure git user: %w", err)
 	}
 
 	// Create initial .gitignore if it doesn't exist

@@ -1,0 +1,127 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-15T23:51:50.963387+08:00",
+  "updated_at": "2026-03-16T00:29:24.932669+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "创建 Wiki 目录结构和索引文件",
+      "task_file": "task1.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "9750580a29ff56ca9d89fb08b017e5deb6f125ef",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-15T23:53:33.992939+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "编写架构概览文档",
+      "task_file": "task2.md",
+      "status": "success",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "commit_hash": "5630643bbc2583d8456948b40454b30698c00202",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-15T23:56:00.480385+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "编写运行时流程文档",
+      "task_file": "task3.md",
+      "status": "success",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "05174debb311f3459aa3cd08a2c2e928d7df5ce5",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-15T23:59:19.509843+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "编写核心模块文档",
+      "task_file": "task4.md",
+      "status": "success",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "2bcd8df5abff4dc554997f8f4af8dc42b7614b25",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:07:07.049309+08:00"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "编写测试与验证文档",
+      "task_file": "task7.md",
+      "status": "success",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "94a413de3b6294bd42a4206a94a8eaddd1b30ab8",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:14:04.134095+08:00"
+    },
+    {
+      "task_id": "task8",
+      "task_name": "编写安装与部署文档",
+      "task_file": "task8.md",
+      "status": "success",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "18b85662a63740eb3dcfc16e50d318fa9819748e",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:17:05.553286+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "编写 DAG 执行引擎详解",
+      "task_file": "task5.md",
+      "status": "success",
+      "dependencies": [
+        "task4"
+      ],
+      "attempts": 0,
+      "commit_hash": "18b85662a63740eb3dcfc16e50d318fa9819748e",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:20:18.572408+08:00"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "编写提示词管理系统文档",
+      "task_file": "task6.md",
+      "status": "success",
+      "dependencies": [
+        "task4"
+      ],
+      "attempts": 0,
+      "commit_hash": "8ecd5cb0919f0f802225601a49fb8b55fabbe59b",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:24:01.735544+08:00"
+    },
+    {
+      "task_id": "task9",
+      "task_name": "验证和完善 Wiki 文档",
+      "task_file": "task9.md",
+      "status": "success",
+      "dependencies": [
+        "task3",
+        "task4",
+        "task5",
+        "task6",
+        "task7",
+        "task8"
+      ],
+      "attempts": 0,
+      "commit_hash": "ad180a4ba78947824da005212fa7c76da8de8e99",
+      "created_at": "2026-03-15T23:51:50.963387+08:00",
+      "updated_at": "2026-03-16T00:29:24.932633+08:00"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "max_retries": 5,
+  "claude_code_path": "",
+  "default_workspace": "",
+  "git": {
+    "user_name": "Your Name",
+    "user_email": "your.email@example.com"
+  }
+}

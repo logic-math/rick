@@ -1,363 +1,566 @@
-# Git Module（Git 操作模块）
+# git - Git 操作模块
 
-## 概述
-Git Module 负责 Git 相关操作，包括自动初始化、提交、分支管理和状态检查。
+## 模块职责
 
-## 模块位置
-`internal/git/`
+`git` 模块封装了 Rick CLI 所需的所有 Git 操作，提供了简洁的 API 用于仓库初始化、文件提交、历史查询等功能。该模块通过执行 Git 命令行工具来实现版本控制，确保每个成功的任务都被自动提交，形成清晰的开发历史。
 
-## 核心功能
+**核心职责**：
+- 初始化 Git 仓库
+- 添加文件到暂存区
+- 提交代码变更
+- 查询提交历史
+- 获取分支信息
+- 查看差异和日志
 
-### 1. 自动初始化 Git
-**职责**: 在项目根目录自动初始化 Git 仓库
+## 核心类型
 
-**触发时机**: 首次执行 `rick doing` 命令时
+### GitManager
+Git 管理器，封装所有 Git 操作。
 
-**核心函数**:
 ```go
-// EnsureGitInitialized 确保 Git 仓库已初始化
-func EnsureGitInitialized(projectRoot string) error {
-    // 1. 检查 .git/ 是否存在
-    gitDir := filepath.Join(projectRoot, ".git")
-    if _, err := os.Stat(gitDir); err == nil {
-        // 已初始化，直接返回
-        return nil
-    }
-
-    // 2. 初始化 Git 仓库
-    cmd := exec.Command("git", "init")
-    cmd.Dir = projectRoot
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("git init failed: %s", output)
-    }
-
-    log.Println("[INFO] Git 仓库已初始化")
-    return nil
+type GitManager struct {
+    repoPath string  // Git 仓库路径
 }
 ```
 
-### 2. Git 提交
-**职责**: 提交代码变更
+### CommitInfo
+提交信息结构体。
 
-**触发时机**: 每个 task 执行成功后
-
-**核心函数**:
 ```go
-// Commit 提交代码
-func Commit(message string) error {
-    // 1. git add .
-    addCmd := exec.Command("git", "add", ".")
-    if err := addCmd.Run(); err != nil {
-        return fmt.Errorf("git add failed: %w", err)
-    }
-
-    // 2. git commit
-    commitCmd := exec.Command("git", "commit", "-m", message)
-    output, err := commitCmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("git commit failed: %s", output)
-    }
-
-    log.Printf("[INFO] Git 提交成功: %s", message)
-    return nil
+type CommitInfo struct {
+    Hash    string    // 提交哈希
+    Message string    // 提交消息
+    Author  string    // 作者
+    Date    time.Time // 提交时间
 }
 ```
 
-**提交信息格式**:
-```
-feat: 完成 task1 - 创建基础设施模块
-fix: 修复 task2 - 解析器 bug
-test: 添加 task3 - 单元测试
-```
+## 关键函数
 
-### 3. 分支管理
-**职责**: 创建、切换、删除分支
+### New(repoPath string) *GitManager
+创建 GitManager 实例。
 
-**核心函数**:
+**参数**：
+- `repoPath`: Git 仓库的根目录路径
+
+**示例**：
 ```go
-// CreateBranch 创建分支
-func CreateBranch(branchName string) error {
-    cmd := exec.Command("git", "branch", branchName)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("git branch failed: %s", output)
-    }
-    return nil
-}
+gm := git.New("/path/to/repo")
+```
 
-// CheckoutBranch 切换分支
-func CheckoutBranch(branchName string) error {
-    cmd := exec.Command("git", "checkout", branchName)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("git checkout failed: %s", output)
-    }
-    return nil
-}
+### InitRepo() error
+初始化 Git 仓库。
 
-// DeleteBranch 删除分支
-func DeleteBranch(branchName string) error {
-    cmd := exec.Command("git", "branch", "-d", branchName)
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return fmt.Errorf("git branch -d failed: %s", output)
-    }
-    return nil
+**功能**：
+- 创建 .git 目录
+- 初始化 Git 配置
+- 如果目录不存在，会自动创建
+
+**示例**：
+```go
+gm := git.New("/path/to/repo")
+err := gm.InitRepo()
+if err != nil {
+    log.Fatal("Failed to init repo:", err)
 }
 ```
 
-### 4. Git 状态检查
-**职责**: 检查 Git 状态
+### AddFiles(paths []string) error
+添加文件到 Git 暂存区。
 
-**核心函数**:
+**参数**：
+- `paths`: 要添加的文件路径列表
+
+**示例**：
 ```go
-// GetStatus 获取 Git 状态
-func GetStatus() (string, error) {
-    cmd := exec.Command("git", "status")
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return "", fmt.Errorf("git status failed: %w", err)
-    }
-    return string(output), nil
-}
-
-// HasUncommittedChanges 检查是否有未提交的变更
-func HasUncommittedChanges() (bool, error) {
-    status, err := GetStatus()
-    if err != nil {
-        return false, err
-    }
-
-    // 检查是否包含 "nothing to commit"
-    return !strings.Contains(status, "nothing to commit"), nil
+err := gm.AddFiles([]string{
+    "internal/cmd/plan.go",
+    "internal/cmd/doing.go",
+})
+if err != nil {
+    log.Fatal("Failed to add files:", err)
 }
 ```
 
-### 5. Git 日志
-**职责**: 获取 Git 提交日志
+### Commit(message string) error
+提交暂存区的更改。
 
-**核心函数**:
+**参数**：
+- `message`: 提交消息
+
+**示例**：
 ```go
-// GetLog 获取 Git 日志
-func GetLog(limit int) ([]string, error) {
-    cmd := exec.Command("git", "log", fmt.Sprintf("-%d", limit), "--oneline")
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return nil, fmt.Errorf("git log failed: %w", err)
-    }
+err := gm.Commit("feat(cmd): implement plan command")
+if err != nil {
+    log.Fatal("Failed to commit:", err)
+}
+```
 
-    lines := strings.Split(string(output), "\n")
-    return lines, nil
+### GetLog(limit int) ([]CommitInfo, error)
+获取提交历史。
+
+**参数**：
+- `limit`: 返回的提交数量（≤ 0 时默认为 10）
+
+**返回**：
+- `[]CommitInfo`: 提交信息列表
+- `error`: 错误信息
+
+**示例**：
+```go
+commits, err := gm.GetLog(5)
+if err != nil {
+    log.Fatal("Failed to get log:", err)
 }
 
-// GetLogForJob 获取特定 job 的 Git 日志
-func GetLogForJob(jobID string) ([]string, error) {
-    // 搜索包含 job_id 的提交
-    cmd := exec.Command("git", "log", "--grep", jobID, "--oneline")
-    output, err := cmd.CombinedOutput()
-    if err != nil {
-        return nil, fmt.Errorf("git log failed: %w", err)
+for _, commit := range commits {
+    fmt.Printf("%s - %s (%s)\n",
+        commit.Hash[:7],
+        commit.Message,
+        commit.Author)
+}
+```
+
+### GetCurrentBranch() (string, error)
+获取当前分支名称。
+
+**示例**：
+```go
+branch, err := gm.GetCurrentBranch()
+if err != nil {
+    log.Fatal("Failed to get branch:", err)
+}
+fmt.Println("Current branch:", branch)
+```
+
+### IsRepository() bool
+检查路径是否是 Git 仓库。
+
+**示例**：
+```go
+if gm.IsRepository() {
+    fmt.Println("This is a git repository")
+} else {
+    fmt.Println("Not a git repository, initializing...")
+    gm.InitRepo()
+}
+```
+
+### GetDiff(commitHash string) (string, error)
+获取指定提交的差异。
+
+**参数**：
+- `commitHash`: 提交哈希
+
+**返回**：
+- `string`: 差异内容（git show 输出）
+- `error`: 错误信息
+
+**示例**：
+```go
+diff, err := gm.GetDiff("abc123")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(diff)
+```
+
+### GetCommitsBetween(from, to string) ([]CommitInfo, error)
+获取两个引用之间的提交。
+
+**参数**：
+- `from`: 起始引用（commit hash, branch, tag）
+- `to`: 结束引用
+
+**示例**：
+```go
+commits, err := gm.GetCommitsBetween("v1.0.0", "v1.1.0")
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Commits between v1.0.0 and v1.1.0: %d\n", len(commits))
+```
+
+### GetCommitsByGrep(pattern string, limit int) ([]CommitInfo, error)
+搜索提交消息中包含指定模式的提交。
+
+**参数**：
+- `pattern`: 搜索模式（支持正则表达式）
+- `limit`: 最大返回数量（≤ 0 时默认为 100）
+
+**示例**：
+```go
+commits, err := gm.GetCommitsByGrep("feat:", 10)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Println("Feature commits:")
+for _, commit := range commits {
+    fmt.Printf("- %s\n", commit.Message)
+}
+```
+
+### GetRepoPath() string
+获取仓库路径。
+
+**示例**：
+```go
+path := gm.GetRepoPath()
+fmt.Println("Repository path:", path)
+```
+
+## 类图
+
+```mermaid
+classDiagram
+    class GitManager {
+        -string repoPath
+        +New(repoPath) *GitManager
+        +InitRepo() error
+        +AddFiles(paths) error
+        +Commit(message) error
+        +GetLog(limit) ([]CommitInfo, error)
+        +GetCurrentBranch() (string, error)
+        +IsRepository() bool
+        +GetDiff(commitHash) (string, error)
+        +GetCommitsBetween(from, to) ([]CommitInfo, error)
+        +GetCommitsByGrep(pattern, limit) ([]CommitInfo, error)
+        +GetRepoPath() string
     }
 
-    lines := strings.Split(string(output), "\n")
-    return lines, nil
-}
+    class CommitInfo {
+        +string Hash
+        +string Message
+        +string Author
+        +time.Time Date
+    }
+
+    GitManager --> CommitInfo : returns
 ```
 
 ## 使用示例
 
-### 示例1: 自动初始化 Git
+### 示例 1: 初始化并提交
 ```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/sunquan/rick/internal/git"
+)
+
 func main() {
-    // 首次 doing 时自动初始化
-    err := git.EnsureGitInitialized(".")
-    if err != nil {
-        log.Fatal(err)
+    // 创建 GitManager
+    gm := git.New(".")
+
+    // 检查是否已是 Git 仓库
+    if !gm.IsRepository() {
+        fmt.Println("Initializing Git repository...")
+        if err := gm.InitRepo(); err != nil {
+            log.Fatal(err)
+        }
     }
+
+    // 添加文件
+    err := gm.AddFiles([]string{
+        "README.md",
+        "main.go",
+    })
+    if err != nil {
+        log.Fatal("Failed to add files:", err)
+    }
+
+    // 提交
+    err = gm.Commit("Initial commit")
+    if err != nil {
+        log.Fatal("Failed to commit:", err)
+    }
+
+    fmt.Println("✓ Changes committed successfully")
 }
 ```
 
-### 示例2: 提交代码
+### 示例 2: 查看提交历史
 ```go
-func executeTask(task *Task) error {
-    // 执行任务...
+func printRecentCommits(repoPath string, count int) error {
+    gm := git.New(repoPath)
 
-    // 任务成功，提交代码
-    commitMsg := fmt.Sprintf("feat: 完成 %s", task.TaskName)
-    err := git.Commit(commitMsg)
+    commits, err := gm.GetLog(count)
     if err != nil {
         return err
+    }
+
+    fmt.Printf("Recent %d commits:\n", len(commits))
+    for i, commit := range commits {
+        fmt.Printf("%d. [%s] %s\n",
+            i+1,
+            commit.Hash[:7],
+            commit.Message)
+        fmt.Printf("   Author: %s\n", commit.Author)
+        fmt.Printf("   Date: %s\n\n", commit.Date.Format("2006-01-02 15:04:05"))
     }
 
     return nil
 }
 ```
 
-### 示例3: 检查状态
+### 示例 3: 自动提交任务
 ```go
-func beforeExecute() error {
-    // 检查是否有未提交的变更
-    hasChanges, err := git.HasUncommittedChanges()
+func commitTask(taskID, taskName string) error {
+    gm := git.New(".")
+
+    // 添加所有修改的文件
+    err := gm.AddFiles([]string{"."})
     if err != nil {
-        return err
+        return fmt.Errorf("failed to add files: %w", err)
     }
 
-    if hasChanges {
-        log.Println("[WARN] 存在未提交的变更，请先提交")
-        return errors.New("uncommitted changes")
+    // 生成提交消息
+    message := fmt.Sprintf("feat(%s): %s\n\nCo-Authored-By: Claude Code",
+        taskID, taskName)
+
+    // 提交
+    err = gm.Commit(message)
+    if err != nil {
+        return fmt.Errorf("failed to commit: %w", err)
     }
 
+    fmt.Printf("✓ Task %s committed\n", taskID)
     return nil
 }
 ```
 
-## Git 工作流
+### 示例 4: 搜索特定类型的提交
+```go
+func findFeatureCommits(repoPath string) ([]git.CommitInfo, error) {
+    gm := git.New(repoPath)
 
-### Rick 的 Git 工作流
-```
-1. 首次 doing → 自动 git init
+    // 搜索所有 feat: 开头的提交
+    commits, err := gm.GetCommitsByGrep("^feat:", 50)
+    if err != nil {
+        return nil, err
+    }
 
-2. 执行 task1
-   ├─ 编写代码
-   ├─ 运行测试
-   ├─ 测试通过 → git commit "feat: 完成 task1"
-   └─ 测试失败 → 重试（不提交）
-
-3. 执行 task2
-   ├─ 编写代码
-   ├─ 运行测试
-   ├─ 测试通过 → git commit "feat: 完成 task2"
-   └─ 测试失败 → 重试（不提交）
-
-4. 所有任务完成
-   └─ git log 查看提交历史
+    fmt.Printf("Found %d feature commits\n", len(commits))
+    return commits, nil
+}
 ```
 
-### 提交信息规范
-遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+## 提交消息规范
 
+Rick 采用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+
+### 格式
 ```
-feat: 新功能
-fix: 修复 bug
-test: 添加测试
-docs: 文档更新
-refactor: 重构
-style: 代码格式
-chore: 构建/工具变更
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
 ```
 
-**示例**:
-```
-feat: 完成 task1 - 创建基础设施模块
-fix: 修复 task2 - 解析器依赖解析 bug
-test: 添加 task3 - DAG 执行器单元测试
+### 类型（type）
+- `feat`: 新功能
+- `fix`: 修复 bug
+- `docs`: 文档更新
+- `refactor`: 重构
+- `test`: 测试相关
+- `chore`: 构建/工具相关
+
+### 示例
+```bash
+feat(cmd): implement plan command
+
+Add plan command to generate task breakdown using Claude Code.
+
+Co-Authored-By: Claude Code
 ```
 
 ## 错误处理
 
-### 常见错误
-1. **Git 未安装**: 检查 `git` 命令是否可用
-2. **权限问题**: 检查目录权限
-3. **合并冲突**: 提示用户手动解决
-4. **网络问题**: push/pull 失败时提示
+### 常见错误及解决方案
 
-### 错误处理示例
+1. **未初始化 Git 仓库**
+   ```
+   Error: not a git repository
+   Solution: 调用 InitRepo() 初始化
+   ```
+
+2. **无文件可提交**
+   ```
+   Error: nothing to commit
+   Solution: 确保有文件被添加到暂存区
+   ```
+
+3. **提交消息为空**
+   ```
+   Error: commit message cannot be empty
+   Solution: 提供有效的提交消息
+   ```
+
+4. **Git 命令不可用**
+   ```
+   Error: git command not found
+   Solution: 安装 Git 或确保 Git 在 PATH 中
+   ```
+
+## 设计原则
+
+1. **封装性**：隐藏 Git 命令行细节，提供简洁 API
+2. **错误处理**：所有操作都返回明确的错误信息
+3. **类型安全**：使用 Go 类型系统确保数据正确性
+4. **最小依赖**：仅依赖系统的 Git 命令
+5. **可测试性**：所有函数都易于单元测试
+
+## 测试覆盖
+
+### git_test.go
 ```go
-func Commit(message string) error {
-    err := exec.Command("git", "add", ".").Run()
-    if err != nil {
-        return fmt.Errorf("git add failed: %w", err)
-    }
+func TestNew(t *testing.T)
+func TestInitRepo(t *testing.T)
+func TestAddFiles(t *testing.T)
+func TestCommit(t *testing.T)
+func TestGetLog(t *testing.T)
+func TestGetCurrentBranch(t *testing.T)
+func TestIsRepository(t *testing.T)
+func TestGetDiff(t *testing.T)
+func TestGetCommitsBetween(t *testing.T)
+func TestGetCommitsByGrep(t *testing.T)
+```
 
-    err = exec.Command("git", "commit", "-m", message).Run()
-    if err != nil {
-        // 检查是否因为没有变更而失败
-        if strings.Contains(err.Error(), "nothing to commit") {
-            log.Println("[INFO] 没有需要提交的变更")
-            return nil
-        }
-        return fmt.Errorf("git commit failed: %w", err)
-    }
+### 测试策略
+- 使用临时目录进行测试
+- 测试后清理临时仓库
+- 模拟各种错误场景
+- 验证 Git 命令输出解析
 
-    return nil
+## 扩展点
+
+### 添加更多 Git 操作
+```go
+// 创建分支
+func (gm *GitManager) CreateBranch(name string) error {
+    cmd := exec.Command("git", "branch", name)
+    cmd.Dir = gm.repoPath
+    return cmd.Run()
+}
+
+// 切换分支
+func (gm *GitManager) CheckoutBranch(name string) error {
+    cmd := exec.Command("git", "checkout", name)
+    cmd.Dir = gm.repoPath
+    return cmd.Run()
+}
+
+// 推送到远程
+func (gm *GitManager) Push(remote, branch string) error {
+    cmd := exec.Command("git", "push", remote, branch)
+    cmd.Dir = gm.repoPath
+    return cmd.Run()
 }
 ```
 
-## 测试
+### 自定义提交格式
+```go
+type CommitOptions struct {
+    Type       string   // feat, fix, docs, etc.
+    Scope      string   // module name
+    Subject    string   // short description
+    Body       string   // detailed description
+    CoAuthors  []string // co-authors
+}
 
-### 单元测试
+func (gm *GitManager) CommitWithOptions(opts CommitOptions) error {
+    message := fmt.Sprintf("%s(%s): %s", opts.Type, opts.Scope, opts.Subject)
+    if opts.Body != "" {
+        message += "\n\n" + opts.Body
+    }
+    for _, author := range opts.CoAuthors {
+        message += fmt.Sprintf("\n\nCo-Authored-By: %s", author)
+    }
+    return gm.Commit(message)
+}
+```
+
+## 与其他模块的交互
+
+### executor 模块
+```go
+// executor 在任务成功后自动提交
+gm := git.New(".")
+gm.AddFiles([]string{"."})
+gm.Commit(fmt.Sprintf("feat(%s): %s", taskID, taskName))
+```
+
+### cmd 模块
+```go
+// cmd 在 doing 阶段初始化 Git
+gm := git.New(".")
+if !gm.IsRepository() {
+    gm.InitRepo()
+}
+```
+
+### learning 模块
+```go
+// learning 分析 Git 历史
+gm := git.New(".")
+commits, _ := gm.GetCommitsBetween(startCommit, endCommit)
+// 分析提交记录，生成学习报告
+```
+
+## Git 工作流
+
+### Rick 的 Git 使用模式
+
+```
+1. 首次 doing 时自动初始化 Git
+   ↓
+2. 每个任务成功后自动提交
+   ↓
+3. 提交消息包含任务信息
+   ↓
+4. Learning 阶段分析提交历史
+   ↓
+5. 形成清晰的开发历史
+```
+
+### 提交历史示例
 ```bash
-go test ./internal/git/
+$ git log --oneline
+abc1234 feat(task7): 创建完整的 Wiki 知识库
+def5678 feat(task6): 生成验证脚本并执行验证
+ghi9012 feat(task5): 提取可复用技能到 Skills 库
+jkl3456 feat(task4): 编写核心模块文档
+mno7890 feat(task3): 创建项目架构文档
+pqr1234 feat(task2): 创建 Wiki 目录结构
+stu5678 feat(task1): 编写完整的 OKR 和 SPEC 文档
 ```
 
-### 测试用例
-```go
-func TestEnsureGitInitialized(t *testing.T) {
-    tmpDir, _ := os.MkdirTemp("", "test")
-    defer os.RemoveAll(tmpDir)
+## 性能考虑
 
-    err := EnsureGitInitialized(tmpDir)
-    if err != nil {
-        t.Fatal(err)
-    }
+### 当前实现
+- 每次操作都执行独立的 Git 命令
+- 适用于中小型项目
+- 简单可靠，易于调试
 
-    // 验证 .git/ 目录存在
-    gitDir := filepath.Join(tmpDir, ".git")
-    if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-        t.Error(".git directory should exist")
-    }
-}
+### 优化方向
+1. **批量操作**：合并多个 Git 命令
+2. **缓存**：缓存分支名称等不常变化的信息
+3. **异步提交**：后台执行 Git 操作
 
-func TestCommit(t *testing.T) {
-    // 创建测试仓库
-    tmpDir, _ := os.MkdirTemp("", "test")
-    defer os.RemoveAll(tmpDir)
+## 安全性
 
-    EnsureGitInitialized(tmpDir)
+### 最佳实践
+1. **验证路径**：确保 repoPath 是有效的目录
+2. **错误处理**：所有 Git 操作都检查错误
+3. **消息清理**：提交消息中的特殊字符需要转义
+4. **权限检查**：确保有写权限
 
-    // 创建测试文件
-    os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("test"), 0644)
-
-    // 提交
-    err := Commit("test commit")
-    if err != nil {
-        t.Fatal(err)
-    }
-
-    // 验证提交
-    log, _ := GetLog(1)
-    if !strings.Contains(log[0], "test commit") {
-        t.Error("commit message should contain 'test commit'")
-    }
-}
-```
-
-## 最佳实践
-
-1. **提交粒度**: 每个 task 完成后立即提交，避免大量变更
-2. **提交信息**: 使用清晰的提交信息，包含 task 名称
-3. **错误处理**: 提交失败时记录详细错误信息
-4. **状态检查**: 执行前检查 Git 状态，避免冲突
-
-## 常见问题
-
-### Q1: 如何回滚到上一个提交？
-**A**: `git reset --hard HEAD~1`
-
-### Q2: 如何查看特定 task 的提交？
-**A**: 使用 `GetLogForJob(jobID)` 函数。
-
-### Q3: 如何处理合并冲突？
-**A**: Rick 不自动处理合并冲突，需要人工解决。
-
-## 未来优化
-
-1. **Git Hooks**: 支持 pre-commit、post-commit hooks
-2. **分支策略**: 支持为每个 job 创建独立分支
-3. **远程仓库**: 支持自动 push 到远程仓库
-4. **冲突检测**: 自动检测合并冲突并提示
-
----
-
-*最后更新: 2026-03-14*
+### 避免的操作
+- 不执行 `git reset --hard`（数据丢失风险）
+- 不执行 `git push --force`（覆盖远程历史）
+- 不自动删除分支或标签

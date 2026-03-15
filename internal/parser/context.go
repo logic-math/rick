@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -12,7 +11,8 @@ type ContextInfo struct {
 	Specifications  []string // 开发规范
 }
 
-// ParseOKR parses OKR.md content and returns ContextInfo with objectives and key results
+// ParseOKR parses OKR.md content and returns ContextInfo with full content
+// Changed: Now returns the complete OKR content instead of just extracting list items
 func ParseOKR(content string) (*ContextInfo, error) {
 	if content == "" {
 		return &ContextInfo{
@@ -23,24 +23,16 @@ func ParseOKR(content string) (*ContextInfo, error) {
 
 	info := &ContextInfo{}
 
-	// Extract objectives
-	objectives, err := ExtractObjectives(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract objectives: %w", err)
-	}
-	info.Objectives = objectives
-
-	// Extract key results
-	keyResults, err := ExtractKeyResults(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract key results: %w", err)
-	}
-	info.KeyResults = keyResults
+	// Return the full OKR content as a single string
+	// This ensures all context is preserved for the LLM
+	info.Objectives = []string{content}
+	info.KeyResults = []string{} // Not used anymore, kept for compatibility
 
 	return info, nil
 }
 
-// ParseSPEC parses SPEC.md content and returns ContextInfo with specifications
+// ParseSPEC parses SPEC.md content and returns ContextInfo with full content
+// Changed: Now returns the complete SPEC content instead of just extracting list items
 func ParseSPEC(content string) (*ContextInfo, error) {
 	if content == "" {
 		return &ContextInfo{
@@ -50,12 +42,9 @@ func ParseSPEC(content string) (*ContextInfo, error) {
 
 	info := &ContextInfo{}
 
-	// Extract specifications
-	specs, err := ExtractSpecifications(content)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract specifications: %w", err)
-	}
-	info.Specifications = specs
+	// Return the full SPEC content as a single string
+	// This ensures all context is preserved for the LLM
+	info.Specifications = []string{content}
 
 	return info, nil
 }

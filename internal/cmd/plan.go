@@ -130,21 +130,23 @@ func executePlanWorkflow(requirement string) error {
 
 	promptMgr := prompt.NewPromptManager(templateDir)
 
-	planPrompt, err := prompt.GeneratePlanPrompt(requirement, contextMgr, promptMgr)
+	// Generate plan prompt and save to temporary file
+	planPromptFile, err := prompt.GeneratePlanPromptFile(requirement, contextMgr, promptMgr)
 	if err != nil {
 		return fmt.Errorf("failed to generate plan prompt: %w", err)
 	}
+	defer os.Remove(planPromptFile) // Clean up temporary file
 
 	if GetVerbose() {
-		fmt.Println("[INFO] Planning prompt generated")
+		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	// Step 3: Call Claude Code CLI with planning prompt (interactive mode)
+	// Step 3: Call Claude Code CLI with planning prompt file (interactive mode)
 	if GetVerbose() {
 		fmt.Println("[INFO] Calling Claude Code CLI for planning...")
 	}
 
-	if err := callClaudeCodeCLI(cfg, planPrompt); err != nil {
+	if err := callClaudeCodeCLI(cfg, planPromptFile); err != nil {
 		return fmt.Errorf("failed to call Claude Code CLI: %w", err)
 	}
 
@@ -163,44 +165,29 @@ func generateJobID() string {
 }
 
 // callClaudeCodeCLI calls Claude Code CLI in interactive mode
-func callClaudeCodeCLI(cfg *config.Config, prompt string) error {
+// promptFile is the path to the prompt file to be loaded by Claude
+func callClaudeCodeCLI(cfg *config.Config, promptFile string) error {
 	// Get Claude CLI path from config
 	claudePath := cfg.ClaudeCodePath
 	if claudePath == "" {
 		claudePath = "claude"
 	}
 
-	// Call Claude Code CLI in interactive mode
-	// Pass prompt via stdin for interactive session
-	cmd := exec.Command(claudePath, "--permission-mode", "plan")
+	// Call Claude Code CLI in interactive mode with prompt file
+	// Claude will load the prompt from the file
+	cmd := exec.Command(claudePath, promptFile)
 
-	// Create pipe for stdin
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	// Connect stdout and stderr to terminal
+	// Connect stdin, stdout and stderr to terminal for interactive session
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if GetVerbose() {
-		fmt.Printf("[INFO] Executing: %s --permission-mode plan\n", claudePath)
+		fmt.Printf("[INFO] Executing: %s %s\n", claudePath, promptFile)
 	}
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start Claude Code CLI: %w", err)
-	}
-
-	// Write prompt to stdin
-	if _, err := stdin.Write([]byte(prompt)); err != nil {
-		return fmt.Errorf("failed to write prompt: %w", err)
-	}
-	stdin.Close()
-
-	// Wait for completion
-	if err := cmd.Wait(); err != nil {
+	// Run the command
+	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Claude Code CLI failed: %w", err)
 	}
 

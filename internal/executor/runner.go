@@ -2,6 +2,7 @@ package executor
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,9 +35,16 @@ func NewTaskRunner(config *ExecutionConfig) *TaskRunner {
 	}
 }
 
-// RunTask executes a single task
-// It generates a doing prompt, calls Claude Code CLI, generates test script, and validates
-func (tr *TaskRunner) RunTask(task *parser.Task) (*TaskExecutionResult, error) {
+// TestResult represents the JSON result from a test script
+type TestResult struct {
+	Pass   bool     `json:"pass"`
+	Errors []string `json:"errors"`
+}
+
+// RunTask executes a single task following the new workflow:
+// 1. Generate test script using Agent (test generation phase)
+// 2. Enter execution loop: execute task -> run test -> retry if failed
+func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string) (*TaskExecutionResult, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task cannot be nil")
 	}
@@ -48,17 +56,31 @@ func (tr *TaskRunner) RunTask(task *parser.Task) (*TaskExecutionResult, error) {
 		StartTime: time.Now(),
 	}
 
-	// Step 1: Generate doing prompt
-	doingPrompt, err := tr.GenerateDoingPrompt(task)
+	// Step 1: Generate test script using Agent (test generation phase)
+	testScriptPath, err := tr.GenerateTestWithAgent(task)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("failed to generate test script: %v", err)
+		result.EndTime = time.Now()
+		return result, nil
+	}
+	defer os.Remove(testScriptPath)
+
+	// Step 2: Execution loop - keep trying until test passes
+	// This implements: while not pass: execute -> test -> retry
+	var lastOutput string
+
+	// Execute once and test
+	doingPromptFile, err := tr.GenerateDoingPromptFile(task, debugContext)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("failed to generate doing prompt: %v", err)
 		result.EndTime = time.Now()
 		return result, nil
 	}
+	defer os.Remove(doingPromptFile) // Clean up temporary file
 
-	// Step 2: Call Claude Code CLI to execute the task
-	claudeOutput, err := tr.CallClaudeCodeCLI(doingPrompt)
+	claudeOutput, err := tr.CallClaudeCodeCLI(doingPromptFile)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("Claude Code CLI failed: %v", err)
@@ -67,18 +89,10 @@ func (tr *TaskRunner) RunTask(task *parser.Task) (*TaskExecutionResult, error) {
 		return result, nil
 	}
 
-	// Step 3: Generate test script based on task.TestMethod
-	scriptPath, err := tr.GenerateTestScript(task)
-	if err != nil {
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("failed to generate test script: %v", err)
-		result.EndTime = time.Now()
-		return result, nil
-	}
-	defer os.Remove(scriptPath)
+	lastOutput = claudeOutput
 
-	// Step 4: Execute test script
-	testOutput, err := tr.ExecuteTestScript(scriptPath)
+	// Run test to validate
+	testResult, testOutput, err := tr.ExecuteTestScript(testScriptPath)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("test execution failed: %v", err)
@@ -87,31 +101,154 @@ func (tr *TaskRunner) RunTask(task *parser.Task) (*TaskExecutionResult, error) {
 		return result, nil
 	}
 
-	// Step 5: Parse test result
-	success, parseErr := tr.ParseTestResult(testOutput)
-	if parseErr != nil {
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("failed to parse test result: %v", parseErr)
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", claudeOutput, testOutput)
-		result.EndTime = time.Now()
-		return result, nil
-	}
-
-	if success {
+	// Check if test passed
+	if testResult.Pass {
 		result.Status = "success"
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", claudeOutput, testOutput)
+		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 	} else {
 		result.Status = "failed"
-		result.Error = "test did not pass"
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", claudeOutput, testOutput)
+		result.Error = fmt.Sprintf("test did not pass: %s", strings.Join(testResult.Errors, "; "))
+		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 	}
 
 	result.EndTime = time.Now()
 	return result, nil
 }
 
-// GenerateDoingPrompt generates the doing prompt for Claude Code CLI
-func (tr *TaskRunner) GenerateDoingPrompt(task *parser.Task) (string, error) {
+// GenerateTestWithAgent generates a Python test script using Claude Agent
+// This is the "test generation phase" in the workflow
+func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
+	if task == nil {
+		return "", fmt.Errorf("task cannot be nil")
+	}
+
+	// Create tests directory if it doesn't exist
+	testsDir := filepath.Join(tr.config.WorkspaceDir, "tests")
+	if err := os.MkdirAll(testsDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create tests directory: %w", err)
+	}
+
+	testScriptPath := filepath.Join(testsDir, fmt.Sprintf("%s.py", task.ID))
+
+	// Create test prompt file
+	testPromptFile, err := tr.buildTestGenerationPromptFile(task, testScriptPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to build test prompt: %w", err)
+	}
+	defer os.Remove(testPromptFile) // Clean up temporary file
+
+	// Call Claude to generate the test script
+	claudePath := tr.config.ClaudeCodePath
+	if claudePath == "" {
+		claudePath = "claude"
+	}
+
+	// Create command to generate test
+	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", testPromptFile)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Wait with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Run()
+	}()
+
+	timeout := 300 * time.Second // 5 minutes for test generation
+	select {
+	case err := <-done:
+		if err != nil {
+			output := stdout.String()
+			if stderr.String() != "" {
+				output += "\n\nSTDERR:\n" + stderr.String()
+			}
+			return "", fmt.Errorf("test generation failed: %w\nOutput: %s", err, output)
+		}
+	case <-time.After(timeout):
+		cmd.Process.Kill()
+		return "", fmt.Errorf("test generation timeout after %v", timeout)
+	}
+
+	// Verify test script was created
+	if _, err := os.Stat(testScriptPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("test script was not created at %s", testScriptPath)
+	}
+
+	return testScriptPath, nil
+}
+
+// buildTestGenerationPromptFile builds a prompt file for Claude to generate a Python test script
+func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string) (string, error) {
+	var prompt strings.Builder
+	prompt.WriteString("# Test Generation Task\n\n")
+	prompt.WriteString("You need to generate a Python test script based on the task's test method.\n\n")
+	prompt.WriteString("## Task Information\n\n")
+	prompt.WriteString(fmt.Sprintf("**Task ID**: %s\n", task.ID))
+	prompt.WriteString(fmt.Sprintf("**Task Name**: %s\n", task.Name))
+	prompt.WriteString(fmt.Sprintf("**Task Goal**: %s\n\n", task.Goal))
+
+	prompt.WriteString("## Test Method\n\n")
+	prompt.WriteString(task.TestMethod)
+	prompt.WriteString("\n\n")
+
+	prompt.WriteString("## Requirements\n\n")
+	prompt.WriteString(fmt.Sprintf("1. Create a Python test script at: `%s`\n", testScriptPath))
+	prompt.WriteString("2. The script MUST return a JSON result in this format:\n")
+	prompt.WriteString("   ```json\n")
+	prompt.WriteString("   {\"pass\": true/false, \"errors\": [\"error1\", \"error2\"]}\n")
+	prompt.WriteString("   ```\n")
+	prompt.WriteString("3. Implement each test step from the test method above\n")
+	prompt.WriteString("4. The script should be executable with: `python3 " + testScriptPath + "`\n")
+	prompt.WriteString("5. Make sure to handle errors gracefully and report them in the errors array\n")
+	prompt.WriteString("6. Use absolute paths when checking files\n\n")
+
+	prompt.WriteString("## Example Test Script Structure\n\n")
+	prompt.WriteString("```python\n")
+	prompt.WriteString("#!/usr/bin/env python3\n")
+	prompt.WriteString("import json\n")
+	prompt.WriteString("import sys\n")
+	prompt.WriteString("import os\n\n")
+	prompt.WriteString("def main():\n")
+	prompt.WriteString("    errors = []\n")
+	prompt.WriteString("    \n")
+	prompt.WriteString("    # Test step 1\n")
+	prompt.WriteString("    if not os.path.exists('file.txt'):\n")
+	prompt.WriteString("        errors.append('file.txt does not exist')\n")
+	prompt.WriteString("    \n")
+	prompt.WriteString("    # Test step 2\n")
+	prompt.WriteString("    # ...\n")
+	prompt.WriteString("    \n")
+	prompt.WriteString("    result = {\n")
+	prompt.WriteString("        'pass': len(errors) == 0,\n")
+	prompt.WriteString("        'errors': errors\n")
+	prompt.WriteString("    }\n")
+	prompt.WriteString("    print(json.dumps(result))\n")
+	prompt.WriteString("    sys.exit(0 if result['pass'] else 1)\n\n")
+	prompt.WriteString("if __name__ == '__main__':\n")
+	prompt.WriteString("    main()\n")
+	prompt.WriteString("```\n\n")
+
+	prompt.WriteString("Please generate the test script now. Do NOT execute the task itself, ONLY generate the test script.\n")
+
+	// Create temporary file
+	tmpFile, err := os.CreateTemp("", fmt.Sprintf("rick-test-gen-%s-*.md", task.ID))
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	if _, err := tmpFile.WriteString(prompt.String()); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write prompt to file: %w", err)
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// GenerateDoingPromptFile generates the doing prompt file for Claude Code CLI
+func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
 	}
@@ -140,20 +277,40 @@ func (tr *TaskRunner) GenerateDoingPrompt(task *parser.Task) (string, error) {
 	// Create prompt manager (use embedded templates)
 	promptMgr := prompt.NewPromptManager("")
 
-	// Generate doing prompt
-	doingPrompt, err := prompt.GenerateDoingPrompt(task, 0, contextMgr, promptMgr)
+	// Generate doing prompt file
+	doingPromptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate doing prompt: %w", err)
 	}
 
-	return doingPrompt, nil
+	// Append debug context if available
+	if debugContext != "" {
+		// Read existing content
+		content, err := os.ReadFile(doingPromptFile)
+		if err != nil {
+			os.Remove(doingPromptFile)
+			return "", fmt.Errorf("failed to read prompt file: %w", err)
+		}
+
+		// Append debug context
+		debugSection := "\n\n## Previous Debugging Context\n\n" + debugContext +
+			"\n\nPlease review the debugging context above and avoid the same mistakes.\n"
+
+		// Write back
+		if err := os.WriteFile(doingPromptFile, append(content, []byte(debugSection)...), 0644); err != nil {
+			os.Remove(doingPromptFile)
+			return "", fmt.Errorf("failed to append debug context: %w", err)
+		}
+	}
+
+	return doingPromptFile, nil
 }
 
 // CallClaudeCodeCLI calls Claude Code CLI in non-interactive mode
-// Uses pipe + --dangerously-skip-permissions for automation
-func (tr *TaskRunner) CallClaudeCodeCLI(promptContent string) (string, error) {
-	if promptContent == "" {
-		return "", fmt.Errorf("prompt content cannot be empty")
+// promptFile is the path to the prompt file to be loaded by Claude
+func (tr *TaskRunner) CallClaudeCodeCLI(promptFile string) (string, error) {
+	if promptFile == "" {
+		return "", fmt.Errorf("prompt file cannot be empty")
 	}
 
 	// Get Claude CLI path
@@ -162,36 +319,18 @@ func (tr *TaskRunner) CallClaudeCodeCLI(promptContent string) (string, error) {
 		claudePath = "claude"
 	}
 
-	// Create command: echo prompt | claude --dangerously-skip-permissions
-	cmd := exec.Command(claudePath, "--dangerously-skip-permissions")
-
-	// Create pipe for stdin
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
+	// Create command: claude --dangerously-skip-permissions <promptFile>
+	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", promptFile)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Start command
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start Claude Code CLI: %w", err)
-	}
-
-	// Write prompt to stdin
-	if _, err := stdin.Write([]byte(promptContent)); err != nil {
-		stdin.Close()
-		return "", fmt.Errorf("failed to write prompt: %w", err)
-	}
-	stdin.Close()
-
 	// Wait for completion with timeout
 	done := make(chan error, 1)
 	go func() {
-		done <- cmd.Wait()
+		done <- cmd.Run()
 	}()
 
 	timeout := time.Duration(tr.config.TimeoutSeconds) * time.Second
@@ -215,102 +354,20 @@ func (tr *TaskRunner) CallClaudeCodeCLI(promptContent string) (string, error) {
 	}
 }
 
-// GenerateTestScript generates a shell script for testing the task
-// The script is created in a temporary location and should be executed
-func (tr *TaskRunner) GenerateTestScript(task *parser.Task) (string, error) {
-	if task == nil {
-		return "", fmt.Errorf("task cannot be nil")
-	}
-
-	// Create a temporary script file
-	tmpDir := os.TempDir()
-	scriptPath := filepath.Join(tmpDir, fmt.Sprintf("test_%s_%d.sh", task.ID, time.Now().UnixNano()))
-
-	// Build the test script content
-	var scriptContent strings.Builder
-	scriptContent.WriteString("#!/bin/bash\n")
-	scriptContent.WriteString("set -e\n\n")
-
-	// Add task information as comments
-	scriptContent.WriteString(fmt.Sprintf("# Test script for task: %s\n", task.Name))
-	scriptContent.WriteString(fmt.Sprintf("# Task ID: %s\n", task.ID))
-	scriptContent.WriteString(fmt.Sprintf("# Goal: %s\n", task.Goal))
-	scriptContent.WriteString("\n")
-
-	// Add test method steps as actual executable commands
-	if task.TestMethod != "" {
-		scriptContent.WriteString("# Execute test steps:\n")
-		scriptContent.WriteString("TEST_PASSED=true\n\n")
-
-		lines := strings.Split(task.TestMethod, "\n")
-		stepNum := 0
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-
-			// Extract the test step (remove list markers)
-			step := trimmed
-			if strings.HasPrefix(step, "- ") {
-				step = strings.TrimPrefix(step, "- ")
-			} else if strings.HasPrefix(step, "* ") {
-				step = strings.TrimPrefix(step, "* ")
-			} else if len(step) > 0 && step[0] >= '0' && step[0] <= '9' {
-				// Handle numbered lists
-				parts := strings.SplitN(step, ". ", 2)
-				if len(parts) == 2 {
-					step = parts[1]
-				}
-			}
-
-			stepNum++
-			scriptContent.WriteString(fmt.Sprintf("# Step %d: %s\n", stepNum, step))
-
-			// Try to convert test step description to executable command
-			// This is a simple heuristic - in practice, Claude should generate proper test scripts
-			cmd := tr.convertTestStepToCommand(step)
-			scriptContent.WriteString(fmt.Sprintf("echo \"Executing step %d: %s\"\n", stepNum, step))
-			scriptContent.WriteString(cmd + " || TEST_PASSED=false\n\n")
-		}
-
-		// Final status check
-		scriptContent.WriteString("if [ \"$TEST_PASSED\" = true ]; then\n")
-		scriptContent.WriteString("  echo \"Status: PASS\"\n")
-		scriptContent.WriteString("  exit 0\n")
-		scriptContent.WriteString("else\n")
-		scriptContent.WriteString("  echo \"Status: FAIL\"\n")
-		scriptContent.WriteString("  exit 1\n")
-		scriptContent.WriteString("fi\n")
-	} else {
-		// No test method specified - assume success if we got here
-		scriptContent.WriteString("echo \"No test method specified, assuming success\"\n")
-		scriptContent.WriteString("echo \"Status: PASS\"\n")
-	}
-
-	// Write the script to file
-	err := os.WriteFile(scriptPath, []byte(scriptContent.String()), 0755)
-	if err != nil {
-		return "", fmt.Errorf("failed to write script file: %w", err)
-	}
-
-	return scriptPath, nil
-}
-
-// ExecuteTestScript executes a test script with timeout control
-// Returns the script output and any error that occurred
-func (tr *TaskRunner) ExecuteTestScript(scriptPath string) (string, error) {
+// ExecuteTestScript executes a Python test script and parses JSON result
+// Returns TestResult, raw output, and any error
+func (tr *TaskRunner) ExecuteTestScript(scriptPath string) (*TestResult, string, error) {
 	if scriptPath == "" {
-		return "", fmt.Errorf("script path cannot be empty")
+		return nil, "", fmt.Errorf("script path cannot be empty")
 	}
 
 	// Verify script exists
 	if _, err := os.Stat(scriptPath); err != nil {
-		return "", fmt.Errorf("script file not found: %w", err)
+		return nil, "", fmt.Errorf("script file not found: %w", err)
 	}
 
 	// Create command with timeout
-	cmd := exec.Command("bash", scriptPath)
+	cmd := exec.Command("python3", scriptPath)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
@@ -331,101 +388,50 @@ func (tr *TaskRunner) ExecuteTestScript(scriptPath string) (string, error) {
 
 	select {
 	case err := <-done:
-		if err != nil {
-			output := stdout.String()
-			if stderr.String() != "" {
-				output += "\nSTDERR:\n" + stderr.String()
-			}
-			return output, fmt.Errorf("script execution failed: %w", err)
+		output := stdout.String()
+		if stderr.String() != "" {
+			output += "\nSTDERR:\n" + stderr.String()
 		}
-		return stdout.String(), nil
+
+		// Parse JSON result from stdout
+		testResult, parseErr := tr.parseTestResult(stdout.String())
+		if parseErr != nil {
+			return nil, output, fmt.Errorf("failed to parse test result: %w\nOutput: %s", parseErr, output)
+		}
+
+		// If script exited with error but we got valid JSON, use JSON result
+		if err != nil && testResult == nil {
+			return nil, output, fmt.Errorf("script execution failed: %w", err)
+		}
+
+		return testResult, output, nil
+
 	case <-time.After(timeout):
 		cmd.Process.Kill()
-		return stdout.String(), fmt.Errorf("script execution timeout after %d seconds", tr.config.TimeoutSeconds)
+		return nil, stdout.String(), fmt.Errorf("script execution timeout after %d seconds", tr.config.TimeoutSeconds)
 	}
 }
 
-// convertTestStepToCommand converts a test step description to an executable command
-// This is a simple heuristic - ideally Claude should generate proper test scripts
-func (tr *TaskRunner) convertTestStepToCommand(step string) string {
-	lowerStep := strings.ToLower(step)
-
-	// Check for common test patterns
-	if strings.Contains(lowerStep, "验证") || strings.Contains(lowerStep, "检查") || strings.Contains(lowerStep, "确认") {
-		// File existence checks
-		if strings.Contains(lowerStep, "文件") && strings.Contains(lowerStep, "存在") {
-			// Extract file path if possible
-			if strings.Contains(step, ".") {
-				return "test -f " + extractFilePath(step) + " && echo 'File exists'"
-			}
-		}
-		// Directory checks
-		if strings.Contains(lowerStep, "目录") && strings.Contains(lowerStep, "存在") {
-			return "test -d " + extractFilePath(step) + " && echo 'Directory exists'"
-		}
-		// Content checks
-		if strings.Contains(lowerStep, "包含") || strings.Contains(lowerStep, "内容") {
-			return "echo 'Content check - manual verification needed'"
-		}
-	}
-
-	// Run commands
-	if strings.Contains(lowerStep, "运行") || strings.Contains(lowerStep, "执行") {
-		if strings.Contains(lowerStep, "测试") {
-			return "echo 'Running tests' && true"  // Placeholder
-		}
-		if strings.Contains(lowerStep, "编译") || strings.Contains(lowerStep, "build") {
-			return "echo 'Build check' && true"
-		}
-	}
-
-	// Default: just echo the step as completed
-	return "echo 'Step completed: " + strings.ReplaceAll(step, "'", "\\'") + "'"
-}
-
-// extractFilePath attempts to extract a file path from a test step description
-func extractFilePath(step string) string {
-	// Simple heuristic: look for patterns like .rick/file.md or /path/to/file
-	words := strings.Fields(step)
-	for _, word := range words {
-		if strings.Contains(word, "/") || strings.Contains(word, ".") {
-			// Clean up quotes and punctuation
-			word = strings.Trim(word, "`,\"':;。，")
-			return word
-		}
-	}
-	return "."
-}
-
-// ParseTestResult parses the output of a test script
-// Returns true if the test passed, false otherwise
-func (tr *TaskRunner) ParseTestResult(output string) (bool, error) {
+// parseTestResult parses JSON test result from script output
+func (tr *TaskRunner) parseTestResult(output string) (*TestResult, error) {
 	if output == "" {
-		return false, fmt.Errorf("test output is empty")
+		return nil, fmt.Errorf("test output is empty")
 	}
 
-	// Look for success indicators in the output
+	// Try to find JSON in the output
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "Status: PASS") {
-			return true, nil
-		}
-		if strings.Contains(trimmed, "PASS") && !strings.Contains(trimmed, "FAIL") {
-			return true, nil
-		}
-	}
-
-	// Check for failure indicators
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.Contains(trimmed, "FAIL") || strings.Contains(trimmed, "ERROR") {
-			return false, nil
+		if strings.HasPrefix(trimmed, "{") {
+			// Try to parse as JSON
+			var result TestResult
+			if err := json.Unmarshal([]byte(trimmed), &result); err == nil {
+				return &result, nil
+			}
 		}
 	}
 
-	// If no explicit status found, consider it a pass if output is present
-	return true, nil
+	return nil, fmt.Errorf("no valid JSON result found in output")
 }
 
 // TaskExecutionResult represents the result of a task execution

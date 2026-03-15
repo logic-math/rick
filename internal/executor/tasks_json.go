@@ -11,11 +11,13 @@ import (
 type TaskState struct {
 	TaskID      string    `json:"task_id"`
 	TaskName    string    `json:"task_name"`
+	TaskFile    string    `json:"task_file,omitempty"` // task.md filename
 	Status      string    `json:"status"` // pending, running, success, failed, retrying
 	Dependencies []string `json:"dependencies"`
 	Attempts    int       `json:"attempts"`
 	Error       string    `json:"error,omitempty"`
 	Output      string    `json:"output,omitempty"`
+	CommitHash  string    `json:"commit_hash,omitempty"` // Git commit hash when task completed
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -284,4 +286,38 @@ func (tj *TasksJSON) IsAllCompleted() bool {
 // IsAnyFailed checks if any task has failed
 func (tj *TasksJSON) IsAnyFailed() bool {
 	return tj.GetFailedCount() > 0
+}
+
+// UpdateTaskCommit updates the commit hash for a task
+func (tj *TasksJSON) UpdateTaskCommit(taskID, commitHash string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID cannot be empty")
+	}
+
+	taskState, exists := tj.taskMap[taskID]
+	if !exists {
+		return fmt.Errorf("task '%s' not found", taskID)
+	}
+
+	taskState.CommitHash = commitHash
+	taskState.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// UpdateTaskFile updates the task file name for a task
+func (tj *TasksJSON) UpdateTaskFile(taskID, taskFile string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID cannot be empty")
+	}
+
+	taskState, exists := tj.taskMap[taskID]
+	if !exists {
+		return fmt.Errorf("task '%s' not found", taskID)
+	}
+
+	taskState.TaskFile = taskFile
+	taskState.UpdatedAt = time.Now()
+
+	return nil
 }

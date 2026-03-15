@@ -1,613 +1,602 @@
-# Config 模块详解
+# config - 配置管理模块
 
-> 配置管理模块 - 全局配置加载、验证和持久化
+## 模块职责
 
-## 📋 模块概述
+`config` 模块负责管理 Rick CLI 的全局配置，包括配置文件的加载、验证、默认值设置和配置项的访问。该模块提供了简单而强大的配置管理机制，支持 JSON 格式的配置文件，确保 Rick 能够根据用户的环境和偏好进行定制化运行。
 
-Config 模块负责管理 Rick CLI 的全局配置，包括配置文件的加载、验证、保存和默认值管理。该模块遵循"简化设计"原则，仅使用一个全局配置文件 `~/.rick/config.json`。
+**核心职责**：
+- 定义配置结构和默认值
+- 加载和解析配置文件（~/.rick/config.json）
+- 验证配置项的有效性
+- 提供配置访问接口
+- 支持配置的保存和更新
 
-### 功能职责
-- 加载和解析配置文件
-- 提供默认配置
-- 配置验证
-- 配置持久化
-- 支持生产版和开发版隔离
+## 核心类型
 
-### 模块位置
-```
-internal/config/
-├── config.go       # 配置结构定义
-└── loader.go       # 配置加载和保存
-```
-
----
-
-## 🏗️ 核心类型和接口
-
-### Config 结构
+### Config
+全局配置结构体。
 
 ```go
 type Config struct {
-    MaxRetries       int    `json:"max_retries"`       // 任务最大重试次数
-    ClaudeCodePath   string `json:"claude_code_path"`  // Claude Code CLI 路径
-    DefaultWorkspace string `json:"default_workspace"` // 默认工作空间路径
+    MaxRetries       int        `json:"max_retries"`        // 最大重试次数
+    ClaudeCodePath   string     `json:"claude_code_path"`   // Claude Code CLI 路径
+    DefaultWorkspace string     `json:"default_workspace"`  // 默认工作空间
+    Git              GitConfig  `json:"git"`                // Git 配置
 }
 ```
 
-**字段说明**：
+### GitConfig
+Git 相关配置。
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `MaxRetries` | `int` | `5` | 任务执行失败时的最大重试次数 |
-| `ClaudeCodePath` | `string` | `""` (空) | Claude Code CLI 的完整路径，空则使用 `claude` |
-| `DefaultWorkspace` | `string` | `~/.rick` | 默认工作空间目录 |
+```go
+type GitConfig struct {
+    UserName  string `json:"user_name"`   // Git 用户名
+    UserEmail string `json:"user_email"`  // Git 邮箱
+}
+```
 
----
+## 关键函数
 
-## 🔧 主要函数说明
+### Load() (*Config, error)
+从默认位置加载配置文件。
 
-### 1. 配置路径管理
+**配置文件路径**：`~/.rick/config.json`
 
-#### `GetConfigPath() (string, error)`
-
-获取配置文件路径。
-
-**行为**：
-- 生产版：`~/.rick/config.json`
-- 开发版：`~/.rick_dev/config.json`
-
-**自动检测**：
-根据二进制文件名自动选择配置目录：
-- `rick` → `~/.rick/`
-- `rick_dev` → `~/.rick_dev/`
+**返回**：
+- `*Config`: 配置对象
+- `error`: 加载失败时的错误信息
 
 **示例**：
 ```go
-configPath, err := config.GetConfigPath()
+config, err := config.Load()
+if err != nil {
+    log.Fatal("Failed to load config:", err)
+}
+
+fmt.Printf("Max retries: %d\n", config.MaxRetries)
+```
+
+### LoadFrom(path string) (*Config, error)
+从指定路径加载配置文件。
+
+**参数**：
+- `path`: 配置文件路径
+
+**示例**：
+```go
+config, err := config.LoadFrom("/custom/path/config.json")
 if err != nil {
     log.Fatal(err)
 }
-fmt.Println("Config path:", configPath)
-// 输出: Config path: /Users/username/.rick/config.json
 ```
 
-**实现细节**：
+### LoadOrDefault() *Config
+加载配置，如果失败则返回默认配置。
+
+**不会返回错误，保证总能获取可用配置**。
+
+**示例**：
 ```go
-func getConfigPath() (string, error) {
-    home, err := os.UserHomeDir()
-    if err != nil {
-        return "", fmt.Errorf("failed to get home directory: %w", err)
-    }
-
-    // 根据二进制名称确定目录
-    binaryPath := os.Args[0]
-    binaryName := filepath.Base(binaryPath)
-    rickDirName := ".rick"
-    if strings.HasSuffix(binaryName, "_dev") {
-        rickDirName = ".rick_dev"
-    }
-
-    return filepath.Join(home, rickDirName, "config.json"), nil
-}
+config := config.LoadOrDefault()
+// 总是返回有效配置
 ```
 
-### 2. 默认配置
-
-#### `GetDefaultConfig() *Config`
-
+### Default() *Config
 返回默认配置。
 
 **默认值**：
 ```go
-{
+Config{
     MaxRetries:       5,
-    ClaudeCodePath:   "",
-    DefaultWorkspace: "~/.rick" // 或 ~/.rick_dev
+    ClaudeCodePath:   "claude",
+    DefaultWorkspace: ".rick",
+    Git: GitConfig{
+        UserName:  "",
+        UserEmail: "",
+    },
 }
 ```
 
-**使用场景**：
-- 配置文件不存在时
-- 初始化新安装时
-- 测试时提供基准配置
+**示例**：
+```go
+config := config.Default()
+```
+
+### Save(path string) error
+保存配置到指定路径。
+
+**参数**：
+- `path`: 配置文件保存路径
 
 **示例**：
 ```go
-defaultCfg := config.GetDefaultConfig()
-fmt.Printf("Max retries: %d\n", defaultCfg.MaxRetries)
-// 输出: Max retries: 5
-```
+config := &config.Config{
+    MaxRetries:     10,
+    ClaudeCodePath: "/usr/local/bin/claude",
+}
 
-### 3. 配置加载
-
-#### `LoadConfig() (*Config, error)`
-
-加载配置文件。
-
-**加载逻辑**：
-```
-1. 获取配置文件路径
-   └─> GetConfigPath()
-
-2. 检查文件是否存在
-   ├─> 存在: 读取并解析 JSON
-   └─> 不存在: 返回默认配置
-
-3. 解析 JSON 到 Config 结构
-   └─> json.Unmarshal()
-
-4. 返回配置对象
-```
-
-**错误处理**：
-- 无法获取 Home 目录
-- 文件读取失败
-- JSON 解析失败
-
-**示例**：
-```go
-cfg, err := config.LoadConfig()
+err := config.Save("~/.rick/config.json")
 if err != nil {
-    log.Fatalf("Failed to load config: %v", err)
+    log.Fatal(err)
 }
-
-fmt.Printf("Loaded config: MaxRetries=%d\n", cfg.MaxRetries)
 ```
 
-**完整示例（带错误处理）**：
+### Validate() error
+验证配置的有效性。
+
+**验证规则**：
+- MaxRetries > 0
+- ClaudeCodePath 不为空
+- Git 邮箱格式正确（如果设置）
+
+**示例**：
 ```go
-func loadAndValidateConfig() (*config.Config, error) {
-    // 加载配置
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        return nil, fmt.Errorf("failed to load config: %w", err)
+config := &config.Config{
+    MaxRetries: 0,  // 无效值
+}
+
+err := config.Validate()
+if err != nil {
+    fmt.Println("Invalid config:", err)
+}
+```
+
+### GetConfigPath() (string, error)
+获取默认配置文件路径。
+
+**返回**：`~/.rick/config.json` 的绝对路径
+
+**示例**：
+```go
+path, err := config.GetConfigPath()
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Config path:", path)
+```
+
+## 类图
+
+```mermaid
+classDiagram
+    class Config {
+        +int MaxRetries
+        +string ClaudeCodePath
+        +string DefaultWorkspace
+        +GitConfig Git
+        +Load() (*Config, error)
+        +LoadFrom(path) (*Config, error)
+        +LoadOrDefault() *Config
+        +Save(path) error
+        +Validate() error
+        +Default() *Config
+    }
+
+    class GitConfig {
+        +string UserName
+        +string UserEmail
+    }
+
+    class ConfigLoader {
+        +GetConfigPath() (string, error)
+        +LoadConfig(path) (*Config, error)
+        +SaveConfig(config, path) error
+        +EnsureConfigDir() error
+    }
+
+    Config --> GitConfig : contains
+    ConfigLoader --> Config : manages
+```
+
+## 使用示例
+
+### 示例 1: 加载配置
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/sunquan/rick/internal/config"
+)
+
+func main() {
+    // 加载配置（如果不存在则使用默认值）
+    cfg := config.LoadOrDefault()
+
+    fmt.Printf("Configuration:\n")
+    fmt.Printf("  Max Retries: %d\n", cfg.MaxRetries)
+    fmt.Printf("  Claude Code: %s\n", cfg.ClaudeCodePath)
+    fmt.Printf("  Workspace: %s\n", cfg.DefaultWorkspace)
+
+    if cfg.Git.UserName != "" {
+        fmt.Printf("  Git User: %s <%s>\n",
+            cfg.Git.UserName,
+            cfg.Git.UserEmail)
+    }
+}
+```
+
+### 示例 2: 创建和保存配置
+```go
+func initializeConfig() error {
+    // 创建配置
+    cfg := &config.Config{
+        MaxRetries:       10,
+        ClaudeCodePath:   "/usr/local/bin/claude",
+        DefaultWorkspace: ".rick",
+        Git: config.GitConfig{
+            UserName:  "Rick User",
+            UserEmail: "rick@example.com",
+        },
     }
 
     // 验证配置
-    if err := config.ValidateConfig(cfg); err != nil {
-        return nil, fmt.Errorf("invalid config: %w", err)
+    if err := cfg.Validate(); err != nil {
+        return fmt.Errorf("invalid config: %w", err)
+    }
+
+    // 获取配置路径
+    configPath, err := config.GetConfigPath()
+    if err != nil {
+        return err
+    }
+
+    // 保存配置
+    if err := cfg.Save(configPath); err != nil {
+        return fmt.Errorf("failed to save config: %w", err)
+    }
+
+    fmt.Println("✓ Configuration saved to:", configPath)
+    return nil
+}
+```
+
+### 示例 3: 配置验证和错误处理
+```go
+func loadAndValidateConfig() (*config.Config, error) {
+    // 尝试加载配置
+    cfg, err := config.Load()
+    if err != nil {
+        // 如果加载失败，使用默认配置
+        fmt.Println("Warning: Failed to load config, using defaults")
+        cfg = config.Default()
+    }
+
+    // 验证配置
+    if err := cfg.Validate(); err != nil {
+        return nil, fmt.Errorf("invalid configuration: %w", err)
     }
 
     return cfg, nil
 }
 ```
 
-### 4. 配置保存
+### 示例 4: 动态更新配置
+```go
+func updateMaxRetries(newValue int) error {
+    // 加载当前配置
+    cfg, err := config.Load()
+    if err != nil {
+        return err
+    }
 
-#### `SaveConfig(cfg *Config) error`
+    // 更新值
+    cfg.MaxRetries = newValue
 
-保存配置到文件。
+    // 验证
+    if err := cfg.Validate(); err != nil {
+        return err
+    }
 
-**保存流程**：
+    // 保存
+    configPath, _ := config.GetConfigPath()
+    return cfg.Save(configPath)
+}
 ```
-1. 获取配置文件路径
-   └─> GetConfigPath()
 
-2. 确保目录存在
-   └─> os.MkdirAll()
+## 配置文件格式
 
-3. 序列化配置为 JSON
-   └─> json.MarshalIndent() (格式化输出)
-
-4. 写入文件
-   └─> os.WriteFile()
-```
-
-**JSON 格式**：
+### config.json 示例
 ```json
 {
   "max_retries": 5,
+  "claude_code_path": "claude",
+  "default_workspace": ".rick",
+  "git": {
+    "user_name": "Rick User",
+    "user_email": "rick@example.com"
+  }
+}
+```
+
+### 完整配置示例
+```json
+{
+  "max_retries": 10,
   "claude_code_path": "/usr/local/bin/claude",
-  "default_workspace": "/Users/username/.rick"
+  "default_workspace": ".rick",
+  "git": {
+    "user_name": "John Doe",
+    "user_email": "john@example.com"
+  }
 }
 ```
 
+### 最小配置（使用默认值）
+```json
+{
+  "max_retries": 5,
+  "claude_code_path": "claude",
+  "default_workspace": ".rick",
+  "git": {}
+}
+```
+
+## 配置项说明
+
+### MaxRetries
+任务失败时的最大重试次数。
+
+**默认值**：5
+**取值范围**：1-100
+**用途**：控制任务执行的容错能力
+
+### ClaudeCodePath
+Claude Code CLI 的可执行文件路径。
+
+**默认值**：`"claude"`（从 PATH 查找）
 **示例**：
-```go
-cfg := &config.Config{
-    MaxRetries:       10,
-    ClaudeCodePath:   "/usr/local/bin/claude",
-    DefaultWorkspace: "/Users/username/.rick",
-}
+- `"claude"` - 从 PATH 查找
+- `"/usr/local/bin/claude"` - 绝对路径
+- `"~/bin/claude"` - 用户目录路径
 
-if err := config.SaveConfig(cfg); err != nil {
-    log.Fatalf("Failed to save config: %v", err)
-}
+### DefaultWorkspace
+默认工作空间目录名。
+
+**默认值**：`".rick"`
+**用途**：定义项目工作空间的目录名
+
+### Git.UserName
+Git 提交时使用的用户名。
+
+**默认值**：空（使用系统 Git 配置）
+**用途**：覆盖系统 Git 用户名
+
+### Git.UserEmail
+Git 提交时使用的邮箱。
+
+**默认值**：空（使用系统 Git 配置）
+**用途**：覆盖系统 Git 邮箱
+
+## 错误处理
+
+### 常见错误及解决方案
+
+1. **配置文件不存在**
+   ```
+   Error: config file not found
+   Solution: 使用 LoadOrDefault() 或创建默认配置
+   ```
+
+2. **配置格式错误**
+   ```
+   Error: invalid JSON format
+   Solution: 检查 JSON 语法，确保格式正确
+   ```
+
+3. **无效的配置值**
+   ```
+   Error: max_retries must be positive
+   Solution: 设置有效的配置值（> 0）
+   ```
+
+4. **无法保存配置**
+   ```
+   Error: permission denied
+   Solution: 检查 ~/.rick 目录的写权限
+   ```
+
+## 设计原则
+
+1. **默认优先**：提供合理的默认值，开箱即用
+2. **容错性**：配置加载失败时自动降级到默认配置
+3. **验证严格**：保存前验证配置的有效性
+4. **简单明了**：使用 JSON 格式，易于人工编辑
+5. **向后兼容**：新增配置项不影响旧版本
+
+## 测试覆盖
+
+### config_test.go
+```go
+func TestDefault(t *testing.T)
+func TestLoad(t *testing.T)
+func TestLoadOrDefault(t *testing.T)
+func TestSave(t *testing.T)
+func TestValidate(t *testing.T)
 ```
 
-**错误处理**：
-- 目录创建失败
-- JSON 序列化失败
-- 文件写入失败
-
-### 5. 配置验证
-
-#### `ValidateConfig(cfg *Config) error`
-
-验证配置的有效性。
-
-**验证规则**：
-
-1. **MaxRetries 验证**：
-   - 必须 >= 0
-   - 推荐范围：1-10
-
-2. **ClaudeCodePath 验证**：
-   - 如果不为空，必须是有效的文件路径
-   - 文件必须存在
-
-3. **DefaultWorkspace 验证**：
-   - （当前未验证，未来可添加）
-
-**示例**：
+### loader_test.go
 ```go
-cfg := &config.Config{
-    MaxRetries:     -1, // 无效
-    ClaudeCodePath: "/nonexistent/path",
-}
-
-if err := config.ValidateConfig(cfg); err != nil {
-    fmt.Println("Validation error:", err)
-    // 输出: Validation error: MaxRetries must be non-negative, got -1
-}
+func TestGetConfigPath(t *testing.T)
+func TestLoadConfig(t *testing.T)
+func TestSaveConfig(t *testing.T)
+func TestEnsureConfigDir(t *testing.T)
 ```
 
-**实现细节**：
+### 测试场景
+- 默认配置生成
+- 配置文件加载
+- 无效配置验证
+- 配置保存和重新加载
+- 错误处理
+
+## 扩展点
+
+### 添加新的配置项
 ```go
-func ValidateConfig(cfg *Config) error {
-    // 验证 MaxRetries
-    if cfg.MaxRetries < 0 {
-        return fmt.Errorf("MaxRetries must be non-negative, got %d", cfg.MaxRetries)
-    }
+type Config struct {
+    // ... 现有字段
+    LogLevel      string        `json:"log_level"`
+    Timeout       time.Duration `json:"timeout"`
+    EnableMetrics bool          `json:"enable_metrics"`
+}
 
-    // 验证 ClaudeCodePath（如果不为空）
-    if cfg.ClaudeCodePath != "" {
-        if _, err := os.Stat(cfg.ClaudeCodePath); os.IsNotExist(err) {
-            return fmt.Errorf("ClaudeCodePath does not exist: %s", cfg.ClaudeCodePath)
-        }
+// 更新默认值
+func Default() *Config {
+    return &Config{
+        MaxRetries:     5,
+        LogLevel:       "info",
+        Timeout:        time.Minute * 30,
+        EnableMetrics:  false,
     }
+}
 
+// 更新验证逻辑
+func (c *Config) Validate() error {
+    // ... 现有验证
+    validLevels := []string{"debug", "info", "warn", "error"}
+    if !contains(validLevels, c.LogLevel) {
+        return fmt.Errorf("invalid log level: %s", c.LogLevel)
+    }
     return nil
 }
 ```
 
----
-
-## 💡 使用示例
-
-### 示例 1: 基本使用
-
+### 支持环境变量
 ```go
-package main
+func LoadWithEnv() (*Config, error) {
+    cfg := Default()
 
-import (
-    "fmt"
-    "log"
-    "github.com/sunquan/rick/internal/config"
-)
-
-func main() {
-    // 加载配置
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // 使用配置
-    fmt.Printf("Max Retries: %d\n", cfg.MaxRetries)
-    fmt.Printf("Claude Path: %s\n", cfg.ClaudeCodePath)
-    fmt.Printf("Workspace: %s\n", cfg.DefaultWorkspace)
-}
-```
-
-### 示例 2: 修改配置
-
-```go
-package main
-
-import (
-    "log"
-    "github.com/sunquan/rick/internal/config"
-)
-
-func main() {
-    // 加载现有配置
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // 修改配置
-    cfg.MaxRetries = 10
-    cfg.ClaudeCodePath = "/usr/local/bin/claude"
-
-    // 验证配置
-    if err := config.ValidateConfig(cfg); err != nil {
-        log.Fatalf("Invalid config: %v", err)
-    }
-
-    // 保存配置
-    if err := config.SaveConfig(cfg); err != nil {
-        log.Fatalf("Failed to save config: %v", err)
-    }
-
-    log.Println("Config updated successfully")
-}
-```
-
-### 示例 3: 配置初始化工具
-
-```go
-package main
-
-import (
-    "bufio"
-    "fmt"
-    "os"
-    "strconv"
-    "strings"
-    "github.com/sunquan/rick/internal/config"
-)
-
-func main() {
-    reader := bufio.NewReader(os.Stdin)
-
-    // 获取 MaxRetries
-    fmt.Print("Enter max retries (default 5): ")
-    retriesStr, _ := reader.ReadString('\n')
-    retriesStr = strings.TrimSpace(retriesStr)
-    maxRetries := 5
-    if retriesStr != "" {
-        if n, err := strconv.Atoi(retriesStr); err == nil {
-            maxRetries = n
+    // 从环境变量覆盖
+    if maxRetries := os.Getenv("RICK_MAX_RETRIES"); maxRetries != "" {
+        if n, err := strconv.Atoi(maxRetries); err == nil {
+            cfg.MaxRetries = n
         }
     }
 
-    // 获取 ClaudeCodePath
-    fmt.Print("Enter Claude Code path (default: claude): ")
-    claudePath, _ := reader.ReadString('\n')
-    claudePath = strings.TrimSpace(claudePath)
-
-    // 创建配置
-    cfg := &config.Config{
-        MaxRetries:       maxRetries,
-        ClaudeCodePath:   claudePath,
-        DefaultWorkspace: config.GetDefaultConfig().DefaultWorkspace,
+    if claudePath := os.Getenv("RICK_CLAUDE_PATH"); claudePath != "" {
+        cfg.ClaudeCodePath = claudePath
     }
 
-    // 验证配置
-    if err := config.ValidateConfig(cfg); err != nil {
-        fmt.Printf("Invalid config: %v\n", err)
-        os.Exit(1)
-    }
-
-    // 保存配置
-    if err := config.SaveConfig(cfg); err != nil {
-        fmt.Printf("Failed to save config: %v\n", err)
-        os.Exit(1)
-    }
-
-    fmt.Println("Configuration saved successfully!")
-}
-```
-
-### 示例 4: 测试中使用配置
-
-```go
-package mypackage_test
-
-import (
-    "testing"
-    "github.com/sunquan/rick/internal/config"
-)
-
-func TestWithCustomConfig(t *testing.T) {
-    // 使用默认配置进行测试
-    cfg := config.GetDefaultConfig()
-    cfg.MaxRetries = 3 // 测试时减少重试次数
-
-    // 验证配置
-    if err := config.ValidateConfig(cfg); err != nil {
-        t.Fatalf("Invalid test config: %v", err)
-    }
-
-    // 使用配置进行测试
-    // ...
-}
-```
-
----
-
-## ❓ 常见问题
-
-### Q1: 配置文件在哪里？
-
-**A**: 配置文件路径取决于使用的版本：
-- **生产版** (`rick`): `~/.rick/config.json`
-- **开发版** (`rick_dev`): `~/.rick_dev/config.json`
-
-查看配置路径：
-```bash
-# 方法 1: 直接查看
-cat ~/.rick/config.json
-
-# 方法 2: 使用 Go 代码
-go run -ldflags "-X main.version=dev" cmd/rick/main.go
-```
-
-### Q2: 如何重置配置？
-
-**A**: 删除配置文件，下次运行时会自动使用默认配置：
-```bash
-rm ~/.rick/config.json
-rick plan "test"  # 会使用默认配置
-```
-
-或者在代码中：
-```go
-cfg := config.GetDefaultConfig()
-config.SaveConfig(cfg)
-```
-
-### Q3: 配置文件格式错误怎么办？
-
-**A**: Rick 会报错并拒绝加载。修复方法：
-1. 手动编辑 `~/.rick/config.json`
-2. 或删除配置文件，使用默认配置
-
-验证 JSON 格式：
-```bash
-cat ~/.rick/config.json | jq .
-```
-
-### Q4: 如何在不同环境使用不同配置？
-
-**A**: 使用环境变量或配置文件切换：
-
-**方法 1**: 使用开发版
-```bash
-./install.sh --source --dev  # 安装 rick_dev
-rick_dev plan "test"          # 使用 ~/.rick_dev/config.json
-```
-
-**方法 2**: 符号链接
-```bash
-ln -s ~/.rick/config.prod.json ~/.rick/config.json
-# 或
-ln -s ~/.rick/config.dev.json ~/.rick/config.json
-```
-
-### Q5: ClaudeCodePath 为空会怎样？
-
-**A**: Rick 会使用系统 PATH 中的 `claude` 命令。确保 Claude Code CLI 已安装并在 PATH 中：
-```bash
-which claude
-# 输出: /usr/local/bin/claude
-```
-
-如果未安装，设置完整路径：
-```json
-{
-  "claude_code_path": "/usr/local/bin/claude"
-}
-```
-
----
-
-## 🔗 相关模块
-
-- [Workspace 模块](./workspace.md) - 使用 `DefaultWorkspace` 配置
-- [Executor 模块](./dag_executor.md) - 使用 `MaxRetries` 配置
-- [CMD 模块](./cli_commands.md) - 加载配置并传递给其他模块
-
----
-
-## 📚 设计原则
-
-### 1. 单一配置文件
-遵循"简化设计"原则，仅使用一个全局配置文件，避免多层级配置的复杂性。
-
-### 2. 默认优先
-提供合理的默认值，用户无需配置即可使用。
-
-### 3. 版本隔离
-生产版和开发版使用独立的配置目录，避免相互干扰：
-- `rick` → `~/.rick/`
-- `rick_dev` → `~/.rick_dev/`
-
-### 4. 验证优先
-在使用配置前进行验证，避免运行时错误。
-
-### 5. JSON 格式
-使用 JSON 格式，易于编辑和程序解析。
-
----
-
-## 🎯 最佳实践
-
-### 1. 配置加载
-始终在程序入口处加载配置：
-```go
-func main() {
-    cfg, err := config.LoadConfig()
-    if err != nil {
-        log.Fatal(err)
-    }
-    // 传递配置到其他模块
-}
-```
-
-### 2. 配置验证
-修改配置后立即验证：
-```go
-cfg.MaxRetries = 10
-if err := config.ValidateConfig(cfg); err != nil {
-    // 处理错误
-}
-```
-
-### 3. 错误处理
-使用错误包装，保留错误链：
-```go
-if err := config.SaveConfig(cfg); err != nil {
-    return fmt.Errorf("failed to save config: %w", err)
-}
-```
-
-### 4. 配置持久化
-仅在必要时保存配置，避免频繁 I/O：
-```go
-// 不推荐：每次修改都保存
-cfg.MaxRetries = 10
-config.SaveConfig(cfg)
-
-// 推荐：批量修改后保存
-cfg.MaxRetries = 10
-cfg.ClaudeCodePath = "/usr/local/bin/claude"
-config.SaveConfig(cfg)
-```
-
-### 5. 测试配置
-测试时使用默认配置或临时配置：
-```go
-func TestSomething(t *testing.T) {
-    cfg := config.GetDefaultConfig()
-    cfg.MaxRetries = 1 // 测试时减少重试
-    // 使用 cfg 进行测试
-}
-```
-
----
-
-## 🔮 未来扩展
-
-### 可能的新配置项
-
-```go
-type Config struct {
-    MaxRetries       int    `json:"max_retries"`
-    ClaudeCodePath   string `json:"claude_code_path"`
-    DefaultWorkspace string `json:"default_workspace"`
-
-    // 未来扩展
-    LogLevel         string `json:"log_level"`          // 日志级别
-    ParallelTasks    int    `json:"parallel_tasks"`     // 并行任务数
-    TimeoutSeconds   int    `json:"timeout_seconds"`    // 超时时间
-    AutoCommit       bool   `json:"auto_commit"`        // 自动提交
-    RemoteMode       bool   `json:"remote_mode"`        // 远程模式
+    return cfg, nil
 }
 ```
 
 ### 配置迁移
-
-未来版本可能需要配置迁移机制：
 ```go
-func MigrateConfig(oldVersion string) error {
-    // 从旧版本配置迁移到新版本
-    // 例如：v1.0 -> v2.0
+type ConfigV2 struct {
+    Version int    `json:"version"`
+    Config  Config `json:"config"`
+}
+
+func Migrate(oldPath, newPath string) error {
+    // 读取旧配置
+    oldCfg, err := LoadFrom(oldPath)
+    if err != nil {
+        return err
+    }
+
+    // 转换为新格式
+    newCfg := &ConfigV2{
+        Version: 2,
+        Config:  *oldCfg,
+    }
+
+    // 保存新配置
+    return saveV2(newCfg, newPath)
 }
 ```
 
----
+## 与其他模块的交互
 
-*最后更新: 2026-03-14*
+### cmd 模块
+```go
+// cmd 加载配置用于命令执行
+cfg := config.LoadOrDefault()
+executor := executor.NewExecutor(tasks, &executor.ExecutionConfig{
+    MaxRetries:     cfg.MaxRetries,
+    ClaudeCodePath: cfg.ClaudeCodePath,
+})
+```
+
+### executor 模块
+```go
+// executor 使用配置中的重试次数
+cfg := config.LoadOrDefault()
+retryManager := executor.NewTaskRetryManager(
+    runner,
+    &executor.ExecutionConfig{
+        MaxRetries: cfg.MaxRetries,
+    },
+    debugFile,
+)
+```
+
+### git 模块
+```go
+// 使用配置中的 Git 用户信息
+cfg := config.LoadOrDefault()
+if cfg.Git.UserName != "" {
+    // 设置 Git 用户信息
+    exec.Command("git", "config", "user.name", cfg.Git.UserName).Run()
+    exec.Command("git", "config", "user.email", cfg.Git.UserEmail).Run()
+}
+```
+
+## 最佳实践
+
+### 1. 初始化配置
+```bash
+# 创建配置文件
+cat > ~/.rick/config.json <<EOF
+{
+  "max_retries": 5,
+  "claude_code_path": "claude",
+  "default_workspace": ".rick",
+  "git": {
+    "user_name": "Your Name",
+    "user_email": "your.email@example.com"
+  }
+}
+EOF
+```
+
+### 2. 验证配置
+```bash
+# 使用 Rick 验证配置
+rick config validate
+```
+
+### 3. 查看当前配置
+```bash
+# 显示当前配置
+rick config show
+```
+
+### 4. 更新配置
+```bash
+# 更新特定配置项
+rick config set max_retries 10
+```
+
+## 配置优先级
+
+Rick 的配置加载遵循以下优先级（从高到低）：
+
+1. **命令行参数**：`--max-retries 10`
+2. **环境变量**：`RICK_MAX_RETRIES=10`
+3. **配置文件**：`~/.rick/config.json`
+4. **默认值**：内置默认配置
+
+## 安全考虑
+
+### 敏感信息
+- 不在配置文件中存储密码或 API 密钥
+- 使用环境变量或密钥管理工具
+- 配置文件权限设置为 0600
+
+### 验证
+- 所有配置项都经过验证
+- 路径注入防护
+- 值范围检查

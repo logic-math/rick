@@ -35,17 +35,15 @@ func GeneratePlanPrompt(requirement string, contextMgr *ContextManager, manager 
 	builder.SetVariable("project_name", "Rick CLI")
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set OKR content
+	// Set OKR content (full content, not just list items)
 	okrContent := formatOKRContent(contextMgr.GetOKRInfo())
 	builder.SetVariable("okr_content", okrContent)
 
-	// Set SPEC content
+	// Set SPEC content (full content, not just list items)
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())
 	builder.SetVariable("spec_content", specContent)
 
-	// Set completed work
-	completedWork := formatCompletedWork(contextMgr.GetHistory())
-	builder.SetVariable("completed_work", completedWork)
+	// Note: History/completed_work removed as per requirements
 
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)
@@ -59,51 +57,80 @@ func GeneratePlanPrompt(requirement string, contextMgr *ContextManager, manager 
 	return prompt, nil
 }
 
+// GeneratePlanPromptFile generates the planning phase prompt and saves it to a temporary file
+// Returns the file path and any error
+// The caller is responsible for cleaning up the temporary file
+func GeneratePlanPromptFile(requirement string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+	if requirement == "" {
+		return "", fmt.Errorf("requirement cannot be empty")
+	}
+
+	if contextMgr == nil {
+		return "", fmt.Errorf("context manager cannot be nil")
+	}
+
+	if manager == nil {
+		return "", fmt.Errorf("prompt manager cannot be nil")
+	}
+
+	// Load plan template
+	template, err := manager.LoadTemplate("plan")
+	if err != nil {
+		return "", fmt.Errorf("failed to load plan template: %w", err)
+	}
+
+	// Create prompt builder
+	builder := NewPromptBuilder(template)
+
+	// Set project information
+	builder.SetVariable("project_name", "Rick CLI")
+	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+
+	// Set OKR content (full content, not just list items)
+	okrContent := formatOKRContent(contextMgr.GetOKRInfo())
+	builder.SetVariable("okr_content", okrContent)
+
+	// Set SPEC content (full content, not just list items)
+	specContent := formatSPECContent(contextMgr.GetSPECInfo())
+	builder.SetVariable("spec_content", specContent)
+
+	// Set user requirement
+	builder.SetVariable("user_requirement", requirement)
+
+	// Build and save to temporary file
+	promptFile, err := builder.BuildAndSave("plan")
+	if err != nil {
+		return "", fmt.Errorf("failed to build and save plan prompt: %w", err)
+	}
+
+	return promptFile, nil
+}
+
 // formatOKRContent formats OKR information for the prompt
+// Changed: Now returns full OKR content instead of formatted list
 func formatOKRContent(okrInfo *parser.ContextInfo) string {
-	if okrInfo == nil || (len(okrInfo.Objectives) == 0 && len(okrInfo.KeyResults) == 0) {
+	if okrInfo == nil || len(okrInfo.Objectives) == 0 {
 		return "暂无项目 OKR 信息"
 	}
 
-	var content strings.Builder
-
-	// Add objectives
-	if len(okrInfo.Objectives) > 0 {
-		content.WriteString("**Objectives:**\n")
-		for _, obj := range okrInfo.Objectives {
-			content.WriteString(fmt.Sprintf("- %s\n", obj))
-		}
-		content.WriteString("\n")
-	}
-
-	// Add key results
-	if len(okrInfo.KeyResults) > 0 {
-		content.WriteString("**Key Results:**\n")
-		for _, kr := range okrInfo.KeyResults {
-			content.WriteString(fmt.Sprintf("- %s\n", kr))
-		}
-	}
-
-	return content.String()
+	// Return the full content (first element contains the complete OKR.md)
+	return okrInfo.Objectives[0]
 }
 
 // formatSPECContent formats SPEC information for the prompt
+// Changed: Now returns full SPEC content instead of formatted list
 func formatSPECContent(specInfo *parser.ContextInfo) string {
 	if specInfo == nil || len(specInfo.Specifications) == 0 {
 		return "暂无项目 SPEC 信息"
 	}
 
-	var content strings.Builder
-	content.WriteString("**Specifications:**\n")
-
-	for _, spec := range specInfo.Specifications {
-		content.WriteString(fmt.Sprintf("- %s\n", spec))
-	}
-
-	return content.String()
+	// Return the full content (first element contains the complete SPEC.md)
+	return specInfo.Specifications[0]
 }
 
 // formatCompletedWork formats completed work history for the prompt
+// Deprecated: History/completed work feature removed as per requirements
+// Keeping this function for potential future use
 func formatCompletedWork(history []string) string {
 	if len(history) == 0 {
 		return "这是项目的第一阶段规划"

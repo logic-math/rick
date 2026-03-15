@@ -138,3 +138,102 @@ func (gm *GitManager) IsRepository() bool {
 func (gm *GitManager) GetRepoPath() string {
 	return gm.repoPath
 }
+
+// GetDiff returns the diff for a specific commit
+func (gm *GitManager) GetDiff(commitHash string) (string, error) {
+	if commitHash == "" {
+		return "", fmt.Errorf("commit hash cannot be empty")
+	}
+
+	cmd := exec.Command("git", "show", commitHash)
+	cmd.Dir = gm.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// GetCommitsBetween returns commits between two references
+func (gm *GitManager) GetCommitsBetween(from, to string) ([]CommitInfo, error) {
+	if from == "" || to == "" {
+		return nil, fmt.Errorf("from and to references cannot be empty")
+	}
+
+	format := "%H%n%s%n%an%n%ai"
+	revRange := fmt.Sprintf("%s..%s", from, to)
+	cmd := exec.Command("git", "log", revRange, fmt.Sprintf("--format=%s", format))
+	cmd.Dir = gm.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commits: %w", err)
+	}
+
+	commits := []CommitInfo{}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	for i := 0; i < len(lines); i += 4 {
+		if i+3 >= len(lines) {
+			break
+		}
+
+		dateStr := lines[i+3]
+		date, err := time.Parse("2006-01-02 15:04:05 -0700", dateStr)
+		if err != nil {
+			date = time.Now()
+		}
+
+		commits = append(commits, CommitInfo{
+			Hash:    lines[i],
+			Message: lines[i+1],
+			Author:  lines[i+2],
+			Date:    date,
+		})
+	}
+
+	return commits, nil
+}
+
+// GetCommitsByGrep returns commits matching a pattern in the message
+func (gm *GitManager) GetCommitsByGrep(pattern string, limit int) ([]CommitInfo, error) {
+	if pattern == "" {
+		return nil, fmt.Errorf("pattern cannot be empty")
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	format := "%H%n%s%n%an%n%ai"
+	cmd := exec.Command("git", "log", "--grep", pattern, fmt.Sprintf("--max-count=%d", limit), fmt.Sprintf("--format=%s", format))
+	cmd.Dir = gm.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commits: %w", err)
+	}
+
+	commits := []CommitInfo{}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	for i := 0; i < len(lines); i += 4 {
+		if i+3 >= len(lines) {
+			break
+		}
+
+		dateStr := lines[i+3]
+		date, err := time.Parse("2006-01-02 15:04:05 -0700", dateStr)
+		if err != nil {
+			date = time.Now()
+		}
+
+		commits = append(commits, CommitInfo{
+			Hash:    lines[i],
+			Message: lines[i+1],
+			Author:  lines[i+2],
+			Date:    date,
+		})
+	}
+
+	return commits, nil
+}

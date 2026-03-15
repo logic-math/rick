@@ -47,6 +47,10 @@ func GetDefaultConfig() *Config {
 		MaxRetries:       5,
 		ClaudeCodePath:   "",
 		DefaultWorkspace: filepath.Join(home, rickDirName),
+		Git: GitConfig{
+			UserName:  "Rick CLI",
+			UserEmail: "rick@localhost",
+		},
 	}
 }
 
