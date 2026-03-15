@@ -1,6 +1,43 @@
-# Rick CLI Go 开发研究文档
+# Rick CLI
+
+**Context-First AI Coding Framework**
+
+Rick CLI 是一个基于上下文优先理念的 AI 编程框架，帮助开发者通过 AI 助手高效完成软件开发任务。
+
+## 🚀 快速开始
+
+```bash
+# 安装 Rick CLI
+./scripts/install.sh
+
+# 规划任务
+rick plan "创建一个 Web API 项目"
+
+# 执行任务
+rick doing job_1
+
+# 知识积累
+rick learning job_1
+```
 
 ## 📚 文档导航
+
+### 📖 Wiki 文档（推荐）
+
+完整的项目文档请访问 [**Wiki 文档中心**](wiki/README.md)：
+
+- [快速入门指南](wiki/getting-started.md) - 安装、配置和第一个项目
+- [核心概念](wiki/core-concepts.md) - 理解 Rick 的设计理念
+- [系统架构](wiki/architecture.md) - 整体架构和模块关系
+- [运行时流程](wiki/runtime-flow.md) - 任务执行流程详解
+- [DAG 执行](wiki/dag-execution.md) - 依赖管理和拓扑排序
+- [提示词系统](wiki/prompt-system.md) - 提示词管理机制
+- [测试与验证](wiki/testing.md) - 测试策略和方法
+- [安装部署](wiki/installation.md) - 详细的安装指南
+- [模块文档](wiki/modules/) - 各核心模块详细说明
+- [贡献指南](wiki/CONTRIBUTING.md) - 如何为 Wiki 做贡献
+
+### 📝 开发文档
 
 本目录包含 Rick CLI 使用 Go 语言开发的完整研究和规范文档。
 
@@ -139,6 +176,50 @@ rick/
 │   └── update.sh                    # 更新脚本
 └── README.md
 ```
+
+---
+
+## ⚙️ 配置说明
+
+### 配置文件位置
+- **生产版本**: `~/.rick/config.json`
+- **开发版本**: `~/.rick_dev/config.json`
+
+### 配置文件格式
+
+```json
+{
+  "max_retries": 5,
+  "claude_code_path": "",
+  "default_workspace": "",
+  "git": {
+    "user_name": "Your Name",
+    "user_email": "your.email@example.com"
+  }
+}
+```
+
+### 配置项说明
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `max_retries` | int | 5 | 任务失败最大重试次数 |
+| `claude_code_path` | string | "" | Claude Code CLI 路径（空则使用 PATH） |
+| `default_workspace` | string | `~/.rick` | 默认工作空间路径 |
+| `git.user_name` | string | "Rick CLI" | Git commit 用户名 |
+| `git.user_email` | string | "rick@localhost" | Git commit 邮箱 |
+
+### 快速配置
+
+```bash
+# 复制示例配置
+cp config.example.json ~/.rick/config.json
+
+# 编辑配置
+vim ~/.rick/config.json
+```
+
+**详细文档**: 参见 [GIT_CONFIG_GLOBAL.md](GIT_CONFIG_GLOBAL.md)
 
 ---
 

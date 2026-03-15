@@ -9,29 +9,21 @@
 ```
 wiki/
 ├── README.md                    # 本文件：Wiki 索引和导航
-├── getting-started.md           # 快速入门指南
-├── core-concepts.md             # 核心概念和设计理念
+├── CONTRIBUTING.md              # 贡献指南
 ├── architecture.md              # 系统架构设计
-├── best-practices.md            # 最佳实践和使用建议
-├── modules/                     # 模块详细文档
-│   ├── README.md                # 模块概览
-│   ├── infrastructure.md        # 基础设施模块
-│   ├── parser.md                # 内容解析模块
-│   ├── dag_executor.md          # DAG 执行模块
-│   ├── prompt_manager.md        # 提示词管理模块
-│   ├── cli_commands.md          # 命令处理模块
-│   ├── workspace.md             # 工作空间管理
-│   ├── config.md                # 配置管理
-│   ├── logging.md               # 日志系统
-│   ├── git.md                   # Git 集成
-│   └── callcli.md               # Claude Code CLI 交互
-└── tutorials/                   # 教程和实战案例
-    ├── README.md                # 教程索引
-    ├── tutorial-1-simple-project.md      # 教程1：简单项目实战
-    ├── tutorial-2-self-refactor.md       # 教程2：使用 Rick 重构 Rick
-    ├── tutorial-3-parallel-versions.md   # 教程3：并行开发版本
-    ├── tutorial-4-custom-prompts.md      # 教程4：自定义提示词模板
-    └── tutorial-5-cicd-integration.md    # 教程5：CI/CD 集成
+├── runtime-flow.md              # 运行时流程详解
+├── dag-execution.md             # DAG 执行和依赖管理
+├── prompt-system.md             # 提示词系统详解
+├── testing.md                   # 测试与验证
+├── installation.md              # 安装部署指南
+└── modules/                     # 模块详细文档
+    ├── cmd.md                   # 命令处理模块
+    ├── workspace.md             # 工作空间管理
+    ├── parser.md                # 内容解析模块
+    ├── executor.md              # 任务执行引擎
+    ├── prompt.md                # 提示词管理模块
+    ├── git.md                   # Git 集成
+    └── config.md                # 配置管理
 ```
 
 ## 文档导航
@@ -40,42 +32,30 @@ wiki/
 
 如果你是第一次使用 Rick CLI，建议按以下顺序阅读：
 
-1. **[快速入门指南](getting-started.md)** - 安装、配置和第一个项目
-2. **[核心概念](core-concepts.md)** - 理解 Rick 的设计理念和核心概念
-3. **[教程1：简单项目实战](tutorials/tutorial-1-simple-project.md)** - 通过实际项目学习基本工作流
+1. **[安装部署指南](installation.md)** - 安装、配置和环境准备
+2. **[系统架构设计](architecture.md)** - 理解 Rick 的整体架构和设计理念
+3. **[运行时流程详解](runtime-flow.md)** - 了解任务执行的完整流程
 
 ### 📚 深入理解
 
 当你熟悉基本使用后，可以深入了解：
 
-1. **[系统架构设计](architecture.md)** - Rick 的整体架构和模块关系
-2. **[模块详细文档](modules/README.md)** - 各个模块的详细说明
-3. **[最佳实践](best-practices.md)** - 高效使用 Rick 的技巧和建议
+1. **[DAG 执行和依赖管理](dag-execution.md)** - 任务依赖关系和拓扑排序
+2. **[提示词系统详解](prompt-system.md)** - 提示词管理和构建机制
+3. **[测试与验证](testing.md)** - 测试策略和验证方法
+4. **[模块详细文档](modules/)** - 各个核心模块的详细说明
 
 ### 🔧 模块文档
 
 深入了解各个核心模块：
 
-- **[基础设施模块](modules/infrastructure.md)** - Go 项目初始化、CLI 框架、工作空间
-- **[内容解析模块](modules/parser.md)** - Markdown 解析、task.md、debug.md 解析
-- **[DAG 执行模块](modules/dag_executor.md)** - DAG 构建、拓扑排序、任务执行、重试机制
-- **[提示词管理模块](modules/prompt_manager.md)** - 模板管理、提示词构建、上下文注入
-- **[命令处理模块](modules/cli_commands.md)** - plan、doing、learning 命令实现
+- **[命令处理模块](modules/cmd.md)** - plan、doing、learning 命令实现
 - **[工作空间管理](modules/workspace.md)** - .rick 目录结构和管理
-- **[配置管理](modules/config.md)** - 配置文件格式和加载机制
-- **[日志系统](modules/logging.md)** - 简化的日志设计
+- **[内容解析模块](modules/parser.md)** - Markdown 解析、task.md、debug.md 解析
+- **[任务执行引擎](modules/executor.md)** - DAG 构建、拓扑排序、任务执行、重试机制
+- **[提示词管理模块](modules/prompt.md)** - 模板管理、提示词构建、上下文注入
 - **[Git 集成](modules/git.md)** - Git 操作和版本管理
-- **[Claude Code CLI 交互](modules/callcli.md)** - 与 Claude Code 的集成
-
-### 📖 实战教程
-
-通过实际案例学习 Rick CLI：
-
-1. **[简单项目实战](tutorials/tutorial-1-simple-project.md)** - 创建一个简单的 Go Web 项目
-2. **[使用 Rick 重构 Rick](tutorials/tutorial-2-self-refactor.md)** - 自我重构的完整流程
-3. **[并行开发版本](tutorials/tutorial-3-parallel-versions.md)** - 生产版本和开发版本并行运行
-4. **[自定义提示词模板](tutorials/tutorial-4-custom-prompts.md)** - 定制化提示词以适应特定需求
-5. **[CI/CD 集成](tutorials/tutorial-5-cicd-integration.md)** - 将 Rick 集成到持续集成流程
+- **[配置管理](modules/config.md)** - 配置文件格式和加载机制
 
 ## 使用指南
 
