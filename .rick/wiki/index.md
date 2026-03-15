@@ -7,6 +7,7 @@
 ### 🚀 快速开始
 - **[快速入门指南](./getting-started.md)** - 5 分钟快速上手 Rick CLI
 - **[最佳实践](./best-practices.md)** - 任务分解、依赖设计、测试方法
+- **[任务设计最佳实践](./task-design-best-practices.md)** - 零重试的任务设计秘诀 ⭐
 
 ### 📖 实践教程
 - **[教程系列](./tutorials/)** - 通过实践学习 Rick CLI
