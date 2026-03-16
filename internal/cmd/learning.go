@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
+	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -150,8 +151,38 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 // callClaudeForAnalysis calls Claude Code CLI for analysis
 // Uses interactive mode so Claude can read git commits and create documentation
 func callClaudeForAnalysis(data *ExecutionData) error {
-	// Build simplified prompt: debug.md + task metadata
-	prompt := buildLearningPrompt(data)
+	// Create learning directory structure
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+
+	learningDir := filepath.Join(rickDir, "jobs", data.JobID, "learning")
+	if err := os.MkdirAll(learningDir, 0755); err != nil {
+		return fmt.Errorf("failed to create learning directory: %w", err)
+	}
+
+	// Create subdirectories
+	wikiDir := filepath.Join(learningDir, "wiki")
+	skillsDir := filepath.Join(learningDir, "skills")
+	if err := os.MkdirAll(wikiDir, 0755); err != nil {
+		return fmt.Errorf("failed to create wiki directory: %w", err)
+	}
+	if err := os.MkdirAll(skillsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create skills directory: %w", err)
+	}
+
+	fmt.Printf("✅ Created learning directory structure:\n")
+	fmt.Printf("   - %s\n", learningDir)
+	fmt.Printf("   - %s/wiki/\n", learningDir)
+	fmt.Printf("   - %s/skills/\n", learningDir)
+	fmt.Println()
+
+	// Build learning prompt using template system
+	prompt, err := buildLearningPrompt(data, learningDir)
+	if err != nil {
+		return fmt.Errorf("failed to build learning prompt: %w", err)
+	}
 
 	// Get Claude CLI path
 	cfg, err := config.LoadConfig()
@@ -176,9 +207,9 @@ func callClaudeForAnalysis(data *ExecutionData) error {
 	}
 	tmpFile.Close()
 
-	fmt.Printf("\n📝 提示词已保存到: %s\n", tmpFile.Name())
+	fmt.Printf("📝 提示词已保存到: %s\n", tmpFile.Name())
 	fmt.Println("🤖 启动 Claude Code CLI 交互模式...")
-	fmt.Println("📌 Claude 将自动分析执行结果并更新文档")
+	fmt.Println("📌 Claude 将在 learning 目录下生成文档（等待人工审核后合并）")
 	fmt.Println()
 
 	// Call Claude Code CLI in interactive mode (no --dangerously-skip-permissions)
@@ -194,31 +225,43 @@ func callClaudeForAnalysis(data *ExecutionData) error {
 		return fmt.Errorf("Claude Code CLI 执行失败: %w", err)
 	}
 
+	fmt.Println()
+	fmt.Println("✅ Learning 阶段完成！")
+	fmt.Printf("📁 生成的文档位于: %s\n", learningDir)
+	fmt.Println()
+	fmt.Println("⚠️  下一步操作:")
+	fmt.Println("   1. 审核 learning 目录下的所有文档")
+	fmt.Println("   2. 根据需要将更新合并到 .rick/ 目录")
+	fmt.Println("   3. 提交最终的文档更新")
+	fmt.Println()
+
 	return nil
 }
 
-// buildLearningPrompt builds a simplified learning prompt in Chinese
-// Only includes: debug.md content + task metadata (task file + commit info)
-func buildLearningPrompt(data *ExecutionData) string {
-	var prompt strings.Builder
+// buildLearningPrompt builds learning prompt using template system
+func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error) {
+	// Create prompt manager to load template
+	promptMgr := prompt.NewPromptManager("")
 
-	prompt.WriteString("# Learning 分析任务\n\n")
-	prompt.WriteString(fmt.Sprintf("分析 Job %s 的执行结果并提取经验教训。\n\n", data.JobID))
-
-	// Section 1: Debug Information
-	prompt.WriteString("## 调试信息\n\n")
-	if data.DebugContent != "" {
-		prompt.WriteString(data.DebugContent)
-	} else {
-		prompt.WriteString("无调试信息（任务执行顺利，无需调试）\n")
+	// Load learning template
+	template, err := promptMgr.LoadTemplate("learning")
+	if err != nil {
+		return "", fmt.Errorf("failed to load learning template: %w", err)
 	}
-	prompt.WriteString("\n\n")
 
-	// Section 2: Task Metadata
-	prompt.WriteString("## 任务元信息\n\n")
+	// Create prompt builder
+	builder := prompt.NewPromptBuilder(template)
+
+	// Set basic variables
+	builder.SetVariable("project_name", "Rick CLI")
+	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+	builder.SetVariable("job_id", data.JobID)
+
+	// Build task execution results table
+	var taskResults strings.Builder
 	if data.TasksJSON != nil {
-		prompt.WriteString("| Task ID | 任务名称 | 状态 | 任务文件 | Commit Hash | 重试次数 |\n")
-		prompt.WriteString("|---------|---------|------|----------|-------------|----------|\n")
+		taskResults.WriteString("| Task ID | 任务名称 | 状态 | 任务文件 | Commit Hash | 重试次数 |\n")
+		taskResults.WriteString("|---------|---------|------|----------|-------------|----------|\n")
 		for _, task := range data.TasksJSON.Tasks {
 			taskFile := task.TaskFile
 			if taskFile == "" {
@@ -230,34 +273,51 @@ func buildLearningPrompt(data *ExecutionData) string {
 			} else if len(commitHash) > 8 {
 				commitHash = commitHash[:8] // Short hash
 			}
-			prompt.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %d |\n",
+			taskResults.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %d |\n",
 				task.TaskID, task.TaskName, task.Status, taskFile, commitHash, task.Attempts))
 		}
 	} else {
-		prompt.WriteString("无任务元信息\n")
+		taskResults.WriteString("无任务元信息\n")
 	}
-	prompt.WriteString("\n\n")
 
-	// Section 3: Instructions
-	prompt.WriteString("## 执行指令\n\n")
-	prompt.WriteString("基于上述调试信息和任务元信息，请执行以下操作：\n\n")
-	prompt.WriteString("1. **分析执行过程**\n")
-	prompt.WriteString("   - 使用 `git show <commit_hash>` 查看每个任务的代码变更\n")
-	prompt.WriteString("   - 分析遇到的问题和解决方法（如果有）\n")
-	prompt.WriteString("   - 识别关键洞察、模式和改进点\n\n")
-	prompt.WriteString("2. **更新项目文档**（在 `.rick/` 目录下）\n")
-	prompt.WriteString("   - `OKR.md` - 根据学到的经验更新项目目标\n")
-	prompt.WriteString("   - `SPEC.md` - 如需要，更新开发规范\n")
-	prompt.WriteString("   - `wiki/<主题>.md` - 为新概念创建或更新 wiki 页面\n")
-	prompt.WriteString("   - `skills/<技能>.md` - 提取可复用的技能供未来任务使用\n\n")
-	prompt.WriteString("3. **提交变更**\n")
-	prompt.WriteString("   - 使用清晰的 commit message 提交你的文档更新\n")
-	prompt.WriteString("   - Commit message 格式: `docs(learning): <简短描述>`\n\n")
-	prompt.WriteString("**注意事项**：\n")
-	prompt.WriteString("- 你拥有完整的 git、文件系统和所有工具的访问权限\n")
-	prompt.WriteString("- 请提供全面的分析并自动更新文档\n")
-	prompt.WriteString("- 重点关注可复用的经验和模式\n")
-	prompt.WriteString("- 确保文档更新后的一致性和完整性\n")
+	// Set context variables
+	builder.SetVariable("completed_work_summary", "参见任务执行结果表")
+	builder.SetVariable("task_execution_results", taskResults.String())
 
-	return prompt.String()
+	// Debug records
+	if data.DebugContent != "" {
+		builder.SetVariable("debug_records", data.DebugContent)
+		builder.SetVariable("solutions_summary", "参见 debug.md 中的解决方案")
+	} else {
+		builder.SetVariable("debug_records", "无调试信息（任务执行顺利，无需调试）")
+		builder.SetVariable("solutions_summary", "无")
+	}
+
+	// Git history (placeholder - will be read by Claude using git commands)
+	builder.SetVariable("git_history", "使用 `git show <commit_hash>` 查看每个任务的详细变更")
+
+	// Code analysis placeholders
+	builder.SetVariable("new_features", "待分析（通过 git diff 分析）")
+	builder.SetVariable("code_improvements", "待分析（通过 git diff 分析）")
+	builder.SetVariable("technical_debt", "待分析（通过代码审查识别）")
+
+	// Build the prompt
+	promptContent, err := builder.Build()
+	if err != nil {
+		return "", fmt.Errorf("failed to build learning prompt: %w", err)
+	}
+
+	// Append additional instructions with learning directory path
+	var additionalInstructions strings.Builder
+	additionalInstructions.WriteString("\n\n---\n\n")
+	additionalInstructions.WriteString("## ⚠️ 关键执行指令\n\n")
+	additionalInstructions.WriteString(fmt.Sprintf("**输出目录**: `%s`\n\n", learningDir))
+	additionalInstructions.WriteString("**执行步骤**:\n")
+	additionalInstructions.WriteString("1. 使用 `git show <commit_hash>` 查看每个任务的代码变更\n")
+	additionalInstructions.WriteString("2. 在指定的 learning 目录下生成所有文档\n")
+	additionalInstructions.WriteString("3. 确认所有文档符合格式要求\n")
+	additionalInstructions.WriteString("4. 输出生成的文件清单\n\n")
+	additionalInstructions.WriteString("**注意**: 严格遵守模板中的输出目录规范和文档格式要求。\n")
+
+	return promptContent + additionalInstructions.String(), nil
 }

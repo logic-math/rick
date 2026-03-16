@@ -43,8 +43,12 @@ type TestResult struct {
 
 // RunTask executes a single task following the new workflow:
 // 1. Generate test script using Agent (test generation phase)
-// 2. Enter execution loop: execute task -> run test -> retry if failed
-func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string) (*TaskExecutionResult, error) {
+// 2. Execute task -> run test
+// Parameters:
+//   - task: The task to execute
+//   - debugContext: Content from debug.md (managed by Claude)
+//   - testErrorFeedback: Previous test execution errors (for test script correction)
+func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorFeedback string) (*TaskExecutionResult, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task cannot be nil")
 	}
@@ -64,14 +68,13 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string) (*TaskExec
 		result.EndTime = time.Now()
 		return result, nil
 	}
-	defer os.Remove(testScriptPath)
+	// Keep test script for audit purposes (do not delete)
 
-	// Step 2: Execution loop - keep trying until test passes
-	// This implements: while not pass: execute -> test -> retry
+	// Step 2: Execute task with context (debug.md + test error feedback)
 	var lastOutput string
 
 	// Execute once and test
-	doingPromptFile, err := tr.GenerateDoingPromptFile(task, debugContext)
+	doingPromptFile, err := tr.GenerateDoingPromptFile(task, debugContext, testErrorFeedback)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("failed to generate doing prompt: %v", err)
@@ -180,57 +183,36 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 }
 
 // buildTestGenerationPromptFile builds a prompt file for Claude to generate a Python test script
+// Uses the test_python.md template for consistent formatting
 func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string) (string, error) {
-	var prompt strings.Builder
-	prompt.WriteString("# Test Generation Task\n\n")
-	prompt.WriteString("You need to generate a Python test script based on the task's test method.\n\n")
-	prompt.WriteString("## Task Information\n\n")
-	prompt.WriteString(fmt.Sprintf("**Task ID**: %s\n", task.ID))
-	prompt.WriteString(fmt.Sprintf("**Task Name**: %s\n", task.Name))
-	prompt.WriteString(fmt.Sprintf("**Task Goal**: %s\n\n", task.Goal))
+	// Create prompt manager to load template
+	promptMgr := prompt.NewPromptManager("")
 
-	prompt.WriteString("## Test Method\n\n")
-	prompt.WriteString(task.TestMethod)
-	prompt.WriteString("\n\n")
+	// Load test_python template
+	template, err := promptMgr.LoadTemplate("test_python")
+	if err != nil {
+		return "", fmt.Errorf("failed to load test_python template: %w", err)
+	}
 
-	prompt.WriteString("## Requirements\n\n")
-	prompt.WriteString(fmt.Sprintf("1. Create a Python test script at: `%s`\n", testScriptPath))
-	prompt.WriteString("2. The script MUST return a JSON result in this format:\n")
-	prompt.WriteString("   ```json\n")
-	prompt.WriteString("   {\"pass\": true/false, \"errors\": [\"error1\", \"error2\"]}\n")
-	prompt.WriteString("   ```\n")
-	prompt.WriteString("3. Implement each test step from the test method above\n")
-	prompt.WriteString("4. The script should be executable with: `python3 " + testScriptPath + "`\n")
-	prompt.WriteString("5. Make sure to handle errors gracefully and report them in the errors array\n")
-	prompt.WriteString("6. Use absolute paths when checking files\n\n")
+	// Create prompt builder
+	builder := prompt.NewPromptBuilder(template)
 
-	prompt.WriteString("## Example Test Script Structure\n\n")
-	prompt.WriteString("```python\n")
-	prompt.WriteString("#!/usr/bin/env python3\n")
-	prompt.WriteString("import json\n")
-	prompt.WriteString("import sys\n")
-	prompt.WriteString("import os\n\n")
-	prompt.WriteString("def main():\n")
-	prompt.WriteString("    errors = []\n")
-	prompt.WriteString("    \n")
-	prompt.WriteString("    # Test step 1\n")
-	prompt.WriteString("    if not os.path.exists('file.txt'):\n")
-	prompt.WriteString("        errors.append('file.txt does not exist')\n")
-	prompt.WriteString("    \n")
-	prompt.WriteString("    # Test step 2\n")
-	prompt.WriteString("    # ...\n")
-	prompt.WriteString("    \n")
-	prompt.WriteString("    result = {\n")
-	prompt.WriteString("        'pass': len(errors) == 0,\n")
-	prompt.WriteString("        'errors': errors\n")
-	prompt.WriteString("    }\n")
-	prompt.WriteString("    print(json.dumps(result))\n")
-	prompt.WriteString("    sys.exit(0 if result['pass'] else 1)\n\n")
-	prompt.WriteString("if __name__ == '__main__':\n")
-	prompt.WriteString("    main()\n")
-	prompt.WriteString("```\n\n")
+	// Set task information
+	builder.SetVariable("task_id", task.ID)
+	builder.SetVariable("task_name", task.Name)
+	builder.SetVariable("task_goal", task.Goal)
 
-	prompt.WriteString("Please generate the test script now. Do NOT execute the task itself, ONLY generate the test script.\n")
+	// Set test method
+	builder.SetVariable("test_method", task.TestMethod)
+
+	// Set test script path
+	builder.SetVariable("test_script_path", testScriptPath)
+
+	// Build prompt
+	promptContent, err := builder.Build()
+	if err != nil {
+		return "", fmt.Errorf("failed to build test generation prompt: %w", err)
+	}
 
 	// Create temporary file
 	tmpFile, err := os.CreateTemp("", fmt.Sprintf("rick-test-gen-%s-*.md", task.ID))
@@ -239,7 +221,7 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 	}
 	defer tmpFile.Close()
 
-	if _, err := tmpFile.WriteString(prompt.String()); err != nil {
+	if _, err := tmpFile.WriteString(promptContent); err != nil {
 		os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to write prompt to file: %w", err)
 	}
@@ -248,7 +230,11 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 }
 
 // GenerateDoingPromptFile generates the doing prompt file for Claude Code CLI
-func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string) (string, error) {
+// Parameters:
+//   - task: The task to execute
+//   - debugContext: Content from debug.md (managed by Claude)
+//   - testErrorFeedback: Previous test execution errors for test script correction
+func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string, testErrorFeedback string) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
 	}
@@ -283,23 +269,43 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 		return "", fmt.Errorf("failed to generate doing prompt: %w", err)
 	}
 
+	// Read existing content
+	content, err := os.ReadFile(doingPromptFile)
+	if err != nil {
+		os.Remove(doingPromptFile)
+		return "", fmt.Errorf("failed to read prompt file: %w", err)
+	}
+
+	var additionalContext strings.Builder
+
 	// Append debug context if available
 	if debugContext != "" {
-		// Read existing content
-		content, err := os.ReadFile(doingPromptFile)
-		if err != nil {
-			os.Remove(doingPromptFile)
-			return "", fmt.Errorf("failed to read prompt file: %w", err)
-		}
+		additionalContext.WriteString("\n\n## Previous Debugging Context\n\n")
+		additionalContext.WriteString(debugContext)
+		additionalContext.WriteString("\n\nPlease review the debugging context above and avoid the same mistakes.\n")
+	}
 
-		// Append debug context
-		debugSection := "\n\n## Previous Debugging Context\n\n" + debugContext +
-			"\n\nPlease review the debugging context above and avoid the same mistakes.\n"
+	// Append test error feedback if available
+	if testErrorFeedback != "" {
+		additionalContext.WriteString("\n\n## Test Execution Feedback\n\n")
+		additionalContext.WriteString("**Previous test execution encountered errors. You may need to fix the test script.**\n\n")
+		additionalContext.WriteString("Test error details:\n")
+		additionalContext.WriteString("```\n")
+		additionalContext.WriteString(testErrorFeedback)
+		additionalContext.WriteString("\n```\n\n")
+		additionalContext.WriteString("**Action Required**:\n")
+		additionalContext.WriteString("1. Review the test script for potential issues\n")
+		additionalContext.WriteString("2. Check if the test logic correctly validates the task requirements\n")
+		additionalContext.WriteString("3. Fix any bugs in the test script (path issues, logic errors, etc.)\n")
+		additionalContext.WriteString("4. Ensure the test script outputs valid JSON format\n")
+		additionalContext.WriteString("5. Re-run the task to verify the fix\n")
+	}
 
-		// Write back
-		if err := os.WriteFile(doingPromptFile, append(content, []byte(debugSection)...), 0644); err != nil {
+	// Write back with additional context
+	if additionalContext.Len() > 0 {
+		if err := os.WriteFile(doingPromptFile, append(content, []byte(additionalContext.String())...), 0644); err != nil {
 			os.Remove(doingPromptFile)
-			return "", fmt.Errorf("failed to append debug context: %w", err)
+			return "", fmt.Errorf("failed to append additional context: %w", err)
 		}
 	}
 

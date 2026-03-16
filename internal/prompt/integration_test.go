@@ -17,7 +17,7 @@ func TestIntegration_LoadAllTemplates(t *testing.T) {
 	pm := NewPromptManager(templateDir)
 
 	// Test loading all templates
-	templates := []string{"plan", "doing", "test", "learning"}
+	templates := []string{"plan", "doing", "test_python", "learning"}
 	for _, templateName := range templates {
 		t.Run(templateName, func(t *testing.T) {
 			template, err := pm.LoadTemplate(templateName)
@@ -232,24 +232,8 @@ func TestIntegration_AllPromptGeneratorsWork(t *testing.T) {
 		t.Logf("Doing prompt generated successfully (%d chars)", len(prompt))
 	})
 
-	// Test test prompt generation
-	t.Run("TestPrompt", func(t *testing.T) {
-		prompt, err := GenerateTestPrompt(task, "// test code", cm, pm)
-		if err != nil {
-			t.Fatalf("Failed to generate test prompt: %v", err)
-		}
-
-		if prompt == "" {
-			t.Fatal("Test prompt is empty")
-		}
-
-		// Verify key content
-		if !strings.Contains(prompt, "// test code") {
-			t.Error("Test prompt does not contain code")
-		}
-
-		t.Logf("Test prompt generated successfully (%d chars)", len(prompt))
-	})
+	// Note: Test prompt generation (GenerateTestPrompt) was removed
+	// Python test script generation is now handled by runner.go using test_python.md template
 
 	// Test learning prompt generation
 	t.Run("LearningPrompt", func(t *testing.T) {
@@ -407,14 +391,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	}
 
 	// Step 3: Testing
-	testPrompt, err := GenerateTestPrompt(task, "func TestLogin() { ... }", cm, pm)
-	if err != nil {
-		t.Fatalf("Testing failed: %v", err)
-	}
-
-	if !strings.Contains(testPrompt, "TestLogin") {
-		t.Error("Test prompt missing test code")
-	}
+	// Note: GenerateTestPrompt was removed - Python test generation is now in runner.go
 
 	// Step 4: Learning
 	cm.LoadHistory([]string{

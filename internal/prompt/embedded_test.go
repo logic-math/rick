@@ -8,7 +8,7 @@ func TestLoadEmbeddedTemplate(t *testing.T) {
 	// Create manager with empty template dir (should use embedded)
 	pm := NewPromptManager("")
 
-	tests := []string{"plan", "doing", "learning", "test"}
+	tests := []string{"plan", "doing", "learning", "test_python"}
 
 	for _, name := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -69,7 +69,7 @@ func TestGetEmbeddedTemplate(t *testing.T) {
 		{"plan", true},
 		{"doing", true},
 		{"learning", true},
-		{"test", true},
+		{"test_python", true},
 		{"nonexistent", false},
 	}
 

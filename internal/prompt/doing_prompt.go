@@ -8,7 +8,7 @@ import (
 )
 
 // GenerateDoingPrompt generates the execution phase prompt from a task
-// It includes task information, test methods, and debug context if it's a retry
+// It includes task information, test methods, and debug context
 func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
@@ -34,7 +34,6 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	// Set task information
 	builder.SetVariable("task_id", task.ID)
 	builder.SetVariable("task_name", task.Name)
-	builder.SetVariable("retry_count", fmt.Sprintf("%d", retryCount))
 
 	// Set task details
 	builder.SetVariable("task_objective", task.Goal)
@@ -61,14 +60,9 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	taskDeps := formatTaskDependencies(task.Dependencies)
 	builder.SetVariable("task_dependencies", taskDeps)
 
-	// If it's a retry, include debug context
-	if retryCount > 0 {
-		debugContext := formatDebugContext(contextMgr.GetDebug())
-		builder.SetVariable("debug_context", debugContext)
-	} else {
-		// For non-retry, set empty debug context
-		builder.SetVariable("debug_context", "")
-	}
+	// Always include debug context
+	debugContext := formatDebugContext(contextMgr.GetDebug())
+	builder.SetVariable("debug_context", debugContext)
 
 	// Build final prompt
 	prompt, err := builder.Build()
@@ -107,7 +101,6 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	// Set task information
 	builder.SetVariable("task_id", task.ID)
 	builder.SetVariable("task_name", task.Name)
-	builder.SetVariable("retry_count", fmt.Sprintf("%d", retryCount))
 
 	// Set task details
 	builder.SetVariable("task_objective", task.Goal)
@@ -134,14 +127,9 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	taskDeps := formatTaskDependencies(task.Dependencies)
 	builder.SetVariable("task_dependencies", taskDeps)
 
-	// If it's a retry, include debug context
-	if retryCount > 0 {
-		debugContext := formatDebugContext(contextMgr.GetDebug())
-		builder.SetVariable("debug_context", debugContext)
-	} else {
-		// For non-retry, set empty debug context
-		builder.SetVariable("debug_context", "")
-	}
+	// Always include debug context
+	debugContext := formatDebugContext(contextMgr.GetDebug())
+	builder.SetVariable("debug_context", debugContext)
 
 	// Build and save to temporary file
 	promptFile, err := builder.BuildAndSave(fmt.Sprintf("doing-%s", task.ID))

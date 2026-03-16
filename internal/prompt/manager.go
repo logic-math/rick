@@ -26,8 +26,8 @@ var (
 	//go:embed templates/learning.md
 	learningTemplate string
 
-	//go:embed templates/test.md
-	testTemplate string
+	//go:embed templates/test_python.md
+	testPythonTemplate string
 )
 
 // PromptManager manages prompt templates with caching
@@ -101,8 +101,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return doingTemplate
 	case "learning":
 		return learningTemplate
-	case "test":
-		return testTemplate
+	case "test_python":
+		return testPythonTemplate
 	default:
 		return ""
 	}
