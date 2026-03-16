@@ -189,11 +189,14 @@ func (ac *AutoCommitter) AutoAddAndCommitJob(jobID, jobName string) error {
 	// Combine all files that need to be added
 	allFiles := append(modified, untracked...)
 
-	if len(allFiles) > 0 {
-		// Add all files to staging area
-		if err := ac.gm.AddFiles(allFiles); err != nil {
-			return fmt.Errorf("failed to add files: %w", err)
-		}
+	// If no files to add, nothing to commit
+	if len(allFiles) == 0 {
+		return nil
+	}
+
+	// Add all files to staging area
+	if err := ac.gm.AddFiles(allFiles); err != nil {
+		return fmt.Errorf("failed to add files: %w", err)
 	}
 
 	// Commit the job

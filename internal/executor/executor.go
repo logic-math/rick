@@ -321,9 +321,15 @@ func (e *Executor) getCurrentCommitHash() (string, error) {
 	// Run git rev-parse HEAD
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = cwd
-	output, err := cmd.Output()
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to run git rev-parse: %w", err)
+		// Check if this is because there are no commits yet
+		if strings.Contains(string(output), "unknown revision") ||
+		   strings.Contains(string(output), "bad revision") ||
+		   strings.Contains(string(output), "ambiguous argument") {
+			return "", fmt.Errorf("no commits yet in repository")
+		}
+		return "", fmt.Errorf("failed to run git rev-parse: %w (output: %s)", err, string(output))
 	}
 
 	commitHash := strings.TrimSpace(string(output))

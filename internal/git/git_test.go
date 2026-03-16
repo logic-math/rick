@@ -65,9 +65,10 @@ func TestAddFilesEmpty(t *testing.T) {
 		t.Fatalf("Failed to initialize repo: %v", err)
 	}
 
+	// Empty file list should not fail (just do nothing)
 	err := gm.AddFiles([]string{})
-	if err == nil {
-		t.Error("AddFiles should fail with empty paths")
+	if err != nil {
+		t.Errorf("AddFiles with empty list should not fail, got: %v", err)
 	}
 }
 

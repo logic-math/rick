@@ -47,14 +47,16 @@ func (gm *GitManager) InitRepo() error {
 // AddFiles adds files to the staging area
 func (gm *GitManager) AddFiles(paths []string) error {
 	if len(paths) == 0 {
-		return fmt.Errorf("no files to add")
+		// Not an error - just no files to add
+		return nil
 	}
 
 	args := append([]string{"add"}, paths...)
 	cmd := exec.Command("git", args...)
 	cmd.Dir = gm.repoPath
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to add files: %w", err)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to add files: %w (output: %s)", err, string(output))
 	}
 
 	return nil
