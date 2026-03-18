@@ -60,7 +60,7 @@ func TestGeneratePlanPrompt_Success(t *testing.T) {
 
 	// Generate plan prompt
 	requirement := "Implement prompt management system"
-	prompt, err := GeneratePlanPrompt(requirement, contextMgr, manager)
+	prompt, err := GeneratePlanPrompt(requirement, "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
@@ -101,7 +101,7 @@ func TestGeneratePlanPrompt_EmptyRequirement(t *testing.T) {
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("", "/tmp/test_plan", contextMgr, manager)
 
 	if err == nil {
 		t.Error("Expected error for empty requirement, got nil")
@@ -116,7 +116,7 @@ func TestGeneratePlanPrompt_NilContextManager(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewPromptManager(tmpDir)
 
-	prompt, err := GeneratePlanPrompt("test requirement", nil, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", nil, manager)
 
 	if err == nil {
 		t.Error("Expected error for nil context manager, got nil")
@@ -130,7 +130,7 @@ func TestGeneratePlanPrompt_NilContextManager(t *testing.T) {
 func TestGeneratePlanPrompt_NilManager(t *testing.T) {
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, nil)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, nil)
 
 	if err == nil {
 		t.Error("Expected error for nil manager, got nil")
@@ -158,7 +158,7 @@ func TestGeneratePlanPrompt_NoOKRInfo(t *testing.T) {
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
@@ -187,7 +187,7 @@ func TestGeneratePlanPrompt_NoSPECInfo(t *testing.T) {
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
@@ -216,7 +216,7 @@ func TestGeneratePlanPrompt_NoHistory(t *testing.T) {
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
@@ -354,7 +354,7 @@ task1, task2, ...
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
@@ -394,7 +394,7 @@ SPEC: {{spec_content}}
 	contextMgr.LoadSPECFromContent("Spec: Test")
 	contextMgr.LoadHistory([]string{"Task 1"})
 
-	prompt, err := GeneratePlanPrompt("test requirement", contextMgr, manager)
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/test_plan", contextMgr, manager)
 
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)

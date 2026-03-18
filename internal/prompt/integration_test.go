@@ -196,7 +196,7 @@ func TestIntegration_AllPromptGeneratorsWork(t *testing.T) {
 
 	// Test plan prompt generation
 	t.Run("PlanPrompt", func(t *testing.T) {
-		prompt, err := GeneratePlanPrompt("New requirement", cm, pm)
+		prompt, err := GeneratePlanPrompt("New requirement", "/tmp/test_plan", cm, pm)
 		if err != nil {
 			t.Fatalf("Failed to generate plan prompt: %v", err)
 		}
@@ -360,7 +360,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	})
 
 	// Step 1: Planning
-	planPrompt, err := GeneratePlanPrompt("Add user authentication", cm, pm)
+	planPrompt, err := GeneratePlanPrompt("Add user authentication", "/tmp/test_plan", cm, pm)
 	if err != nil {
 		t.Fatalf("Planning failed: %v", err)
 	}

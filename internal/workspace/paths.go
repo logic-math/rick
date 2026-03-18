@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,4 +92,33 @@ func GetJobLearningDir(jobID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(jobDir, LearningDirName), nil
+}
+
+// NextJobID scans the jobs directory and returns the next job_N id.
+// If no jobs exist yet, returns "job_1".
+func NextJobID() (string, error) {
+	jobsDir, err := GetJobsDir()
+	if err != nil {
+		return "", err
+	}
+
+	entries, err := os.ReadDir(jobsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "job_1", nil
+		}
+		return "", fmt.Errorf("failed to read jobs directory: %w", err)
+	}
+
+	maxN := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "job_%d", &n); err == nil && n > maxN {
+			maxN = n
+		}
+	}
+	return fmt.Sprintf("job_%d", maxN+1), nil
 }

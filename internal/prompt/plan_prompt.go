@@ -7,9 +7,9 @@ import (
 	"github.com/sunquan/rick/internal/parser"
 )
 
-// GeneratePlanPrompt generates the planning phase prompt from user requirement
-// It includes project context (OKR, SPEC) and task format specification
-func GeneratePlanPrompt(requirement string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+// GeneratePlanPrompt generates the planning phase prompt from user requirement.
+// jobPlanDir is the absolute path to the job's plan directory.
+func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
 	if requirement == "" {
 		return "", fmt.Errorf("requirement cannot be empty")
 	}
@@ -43,10 +43,11 @@ func GeneratePlanPrompt(requirement string, contextMgr *ContextManager, manager 
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())
 	builder.SetVariable("spec_content", specContent)
 
-	// Note: History/completed_work removed as per requirements
-
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)
+
+	// Set job plan directory
+	builder.SetVariable("job_plan_dir", jobPlanDir)
 
 	// Build final prompt
 	prompt, err := builder.Build()
@@ -57,10 +58,10 @@ func GeneratePlanPrompt(requirement string, contextMgr *ContextManager, manager 
 	return prompt, nil
 }
 
-// GeneratePlanPromptFile generates the planning phase prompt and saves it to a temporary file
-// Returns the file path and any error
-// The caller is responsible for cleaning up the temporary file
-func GeneratePlanPromptFile(requirement string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+// GeneratePlanPromptFile generates the planning phase prompt and saves it to a temporary file.
+// jobPlanDir is the absolute path to the job's plan directory (e.g. .rick/jobs/job_1/plan).
+// Returns the file path and any error. The caller is responsible for cleaning up the temporary file.
+func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
 	if requirement == "" {
 		return "", fmt.Errorf("requirement cannot be empty")
 	}
@@ -96,6 +97,9 @@ func GeneratePlanPromptFile(requirement string, contextMgr *ContextManager, mana
 
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)
+
+	// Set job plan directory
+	builder.SetVariable("job_plan_dir", jobPlanDir)
 
 	// Build and save to temporary file
 	promptFile, err := builder.BuildAndSave("plan")

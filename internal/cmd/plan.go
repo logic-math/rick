@@ -99,12 +99,34 @@ func executePlanWorkflow(requirement string) error {
 		fmt.Printf("[INFO] Workspace initialized: %v\n", ws != nil)
 	}
 
-	// Step 2: Generate planning prompt
+	// Step 2: Determine next job ID and create job/plan directory
+	jobID, err := workspace.NextJobID()
+	if err != nil {
+		return fmt.Errorf("failed to determine next job ID: %w", err)
+	}
+
+	jobPlanDir, err := workspace.GetJobPlanDir(jobID)
+	if err != nil {
+		return fmt.Errorf("failed to get job plan directory: %w", err)
+	}
+
+	if err := os.MkdirAll(jobPlanDir, 0755); err != nil {
+		return fmt.Errorf("failed to create job plan directory: %w", err)
+	}
+
+	if GetVerbose() {
+		fmt.Printf("[INFO] Created job directory: %s\n", jobPlanDir)
+	}
+
+	fmt.Printf("Job ID: %s\n", jobID)
+	fmt.Printf("Plan directory: %s\n", jobPlanDir)
+
+	// Step 3: Generate planning prompt
 	if GetVerbose() {
 		fmt.Println("[INFO] Generating planning prompt...")
 	}
 
-	contextMgr := prompt.NewContextManager("plan")
+	contextMgr := prompt.NewContextManager(jobID)
 
 	// Load OKR and SPEC
 	okriPath := filepath.Join(rickDir, workspace.OKRFileName)
@@ -131,7 +153,7 @@ func executePlanWorkflow(requirement string) error {
 	promptMgr := prompt.NewPromptManager(templateDir)
 
 	// Generate plan prompt and save to temporary file
-	planPromptFile, err := prompt.GeneratePlanPromptFile(requirement, contextMgr, promptMgr)
+	planPromptFile, err := prompt.GeneratePlanPromptFile(requirement, jobPlanDir, contextMgr, promptMgr)
 	if err != nil {
 		return fmt.Errorf("failed to generate plan prompt: %w", err)
 	}
@@ -141,7 +163,7 @@ func executePlanWorkflow(requirement string) error {
 		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	// Step 3: Call Claude Code CLI with planning prompt file (interactive mode)
+	// Step 4: Call Claude Code CLI with planning prompt file (interactive mode)
 	if GetVerbose() {
 		fmt.Println("[INFO] Calling Claude Code CLI for planning...")
 	}
@@ -150,9 +172,9 @@ func executePlanWorkflow(requirement string) error {
 		return fmt.Errorf("failed to call Claude Code CLI: %w", err)
 	}
 
-	fmt.Println("\nPlanning session completed!")
+	fmt.Printf("\nPlanning session completed! Job: %s\n", jobID)
 	fmt.Println("Please review the generated task files and then run:")
-	fmt.Println("  rick doing <job_id>")
+	fmt.Printf("  rick doing %s\n", jobID)
 
 	return nil
 }
