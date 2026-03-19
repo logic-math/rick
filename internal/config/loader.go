@@ -61,9 +61,13 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 
-	// If config file doesn't exist, return default config
+	// If config file doesn't exist, create it with default config
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return GetDefaultConfig(), nil
+		cfg := GetDefaultConfig()
+		if err := SaveConfig(cfg); err != nil {
+			return nil, fmt.Errorf("failed to create default config: %w", err)
+		}
+		return cfg, nil
 	}
 
 	data, err := os.ReadFile(configPath)
