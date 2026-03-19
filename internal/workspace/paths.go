@@ -116,7 +116,7 @@ func NextJobID() (string, error) {
 			continue
 		}
 		var n int
-		if _, err := fmt.Sscanf(e.Name(), "job_%d", &n); err == nil && n > maxN {
+		if _, err := fmt.Sscanf(e.Name(), "job_%d", &n); err == nil && n > 0 && n <= 9999 && n > maxN {
 			maxN = n
 		}
 	}
