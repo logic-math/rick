@@ -444,6 +444,75 @@ func TestGetHomeDir(t *testing.T) {
 	}
 }
 
+func TestGetProjectName(t *testing.T) {
+	// Save and restore cwd
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	// Case 1: fallback to directory base name (no go.mod, no PROJECT.md)
+	t.Run("fallback to dir name", func(t *testing.T) {
+		tempDir := t.TempDir()
+		if err := os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to chdir: %v", err)
+		}
+		name, err := GetProjectName()
+		if err != nil {
+			t.Fatalf("GetProjectName() error: %v", err)
+		}
+		if name != filepath.Base(tempDir) {
+			t.Errorf("expected %s, got %s", filepath.Base(tempDir), name)
+		}
+	})
+
+	// Case 2: go.mod module name
+	t.Run("go.mod module name", func(t *testing.T) {
+		tempDir := t.TempDir()
+		if err := os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to chdir: %v", err)
+		}
+		goModContent := "module github.com/example/myproject\n\ngo 1.21\n"
+		if err := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+			t.Fatalf("Failed to write go.mod: %v", err)
+		}
+		name, err := GetProjectName()
+		if err != nil {
+			t.Fatalf("GetProjectName() error: %v", err)
+		}
+		if name != "myproject" {
+			t.Errorf("expected myproject, got %s", name)
+		}
+	})
+
+	// Case 3: PROJECT.md first line takes priority
+	t.Run("PROJECT.md first line", func(t *testing.T) {
+		tempDir := t.TempDir()
+		if err := os.Chdir(tempDir); err != nil {
+			t.Fatalf("Failed to chdir: %v", err)
+		}
+		goModContent := "module github.com/example/myproject\n\ngo 1.21\n"
+		if err := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+			t.Fatalf("Failed to write go.mod: %v", err)
+		}
+		rickDir := filepath.Join(tempDir, RickDirName)
+		if err := os.MkdirAll(rickDir, 0755); err != nil {
+			t.Fatalf("Failed to create .rick dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(rickDir, "PROJECT.md"), []byte("# My Custom Project\nsome description\n"), 0644); err != nil {
+			t.Fatalf("Failed to write PROJECT.md: %v", err)
+		}
+		name, err := GetProjectName()
+		if err != nil {
+			t.Fatalf("GetProjectName() error: %v", err)
+		}
+		if name != "My Custom Project" {
+			t.Errorf("expected 'My Custom Project', got %s", name)
+		}
+	})
+}
+
 func TestJobPathHierarchy(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")

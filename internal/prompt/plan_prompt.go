@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 // GeneratePlanPrompt generates the planning phase prompt from user requirement.
@@ -32,7 +33,8 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	builder := NewPromptBuilder(template)
 
 	// Set project information
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, _ := workspace.GetProjectName()
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
 	// Set OKR content (full content, not just list items)
@@ -84,7 +86,8 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	builder := NewPromptBuilder(template)
 
 	// Set project information
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, _ := workspace.GetProjectName()
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
 	// Set OKR content (full content, not just list items)

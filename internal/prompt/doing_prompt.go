@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 // GenerateDoingPrompt generates the execution phase prompt from a task
@@ -41,7 +42,8 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	builder.SetVariable("test_methods", task.TestMethod)
 
 	// Set project information
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, _ := workspace.GetProjectName()
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
 	// Set SPEC content
@@ -108,7 +110,8 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	builder.SetVariable("test_methods", task.TestMethod)
 
 	// Set project information
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, _ := workspace.GetProjectName()
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
 	// Set SPEC content

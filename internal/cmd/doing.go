@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -366,52 +365,6 @@ func commitDoingResults(jobID string, result *executor.ExecutionJobResult) error
 	}
 
 	return nil
-}
-
-// promptForRetry prompts the user to decide whether to retry failed tasks
-func promptForRetry() (bool, error) {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("Do you want to retry failed tasks? (y/n): ")
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes", nil
-}
-
-// callClaudeCodeForTask calls Claude Code CLI to execute a specific task
-func callClaudeCodeForTask(cfg *config.Config, taskPrompt string) (string, error) {
-	// Create a temporary file for the prompt
-	tmpFile, err := os.CreateTemp("", "rick-task-*.md")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary file: %w", err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.WriteString(taskPrompt); err != nil {
-		return "", fmt.Errorf("failed to write prompt to temporary file: %w", err)
-	}
-	tmpFile.Close()
-
-	// Call Claude Code CLI
-	cmd := exec.Command("claude", "code", tmpFile.Name())
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("claude code execution failed: %w", err)
-	}
-
-	// Read the result from the temporary file (if updated)
-	content, err := os.ReadFile(tmpFile.Name())
-	if err != nil {
-		return "", fmt.Errorf("failed to read result file: %w", err)
-	}
-
-	return string(content), nil
 }
 
 // ensureGitUserConfigured ensures Git user is configured for the repository

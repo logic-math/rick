@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 func TestGenerateDoingPrompt_Success(t *testing.T) {
@@ -129,7 +130,8 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 	}
 
 	// Verify prompt contains project information
-	if !strings.Contains(prompt, "Rick CLI") {
+	projectName, _ := workspace.GetProjectName()
+	if !strings.Contains(prompt, projectName) {
 		t.Error("Expected prompt to contain project name")
 	}
 
@@ -477,6 +479,7 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 	}
 
 	// Comprehensive verification
+	dynamicProjectName, _ := workspace.GetProjectName()
 	requiredContent := []string{
 		"task1",
 		"实现提示词构建器",
@@ -485,7 +488,7 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 		"实现 Build() 方法",
 		"编写单元测试",
 		"go test",
-		"Rick CLI",
+		dynamicProjectName,
 		"Context-First AI Coding Framework",
 		"Use Go language",
 		"Support DAG execution",

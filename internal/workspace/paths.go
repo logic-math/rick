@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,6 +93,48 @@ func GetJobLearningDir(jobID string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(jobDir, LearningDirName), nil
+}
+
+// GetProjectName returns the project name by reading .rick/PROJECT.md (first line),
+// falling back to the module name in go.mod, then to filepath.Base(cwd).
+func GetProjectName() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return filepath.Base("."), nil
+	}
+
+	// 1. Try .rick/PROJECT.md first line
+	rickDirName := getRickDirName()
+	projectMDPath := filepath.Join(cwd, rickDirName, "PROJECT.md")
+	if f, err := os.Open(projectMDPath); err == nil {
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		if scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			line = strings.TrimPrefix(line, "#")
+			line = strings.TrimSpace(line)
+			if line != "" {
+				return line, nil
+			}
+		}
+	}
+
+	// 2. Try go.mod module name
+	goModPath := filepath.Join(cwd, "go.mod")
+	if data, err := os.ReadFile(goModPath); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "module ") {
+				modulePath := strings.TrimSpace(strings.TrimPrefix(line, "module "))
+				if modulePath != "" {
+					return filepath.Base(modulePath), nil
+				}
+			}
+		}
+	}
+
+	// 3. Fallback to directory base name
+	return filepath.Base(cwd), nil
 }
 
 // NextJobID scans the jobs directory and returns the next job_N id.
