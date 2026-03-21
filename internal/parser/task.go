@@ -80,7 +80,11 @@ func ParseDependencies(content string) ([]string, error) {
 
 // isNoDependency checks if a string represents "no dependency"
 func isNoDependency(s string) bool {
-	lower := strings.ToLower(s)
+	// Strip full-width and half-width parentheses before checking
+	stripped := strings.TrimFunc(s, func(r rune) bool {
+		return r == '(' || r == ')' || r == '（' || r == '）'
+	})
+	lower := strings.ToLower(stripped)
 	noDeps := []string{"无", "none", "null", "nil", "n/a", "na", "-"}
 	for _, noDep := range noDeps {
 		if lower == noDep {

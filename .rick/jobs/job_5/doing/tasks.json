@@ -1,0 +1,99 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-22T00:59:44.148885+08:00",
+  "updated_at": "2026-03-22T03:48:53.315624+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "清理无用依赖和通用化 project_name",
+      "task_file": "task1.md",
+      "status": "success",
+      "dependencies": null,
+      "attempts": 0,
+      "commit_hash": "735b7c3a43d94ba4b0f37df8bec75f22a84ea359",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:19:18.663458+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "修改 doing.md 模板 - debug.md 强制工作日志",
+      "task_file": "task2.md",
+      "status": "success",
+      "dependencies": null,
+      "attempts": 0,
+      "commit_hash": "890c3196ca832968c45f93d908c8c36ef7213cba",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:23:22.749249+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "实现 rick tools 子命令框架和 plan_check",
+      "task_file": "task3.md",
+      "status": "success",
+      "dependencies": [
+        "task1",
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "9580d5c6011e5bf74e90a58698d6549c11e08e6b",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:29:57.645181+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "修改 learning.md 模板 - 四类产出规范（Wiki/Skills/OKR/SPEC）",
+      "task_file": "task4.md",
+      "status": "success",
+      "dependencies": [
+        "task1",
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "335004c977fc25e3caa8703f87315fae3f84c96a",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:35:15.864471+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "实现 doing_check 和 learning_check 子命令",
+      "task_file": "task5.md",
+      "status": "success",
+      "dependencies": [
+        "task3",
+        "task4"
+      ],
+      "attempts": 0,
+      "commit_hash": "66516c5477f04ddc886a113229a99fec14cd675d",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:48:53.614404+08:00"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "实现 rick tools merge 和 skills 注入到 doing 提示词",
+      "task_file": "task6.md",
+      "status": "success",
+      "dependencies": [
+        "task3",
+        "task4"
+      ],
+      "attempts": 0,
+      "commit_hash": "e148135f1b4e44cfa71a3f580c9ad6c3cb90ed78",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T02:56:38.41188+08:00"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "实现 mock_agent 测试工具并完成端到端集成测试",
+      "task_file": "task7.md",
+      "status": "success",
+      "dependencies": [
+        "task5",
+        "task6"
+      ],
+      "attempts": 0,
+      "commit_hash": "92a97a1ccf552d7b3287bf3955a532964d0ca923",
+      "created_at": "2026-03-22T00:59:44.148885+08:00",
+      "updated_at": "2026-03-22T03:48:53.315597+08:00"
+    }
+  ]
+}
