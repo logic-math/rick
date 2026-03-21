@@ -225,6 +225,9 @@ func ValidateTask(task *Task) error {
 	if task.Goal == "" {
 		return fmt.Errorf("task goal is required")
 	}
+	if len(task.KeyResults) == 0 {
+		return fmt.Errorf("task key results are required")
+	}
 	if task.TestMethod == "" {
 		return fmt.Errorf("task test method is required")
 	}

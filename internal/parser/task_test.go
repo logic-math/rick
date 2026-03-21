@@ -370,6 +370,7 @@ func TestValidateTask(t *testing.T) {
 			task: &Task{
 				Name:       "Task Name",
 				Goal:       "Task Goal",
+				KeyResults: []string{"Result 1"},
 				TestMethod: "Test Method",
 			},
 			shouldErr: false,

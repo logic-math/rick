@@ -365,7 +365,9 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 		{
 			name:      "ValidateTask with all required fields",
 			content:   "",
-			parseFunc: func(c string) error { return ValidateTask(&Task{Name: "n", Goal: "g", TestMethod: "t"}) },
+			parseFunc: func(c string) error {
+				return ValidateTask(&Task{Name: "n", Goal: "g", KeyResults: []string{"r"}, TestMethod: "t"})
+			},
 			wantErr:   false,
 		},
 	}
