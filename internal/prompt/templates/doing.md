@@ -66,7 +66,7 @@
 
 **debug.md 是强制工作日志，无论任务是否顺利，都必须在 git commit 之前记录完整的执行过程。**
 
-这不是"遇到问题才记录"的可选项，而是每次任务执行的硬约束。debug.md 是 learning 阶段提取有价值 skills 的核心数据源。
+这是每次任务执行的硬约束，不可跳过。debug.md 是 learning 阶段提取有价值 skills 的核心数据源。
 
 ### debug.md 文件位置
 - 路径：`{{doing_dir}}/debug.md`
