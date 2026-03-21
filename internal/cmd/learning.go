@@ -261,6 +261,17 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 	builder.SetVariable("job_id", data.JobID)
 
+	// Set learning directory path
+	builder.SetVariable("learning_dir", learningDir)
+
+	// Set rick_bin_path: path to the locally built rick binary in the project
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		projectRoot = "."
+	}
+	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
+	builder.SetVariable("rick_bin_path", rickBinPath)
+
 	// Build task execution results table
 	var taskResults strings.Builder
 	if data.TasksJSON != nil {
@@ -285,25 +296,14 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 	}
 
 	// Set context variables
-	builder.SetVariable("completed_work_summary", "参见任务执行结果表")
 	builder.SetVariable("task_execution_results", taskResults.String())
 
 	// Debug records
 	if data.DebugContent != "" {
 		builder.SetVariable("debug_records", data.DebugContent)
-		builder.SetVariable("solutions_summary", "参见 debug.md 中的解决方案")
 	} else {
 		builder.SetVariable("debug_records", "无调试信息（任务执行顺利，无需调试）")
-		builder.SetVariable("solutions_summary", "无")
 	}
-
-	// Git history (placeholder - will be read by Claude using git commands)
-	builder.SetVariable("git_history", "使用 `git show <commit_hash>` 查看每个任务的详细变更")
-
-	// Code analysis placeholders
-	builder.SetVariable("new_features", "待分析（通过 git diff 分析）")
-	builder.SetVariable("code_improvements", "待分析（通过 git diff 分析）")
-	builder.SetVariable("technical_debt", "待分析（通过代码审查识别）")
 
 	// Build the prompt
 	promptContent, err := builder.Build()
@@ -311,17 +311,5 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 		return "", fmt.Errorf("failed to build learning prompt: %w", err)
 	}
 
-	// Append additional instructions with learning directory path
-	var additionalInstructions strings.Builder
-	additionalInstructions.WriteString("\n\n---\n\n")
-	additionalInstructions.WriteString("## ⚠️ 关键执行指令\n\n")
-	additionalInstructions.WriteString(fmt.Sprintf("**输出目录**: `%s`\n\n", learningDir))
-	additionalInstructions.WriteString("**执行步骤**:\n")
-	additionalInstructions.WriteString("1. 使用 `git show <commit_hash>` 查看每个任务的代码变更\n")
-	additionalInstructions.WriteString("2. 在指定的 learning 目录下生成所有文档\n")
-	additionalInstructions.WriteString("3. 确认所有文档符合格式要求\n")
-	additionalInstructions.WriteString("4. 输出生成的文件清单\n\n")
-	additionalInstructions.WriteString("**注意**: 严格遵守模板中的输出目录规范和文档格式要求。\n")
-
-	return promptContent + additionalInstructions.String(), nil
+	return promptContent, nil
 }
