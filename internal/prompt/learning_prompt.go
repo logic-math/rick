@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 // GenerateLearningPrompt generates the learning phase prompt from job execution results
@@ -32,7 +33,11 @@ func GenerateLearningPrompt(jobID string, contextMgr *ContextManager, manager *P
 	builder := NewPromptBuilder(template)
 
 	// Set project information
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, err := workspace.GetProjectName()
+	if err != nil || projectName == "" {
+		projectName = "Rick CLI"
+	}
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 	builder.SetVariable("job_id", jobID)
 

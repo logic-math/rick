@@ -383,7 +383,11 @@ func ensureGitUserConfigured(projectRoot string) error {
 		// Set user.name from global config
 		userName := cfg.Git.UserName
 		if userName == "" {
-			userName = "Rick CLI" // Fallback default
+			if projectName, err := workspace.GetProjectName(); err == nil && projectName != "" {
+				userName = projectName
+			} else {
+				userName = "Rick"
+			}
 		}
 		cmd = exec.Command("git", "config", "user.name", userName)
 		cmd.Dir = projectRoot

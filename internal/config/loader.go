@@ -48,7 +48,7 @@ func GetDefaultConfig() *Config {
 		ClaudeCodePath:   "",
 		DefaultWorkspace: filepath.Join(home, rickDirName),
 		Git: GitConfig{
-			UserName:  "Rick CLI",
+			UserName:  "Rick",
 			UserEmail: "rick@localhost",
 		},
 	}

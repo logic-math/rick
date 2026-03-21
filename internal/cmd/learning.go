@@ -253,7 +253,11 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 	builder := prompt.NewPromptBuilder(template)
 
 	// Set basic variables
-	builder.SetVariable("project_name", "Rick CLI")
+	projectName, err := workspace.GetProjectName()
+	if err != nil || projectName == "" {
+		projectName = "Rick CLI"
+	}
+	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 	builder.SetVariable("job_id", data.JobID)
 

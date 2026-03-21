@@ -473,8 +473,6 @@ func BenchmarkParseDependencies(b *testing.B) {
 	}
 }
 
-import "testing"
-
 func TestParseDependencies_ChineseNone(t *testing.T) {
 	content := `# 依赖关系
 无

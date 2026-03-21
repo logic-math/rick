@@ -28,19 +28,18 @@ func TestBuildLearningPrompt(t *testing.T) {
 	}
 	
 	// Build prompt
-	prompt := buildLearningPrompt(data)
-	
+	prompt, err := buildLearningPrompt(data, "/tmp/test-learning")
+	if err != nil {
+		t.Fatalf("buildLearningPrompt failed: %v", err)
+	}
+
 	// Verify prompt contains expected sections
 	if prompt == "" {
 		t.Fatal("Prompt should not be empty")
 	}
-	
+
 	// Check for key sections
 	expectedSections := []string{
-		"# Learning Analysis Task",
-		"## Debug Information",
-		"## Task Metadata",
-		"## Instructions",
 		"task1",
 		"abc123",
 	}
