@@ -135,3 +135,101 @@ func TestLoadDebugContext_EmptyPath(t *testing.T) {
 		t.Errorf("Expected empty context for empty path, got: %s", context)
 	}
 }
+
+// TestRetryTaskSimple_NilTask tests RetryTaskSimple with nil task
+func TestRetryTaskSimple_NilTask(t *testing.T) {
+	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
+		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 5}
+	runner := NewTaskRunner(config)
+	_, err := RetryTaskSimple(nil, runner, config, "")
+	if err == nil {
+		t.Fatal("expected error for nil task")
+	}
+}
+
+// TestRetryTaskSimple_Valid tests RetryTaskSimple with a valid task (requires claude)
+func TestRetryTaskSimple_Valid(t *testing.T) {
+	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
+		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
+	runner := NewTaskRunner(config)
+	task := &parser.Task{
+		ID:         "task1",
+		Name:       "Test Task",
+		Goal:       "Goal",
+		TestMethod: "echo PASS",
+	}
+	result, err := RetryTaskSimple(task, runner, config, "")
+	if err != nil {
+		t.Logf("RetryTaskSimple error (acceptable): %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+// TestRetryTask_WithMockClaude tests RetryTask with a mock claude binary
+func TestRetryTask_WithMockClaude(t *testing.T) {
+	// Create a mock claude script that exits with 0 but creates no test script
+	mockScript := `#!/bin/sh
+exit 0
+`
+	tmpDir := t.TempDir()
+	mockPath := filepath.Join(tmpDir, "claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &ExecutionConfig{
+		MaxRetries:     1,
+		TimeoutSeconds: 10,
+		ClaudeCodePath: mockPath,
+	}
+	runner := NewTaskRunner(config)
+	manager := NewTaskRetryManager(runner, config, "")
+
+	task := &parser.Task{
+		ID:         "task1",
+		Name:       "Test Task",
+		Goal:       "Goal",
+		TestMethod: "echo PASS",
+	}
+
+	result, err := manager.RetryTask(task)
+	// May fail because test script isn't created by mock, but should not panic
+	if err != nil {
+		t.Logf("RetryTask with mock returned error (acceptable): %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	// Result should have some status
+	if result.TaskID != "task1" {
+		t.Errorf("expected task_id=task1, got %s", result.TaskID)
+	}
+}
+
+// TestRetryTaskSimple_WithMockClaude tests the convenience wrapper
+func TestRetryTaskSimple_WithMockClaude(t *testing.T) {
+	mockScript := "#!/bin/sh\nexit 0\n"
+	tmpDir := t.TempDir()
+	mockPath := filepath.Join(tmpDir, "claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 10, ClaudeCodePath: mockPath}
+	runner := NewTaskRunner(config)
+	task := &parser.Task{ID: "t1", Name: "T", Goal: "G", TestMethod: "echo"}
+
+	result, _ := RetryTaskSimple(task, runner, config, "")
+	if result == nil {
+		t.Fatal("expected non-nil result from RetryTaskSimple")
+	}
+	if result.TaskID != "t1" {
+		t.Errorf("expected task_id=t1, got %s", result.TaskID)
+	}
+}

@@ -18,6 +18,12 @@ rick doing job_1
 
 # 知识积累
 rick learning job_1
+
+# 验证和合并（AI agent 工具）
+rick tools plan_check job_1      # 验证 plan 结构
+rick tools doing_check job_1     # 验证 doing 结果
+rick tools learning_check job_1  # 验证 learning 输出
+rick tools merge job_1           # 合并到主上下文
 ```
 
 ## 📚 文档导航

@@ -90,6 +90,34 @@ rick learning job_1
 rick learning --job job_2 --verbose
 ```
 
+### NewToolsCmd() *cobra.Command
+创建 `tools` 父命令，提供元技能工具集，主要供 AI agent 在 learning 阶段调用。
+
+**子命令**：
+
+| 子命令 | 功能 |
+|--------|------|
+| `plan_check <job_id>` | 验证 plan 目录结构：必需章节、依赖存在性、循环依赖检测 |
+| `doing_check <job_id>` | 验证 doing 目录：tasks.json 有效性、debug.md 存在、zombie 任务检测、commit_hash 完整性 |
+| `learning_check <job_id>` | 验证 learning 目录：SUMMARY.md、Python 语法、OKR/SPEC 章节 |
+| `merge <job_id>` | 将 learning 输出合并到 `.rick/` 主上下文，创建 `learning/job_N` 分支 |
+
+**使用**：
+```bash
+rick tools plan_check job_1
+rick tools doing_check job_1
+rick tools learning_check job_1
+rick tools merge job_1
+rick tools --help
+```
+
+**AI agent 工作流**：
+```
+rick tools learning_check job_1   # 验证 learning 输出
+rick tools merge job_1            # 合并到主上下文
+git merge --no-ff learning/job_1  # 人工审核后合并
+```
+
 ### validateJobID(id string) error
 验证 Job ID 格式的合法性。
 

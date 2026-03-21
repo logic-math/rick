@@ -409,3 +409,38 @@ func TestComplexDAGMultiplePaths(t *testing.T) {
 		t.Errorf("Expected 2 dependents for task1, got %d", len(dependents))
 	}
 }
+
+// TestGetTaskDependents_NotFound tests GetTaskDependents with nonexistent task
+func TestGetTaskDependents_NotFound(t *testing.T) {
+	tasks := []*parser.Task{
+		createTestTask("task1", "Task 1", "Goal 1", []string{}),
+	}
+	dag, err := NewDAG(tasks)
+	if err != nil {
+		t.Fatalf("NewDAG failed: %v", err)
+	}
+	_, err = dag.GetTaskDependents("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+}
+
+// TestGetTaskDependents_NoDependents tests GetTaskDependents for a leaf task
+func TestGetTaskDependents_NoDependents(t *testing.T) {
+	tasks := []*parser.Task{
+		createTestTask("task1", "Task 1", "Goal 1", []string{}),
+		createTestTask("task2", "Task 2", "Goal 2", []string{"task1"}),
+	}
+	dag, err := NewDAG(tasks)
+	if err != nil {
+		t.Fatalf("NewDAG failed: %v", err)
+	}
+	// task2 is a leaf (no one depends on it)
+	dependents, err := dag.GetTaskDependents("task2")
+	if err != nil {
+		t.Fatalf("GetTaskDependents failed: %v", err)
+	}
+	if len(dependents) != 0 {
+		t.Errorf("expected 0 dependents for leaf task, got %d", len(dependents))
+	}
+}

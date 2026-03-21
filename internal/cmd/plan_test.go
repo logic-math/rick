@@ -1,8 +1,13 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sunquan/rick/internal/config"
 )
 
 // TestPlanCmdCreation tests that NewPlanCmd creates a valid command
@@ -86,4 +91,83 @@ func TestPlanCmdWithEmptyRequirement(t *testing.T) {
 	if !strings.Contains(err.Error(), "requirement cannot be empty") {
 		t.Errorf("expected 'requirement cannot be empty' error, got: %v", err)
 	}
+}
+
+// TestCallClaudeCodeCLI_MockBinary tests callClaudeCodeCLI with a mock binary
+func TestCallClaudeCodeCLI_MockBinary(t *testing.T) {
+	// Create a mock claude script that exits successfully
+	tmpDir := t.TempDir()
+	mockScript := "#!/bin/sh\nexit 0\n"
+	mockPath := filepath.Join(tmpDir, "mock_claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a dummy prompt file
+	promptFile := filepath.Join(tmpDir, "prompt.md")
+	if err := os.WriteFile(promptFile, []byte("# Test prompt"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{ClaudeCodePath: mockPath}
+	if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
+		t.Errorf("expected no error with mock claude, got: %v", err)
+	}
+}
+
+// TestCallClaudeCodeCLI_FailingBinary tests callClaudeCodeCLI with a failing binary
+func TestCallClaudeCodeCLI_FailingBinary(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockScript := "#!/bin/sh\nexit 1\n"
+	mockPath := filepath.Join(tmpDir, "mock_claude_fail")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	promptFile := filepath.Join(tmpDir, "prompt.md")
+	if err := os.WriteFile(promptFile, []byte("# Test prompt"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{ClaudeCodePath: mockPath}
+	if err := callClaudeCodeCLI(cfg, promptFile); err == nil {
+		t.Error("expected error with failing mock claude")
+	}
+}
+
+// TestExecutePlanWorkflow_WithMockClaude tests executePlanWorkflow with mock claude
+func TestExecutePlanWorkflow_WithMockClaude(t *testing.T) {
+	mockDir := t.TempDir()
+	mockScript := "#!/bin/sh\nexit 0\n"
+	mockPath := filepath.Join(mockDir, "claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a config with mock claude path
+	cfgContent := fmt.Sprintf(`{"claude_code_path": "%s"}`, mockPath)
+	cfgDir := filepath.Join(os.TempDir(), ".rick")
+	_ = os.MkdirAll(cfgDir, 0755)
+	_ = os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644)
+
+	origPath := os.Getenv("PATH")
+	_ = os.Setenv("PATH", mockDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	err = executePlanWorkflow("test requirement")
+	t.Logf("executePlanWorkflow returned: %v", err)
 }

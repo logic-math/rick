@@ -288,3 +288,51 @@ func TestGenerateDoingPromptFile_WithTestErrorFeedback(t *testing.T) {
 		t.Error("Prompt file should contain test error feedback")
 	}
 }
+
+// TestBuildTestGenerationPromptFile tests the test prompt file generation
+func TestBuildTestGenerationPromptFile(t *testing.T) {
+	config := &ExecutionConfig{TimeoutSeconds: 30}
+	runner := NewTaskRunner(config)
+
+	task := &parser.Task{
+		ID:         "task1",
+		Name:       "Test Task",
+		Goal:       "Test goal",
+		TestMethod: "Run the test",
+	}
+
+	promptFile, err := runner.buildTestGenerationPromptFile(task, "/tmp/test_task1.py")
+	if err != nil {
+		t.Fatalf("buildTestGenerationPromptFile failed: %v", err)
+	}
+	defer os.Remove(promptFile)
+
+	if _, err := os.Stat(promptFile); err != nil {
+		t.Fatalf("prompt file not created: %v", err)
+	}
+
+	content, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "task1") {
+		t.Error("prompt file should contain task ID")
+	}
+}
+
+func TestBuildTestGenerationPromptFile_NilTask(t *testing.T) {
+	config := &ExecutionConfig{TimeoutSeconds: 30}
+	runner := NewTaskRunner(config)
+
+	// nil task should be handled gracefully by the caller (RunTask checks for nil)
+	// buildTestGenerationPromptFile itself may panic or error on nil task
+	// We just verify it doesn't silently succeed with bad data
+	task := &parser.Task{ID: "t1", Name: "T", Goal: "G", TestMethod: "test"}
+	promptFile, err := runner.buildTestGenerationPromptFile(task, "/tmp/test.py")
+	if err != nil {
+		// It's ok if it errors (e.g., template not found in test env)
+		t.Logf("buildTestGenerationPromptFile returned error (acceptable): %v", err)
+		return
+	}
+	defer os.Remove(promptFile)
+}

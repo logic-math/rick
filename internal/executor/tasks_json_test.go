@@ -851,3 +851,97 @@ func TestGetTask(t *testing.T) {
 		t.Errorf("Expected 'Task 1', got %s", task.TaskName)
 	}
 }
+
+// TestUpdateTaskCommit tests updating commit hash
+func TestUpdateTaskCommit(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskCommit("task1", "abc123"); err != nil {
+		t.Fatalf("UpdateTaskCommit failed: %v", err)
+	}
+	state, _ := tj.GetTask("task1")
+	if state.CommitHash != "abc123" {
+		t.Errorf("expected commit_hash=abc123, got %s", state.CommitHash)
+	}
+}
+
+func TestUpdateTaskCommit_EmptyID(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskCommit("", "abc123"); err == nil {
+		t.Fatal("expected error for empty task ID")
+	}
+}
+
+func TestUpdateTaskCommit_NotFound(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskCommit("nonexistent", "abc123"); err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+}
+
+// TestUpdateTaskFile tests updating task file name
+func TestUpdateTaskFile(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskFile("task1", "task1.md"); err != nil {
+		t.Fatalf("UpdateTaskFile failed: %v", err)
+	}
+	state, _ := tj.GetTask("task1")
+	if state.TaskFile != "task1.md" {
+		t.Errorf("expected task_file=task1.md, got %s", state.TaskFile)
+	}
+}
+
+func TestUpdateTaskFile_EmptyID(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskFile("", "task1.md"); err == nil {
+		t.Fatal("expected error for empty task ID")
+	}
+}
+
+func TestUpdateTaskFile_NotFound(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	if err := tj.UpdateTaskFile("nonexistent", "task1.md"); err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+}
+
+// TestGetTask_EmptyID tests GetTask with empty ID
+func TestGetTask_EmptyID(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	_, err := tj.GetTask("")
+	if err == nil {
+		t.Fatal("expected error for empty task ID")
+	}
+}
+
+// TestGetTask_NotFound tests GetTask with nonexistent ID
+func TestGetTask_NotFound(t *testing.T) {
+	tasks := []*parser.Task{{ID: "task1", Name: "T1", Dependencies: []string{}}}
+	dag, _ := NewDAG(tasks)
+	tj, _ := GenerateTasksJSON(dag, []string{"task1"})
+
+	_, err := tj.GetTask("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
+}

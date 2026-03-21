@@ -9,6 +9,16 @@ import (
 	"github.com/sunquan/rick/internal/parser"
 )
 
+// skipIfNoClause skips the test if RICK_INTEGRATION_TEST env var is not set.
+// Tests that call ExecuteJob() invoke claude CLI and are too slow for unit tests.
+// Run them with: RICK_INTEGRATION_TEST=1 go test ./internal/executor/...
+func skipIfNoClaude(t *testing.T) {
+	t.Helper()
+	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
+		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
+	}
+}
+
 // TestNewExecutor tests the creation of a new Executor
 func TestNewExecutor(t *testing.T) {
 	tasks := []*parser.Task{
@@ -600,6 +610,7 @@ func TestExecutorDAGValidation(t *testing.T) {
 
 // TestExecuteJobSingleTask tests executing a single task
 func TestExecuteJobSingleTask(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -643,6 +654,7 @@ func TestExecuteJobSingleTask(t *testing.T) {
 
 // TestExecuteJobMultipleTasks tests executing multiple tasks
 func TestExecuteJobMultipleTasks(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -694,6 +706,7 @@ func TestExecuteJobMultipleTasks(t *testing.T) {
 
 // TestExecuteJobTasksJSONPersistence tests that tasks.json is persisted during execution
 func TestExecuteJobTasksJSONPersistence(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -745,6 +758,7 @@ func TestExecuteJobTasksJSONPersistence(t *testing.T) {
 
 // TestExecuteJobResultStatus tests ExecutionJobResult status field
 func TestExecuteJobResultStatus(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -786,6 +800,7 @@ func TestExecuteJobResultStatus(t *testing.T) {
 
 // TestExecuteJobLogging tests that execution logging works
 func TestExecuteJobLogging(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -830,6 +845,7 @@ func TestExecuteJobLogging(t *testing.T) {
 
 // TestExecuteJobTimestamps tests that execution timestamps are set
 func TestExecuteJobTimestamps(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -877,6 +893,7 @@ func TestExecuteJobTimestamps(t *testing.T) {
 
 // TestExecuteJobTaskResultsNotNil tests that task results are not nil
 func TestExecuteJobTaskResultsNotNil(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -916,6 +933,7 @@ func TestExecuteJobTaskResultsNotNil(t *testing.T) {
 
 // TestExecuteJobWithDependencies tests execution with task dependencies
 func TestExecuteJobWithDependencies(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -967,6 +985,7 @@ func TestExecuteJobWithDependencies(t *testing.T) {
 
 // TestExecuteJobCounters tests task success/failure counters
 func TestExecuteJobCounters(t *testing.T) {
+	skipIfNoClaude(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -1070,4 +1089,60 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestGetCurrentCommitHash tests getting git commit hash
+func TestGetCurrentCommitHash(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "T1", Goal: "G", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
+	tmpDir := t.TempDir()
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+	// getCurrentCommitHash may fail if not in a git repo, that's ok
+	hash, err := exec.getCurrentCommitHash()
+	if err != nil {
+		t.Logf("getCurrentCommitHash returned error (acceptable in non-git env): %v", err)
+	} else if hash == "" {
+		t.Error("expected non-empty hash")
+	}
+}
+
+// TestRecordTaskMetadata tests recording task metadata
+func TestRecordTaskMetadata(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "T1", Goal: "G", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
+	tmpDir := t.TempDir()
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+	// recordTaskMetadata may fail on git ops, but should not panic
+	err = exec.recordTaskMetadata("task1")
+	if err != nil {
+		t.Logf("recordTaskMetadata returned error (acceptable): %v", err)
+	}
+}
+
+// TestRecordTaskMetadata_InvalidTask tests recording metadata for nonexistent task
+func TestRecordTaskMetadata_InvalidTask(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "T1", Goal: "G", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
+	tmpDir := t.TempDir()
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+	// Should fail for nonexistent task
+	err = exec.recordTaskMetadata("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
+	}
 }

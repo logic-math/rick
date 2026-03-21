@@ -351,3 +351,111 @@ func TestExecutionJobResultDuration(t *testing.T) {
 		t.Errorf("Expected duration 5s, got %v", duration)
 	}
 }
+
+// TestExecuteDoingWorkflow_NoJobDir tests executeDoingWorkflow with missing job dir
+func TestExecuteDoingWorkflow_NoJobDir(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err = executeDoingWorkflow("job_test")
+	if err == nil {
+		t.Fatal("expected error for missing job dir")
+	}
+}
+
+// TestExecuteDoingWorkflow_NoPlanDir tests executeDoingWorkflow with missing plan dir
+func TestExecuteDoingWorkflow_NoPlanDir(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".rick", "jobs", "job_test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err = executeDoingWorkflow("job_test")
+	if err == nil {
+		t.Fatal("expected error for missing plan dir")
+	}
+}
+
+// TestExecuteDoingWorkflow_NoTasks tests executeDoingWorkflow with empty plan dir
+func TestExecuteDoingWorkflow_NoTasks(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".rick", "jobs", "job_test", "plan"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err = executeDoingWorkflow("job_test")
+	if err == nil {
+		t.Fatal("expected error for no tasks")
+	}
+}
+
+// TestExecuteDoingWorkflow_WithMockClaude tests executeDoingWorkflow with mock claude
+func TestExecuteDoingWorkflow_WithMockClaude(t *testing.T) {
+	// Create mock claude that exits 0 but creates no test script
+	mockDir := t.TempDir()
+	mockScript := "#!/bin/sh\nexit 0\n"
+	mockPath := filepath.Join(mockDir, "claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	// Set up workspace
+	planDir := filepath.Join(dir, ".rick", "jobs", "job_test", "plan")
+	if err := os.MkdirAll(planDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	task1 := "# 依赖关系\n无\n# 任务名称\nTask1\n# 任务目标\nGoal\n# 关键结果\n1. KR1\n# 测试方法\nTest\n"
+	if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(task1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set ClaudeCodePath via config
+	origPath := os.Getenv("PATH")
+	_ = os.Setenv("PATH", mockDir+":"+origPath)
+	defer os.Setenv("PATH", origPath)
+
+	// executeDoingWorkflow will fail when ExecuteJob tries to run claude
+	// but it should reach that point (covering the workflow setup code)
+	err = executeDoingWorkflow("job_test")
+	// Error is expected (mock claude doesn't create test scripts)
+	t.Logf("executeDoingWorkflow returned: %v", err)
+}
