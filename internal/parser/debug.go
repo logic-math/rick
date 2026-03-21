@@ -35,7 +35,8 @@ func ParseDebug(content string) (*DebugInfo, error) {
 
 	// Parse line by line to find debug entries
 	lines := strings.Split(content, "\n")
-	pattern := regexp.MustCompile(`^\s*-\s*debug(\d+):\s*(.+)$`)
+	// Match both "- debug1: ..." and "## debug1: ..." formats
+	pattern := regexp.MustCompile(`^(?:\s*-\s*|#+\s*)debug(\d+):\s*(.+)$`)
 
 	for _, line := range lines {
 		matches := pattern.FindStringSubmatch(line)

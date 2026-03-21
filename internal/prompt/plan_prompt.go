@@ -48,6 +48,10 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)
 
+	// Set completed work history
+	completedWork := formatCompletedWork(contextMgr.GetHistory())
+	builder.SetVariable("completed_work", completedWork)
+
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 
@@ -101,6 +105,10 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)
 
+	// Set completed work history
+	completedWork2 := formatCompletedWork(contextMgr.GetHistory())
+	builder.SetVariable("completed_work", completedWork2)
+
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 
@@ -114,25 +122,44 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 }
 
 // formatOKRContent formats OKR information for the prompt
-// Changed: Now returns full OKR content instead of formatted list
 func formatOKRContent(okrInfo *parser.ContextInfo) string {
-	if okrInfo == nil || len(okrInfo.Objectives) == 0 {
+	if okrInfo == nil || (len(okrInfo.Objectives) == 0 && len(okrInfo.KeyResults) == 0) {
 		return "暂无项目 OKR 信息"
 	}
 
-	// Return the full content (first element contains the complete OKR.md)
-	return okrInfo.Objectives[0]
+	var content strings.Builder
+
+	if len(okrInfo.Objectives) > 0 {
+		content.WriteString("**Objectives**:\n")
+		for _, obj := range okrInfo.Objectives {
+			content.WriteString(fmt.Sprintf("- %s\n", obj))
+		}
+		content.WriteString("\n")
+	}
+
+	if len(okrInfo.KeyResults) > 0 {
+		content.WriteString("**Key Results**:\n")
+		for _, kr := range okrInfo.KeyResults {
+			content.WriteString(fmt.Sprintf("- %s\n", kr))
+		}
+	}
+
+	return content.String()
 }
 
 // formatSPECContent formats SPEC information for the prompt
-// Changed: Now returns full SPEC content instead of formatted list
 func formatSPECContent(specInfo *parser.ContextInfo) string {
 	if specInfo == nil || len(specInfo.Specifications) == 0 {
 		return "暂无项目 SPEC 信息"
 	}
 
-	// Return the full content (first element contains the complete SPEC.md)
-	return specInfo.Specifications[0]
+	var content strings.Builder
+	content.WriteString("**Specifications**:\n")
+	for _, spec := range specInfo.Specifications {
+		content.WriteString(fmt.Sprintf("- %s\n", spec))
+	}
+
+	return content.String()
 }
 
 // formatCompletedWork formats completed work history for the prompt

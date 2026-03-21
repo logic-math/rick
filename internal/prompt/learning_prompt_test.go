@@ -97,9 +97,9 @@ func TestGenerateLearningPrompt_Success(t *testing.T) {
 		t.Error("Generated prompt is empty")
 	}
 
-	// Verify prompt contains project information
-	if !strings.Contains(prompt, "Rick CLI") {
-		t.Error("Prompt should contain project name")
+	// Verify prompt contains project information (project_name is dynamically resolved)
+	if strings.Contains(prompt, "{{project_name}}") {
+		t.Error("Prompt should have project_name variable replaced")
 	}
 
 	if !strings.Contains(prompt, "job_7") {
@@ -350,9 +350,9 @@ Debt: {{technical_debt}}`
 		t.Error("Prompt should not contain unreplaced variables")
 	}
 
-	// Verify specific replacements
-	if !strings.Contains(prompt, "Rick CLI") {
-		t.Error("Project name should be replaced")
+	// Verify specific replacements (project_name is dynamically resolved)
+	if strings.Contains(prompt, "{{project_name}}") {
+		t.Error("Project name variable should be replaced")
 	}
 
 	if !strings.Contains(prompt, "job_7") {

@@ -1,5 +1,15 @@
 # Rick Plan 阶段提示词
 
+## 零、项目背景
+
+**项目名称**: {{project_name}}
+**项目描述**: {{project_description}}
+
+### 已完成的工作
+{{completed_work}}
+
+---
+
 ## 一、Plan 模式的任务目标
 
 你的核心任务是：**将用户的需求转化为可落地执行的解决方案**

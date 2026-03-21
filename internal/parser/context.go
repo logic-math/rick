@@ -11,8 +11,7 @@ type ContextInfo struct {
 	Specifications  []string // 开发规范
 }
 
-// ParseOKR parses OKR.md content and returns ContextInfo with full content
-// Changed: Now returns the complete OKR content instead of just extracting list items
+// ParseOKR parses OKR.md content and extracts objectives and key results
 func ParseOKR(content string) (*ContextInfo, error) {
 	if content == "" {
 		return &ContextInfo{
@@ -23,16 +22,22 @@ func ParseOKR(content string) (*ContextInfo, error) {
 
 	info := &ContextInfo{}
 
-	// Return the full OKR content as a single string
-	// This ensures all context is preserved for the LLM
-	info.Objectives = []string{content}
-	info.KeyResults = []string{} // Not used anymore, kept for compatibility
+	objectives, err := ExtractObjectives(content)
+	if err != nil {
+		return nil, err
+	}
+	info.Objectives = objectives
+
+	keyResults, err := ExtractKeyResults(content)
+	if err != nil {
+		return nil, err
+	}
+	info.KeyResults = keyResults
 
 	return info, nil
 }
 
-// ParseSPEC parses SPEC.md content and returns ContextInfo with full content
-// Changed: Now returns the complete SPEC content instead of just extracting list items
+// ParseSPEC parses SPEC.md content and extracts specifications
 func ParseSPEC(content string) (*ContextInfo, error) {
 	if content == "" {
 		return &ContextInfo{
@@ -42,9 +47,11 @@ func ParseSPEC(content string) (*ContextInfo, error) {
 
 	info := &ContextInfo{}
 
-	// Return the full SPEC content as a single string
-	// This ensures all context is preserved for the LLM
-	info.Specifications = []string{content}
+	specs, err := ExtractSpecifications(content)
+	if err != nil {
+		return nil, err
+	}
+	info.Specifications = specs
 
 	return info, nil
 }

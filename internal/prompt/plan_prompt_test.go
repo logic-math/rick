@@ -66,9 +66,9 @@ func TestGeneratePlanPrompt_Success(t *testing.T) {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
 	}
 
-	// Verify prompt contains project information
-	if !strings.Contains(prompt, "Rick CLI") {
-		t.Error("Expected prompt to contain project name")
+	// Verify prompt contains project information (project_name is dynamically resolved)
+	if strings.Contains(prompt, "{{project_name}}") {
+		t.Error("Expected project_name variable to be replaced")
 	}
 
 	if !strings.Contains(prompt, "Context-First AI Coding Framework") {
