@@ -12,6 +12,7 @@ import (
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/git"
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -28,16 +29,15 @@ func NewDoingCmd() *cobra.Command {
 				fmt.Println("[INFO] Starting doing phase...")
 			}
 
-			if GetDryRun() {
-				fmt.Println("[DRY-RUN] Would execute job")
-				return nil
-			}
-
 			// Get job ID from args, local flag, or global flag
 			if len(args) > 0 {
 				jobID = args[0]
 			} else if jobID == "" {
 				jobID = GetJobID()
+			}
+
+			if GetDryRun() {
+				return runDoingDryRun(jobID)
 			}
 
 			if jobID == "" {
@@ -469,5 +469,55 @@ func ensureGitInitialized(rickDir string) error {
 	}
 
 	fmt.Printf("✅ Git repository initialized in project root: %s\n", projectRoot)
+	return nil
+}
+
+// runDoingDryRun generates and prints the doing prompt for the first pending task
+// without executing it. Used for inspection and testing.
+func runDoingDryRun(jobID string) error {
+	if jobID == "" {
+		fmt.Println("[DRY-RUN] No job ID provided")
+		return nil
+	}
+
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
+		return nil
+	}
+
+	planDir := filepath.Join(rickDir, "jobs", jobID, "plan")
+	if _, err := os.Stat(planDir); os.IsNotExist(err) {
+		fmt.Printf("[DRY-RUN] plan directory not found: %s\n", planDir)
+		return nil
+	}
+
+	tasks, err := loadTasksFromPlan(planDir)
+	if err != nil || len(tasks) == 0 {
+		fmt.Printf("[DRY-RUN] no tasks found: %v\n", err)
+		return nil
+	}
+
+	// Use the first task for the dry-run preview
+	task := tasks[0]
+
+	contextMgr := prompt.NewContextManager("doing")
+	promptMgr := prompt.NewPromptManager("")
+
+	promptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, rickDir)
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
+		return nil
+	}
+	defer os.Remove(promptFile)
+
+	content, err := os.ReadFile(promptFile)
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to read prompt file: %v\n", err)
+		return nil
+	}
+
+	fmt.Printf("[DRY-RUN] Prompt for task %s:\n\n", task.ID)
+	fmt.Println(string(content))
 	return nil
 }

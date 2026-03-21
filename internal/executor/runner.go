@@ -242,12 +242,12 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	// Create context manager
 	contextMgr := prompt.NewContextManager("doing")
 
-	// Load OKR and SPEC if available
+	// Compute rickDir from workspaceDir (.rick/jobs/job_X/doing → .rick)
+	rickDir := ""
 	if tr.config.WorkspaceDir != "" {
-		rickDir := filepath.Dir(tr.config.WorkspaceDir) // workspaceDir is .rick/jobs/job_X/doing
-		rickDir = filepath.Dir(rickDir)                  // go up to .rick/jobs/job_X
-		rickDir = filepath.Dir(rickDir)                  // go up to .rick/jobs
-		rickDir = filepath.Dir(rickDir)                  // go up to .rick
+		rickDir = filepath.Dir(tr.config.WorkspaceDir) // go up to .rick/jobs/job_X
+		rickDir = filepath.Dir(rickDir)                // go up to .rick/jobs
+		rickDir = filepath.Dir(rickDir)                // go up to .rick
 
 		okriPath := filepath.Join(rickDir, "OKR.md")
 		if _, err := os.Stat(okriPath); err == nil {
@@ -263,8 +263,8 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	// Create prompt manager (use embedded templates)
 	promptMgr := prompt.NewPromptManager("")
 
-	// Generate doing prompt file
-	doingPromptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr)
+	// Generate doing prompt file (pass rickDir for skills injection)
+	doingPromptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, rickDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate doing prompt: %w", err)
 	}

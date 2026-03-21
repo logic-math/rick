@@ -2,11 +2,35 @@ package prompt
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/workspace"
 )
+
+// formatSkillsSection generates the skills section for the doing prompt.
+// Returns empty string if no skills are available.
+func formatSkillsSection(rickDir string) string {
+	if rickDir == "" {
+		return ""
+	}
+	skills, err := workspace.LoadSkillsList(rickDir)
+	if err != nil || len(skills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n## 可用的项目 Skills\n\n")
+	sb.WriteString("以下 Python 脚本位于 `.rick/skills/`，你可以在合适时机调用它们：\n\n")
+	sb.WriteString("| 文件 | 描述 |\n")
+	sb.WriteString("|------|------|\n")
+	for _, s := range skills {
+		sb.WriteString(fmt.Sprintf("| %s.py | %s |\n", s.Name, s.Description))
+	}
+	sb.WriteString("\n调用方式：`python3 .rick/skills/<filename>.py`\n")
+	return sb.String()
+}
 
 // GenerateDoingPrompt generates the execution phase prompt from a task
 // It includes task information, test methods, and debug context
@@ -78,7 +102,8 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 // GenerateDoingPromptFile generates the execution phase prompt and saves it to a temporary file
 // Returns the file path and any error
 // The caller is responsible for cleaning up the temporary file
-func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+// rickDir is optional: when non-empty, skills from .rick/skills/ are appended to the prompt.
+func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
 	}
@@ -140,7 +165,32 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 		return "", fmt.Errorf("failed to build and save doing prompt: %w", err)
 	}
 
+	// Inject skills section if rickDir is provided
+	resolvedRickDir := ""
+	if len(rickDir) > 0 {
+		resolvedRickDir = rickDir[0]
+	}
+	skillsSection := formatSkillsSection(resolvedRickDir)
+	if skillsSection != "" {
+		content, err := readAndAppend(promptFile, skillsSection)
+		if err != nil {
+			return "", fmt.Errorf("failed to append skills section: %w", err)
+		}
+		_ = content
+	}
+
 	return promptFile, nil
+}
+
+// readAndAppend appends text to a file and returns nil on success
+func readAndAppend(filePath, text string) ([]byte, error) {
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	_, err = f.WriteString(text)
+	return nil, err
 }
 
 // formatKeyResults formats key results for the prompt
