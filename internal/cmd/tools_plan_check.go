@@ -73,7 +73,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := autoFix(claudePath, promptFile); fixErr != nil {
+				if fixErr := runAutoFix(claudePath, promptFile); fixErr != nil {
 					break
 				}
 			}
@@ -182,10 +182,10 @@ func runPlanCheck(planDir string) error {
 	return nil
 }
 
-// autoFix calls claude in non-interactive mode with the given prompt file.
+// runAutoFix calls claude in non-interactive mode with the given prompt file.
 // claudePath is the path to the claude binary.
 // promptFile is a file containing the fix prompt.
-func autoFix(claudePath, promptFile string) error {
+func runAutoFix(claudePath, promptFile string) error {
 	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", promptFile)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

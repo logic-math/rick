@@ -19,13 +19,17 @@ An AI agent reads 'rick tools --help' to discover all available tools,
 then decides which commands to invoke to complete its work.
 
 Available subcommands:
-  plan_check    Validate the plan directory structure for a job`,
+  plan_check      Validate the plan directory structure for a job
+  doing_check     Validate the doing directory structure for a job
+  learning_check  Validate the learning directory structure for a job`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
 	}
 
 	toolsCmd.AddCommand(NewPlanCheckCmd())
+	toolsCmd.AddCommand(NewDoingCheckCmd())
+	toolsCmd.AddCommand(NewLearningCheckCmd())
 
 	return toolsCmd
 }
