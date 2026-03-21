@@ -368,7 +368,7 @@ func TestBuildComplexTemplate(t *testing.T) {
 	}
 
 	builder := NewPromptBuilder(template)
-	builder.SetVariable("project_name", "Rick CLI").
+	builder.SetVariable("project_name", "MyProject").
 		SetVariable("description", "A context-first AI coding framework").
 		SetVariable("progress", "50").
 		SetVariable("version", "1.0").
@@ -379,7 +379,7 @@ func TestBuildComplexTemplate(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if !strings.Contains(result, "Rick CLI") {
+	if !strings.Contains(result, "MyProject") {
 		t.Error("Expected result to contain project name")
 	}
 

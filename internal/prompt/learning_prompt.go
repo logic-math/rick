@@ -34,8 +34,8 @@ func GenerateLearningPrompt(jobID string, contextMgr *ContextManager, manager *P
 
 	// Set project information
 	projectName, err := workspace.GetProjectName()
-	if err != nil || projectName == "" {
-		projectName = "Rick CLI"
+	if err != nil {
+		projectName = "unknown"
 	}
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
