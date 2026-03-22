@@ -32,8 +32,6 @@ rick tools merge job_1           # 合并到主上下文
 
 完整的项目文档请访问 [**Wiki 文档中心**](wiki/README.md)：
 
-- [快速入门指南](wiki/getting-started.md) - 安装、配置和第一个项目
-- [核心概念](wiki/core-concepts.md) - 理解 Rick 的设计理念
 - [系统架构](wiki/architecture.md) - 整体架构和模块关系
 - [运行时流程](wiki/runtime-flow.md) - 任务执行流程详解
 - [DAG 执行](wiki/dag-execution.md) - 依赖管理和拓扑排序
