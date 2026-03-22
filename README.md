@@ -124,6 +124,51 @@ rick tools merge job_1           # 合并到主上下文
 
 ---
 
+## 🔄 工作流：Plan → Doing → Learning
+
+### `rick plan` — 规划
+
+描述需求，生成任务列表。
+
+```bash
+rick plan "创建一个用户登录 API"
+```
+
+plan 完成后，检查 `.rick/job_1/plan/tasks/` 下的任务文件，确认分解合理后再执行。
+
+### `rick doing` — 执行
+
+自动逐个完成任务，每个任务通过测试后自动 git commit。
+
+```bash
+rick doing job_1
+```
+
+若某任务失败超过重试限制，编辑对应 `task.md` 补充说明，再重新运行。
+
+### `rick learning` — 积累
+
+提取本次经验，更新上下文，供后续 job 使用。
+
+```bash
+rick learning job_1
+```
+
+### 典型使用
+
+```bash
+rick plan "为用户系统添加 JWT 认证"
+rick doing job_1
+rick learning job_1
+
+# 下一个需求，自动继承上次积累的上下文
+rick plan "添加 token 刷新机制"
+rick doing job_2
+rick learning job_2
+```
+
+---
+
 ## 📊 关键设计决策一览
 
 ### 简化原则（vs Morty）
