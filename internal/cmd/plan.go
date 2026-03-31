@@ -26,6 +26,15 @@ func NewPlanCmd() *cobra.Command {
 				fmt.Println("[INFO] Starting plan phase...")
 			}
 
+			// Check if --job flag is set to re-enter an existing job
+			if existingJobID := GetJobID(); existingJobID != "" {
+				if GetDryRun() {
+					fmt.Printf("[DRY-RUN] Would re-enter plan for job: %s\n", existingJobID)
+					return nil
+				}
+				return reEnterPlanWorkflow(existingJobID)
+			}
+
 			if GetDryRun() {
 				fmt.Println("[DRY-RUN] Would create a plan")
 				return nil
@@ -179,6 +188,80 @@ func executePlanWorkflow(requirement string) error {
 	return nil
 }
 
+
+// reEnterPlanWorkflow re-enters a planning session for an existing job
+func reEnterPlanWorkflow(existingJobID string) error {
+	jobPlanDir, err := workspace.GetJobPlanDir(existingJobID)
+	if err != nil {
+		return fmt.Errorf("failed to get job plan directory: %w", err)
+	}
+
+	if _, err := os.Stat(jobPlanDir); os.IsNotExist(err) {
+		return fmt.Errorf("job %s plan directory does not exist, use 'rick plan' to create a new job", existingJobID)
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+
+	if GetVerbose() {
+		fmt.Printf("[INFO] Re-entering plan for job: %s\n", existingJobID)
+		fmt.Printf("[INFO] Plan directory: %s\n", jobPlanDir)
+	}
+
+	fmt.Printf("Job ID: %s\n", existingJobID)
+	fmt.Printf("Plan directory: %s\n", jobPlanDir)
+
+	contextMgr := prompt.NewContextManager(existingJobID)
+
+	okriPath := filepath.Join(rickDir, workspace.OKRFileName)
+	if _, err := os.Stat(okriPath); err == nil {
+		if err := contextMgr.LoadOKRFromFile(okriPath); err != nil && GetVerbose() {
+			fmt.Printf("[WARN] Failed to load OKR: %v\n", err)
+		}
+	}
+
+	specPath := filepath.Join(rickDir, workspace.SpecFileName)
+	if _, err := os.Stat(specPath); err == nil {
+		if err := contextMgr.LoadSPECFromFile(specPath); err != nil && GetVerbose() {
+			fmt.Printf("[WARN] Failed to load SPEC: %v\n", err)
+		}
+	}
+
+	templateDir := filepath.Join(rickDir, "templates")
+	if _, err := os.Stat(templateDir); os.IsNotExist(err) {
+		templateDir = ""
+	}
+
+	promptMgr := prompt.NewPromptManager(templateDir)
+
+	// Use empty requirement for re-entry; the existing plan dir already has context
+	planPromptFile, err := prompt.GeneratePlanPromptFile("", jobPlanDir, contextMgr, promptMgr)
+	if err != nil {
+		return fmt.Errorf("failed to generate plan prompt: %w", err)
+	}
+	defer os.Remove(planPromptFile)
+
+	if GetVerbose() {
+		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
+	}
+
+	if err := callClaudeCodeCLI(cfg, planPromptFile); err != nil {
+		return fmt.Errorf("failed to call Claude Code CLI: %w", err)
+	}
+
+	fmt.Printf("\nPlanning session completed! Job: %s\n", existingJobID)
+	fmt.Println("Please review the generated task files and then run:")
+	fmt.Printf("  rick doing %s\n", existingJobID)
+
+	return nil
+}
 
 // generateJobID generates a new job ID (job_N format)
 func generateJobID() string {

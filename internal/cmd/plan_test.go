@@ -135,6 +135,52 @@ func TestCallClaudeCodeCLI_FailingBinary(t *testing.T) {
 	}
 }
 
+// TestPlanCmdWithJobFlagDryRun tests plan command with --job flag in dry-run mode
+func TestPlanCmdWithJobFlagDryRun(t *testing.T) {
+	origDryRun := dryRun
+	origJobID := jobID
+	defer func() {
+		dryRun = origDryRun
+		jobID = origJobID
+	}()
+
+	dryRun = true
+	jobID = "job_1"
+
+	cmd := NewPlanCmd()
+	cmd.SetArgs([]string{"some requirement"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Errorf("plan command with --job dry-run failed: %v", err)
+	}
+}
+
+// TestReEnterPlanWorkflow_NonExistentJob tests error when job plan dir does not exist
+func TestReEnterPlanWorkflow_NonExistentJob(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	err = reEnterPlanWorkflow("job_999")
+	if err == nil {
+		t.Fatal("expected error for non-existent job plan directory")
+	}
+	if !strings.Contains(err.Error(), "job job_999 plan directory does not exist") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 // TestExecutePlanWorkflow_WithMockClaude tests executePlanWorkflow with mock claude
 func TestExecutePlanWorkflow_WithMockClaude(t *testing.T) {
 	mockDir := t.TempDir()
