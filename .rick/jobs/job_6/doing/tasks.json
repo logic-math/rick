@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-31T20:39:05.317636582+08:00",
+  "updated_at": "2026-04-01T00:01:16.638033553+08:00",
+  "tasks": [
+    {
+      "task_id": "task2",
+      "task_name": "实现 `human-loop` 命令的 prompt 生成函数和 RFC 目录管理",
+      "status": "failed",
+      "dependencies": [],
+      "attempts": 0,
+      "error": "task failed after 5 attempts: failed to generate test script: test generation timeout after 5m0s",
+      "created_at": "2026-03-31T20:39:05.317636582+08:00",
+      "updated_at": "2026-03-31T21:36:07.758143167+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "为 `rick plan` 命令增加 `--job` flag 支持重进已有 job",
+      "task_file": "task4.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "dd785d1c3635912c15fc27d5aaa836fbfbcc9fe1",
+      "created_at": "2026-03-31T20:39:05.317636582+08:00",
+      "updated_at": "2026-03-31T22:39:38.058345234+08:00"
+    },
+    {
+      "task_id": "task1",
+      "task_name": "实现 `human-loop` 命令的提示词模板",
+      "task_file": "task1.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "b2139718916427b2741acd5c47d12326f1ee6297",
+      "created_at": "2026-03-31T20:39:05.317636582+08:00",
+      "updated_at": "2026-03-31T23:18:03.363764613+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "实现 `rick human-loop` CLI 命令",
+      "status": "failed",
+      "dependencies": [
+        "task1",
+        "task2"
+      ],
+      "attempts": 0,
+      "error": "task failed after 5 attempts: failed to generate test script: test generation timeout after 5m0s",
+      "created_at": "2026-03-31T20:39:05.317636582+08:00",
+      "updated_at": "2026-04-01T00:01:16.638033373+08:00"
+    }
+  ]
+}
