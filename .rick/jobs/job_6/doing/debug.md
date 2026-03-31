@@ -67,6 +67,50 @@
   ```
 - 结论：✅ 通过
 
+## task3: 实现 `rick human-loop` CLI 命令
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/cmd/plan.go`，确认 `callClaudeCodeCLI` 已定义在该文件，`human_loop.go` 直接调用即可（同 `cmd` 包内）
+- 阅读了 `internal/cmd/root.go`，确认注册模式：`rootCmd.AddCommand(NewXxxCmd())`
+- 阅读了 `internal/prompt/human_loop_prompt.go`，确认 `GenerateHumanLoopPromptFile(topic, rfcDir, manager)` 已就绪
+- 阅读了 `internal/workspace/paths.go`，确认 `GetRFCDir()` 已就绪
+- 关键约束：不可在 `human_loop.go` 中重新定义 `callClaudeCodeCLI`，否则编译报 `redeclared in this block`
+
+**实现步骤 (Implementation)**:
+1. 创建 `internal/cmd/human_loop.go`，实现 `NewHumanLoopCmd()`：
+   - 无参数时返回 "topic is required" 错误
+   - dry-run 模式输出 "[DRY-RUN] Would start human-loop session for topic: <topic>"
+   - 正常流程：获取 RFC 目录并 MkdirAll，加载 config，生成 prompt 文件，调用 `callClaudeCodeCLI`，结束后打印提示
+2. 在 `root.go` 中追加 `rootCmd.AddCommand(NewHumanLoopCmd())`
+3. 创建 `internal/cmd/human_loop_test.go`，包含四个测试：
+   - `TestHumanLoopCmdCreation`：验证命令结构
+   - `TestHumanLoopCmdNoArgs`：验证无参数时返回 "topic is required"
+   - `TestHumanLoopCmdDryRun`：验证 dry-run 输出
+   - `TestHumanLoopCmdWithMockClaude`：验证 mock claude 调用流程
+
+**遇到的问题 (Issues)**:
+- shell CWD 持续重置（已知问题），使用 `go -C <abs_path>` 解决
+
+**验证结果 (Verification)**:
+- 测试命令：`go -C /opt/meituan/dolphinfs_sunquan20/ai_coding/Coding/rick build ./... && go -C /opt/meituan/dolphinfs_sunquan20/ai_coding/Coding/rick test -timeout 30s -v -run "TestHumanLoop" ./internal/cmd/...`
+- 测试输出：
+  ```
+  BUILD OK
+  === RUN   TestHumanLoopCmdCreation
+  --- PASS: TestHumanLoopCmdCreation (0.00s)
+  === RUN   TestHumanLoopCmdNoArgs
+  Error: topic is required
+  --- PASS: TestHumanLoopCmdNoArgs (0.00s)
+  === RUN   TestHumanLoopCmdDryRun
+  [DRY-RUN] Would start human-loop session for topic: 如何重构?
+  --- PASS: TestHumanLoopCmdDryRun (0.00s)
+  === RUN   TestHumanLoopCmdWithMockClaude
+  --- PASS: TestHumanLoopCmdWithMockClaude (0.02s)
+  PASS
+  ok  	github.com/sunquan/rick/internal/cmd	0.052s
+  ```
+- 结论：✅ 通过
+
 ## task2: 实现 human-loop 命令的 prompt 生成函数和 RFC 目录管理
 
 **分析过程 (Analysis)**:
