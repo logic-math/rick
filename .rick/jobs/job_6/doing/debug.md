@@ -1,3 +1,32 @@
+## task1: 实现 human-loop 命令的提示词模板
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/manager.go`，确认已有 `//go:embed templates/human_loop.md`、`humanLoopTemplate` 变量，以及 `getEmbeddedTemplate` 中的 `"human_loop"` case
+- 阅读了 `internal/prompt/templates/human_loop.md`，确认模板已存在，内容包含 SENSE 方法论框架，且只有 `{{topic}}` 和 `{{rfc_dir}}` 两个占位符
+- task2 已完成了本任务所需的所有代码实现，task1 的所有关键结果均已满足
+- 通过编写临时测试验证了模板加载后变量列表恰好为 `[topic rfc_dir]`，无多余条目
+
+**实现步骤 (Implementation)**:
+1. 确认 `internal/prompt/templates/human_loop.md` 已存在且内容正确（SENSE 方法论提示词，含 Situation/Exploration/Narrowing/Solution/Execution 五个步骤）
+2. 确认 `internal/prompt/manager.go` 中 embed 声明、变量、case 均已注册
+3. 运行 `go build ./...` 验证编译通过
+4. 运行 `go test ./internal/prompt/...` 验证所有测试通过
+5. 编写临时内联测试验证 `LoadTemplate("human_loop")` 返回变量列表恰好为 `[topic rfc_dir]`
+
+**遇到的问题 (Issues)**:
+- shell CWD 持续重置导致需使用 `go -C <abs_path>` 形式运行命令（已知问题，沿用 task4/task2 的解决方式）
+
+**验证结果 (Verification)**:
+- 测试命令：`go -C /opt/meituan/dolphinfs_sunquan20/ai_coding/Coding/rick build ./... && go -C /opt/meituan/dolphinfs_sunquan20/ai_coding/Coding/rick test ./internal/prompt/... -v`
+- 测试输出：
+  ```
+  BUILD OK
+  ...
+  PASS
+  ok  	github.com/sunquan/rick/internal/prompt	0.006s
+  ```
+- 结论：✅ 通过
+
 ## task4: 为 `rick plan` 命令增加 `--job` flag 支持重进已有 job
 
 **分析过程 (Analysis)**:
