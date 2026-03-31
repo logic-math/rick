@@ -137,6 +137,15 @@ func GetProjectName() (string, error) {
 	return filepath.Base(cwd), nil
 }
 
+// GetRFCDir returns the path to the RFC directory under .rick
+func GetRFCDir() (string, error) {
+	rickDir, err := GetRickDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(rickDir, "RFC"), nil
+}
+
 // NextJobID scans the jobs directory and returns the next job_N id.
 // If no jobs exist yet, returns "job_1".
 func NextJobID() (string, error) {

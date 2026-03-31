@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -540,5 +541,32 @@ func TestJobPathHierarchy(t *testing.T) {
 	}
 	if !filepath.HasPrefix(learningDir, jobPath) {
 		t.Error("Learning directory is not under job directory")
+	}
+}
+
+func TestGetRFCDir(t *testing.T) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	rfcDir, err := GetRFCDir()
+	if err != nil {
+		t.Fatalf("GetRFCDir() failed: %v", err)
+	}
+	if rfcDir == "" {
+		t.Error("GetRFCDir() returned empty string")
+	}
+	if !strings.Contains(rfcDir, ".rick") {
+		t.Errorf("GetRFCDir() = %s, expected to contain '.rick'", rfcDir)
+	}
+	if !strings.Contains(rfcDir, "RFC") {
+		t.Errorf("GetRFCDir() = %s, expected to contain 'RFC'", rfcDir)
 	}
 }

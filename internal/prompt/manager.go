@@ -28,6 +28,9 @@ var (
 
 	//go:embed templates/test_python.md
 	testPythonTemplate string
+
+	//go:embed templates/human_loop.md
+	humanLoopTemplate string
 )
 
 // PromptManager manages prompt templates with caching
@@ -37,10 +40,15 @@ type PromptManager struct {
 	mu          sync.RWMutex
 }
 
-// NewPromptManager creates a new PromptManager instance
-func NewPromptManager(templateDir string) *PromptManager {
+// NewPromptManager creates a new PromptManager instance.
+// An optional templateDir can be provided; if omitted or empty, embedded templates are used.
+func NewPromptManager(templateDir ...string) *PromptManager {
+	dir := ""
+	if len(templateDir) > 0 {
+		dir = templateDir[0]
+	}
 	return &PromptManager{
-		templateDir: templateDir,
+		templateDir: dir,
 		cache:       make(map[string]*PromptTemplate),
 	}
 }
@@ -103,6 +111,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return learningTemplate
 	case "test_python":
 		return testPythonTemplate
+	case "human_loop":
+		return humanLoopTemplate
 	default:
 		return ""
 	}
