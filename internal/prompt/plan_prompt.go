@@ -37,12 +37,18 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set OKR content (full content, not just list items)
+	// Set OKR content: use parsed result, fall back to raw file content
 	okrContent := formatOKRContent(contextMgr.GetOKRInfo())
+	if okrContent == "暂无项目 OKR 信息" && contextMgr.GetOKRRaw() != "" {
+		okrContent = contextMgr.GetOKRRaw()
+	}
 	builder.SetVariable("okr_content", okrContent)
 
-	// Set SPEC content (full content, not just list items)
+	// Set SPEC content: use parsed result, fall back to raw file content
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())
+	if specContent == "暂无项目 SPEC 信息" && contextMgr.GetSPECRaw() != "" {
+		specContent = contextMgr.GetSPECRaw()
+	}
 	builder.SetVariable("spec_content", specContent)
 
 	// Set user requirement
@@ -94,13 +100,19 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set OKR content (full content, not just list items)
-	okrContent := formatOKRContent(contextMgr.GetOKRInfo())
-	builder.SetVariable("okr_content", okrContent)
+	// Set OKR content: use parsed result, fall back to raw file content
+	okrContent2 := formatOKRContent(contextMgr.GetOKRInfo())
+	if okrContent2 == "暂无项目 OKR 信息" && contextMgr.GetOKRRaw() != "" {
+		okrContent2 = contextMgr.GetOKRRaw()
+	}
+	builder.SetVariable("okr_content", okrContent2)
 
-	// Set SPEC content (full content, not just list items)
-	specContent := formatSPECContent(contextMgr.GetSPECInfo())
-	builder.SetVariable("spec_content", specContent)
+	// Set SPEC content: use parsed result, fall back to raw file content
+	specContent2 := formatSPECContent(contextMgr.GetSPECInfo())
+	if specContent2 == "暂无项目 SPEC 信息" && contextMgr.GetSPECRaw() != "" {
+		specContent2 = contextMgr.GetSPECRaw()
+	}
+	builder.SetVariable("spec_content", specContent2)
 
 	// Set user requirement
 	builder.SetVariable("user_requirement", requirement)

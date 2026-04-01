@@ -172,7 +172,7 @@ func TestReEnterPlanWorkflow_NonExistentJob(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = reEnterPlanWorkflow("job_999")
+	err = reEnterPlanWorkflow("job_999", "test requirement")
 	if err == nil {
 		t.Fatal("expected error for non-existent job plan directory")
 	}

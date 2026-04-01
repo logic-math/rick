@@ -294,6 +294,87 @@ verify_installation() {
     return 0
 }
 
+install_skills() {
+    local skills_src="$PROJECT_DIR/skills"
+    local claude_skills_dir="$HOME/.claude/skills"
+
+    if [[ ! -d "$skills_src" ]]; then
+        print_info "No skills directory found, skipping skills installation."
+        return 0
+    fi
+
+    print_info "Installing Rick skills..."
+    mkdir -p "$claude_skills_dir"
+
+    local installed=0
+    local skipped=0
+
+    for skill_dir in "$skills_src"/*/; do
+        if [[ -f "$skill_dir/SKILL.md" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+
+            local target_claude="$claude_skills_dir/$skill_name"
+            if [[ -L "$target_claude" ]]; then
+                rm "$target_claude"
+            fi
+            if [[ -d "$target_claude" ]]; then
+                print_debug "Skipping (non-symlink exists): $skill_name"
+                skipped=$((skipped + 1))
+            else
+                ln -s "$skill_dir" "$target_claude"
+                print_success "Skill installed (Claude Code): $skill_name"
+                installed=$((installed + 1))
+            fi
+        fi
+    done
+
+    print_success "Skills installed: $installed, skipped: $skipped"
+}
+
+verify_skills() {
+    local skills_src="$PROJECT_DIR/skills"
+    local claude_skills_dir="$HOME/.claude/skills"
+    local required_skill="sense-human-loop"
+
+    print_info "Verifying skills installation..."
+
+    # Check sense-human-loop is installed and SKILL.md is readable
+    local skill_link="$claude_skills_dir/$required_skill"
+    if [[ ! -e "$skill_link" ]]; then
+        print_error "Required skill not found: $skill_link"
+        return 1
+    fi
+
+    local skill_md="$skill_link/SKILL.md"
+    if [[ ! -f "$skill_md" ]]; then
+        print_error "SKILL.md missing: $skill_md"
+        return 1
+    fi
+
+    # Verify the SKILL.md contains expected content
+    if ! grep -q "sense-human-loop" "$skill_md"; then
+        print_error "SKILL.md does not look valid: $skill_md"
+        return 1
+    fi
+
+    print_success "Skill verified: $required_skill -> $(readlink "$skill_link")"
+
+    # List all installed skills
+    print_info "Installed skills:"
+    for skill_dir in "$skills_src"/*/; do
+        if [[ -f "$skill_dir/SKILL.md" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+            local desc
+            desc=$(grep -m1 '^description:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^description: *"//' | sed 's/"$//' | cut -c1-60 || echo "")
+            echo "  • $skill_name${desc:+: $desc...}"
+        fi
+    done
+
+    return 0
+}
+
 print_path_hint() {
     local command_name="$1"
 
@@ -367,6 +448,13 @@ main() {
         print_info "Installation completed, but verification failed."
         print_info "Try running: $command_name --help"
         print_info "Or add ~/.local/bin to your PATH and try again."
+    fi
+
+    # Install and verify skills
+    install_skills
+    if ! verify_skills; then
+        print_error "Skills verification failed. Check $PROJECT_DIR/skills/ directory."
+        exit 1
     fi
 
     print_path_hint "$command_name"

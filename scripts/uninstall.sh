@@ -151,6 +151,38 @@ uninstall_version() {
     return 0
 }
 
+uninstall_skills() {
+    local skills_src="$PROJECT_DIR/skills"
+    local claude_skills_dir="$HOME/.claude/skills"
+
+    if [[ ! -d "$skills_src" ]]; then
+        return 0
+    fi
+
+    print_info "Uninstalling Rick skills..."
+    local removed=0
+
+    for skill_dir in "$skills_src"/*/; do
+        if [[ -f "$skill_dir/SKILL.md" ]]; then
+            local skill_name
+            skill_name=$(basename "$skill_dir")
+
+            local target="$claude_skills_dir/$skill_name"
+            if [[ -L "$target" ]]; then
+                rm "$target"
+                print_success "Skill removed: $target"
+                removed=$((removed + 1))
+            fi
+        fi
+    done
+
+    if [[ $removed -eq 0 ]]; then
+        print_info "No installed skills found, skipping."
+    else
+        print_success "Skills removed: $removed"
+    fi
+}
+
 print_uninstall_summary() {
     echo ""
     echo -e "${BLUE}========================================${NC}"
@@ -206,6 +238,7 @@ main() {
     fi
 
     if [[ $uninstall_count -gt 0 ]]; then
+        uninstall_skills
         print_uninstall_summary
         print_success "Rick CLI uninstallation completed successfully!"
         return 0

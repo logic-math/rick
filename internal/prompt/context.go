@@ -11,13 +11,15 @@ import (
 
 // ContextManager manages execution context from various sources (task, debug, OKR, SPEC, history)
 type ContextManager struct {
-	jobID      string
-	Task       *parser.Task
-	Debug      *parser.DebugInfo
-	OKRInfo    *parser.ContextInfo
-	SPECInfo   *parser.ContextInfo
-	History    []string
-	mu         sync.RWMutex
+	jobID       string
+	Task        *parser.Task
+	Debug       *parser.DebugInfo
+	OKRInfo     *parser.ContextInfo
+	SPECInfo    *parser.ContextInfo
+	OKRRaw      string // raw file content, used as fallback when parsing yields no data
+	SPECRaw     string // raw file content, used as fallback when parsing yields no data
+	History     []string
+	mu          sync.RWMutex
 }
 
 // NewContextManager creates a new ContextManager instance for the given jobID
@@ -80,6 +82,7 @@ func (cm *ContextManager) LoadOKRFromContent(okrContent string) error {
 	defer cm.mu.Unlock()
 
 	cm.OKRInfo = okrInfo
+	cm.OKRRaw = okrContent
 	return nil
 }
 
@@ -104,6 +107,7 @@ func (cm *ContextManager) LoadSPECFromContent(specContent string) error {
 	defer cm.mu.Unlock()
 
 	cm.SPECInfo = specInfo
+	cm.SPECRaw = specContent
 	return nil
 }
 
@@ -184,6 +188,22 @@ func (cm *ContextManager) GetSPECInfo() *parser.ContextInfo {
 	defer cm.mu.RUnlock()
 
 	return cm.SPECInfo
+}
+
+// GetOKRRaw returns the raw OKR file content
+func (cm *ContextManager) GetOKRRaw() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return cm.OKRRaw
+}
+
+// GetSPECRaw returns the raw SPEC file content
+func (cm *ContextManager) GetSPECRaw() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	return cm.SPECRaw
 }
 
 // GetHistory returns the loaded history items

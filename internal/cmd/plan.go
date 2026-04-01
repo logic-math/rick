@@ -32,7 +32,14 @@ func NewPlanCmd() *cobra.Command {
 					fmt.Printf("[DRY-RUN] Would re-enter plan for job: %s\n", existingJobID)
 					return nil
 				}
-				return reEnterPlanWorkflow(existingJobID)
+				requirement := ""
+				if len(args) > 0 {
+					requirement = args[0]
+				}
+				if requirement == "" {
+					requirement = "重新进入已有计划，继续完善任务分解"
+				}
+				return reEnterPlanWorkflow(existingJobID, requirement)
 			}
 
 			if GetDryRun() {
@@ -190,7 +197,7 @@ func executePlanWorkflow(requirement string) error {
 
 
 // reEnterPlanWorkflow re-enters a planning session for an existing job
-func reEnterPlanWorkflow(existingJobID string) error {
+func reEnterPlanWorkflow(existingJobID string, requirement string) error {
 	jobPlanDir, err := workspace.GetJobPlanDir(existingJobID)
 	if err != nil {
 		return fmt.Errorf("failed to get job plan directory: %w", err)
@@ -241,8 +248,7 @@ func reEnterPlanWorkflow(existingJobID string) error {
 
 	promptMgr := prompt.NewPromptManager(templateDir)
 
-	// Use empty requirement for re-entry; the existing plan dir already has context
-	planPromptFile, err := prompt.GeneratePlanPromptFile("", jobPlanDir, contextMgr, promptMgr)
+	planPromptFile, err := prompt.GeneratePlanPromptFile(requirement, jobPlanDir, contextMgr, promptMgr)
 	if err != nil {
 		return fmt.Errorf("failed to generate plan prompt: %w", err)
 	}
