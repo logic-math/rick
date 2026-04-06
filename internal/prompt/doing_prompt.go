@@ -131,6 +131,14 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	debugContext := formatDebugContext(contextMgr.GetDebug())
 	builder.SetVariable("debug_context", debugContext)
 
+	// Set rick_bin_path and job_id for check commands in template
+	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	jobID := contextMgr.GetJobID()
+	if jobID == "" || jobID == "doing" {
+		jobID = "job_N"
+	}
+	builder.SetVariable("job_id", jobID)
+
 	// Build final prompt
 	prompt, err := builder.Build()
 	if err != nil {
@@ -206,6 +214,14 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	// Always include debug context
 	debugContext := formatDebugContext(contextMgr.GetDebug())
 	builder.SetVariable("debug_context", debugContext)
+
+	// Set rick_bin_path and job_id for check commands in template
+	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	jobIDVal := contextMgr.GetJobID()
+	if jobIDVal == "" || jobIDVal == "doing" {
+		jobIDVal = "job_N"
+	}
+	builder.SetVariable("job_id", jobIDVal)
 
 	// Build and save to temporary file
 	promptFile, err := builder.BuildAndSave(fmt.Sprintf("doing-%s", task.ID))

@@ -221,7 +221,10 @@ if __name__ == "__main__":
 {{rick_bin_path}} tools learning_check {{job_id}}
 ```
 
-如果 check 失败，根据错误信息修复后重新检查，直到通过为止。
+**⚠️ 强制要求**：learning_check **必须通过才能进入 Step 4**。
+- 如果 check 失败，根据错误信息修复对应产出文件（SUMMARY.md 等）
+- 修复后重新运行 check，循环直到 check 通过
+- **不可跳过此步骤，不可在 check 未通过时进入 Step 4**
 
 ---
 

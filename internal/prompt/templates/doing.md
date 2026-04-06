@@ -175,3 +175,8 @@
 4. **生产就绪**: 代码应该能够在生产环境中正确运行
 5. **明确阻碍**: 如果无法完成任务，请在 debug.md 中详细记录阻碍因素
 6. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
+7. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
+   ```bash
+   {{rick_bin_path}} tools doing_check {{job_id}}
+   ```
+   如果 check 失败，根据错误信息修复（如补充 debug.md、解决 zombie 任务等），修复后重新运行，循环直到 check 通过。**check 通过后才算任务完成**，不可跳过。

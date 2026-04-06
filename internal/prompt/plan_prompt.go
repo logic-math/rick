@@ -3,11 +3,40 @@ package prompt
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/workspace"
 )
+
+// resolveRickBinPath returns the path to the rick binary.
+// Prefers ./bin/rick if it exists, otherwise falls back to "rick".
+func resolveRickBinPath() string {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return "rick"
+	}
+	localBin := filepath.Join(projectRoot, "bin", "rick")
+	if _, err := os.Stat(localBin); err == nil {
+		return localBin
+	}
+	return "rick"
+}
+
+// extractJobID extracts the job ID (e.g. "job_1") from a plan or doing directory path.
+// Expected formats: .rick/jobs/job_N/plan or .rick/jobs/job_N/doing
+func extractJobID(dirPath string) string {
+	// Normalize separators and split
+	parts := strings.Split(filepath.ToSlash(dirPath), "/")
+	// Walk backwards to find a segment matching "job_*"
+	for i := len(parts) - 1; i >= 0; i-- {
+		if strings.HasPrefix(parts[i], "job_") {
+			return parts[i]
+		}
+	}
+	return "job_N"
+}
 
 // GeneratePlanPrompt generates the planning phase prompt from user requirement.
 // jobPlanDir is the absolute path to the job's plan directory.
@@ -55,6 +84,10 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
+
+	// Set rick_bin_path and job_id for check commands in template
+	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	builder.SetVariable("job_id", extractJobID(jobPlanDir))
 
 	// Set skills index
 	resolvedRickDir := ""
@@ -124,6 +157,10 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
+
+	// Set rick_bin_path and job_id for check commands in template
+	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	builder.SetVariable("job_id", extractJobID(jobPlanDir))
 
 	// Set skills index
 	resolvedRickDir2 := ""

@@ -1,3 +1,41 @@
+## task1: 在 plan/doing/learning 提示词模板中强制集成 check 机制
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/templates/plan.md`、`doing.md`、`learning.md` 三个模板
+- 阅读了 `internal/prompt/plan_prompt.go`、`doing_prompt.go`、`learning_prompt.go`
+- 阅读了 `internal/cmd/learning.go` 中 `buildLearningPrompt` 的 `rick_bin_path` 注入逻辑（`filepath.Join(projectRoot, "bin", "rick")`）
+- 阅读了 `internal/prompt/context.go`：发现 `ContextManager` 已有 `jobID` 字段和 `GetJobID()` 方法
+- 阅读了 `internal/executor/runner.go`：发现 `TaskRunner.GenerateDoingPromptFile` 创建 contextMgr 时传入的是 `"doing"` 而非实际 job_id
+- 选择方案：
+  1. `plan_prompt.go`：新增 `resolveRickBinPath()` 和 `extractJobID()` 辅助函数，在两个函数中注入变量
+  2. `doing_prompt.go`：复用 `resolveRickBinPath()`，从 `contextMgr.GetJobID()` 获取 job_id（`"doing"` 映射为 `"job_N"`）
+  3. `runner.go`：修改 contextMgr 创建，传入从 WorkspaceDir 提取的实际 job_id
+
+**实现步骤 (Implementation)**:
+1. `plan.md`：在"九.1 可用的项目 Tools"之后新增"九.2 强制验证步骤"章节，包含 plan_check 命令和循环修复规则
+2. `doing.md`：在"行为约束"末尾新增第7条"强制 doing check"约束
+3. `learning.md`：Step 3 新增"⚠️ 强制要求"段落，明确"必须通过才能进入 Step 4"
+4. `plan_prompt.go`：添加 `path/filepath` import；新增 `resolveRickBinPath()` 和 `extractJobID()` 函数；在 `GeneratePlanPrompt` 和 `GeneratePlanPromptFile` 中各注入 `rick_bin_path` 和 `job_id`
+5. `doing_prompt.go`：在 `GenerateDoingPrompt` 和 `GenerateDoingPromptFile` 中各注入 `rick_bin_path` 和 `job_id`（从 `contextMgr.GetJobID()` 获取）
+6. `runner.go`：新增 `extractJobIDFromPath()` 函数；修改 `TaskRunner.GenerateDoingPromptFile` 中 contextMgr 创建，传入实际 job_id
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./internal/prompt/... -v && go test ./... -count=1 && python3 .rick/jobs/job_11/doing/tests/task1.py`
+- 测试输出：
+  ```
+  ok  github.com/sunquan/rick/internal/prompt  1.359s
+  ok  github.com/sunquan/rick/internal/cmd     27.468s
+  ... all packages PASS
+  Running go build...
+  Running prompt tests...
+  Running full test suite...
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过
+
 ## task3: 修复三个 check 工具与实际产出格式的不一致问题
 
 **分析过程 (Analysis)**:

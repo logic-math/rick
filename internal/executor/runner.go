@@ -239,8 +239,11 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 		return "", fmt.Errorf("task cannot be nil")
 	}
 
-	// Create context manager
-	contextMgr := prompt.NewContextManager("doing")
+	// Extract jobID from WorkspaceDir (.rick/jobs/job_X/doing → job_X)
+	jobID := extractJobIDFromPath(tr.config.WorkspaceDir)
+
+	// Create context manager with actual job ID
+	contextMgr := prompt.NewContextManager(jobID)
 
 	// Compute rickDir from workspaceDir (.rick/jobs/job_X/doing → .rick)
 	rickDir := ""
@@ -310,6 +313,18 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	}
 
 	return doingPromptFile, nil
+}
+
+// extractJobIDFromPath extracts the job ID (e.g. "job_1") from a workspace directory path.
+// Expected format: .rick/jobs/job_N/doing
+func extractJobIDFromPath(dirPath string) string {
+	parts := strings.Split(filepath.ToSlash(dirPath), "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if strings.HasPrefix(parts[i], "job_") {
+			return parts[i]
+		}
+	}
+	return "job_N"
 }
 
 // CallClaudeCodeCLI calls Claude Code CLI in non-interactive mode
