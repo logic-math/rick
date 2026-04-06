@@ -9,6 +9,31 @@ import (
 	"github.com/sunquan/rick/internal/workspace"
 )
 
+// formatToolsSection generates the tools section for the doing prompt.
+// projectRoot is the user's project root directory (os.Getwd()).
+// Returns empty string if no tools are available.
+func formatToolsSection(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	tools, err := workspace.LoadToolsList(projectRoot)
+	if err != nil || len(tools) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n## 可用的项目 Tools\n\n")
+	sb.WriteString("以下 Python 脚本位于 `tools/`，优先使用这些工具完成任务，避免重复造轮子：\n\n")
+	sb.WriteString("| 文件 | 描述 |\n")
+	sb.WriteString("|------|------|\n")
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("| tools/%s.py | %s |\n", t.Name, t.Description))
+	}
+	sb.WriteString("\n调用方式：`python3 tools/<filename>.py`\n")
+	return sb.String()
+}
+
 // formatSkillsSection generates the skills section for the doing prompt.
 // Prefers index.md content; falls back to scanning .py files if index.md doesn't exist.
 // Returns empty string if no skills are available.
@@ -181,11 +206,18 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	}
 	skillsSection := formatSkillsSection(resolvedRickDir)
 	if skillsSection != "" {
-		content, err := readAndAppend(promptFile, skillsSection)
-		if err != nil {
+		if _, err := readAndAppend(promptFile, skillsSection); err != nil {
 			return "", fmt.Errorf("failed to append skills section: %w", err)
 		}
-		_ = content
+	}
+
+	// Inject tools section from project root
+	projectRoot, _ := os.Getwd()
+	toolsSection := formatToolsSection(projectRoot)
+	if toolsSection != "" {
+		if _, err := readAndAppend(promptFile, toolsSection); err != nil {
+			return "", fmt.Errorf("failed to append tools section: %w", err)
+		}
 	}
 
 	return promptFile, nil

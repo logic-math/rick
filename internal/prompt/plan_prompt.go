@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
@@ -69,6 +70,10 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	}
 	skillsIndex := formatSkillsIndexSection(resolvedRickDir)
 	builder.SetVariable("skills_index", skillsIndex)
+
+	// Set tools list
+	toolsList := formatToolsListSection()
+	builder.SetVariable("tools_list", toolsList)
 
 	// Build final prompt
 	prompt, err := builder.Build()
@@ -142,6 +147,10 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	skillsIndex2 := formatSkillsIndexSection(resolvedRickDir2)
 	builder.SetVariable("skills_index", skillsIndex2)
 
+	// Set tools list
+	toolsList2 := formatToolsListSection()
+	builder.SetVariable("tools_list", toolsList2)
+
 	// Build and save to temporary file
 	promptFile, err := builder.BuildAndSave("plan")
 	if err != nil {
@@ -149,6 +158,29 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	}
 
 	return promptFile, nil
+}
+
+// formatToolsListSection returns a formatted tools list for injection into plan prompts.
+// Scans os.Getwd()/tools/*.py and returns empty string if no tools exist.
+func formatToolsListSection() string {
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	tools, err := workspace.LoadToolsList(projectRoot)
+	if err != nil || len(tools) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("以下 Python 脚本位于 `tools/`，规划任务时优先考虑利用这些工具：\n\n")
+	sb.WriteString("| 文件 | 描述 |\n")
+	sb.WriteString("|------|------|\n")
+	for _, t := range tools {
+		sb.WriteString(fmt.Sprintf("| tools/%s.py | %s |\n", t.Name, t.Description))
+	}
+	sb.WriteString("\n调用方式：`python3 tools/<filename>.py`\n")
+	return sb.String()
 }
 
 // formatSkillsIndexSection returns the skills index content for injection into plan prompts.
