@@ -104,6 +104,13 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
+	// Set job OKR content (from job_N/plan/OKR.md)
+	jobOKRContent := contextMgr.GetOKRRaw()
+	if jobOKRContent == "" {
+		jobOKRContent = "暂无 Job OKR 信息"
+	}
+	builder.SetVariable("job_okr_content", jobOKRContent)
+
 	// Set SPEC content
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())
 	builder.SetVariable("spec_content", specContent)
@@ -172,6 +179,13 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	projectName, _ := workspace.GetProjectName()
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+
+	// Set job OKR content (from job_N/plan/OKR.md)
+	jobOKRContent2 := contextMgr.GetOKRRaw()
+	if jobOKRContent2 == "" {
+		jobOKRContent2 = "暂无 Job OKR 信息"
+	}
+	builder.SetVariable("job_okr_content", jobOKRContent2)
 
 	// Set SPEC content
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())

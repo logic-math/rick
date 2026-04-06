@@ -93,3 +93,37 @@
   ok  	github.com/sunquan/rick/pkg/errors	2.009s
   ```
 - 结论：✅ 通过
+
+## task4: OKR 改为 job 级：plan 生成 job OKR，doing/learning 读取 job OKR
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/cmd/plan.go`：`executePlanWorkflow()` 和 `reEnterPlanWorkflow()` 均调用 `contextMgr.LoadOKRFromFile(okriPath)` 加载全局 OKR
+- 阅读了 `internal/prompt/plan_prompt.go`：两个 Generate 函数均设置 `okr_content` 变量，调用 `formatOKRContent()`
+- 阅读了 `internal/prompt/templates/plan.md`：第二章节为 `{{okr_content}}`，约束 0 无 OKR.md 生成要求
+- 阅读了 `internal/executor/runner.go`：`GenerateDoingPromptFile()` 从全局 `.rick/OKR.md` 加载 OKR
+- 阅读了 `internal/cmd/doing.go`：`runDoingDryRun()` 创建 contextMgr 但不加载任何 OKR
+- 设计方案：plan 删除全局 OKR 加载，在模板约束 0 要求 Claude 生成 `job_N/plan/OKR.md`；doing 从 `job_N/plan/OKR.md` 读取，通过 `contextMgr.LoadOKRFromFile()` 存入 raw，`doing_prompt.go` 用 `GetOKRRaw()` 设置 `job_okr_content` 变量；doing.md 新增 `{{job_okr_content}}` 章节
+
+**实现步骤 (Implementation)**:
+1. `internal/cmd/plan.go`：删除 `executePlanWorkflow()` 和 `reEnterPlanWorkflow()` 中的全局 OKR 加载代码
+2. `internal/prompt/plan_prompt.go`：删除两个 Generate 函数中的 `okr_content` 变量设置（保留 `formatOKRContent` 函数供测试使用）
+3. `internal/prompt/templates/plan.md`：删除 `## 二、项目 OKR` 章节（含 `{{okr_content}}`）；在约束 0 新增第 6 条，要求 Claude 生成 `{{job_plan_dir}}/OKR.md`
+4. `internal/executor/runner.go`：将全局 OKR 路径改为 `job_N/plan/OKR.md`
+5. `internal/cmd/doing.go`：`runDoingDryRun()` 新增从 `planDir/OKR.md` 加载 job OKR
+6. `internal/prompt/doing_prompt.go`：两个 Generate 函数均新增 `job_okr_content` 变量（从 `contextMgr.GetOKRRaw()` 读取）
+7. `internal/prompt/templates/doing.md`：在"项目背景"章节新增 `### Job OKR` + `{{job_okr_content}}`
+8. `internal/prompt/plan_prompt_test.go`：更新测试模板（移除 `{{okr_content}}`），更新相关断言
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./internal/cmd/ -v -run TestPlan && go test ./internal/prompt/ -v && go test ./...`
+- 测试输出：
+  ```
+  ok  	github.com/sunquan/rick/internal/cmd	26.817s
+  ok  	github.com/sunquan/rick/internal/prompt	0.253s
+  ok  	github.com/sunquan/rick/internal/executor	2.148s
+  （全部通过）
+  ```
+- 结论：✅ 通过

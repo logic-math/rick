@@ -245,13 +245,13 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	// Compute rickDir from workspaceDir (.rick/jobs/job_X/doing → .rick)
 	rickDir := ""
 	if tr.config.WorkspaceDir != "" {
-		rickDir = filepath.Dir(tr.config.WorkspaceDir) // go up to .rick/jobs/job_X
-		rickDir = filepath.Dir(rickDir)                // go up to .rick/jobs
-		rickDir = filepath.Dir(rickDir)                // go up to .rick
+		jobDir := filepath.Dir(tr.config.WorkspaceDir)  // go up to .rick/jobs/job_X
+		rickDir = filepath.Dir(filepath.Dir(jobDir))    // go up to .rick
 
-		okriPath := filepath.Join(rickDir, "OKR.md")
-		if _, err := os.Stat(okriPath); err == nil {
-			contextMgr.LoadOKRFromFile(okriPath)
+		// Load job-level OKR from job_N/plan/OKR.md (not global .rick/OKR.md)
+		jobOKRPath := filepath.Join(jobDir, "plan", "OKR.md")
+		if _, err := os.Stat(jobOKRPath); err == nil {
+			contextMgr.LoadOKRFromFile(jobOKRPath)
 		}
 
 		specPath := filepath.Join(rickDir, "SPEC.md")

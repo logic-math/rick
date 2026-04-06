@@ -39,13 +39,6 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set OKR content: use parsed result, fall back to raw file content
-	okrContent := formatOKRContent(contextMgr.GetOKRInfo())
-	if okrContent == "暂无项目 OKR 信息" && contextMgr.GetOKRRaw() != "" {
-		okrContent = contextMgr.GetOKRRaw()
-	}
-	builder.SetVariable("okr_content", okrContent)
-
 	// Set SPEC content: use parsed result, fall back to raw file content
 	specContent := formatSPECContent(contextMgr.GetSPECInfo())
 	if specContent == "暂无项目 SPEC 信息" && contextMgr.GetSPECRaw() != "" {
@@ -114,13 +107,6 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	projectName, _ := workspace.GetProjectName()
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
-
-	// Set OKR content: use parsed result, fall back to raw file content
-	okrContent2 := formatOKRContent(contextMgr.GetOKRInfo())
-	if okrContent2 == "暂无项目 OKR 信息" && contextMgr.GetOKRRaw() != "" {
-		okrContent2 = contextMgr.GetOKRRaw()
-	}
-	builder.SetVariable("okr_content", okrContent2)
 
 	// Set SPEC content: use parsed result, fall back to raw file content
 	specContent2 := formatSPECContent(contextMgr.GetSPECInfo())

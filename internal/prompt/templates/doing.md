@@ -21,6 +21,9 @@
 **项目名称**: {{project_name}}
 **项目描述**: {{project_description}}
 
+### Job OKR
+{{job_okr_content}}
+
 ### 项目 SPEC
 {{spec_content}}
 
