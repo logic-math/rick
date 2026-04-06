@@ -96,10 +96,17 @@ Exit codes:
 
 // runLearningCheck performs all structural checks on the learning directory.
 func runLearningCheck(learningDir string) error {
-	// 1. SUMMARY.md exists
+	// 1. SUMMARY.md exists and has valid content
 	summaryPath := filepath.Join(learningDir, "SUMMARY.md")
 	if _, err := os.Stat(summaryPath); os.IsNotExist(err) {
 		return fmt.Errorf("SUMMARY.md not found in %s", learningDir)
+	}
+	summaryContent, err := os.ReadFile(summaryPath)
+	if err != nil {
+		return fmt.Errorf("failed to read SUMMARY.md: %w", err)
+	}
+	if len(strings.TrimSpace(string(summaryContent))) == 0 || !strings.Contains(string(summaryContent), "# Job") {
+		return fmt.Errorf("SUMMARY.md exists but is empty or missing required '# Job' heading")
 	}
 
 	// 2. If learning/skills/*.py exist, each must pass Python syntax check
@@ -211,7 +218,7 @@ The following errors were found in the learning directory: %s
 ## Instructions
 
 Please fix the above errors in the learning directory. Make sure:
-1. SUMMARY.md exists with a summary of the job execution
+1. SUMMARY.md exists, is non-empty, and contains a "# Job" heading summarizing the job execution
 2. Any .py files in skills/ are valid Python (fix syntax errors)
 3. If OKR.md exists, it contains a "## O..." objective heading and "### 关键结果" section
 4. If SPEC.md exists, it contains all four sections: ## 技术栈, ## 架构设计, ## 开发规范, ## 工程实践

@@ -94,8 +94,28 @@ func TestRunPlanCheck_Valid(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "task2.md"), []byte(task2), 0644); err != nil {
 		t.Fatal(err)
 	}
+	// OKR.md is required
+	if err := os.WriteFile(filepath.Join(dir, "OKR.md"), []byte("# Job OKR\n## O1: 目标\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if err := runPlanCheck(dir); err != nil {
 		t.Errorf("expected no error for valid plan, got: %v", err)
+	}
+}
+
+func TestRunPlanCheck_MissingOKR(t *testing.T) {
+	dir := t.TempDir()
+	task1 := "# 依赖关系\n无\n# 任务名称\nTask1\n# 任务目标\nGoal\n# 关键结果\n1. KR1\n# 测试方法\nTest\n"
+	if err := os.WriteFile(filepath.Join(dir, "task1.md"), []byte(task1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// No OKR.md
+	err := runPlanCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for missing OKR.md")
+	}
+	if !containsStr(err.Error(), "OKR.md") {
+		t.Errorf("expected OKR.md in error, got: %v", err)
 	}
 }
 
@@ -141,12 +161,46 @@ func TestRunDoingCheck_NoDebugMD(t *testing.T) {
 	}
 }
 
+func TestRunDoingCheck_EmptyDebugMD(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksJSON(t, dir, []executor.TaskState{
+		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
+	})
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("   "), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runDoingCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for empty debug.md")
+	}
+	if !containsStr(err.Error(), "empty") {
+		t.Errorf("expected 'empty' in error, got: %v", err)
+	}
+}
+
+func TestRunDoingCheck_NoTaskRecords(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksJSON(t, dir, []executor.TaskState{
+		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
+	})
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug log\nsome notes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runDoingCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for debug.md with no ## task records")
+	}
+	if !containsStr(err.Error(), "## task") {
+		t.Errorf("expected '## task' in error, got: %v", err)
+	}
+}
+
 func TestRunDoingCheck_ZombieTask(t *testing.T) {
 	dir := t.TempDir()
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "running"},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	err := runDoingCheck(dir)
@@ -163,7 +217,7 @@ func TestRunDoingCheck_MissingCommitHash(t *testing.T) {
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: ""},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	err := runDoingCheck(dir)
@@ -181,7 +235,7 @@ func TestRunDoingCheck_Valid(t *testing.T) {
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
 		{TaskID: "task2", TaskName: "T2", Status: "success", CommitHash: "def456"},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runDoingCheck(dir); err != nil {
@@ -195,7 +249,7 @@ func TestRunDoingCheck_FailedTaskNoCommit(t *testing.T) {
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "failed", CommitHash: ""},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runDoingCheck(dir); err != nil {
@@ -216,9 +270,37 @@ func TestRunLearningCheck_NoSummary(t *testing.T) {
 	}
 }
 
+func TestRunLearningCheck_EmptySummary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("   "), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runLearningCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for empty SUMMARY.md")
+	}
+	if !containsStr(err.Error(), "empty") && !containsStr(err.Error(), "# Job") {
+		t.Errorf("expected empty/# Job in error, got: %v", err)
+	}
+}
+
+func TestRunLearningCheck_MissingJobHeading(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Summary\nsome content without job heading"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runLearningCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for SUMMARY.md missing '# Job' heading")
+	}
+	if !containsStr(err.Error(), "# Job") {
+		t.Errorf("expected '# Job' in error, got: %v", err)
+	}
+}
+
 func TestRunLearningCheck_BadPythonSyntax(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	skillsDir := filepath.Join(dir, "skills")
@@ -240,7 +322,7 @@ func TestRunLearningCheck_BadPythonSyntax(t *testing.T) {
 
 func TestRunLearningCheck_OKRMissingSection(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// OKR.md without required sections
@@ -255,7 +337,7 @@ func TestRunLearningCheck_OKRMissingSection(t *testing.T) {
 
 func TestRunLearningCheck_SPECMissingSection(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// SPEC.md missing required sections
@@ -270,7 +352,7 @@ func TestRunLearningCheck_SPECMissingSection(t *testing.T) {
 
 func TestRunLearningCheck_Valid(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runLearningCheck(dir); err != nil {
@@ -280,7 +362,7 @@ func TestRunLearningCheck_Valid(t *testing.T) {
 
 func TestRunLearningCheck_ValidWithSkill(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	skillsDir := filepath.Join(dir, "skills")
@@ -298,7 +380,7 @@ func TestRunLearningCheck_ValidWithSkill(t *testing.T) {
 
 func TestRunLearningCheck_ValidOKR(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	okr := "## O1: 目标\n### 关键结果\n1. KR1\n"
@@ -312,7 +394,7 @@ func TestRunLearningCheck_ValidOKR(t *testing.T) {
 
 func TestRunLearningCheck_ValidSPEC(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	spec := "## 技术栈\nGo\n## 架构设计\nModular\n## 开发规范\nStandard\n## 工程实践\nDAG\n"
@@ -754,6 +836,9 @@ func TestRunPlanCheck_WithWorkspace(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(task1), 0644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(planDir, "OKR.md"), []byte("# Job OKR\n## O1: 目标\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
 		if err := runPlanCheck(planDir); err != nil {
 			t.Errorf("expected no error, got: %v", err)
 		}
@@ -769,7 +854,7 @@ func TestRunDoingCheck_WithWorkspace(t *testing.T) {
 		makeTasksJSON(t, doingDir, []executor.TaskState{
 			{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
 		})
-		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("# debug"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := runDoingCheck(doingDir); err != nil {
@@ -784,7 +869,7 @@ func TestRunLearningCheck_WithWorkspace(t *testing.T) {
 		if err := os.MkdirAll(learningDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := runLearningCheck(learningDir); err != nil {
@@ -948,7 +1033,7 @@ func TestCollectExecutionData_WithData(t *testing.T) {
 			t.Fatal(err)
 		}
 		// Create debug.md
-		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("# debug"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		// Create tasks.json
@@ -1147,6 +1232,9 @@ func TestNewPlanCheckCmd_RunE_WithWorkspace(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(task1), 0644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(planDir, "OKR.md"), []byte("# Job OKR\n## O1: 目标\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
 		cmd := NewPlanCheckCmd()
 		cmd.SetArgs([]string{"job_test"})
 		if err := cmd.Execute(); err != nil {
@@ -1164,7 +1252,7 @@ func TestNewDoingCheckCmd_RunE_WithWorkspace(t *testing.T) {
 		makeTasksJSON(t, doingDir, []executor.TaskState{
 			{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
 		})
-		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("# debug"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		cmd := NewDoingCheckCmd()
@@ -1181,7 +1269,7 @@ func TestNewLearningCheckCmd_RunE_WithWorkspace(t *testing.T) {
 		if err := os.MkdirAll(learningDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("summary"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 			t.Fatal(err)
 		}
 		cmd := NewLearningCheckCmd()

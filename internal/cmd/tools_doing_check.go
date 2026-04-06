@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/executor"
@@ -102,10 +103,20 @@ func runDoingCheck(doingDir string) error {
 		return fmt.Errorf("tasks.json not found or invalid: %w", err)
 	}
 
-	// 2. debug.md exists
+	// 2. debug.md exists and has valid content
 	debugMDPath := filepath.Join(doingDir, "debug.md")
 	if _, err := os.Stat(debugMDPath); os.IsNotExist(err) {
 		return fmt.Errorf("debug.md not found in %s", doingDir)
+	}
+	debugContent, err := os.ReadFile(debugMDPath)
+	if err != nil {
+		return fmt.Errorf("failed to read debug.md: %w", err)
+	}
+	if len(strings.TrimSpace(string(debugContent))) == 0 {
+		return fmt.Errorf("debug.md exists but is empty")
+	}
+	if !strings.Contains(string(debugContent), "## task") {
+		return fmt.Errorf("debug.md contains no task records (missing ## task section)")
 	}
 
 	// 3. No tasks in "running" zombie state
@@ -148,7 +159,7 @@ The following errors were found in the doing directory: %s
 
 Please fix the above errors in the doing directory. Make sure:
 1. tasks.json exists and is valid JSON with proper task states
-2. debug.md exists as a work log
+2. debug.md exists, is non-empty, and contains at least one "## task" section recording the execution
 3. No tasks are in "running" zombie state (change to "failed" if stuck)
 4. All tasks with status="success" have a non-empty commit_hash field
 

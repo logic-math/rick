@@ -178,6 +178,12 @@ func runPlanCheck(planDir string) error {
 		return fmt.Errorf("dependency check failed: %w", err)
 	}
 
+	// 6. OKR.md exists in plan directory
+	okrPath := filepath.Join(planDir, "OKR.md")
+	if _, err := os.Stat(okrPath); os.IsNotExist(err) {
+		return fmt.Errorf("OKR.md not found in plan directory: %s", planDir)
+	}
+
 	fmt.Printf("✅ plan check passed: %d tasks, dependencies valid\n", len(tasks))
 	return nil
 }
@@ -225,6 +231,7 @@ Please fix the above errors in the plan directory. Make sure:
 2. Each task*.md contains the required sections: # 依赖关系, # 任务名称, # 任务目标, # 关键结果, # 测试方法
 3. All dependency references point to existing task files
 4. There are no circular dependencies between tasks
+5. OKR.md exists in the plan directory with the job's objectives and key results
 
 Fix the files in place without changing the task content, only adding missing sections or correcting dependency references.
 `, planDir, checkErr)
