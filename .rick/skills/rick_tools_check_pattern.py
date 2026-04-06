@@ -9,6 +9,10 @@ scripts that follow the rick tools check command conventions:
 - JSON output: {"pass": bool, "errors": [...]}
 - Exit code 0=pass, 1=fail
 
+Two levels of file validation (as of job_11):
+  Level 1 (existence): os.path.isfile(path)
+  Level 2 (content):   read + check non-empty + check required structure
+
 Usage:
     python3 rick_tools_check_pattern.py --job-id job_1
     python3 rick_tools_check_pattern.py --job-id job_1 --check-type doing
@@ -34,8 +38,34 @@ def find_project_root():
     return None
 
 
+def check_file_exists_and_has_content(path, required_substring=None):
+    """
+    Two-level file check (job_11 pattern):
+      1. File must exist
+      2. File must be non-empty
+      3. (Optional) File must contain required_substring
+
+    Returns list of error strings (empty = passed).
+    """
+    errors = []
+    if not os.path.isfile(path):
+        errors.append(f"file not found: {path}")
+        return errors  # can't check content if missing
+
+    content = open(path, encoding="utf-8").read()
+    if not content.strip():
+        errors.append(f"file exists but is empty: {path}")
+        return errors
+
+    if required_substring and required_substring not in content:
+        errors.append(
+            f"file exists but missing required content '{required_substring}': {path}"
+        )
+    return errors
+
+
 def check_plan(job_id, project_root):
-    """Example: check plan directory structure."""
+    """Check plan directory structure."""
     errors = []
     plan_dir = os.path.join(project_root, ".rick", "jobs", job_id, "plan")
 
@@ -43,10 +73,18 @@ def check_plan(job_id, project_root):
         errors.append(f"plan directory does not exist: {plan_dir}")
         return errors
 
+    # Check OKR.md exists (job_11: mandatory)
+    errors.extend(check_file_exists_and_has_content(
+        os.path.join(plan_dir, "OKR.md"),
+        required_substring="# "
+    ))
+
+    # Check task*.md files
     task_files = [f for f in os.listdir(plan_dir)
                   if f.startswith("task") and f.endswith(".md")]
     if not task_files:
         errors.append(f"no task*.md files found in {plan_dir}")
+        return errors
 
     for task_file in task_files:
         task_path = os.path.join(plan_dir, task_file)
@@ -63,20 +101,18 @@ def check_plan(job_id, project_root):
 
 
 def check_doing(job_id, project_root):
-    """Example: check doing directory structure."""
+    """Check doing directory structure (job_11: content validation included)."""
     errors = []
     doing_dir = os.path.join(project_root, ".rick", "jobs", job_id, "doing")
 
     # Check tasks.json
-    tasks_json = os.path.join(doing_dir, "tasks.json")
-    if not os.path.isfile(tasks_json):
-        errors.append(f"tasks.json does not exist: {tasks_json}")
+    tasks_json_path = os.path.join(doing_dir, "tasks.json")
+    if not os.path.isfile(tasks_json_path):
+        errors.append(f"tasks.json does not exist: {tasks_json_path}")
     else:
         try:
-            import json as _json
-            with open(tasks_json) as f:
-                tasks = _json.load(f)
-            # Check for zombie tasks
+            with open(tasks_json_path) as f:
+                tasks = json.load(f)
             for task in tasks:
                 state = task.get("state_info", {})
                 if state.get("status") == "running":
@@ -84,23 +120,27 @@ def check_doing(job_id, project_root):
         except Exception as e:
             errors.append(f"failed to parse tasks.json: {e}")
 
-    # Check debug.md (mandatory work log)
-    debug_md = os.path.join(doing_dir, "debug.md")
-    if not os.path.isfile(debug_md):
-        errors.append(f"debug.md does not exist (mandatory work log): {debug_md}")
+    # Check debug.md: existence + non-empty + contains ## task records (job_11 pattern)
+    debug_md_path = os.path.join(doing_dir, "debug.md")
+    errors.extend(check_file_exists_and_has_content(
+        debug_md_path,
+        required_substring="## task"
+    ))
 
     return errors
 
 
 def check_learning(job_id, project_root):
-    """Example: check learning directory structure."""
+    """Check learning directory structure (job_11: content validation included)."""
     errors = []
     learning_dir = os.path.join(project_root, ".rick", "jobs", job_id, "learning")
 
-    # Check SUMMARY.md
-    summary_md = os.path.join(learning_dir, "SUMMARY.md")
-    if not os.path.isfile(summary_md):
-        errors.append(f"SUMMARY.md does not exist: {summary_md}")
+    # Check SUMMARY.md: existence + non-empty + contains # Job heading (job_11 pattern)
+    summary_md_path = os.path.join(learning_dir, "SUMMARY.md")
+    errors.extend(check_file_exists_and_has_content(
+        summary_md_path,
+        required_substring="# Job"
+    ))
 
     # Check skills/*.py syntax
     skills_dir = os.path.join(learning_dir, "skills")
