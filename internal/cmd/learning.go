@@ -72,6 +72,8 @@ type ExecutionData struct {
 	JobID        string
 	DebugContent string
 	TasksJSON    *executor.TasksJSON
+	OKRContent   string
+	TaskMDContent string
 }
 
 // executeLearningWorkflow executes the complete learning workflow
@@ -143,6 +145,36 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 		fmt.Printf("✅ Loaded tasks.json (%d tasks)\n", len(tasksJSON.Tasks))
 	} else {
 		return nil, fmt.Errorf("tasks.json not found: %s", tasksJSONPath)
+	}
+
+	// 3. Read OKR.md from plan directory (optional)
+	planDir := filepath.Join(jobDir, "plan")
+	okrPath := filepath.Join(planDir, "OKR.md")
+	if content, err := os.ReadFile(okrPath); err == nil {
+		data.OKRContent = string(content)
+		fmt.Printf("✅ Read OKR.md (%d bytes)\n", len(content))
+	} else {
+		fmt.Println("⚠ OKR.md not found (skipping)")
+	}
+
+	// 4. Read all task*.md files from plan directory
+	taskFiles, err := filepath.Glob(filepath.Join(planDir, "task*.md"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to glob task files: %w", err)
+	}
+	var taskMDParts []string
+	for _, tf := range taskFiles {
+		content, err := os.ReadFile(tf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s: %w", tf, err)
+		}
+		taskMDParts = append(taskMDParts, fmt.Sprintf("### %s\n\n%s", filepath.Base(tf), string(content)))
+	}
+	if len(taskMDParts) > 0 {
+		data.TaskMDContent = strings.Join(taskMDParts, "\n\n---\n\n")
+		fmt.Printf("✅ Read %d task*.md files\n", len(taskMDParts))
+	} else {
+		fmt.Println("⚠ No task*.md files found in plan directory")
 	}
 
 	return data, nil
@@ -303,6 +335,20 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 		builder.SetVariable("debug_records", data.DebugContent)
 	} else {
 		builder.SetVariable("debug_records", "无调试信息（任务执行顺利，无需调试）")
+	}
+
+	// OKR content
+	if data.OKRContent != "" {
+		builder.SetVariable("okr_content", data.OKRContent)
+	} else {
+		builder.SetVariable("okr_content", "（本 job 无 OKR.md）")
+	}
+
+	// Task MD content
+	if data.TaskMDContent != "" {
+		builder.SetVariable("task_md_content", data.TaskMDContent)
+	} else {
+		builder.SetVariable("task_md_content", "（本 job 无 task*.md 文件）")
 	}
 
 	// Build the prompt

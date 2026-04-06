@@ -10,6 +10,14 @@
 
 ## 执行上下文
 
+### OKR（任务目标）
+
+{{okr_content}}
+
+### 任务详情（task*.md）
+
+{{task_md_content}}
+
 ### 任务执行结果
 
 {{task_execution_results}}
@@ -24,8 +32,8 @@
 
 ### Step 1：分析执行过程
 
-1. 读取上方的任务执行结果表和 debug.md 工作日志
-2. 用 `git show <commit_hash>` 查看每个任务的代码变更（commit_hash 来自任务执行结果表）
+1. 读取上方注入的 OKR、task*.md、任务执行结果表和 debug.md 工作日志
+2. 按需读取源码（如需深入理解某处实现，直接读取对应文件）
 3. 识别本次 job 涉及的系统机制、技术决策、遇到的问题和解决方案
 
 ### Step 2：按需产出四类知识文档

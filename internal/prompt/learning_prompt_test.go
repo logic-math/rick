@@ -326,11 +326,7 @@ Job: {{job_id}}
 Work: {{completed_work_summary}}
 Results: {{task_execution_results}}
 Debug: {{debug_records}}
-Solutions: {{solutions_summary}}
-History: {{git_history}}
-Features: {{new_features}}
-Improvements: {{code_improvements}}
-Debt: {{technical_debt}}`
+Solutions: {{solutions_summary}}`
 
 	learningPath := filepath.Join(tmpDir, "learning.md")
 	if err := os.WriteFile(learningPath, []byte(learningTemplate), 0644); err != nil {
@@ -524,62 +520,3 @@ func TestFormatSolutionsSummary(t *testing.T) {
 	}
 }
 
-func TestFormatGitHistory(t *testing.T) {
-	result := formatGitHistory()
-
-	if !strings.Contains(result, "Git") {
-		t.Error("Should mention Git")
-	}
-
-	if !strings.Contains(result, "提交") {
-		t.Error("Should mention commits")
-	}
-}
-
-func TestFormatNewFeatures(t *testing.T) {
-	result := formatNewFeatures()
-
-	if !strings.Contains(result, "学习阶段提示词生成") {
-		t.Error("Should mention learning prompt generation")
-	}
-
-	if !strings.Contains(result, "learning_prompt.go") {
-		t.Error("Should mention learning_prompt.go")
-	}
-
-	if !strings.Contains(result, "GenerateLearningPrompt") {
-		t.Error("Should mention GenerateLearningPrompt function")
-	}
-}
-
-func TestFormatCodeImprovements(t *testing.T) {
-	result := formatCodeImprovements()
-
-	if !strings.Contains(result, "提示词管理模块") {
-		t.Error("Should mention prompt manager module")
-	}
-
-	if !strings.Contains(result, "上下文管理器") {
-		t.Error("Should mention context manager")
-	}
-
-	if !strings.Contains(result, "测试覆盖") {
-		t.Error("Should mention test coverage")
-	}
-}
-
-func TestFormatTechnicalDebt(t *testing.T) {
-	result := formatTechnicalDebt()
-
-	if !strings.Contains(result, "技术债务") {
-		t.Error("Should mention technical debt")
-	}
-
-	if !strings.Contains(result, "Git") {
-		t.Error("Should mention Git-related debt")
-	}
-
-	if !strings.Contains(result, "性能优化") {
-		t.Error("Should mention performance optimization")
-	}
-}

@@ -1,3 +1,34 @@
+## task1: 重构 learning 输入：直接读取 OKR/task/debug，移除 git 历史依赖
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/cmd/learning.go`：`collectExecutionData()` 只读取 `debug.md` 和 `tasks.json`；`buildLearningPrompt()` 注入 `task_execution_results` 和 `debug_records`
+- 阅读了 `internal/prompt/learning_prompt.go`：`GenerateLearningPrompt()` 调用 4 个占位函数（`formatGitHistory`、`formatNewFeatures`、`formatCodeImprovements`、`formatTechnicalDebt`），全部返回硬编码模板文本
+- 阅读了 `internal/prompt/templates/learning.md`：Step 1 要求用 `git show <commit_hash>` 读取代码变更
+- 设计方案：在 `ExecutionData` 新增 `OKRContent`/`TaskMDContent` 字段；`collectExecutionData()` 读取 `plan/OKR.md`（可选）和 `plan/task*.md`；`buildLearningPrompt()` 注入两个新变量；删除 4 个占位函数；更新模板 Step 1
+
+**实现步骤 (Implementation)**:
+1. `internal/cmd/learning.go`：`ExecutionData` 新增 `OKRContent string` 和 `TaskMDContent string`
+2. `internal/cmd/learning.go`：`collectExecutionData()` 新增读取 `plan/OKR.md`（不存在则跳过）
+3. `internal/cmd/learning.go`：`collectExecutionData()` 新增用 `filepath.Glob` 读取所有 `plan/task*.md`，拼接为带文件名标题的字符串
+4. `internal/cmd/learning.go`：`buildLearningPrompt()` 注入 `okr_content` 和 `task_md_content` 变量
+5. `internal/prompt/learning_prompt.go`：删除 `formatGitHistory`、`formatNewFeatures`、`formatCodeImprovements`、`formatTechnicalDebt` 四个函数及其在 `GenerateLearningPrompt()` 中的调用
+6. `internal/prompt/learning_prompt_test.go`：删除对应的 4 个测试函数，更新 `TestGenerateLearningPrompt_VariableReplacement` 中的模板（移除已删除变量）
+7. `internal/prompt/templates/learning.md`：新增 OKR/task_md 章节；Step 1 改为"读取上方注入的 OKR、task*.md、debug.md，按需读取源码"
+
+**遇到的问题 (Issues)**:
+- `TestGenerateLearningPrompt_VariableReplacement` 的测试模板仍包含 `{{git_history}}` 等已删除变量，导致测试失败；删除测试模板中对应变量后通过
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./... && grep "本周期内新增" internal/ -r`
+- 测试输出：
+  ```
+  ok  github.com/sunquan/rick/internal/cmd
+  ok  github.com/sunquan/rick/internal/prompt
+  ok  github.com/sunquan/rick/internal/...（全部通过）
+  grep: 无结果
+  ```
+- 结论：✅ 通过
+
 ## task2: 建立 skills/index.md 格式规范并重构 skills 注入机制
 
 **分析过程 (Analysis)**:
