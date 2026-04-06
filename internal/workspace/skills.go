@@ -67,8 +67,22 @@ func extractSkillDescription(filePath string) string {
 	return ""
 }
 
-// GenerateSkillsREADME regenerates rickDir/skills/README.md from all .py files.
-func GenerateSkillsREADME(rickDir string) error {
+// LoadSkillsIndex reads the content of rickDir/skills/index.md and returns it as a string.
+// Returns empty string (not error) when the file doesn't exist.
+func LoadSkillsIndex(rickDir string) (string, error) {
+	indexPath := filepath.Join(rickDir, SkillsDirName, "index.md")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read skills index: %w", err)
+	}
+	return string(data), nil
+}
+
+// GenerateSkillsIndex regenerates rickDir/skills/index.md from all .py files.
+func GenerateSkillsIndex(rickDir string) error {
 	skills, err := LoadSkillsList(rickDir)
 	if err != nil {
 		return err
@@ -80,14 +94,25 @@ func GenerateSkillsREADME(rickDir string) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("# Skills\n\n")
-	sb.WriteString("| 文件 | 描述 |\n")
-	sb.WriteString("|------|------|\n")
+	sb.WriteString("# Skills Index\n\n")
+	sb.WriteString("本目录包含可在 doing 阶段调用的 Python 脚本工具。\n\n")
+	sb.WriteString("## 可用 Skills\n\n")
+	sb.WriteString("| 文件 | 描述 | 触发场景 |\n")
+	sb.WriteString("|------|------|----------|\n")
 
 	for _, s := range skills {
-		sb.WriteString(fmt.Sprintf("| %s.py | %s |\n", s.Name, s.Description))
+		sb.WriteString(fmt.Sprintf("| %s.py | %s | |\n", s.Name, s.Description))
 	}
 
-	readmePath := filepath.Join(skillsDir, "README.md")
-	return os.WriteFile(readmePath, []byte(sb.String()), 0644)
+	sb.WriteString("\n## 调用方式\n\n")
+	sb.WriteString("```bash\npython3 .rick/skills/<filename>.py\n```\n")
+
+	indexPath := filepath.Join(skillsDir, "index.md")
+	return os.WriteFile(indexPath, []byte(sb.String()), 0644)
+}
+
+// GenerateSkillsREADME is an alias for GenerateSkillsIndex for backward compatibility.
+// Deprecated: Use GenerateSkillsIndex instead.
+func GenerateSkillsREADME(rickDir string) error {
+	return GenerateSkillsIndex(rickDir)
 }

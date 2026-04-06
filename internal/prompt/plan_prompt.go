@@ -10,7 +10,8 @@ import (
 
 // GeneratePlanPrompt generates the planning phase prompt from user requirement.
 // jobPlanDir is the absolute path to the job's plan directory.
-func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+// rickDir is optional: when non-empty, skills index from .rick/skills/index.md is injected.
+func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
 	if requirement == "" {
 		return "", fmt.Errorf("requirement cannot be empty")
 	}
@@ -61,6 +62,14 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 
+	// Set skills index
+	resolvedRickDir := ""
+	if len(rickDir) > 0 {
+		resolvedRickDir = rickDir[0]
+	}
+	skillsIndex := formatSkillsIndexSection(resolvedRickDir)
+	builder.SetVariable("skills_index", skillsIndex)
+
 	// Build final prompt
 	prompt, err := builder.Build()
 	if err != nil {
@@ -72,8 +81,9 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *Conte
 
 // GeneratePlanPromptFile generates the planning phase prompt and saves it to a temporary file.
 // jobPlanDir is the absolute path to the job's plan directory (e.g. .rick/jobs/job_1/plan).
+// rickDir is optional: when non-empty, skills index from .rick/skills/index.md is injected.
 // Returns the file path and any error. The caller is responsible for cleaning up the temporary file.
-func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager) (string, error) {
+func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
 	if requirement == "" {
 		return "", fmt.Errorf("requirement cannot be empty")
 	}
@@ -124,6 +134,14 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 
+	// Set skills index
+	resolvedRickDir2 := ""
+	if len(rickDir) > 0 {
+		resolvedRickDir2 = rickDir[0]
+	}
+	skillsIndex2 := formatSkillsIndexSection(resolvedRickDir2)
+	builder.SetVariable("skills_index", skillsIndex2)
+
 	// Build and save to temporary file
 	promptFile, err := builder.BuildAndSave("plan")
 	if err != nil {
@@ -131,6 +149,19 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 	}
 
 	return promptFile, nil
+}
+
+// formatSkillsIndexSection returns the skills index content for injection into plan prompts.
+// Returns empty string if rickDir is empty or index.md doesn't exist.
+func formatSkillsIndexSection(rickDir string) string {
+	if rickDir == "" {
+		return ""
+	}
+	content, err := workspace.LoadSkillsIndex(rickDir)
+	if err != nil || content == "" {
+		return ""
+	}
+	return content
 }
 
 // formatOKRContent formats OKR information for the prompt

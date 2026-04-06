@@ -10,11 +10,20 @@ import (
 )
 
 // formatSkillsSection generates the skills section for the doing prompt.
+// Prefers index.md content; falls back to scanning .py files if index.md doesn't exist.
 // Returns empty string if no skills are available.
 func formatSkillsSection(rickDir string) string {
 	if rickDir == "" {
 		return ""
 	}
+
+	// Prefer index.md
+	indexContent, err := workspace.LoadSkillsIndex(rickDir)
+	if err == nil && indexContent != "" {
+		return "\n## 可用的项目 Skills\n\n" + indexContent + "\n"
+	}
+
+	// Fallback: scan .py files
 	skills, err := workspace.LoadSkillsList(rickDir)
 	if err != nil || len(skills) == 0 {
 		return ""
