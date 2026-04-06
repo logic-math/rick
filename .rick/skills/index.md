@@ -12,7 +12,6 @@
 | mock_agent_testing.py | Mock AI agent for integration testing - simulates 11 claude scenarios without real API calls | |
 | resolve_local_binary.py | 解析本地构建的二进制路径，优先用 ./bin/<name>，fallback 到系统安装版 | |
 | rick_tools_check_pattern.py | Pattern for implementing rick tools check commands (argparse + JSON output standard) | |
-| verify_template_variables.py | 验证 prompt 模板变量是否被正确替换（不含未替换的 {{placeholder}} 占位符） | |
 
 ## 调用方式
 
