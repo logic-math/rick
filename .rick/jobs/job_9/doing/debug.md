@@ -125,3 +125,46 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
+
+## task5: 补全集成测试与 dry-run 输出：覆盖 job_9 所有变更的关键断言
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/doing_prompt.go`、`plan_prompt.go`、`learning_prompt.go`：理解各函数签名和变量注入逻辑
+- 阅读了 `internal/cmd/learning.go`：dry-run 分支仅打印一行，需新增 `runLearningDryRun()` 函数
+- 阅读了 `internal/cmd/plan.go`：`runPlanDryRun()` 已实现，可作为 learning 的参考
+- 阅读了 `internal/workspace/skills.go`、`tools.go`：`LoadSkillsIndex()` 和 `LoadToolsList()` 的行为
+- 阅读了 `internal/prompt/templates/learning.md`：确认 `{{okr_content}}`、`{{task_md_content}}` 变量存在，无 `git show` 指令
+- 设计方案：
+  1. 新建 `internal/prompt/integration_rfc001_test.go`（package prompt）：17 个子测试覆盖 task1~4 所有关键结果
+  2. 新建 `internal/workspace/skills_test.go`：4 个 `TestLoadSkillsIndex_*` 子测试
+  3. 新建 `internal/cmd/dryrun_integration_test.go`：4 个 `TestDryRun_*` 子测试
+  4. 修改 `internal/cmd/learning.go`：dry-run 改为调用 `runLearningDryRun(jobID)`，新增该函数
+
+**实现步骤 (Implementation)**:
+1. `internal/prompt/integration_rfc001_test.go`：新建，17 个子测试，覆盖 task1~4 所有关键断言
+2. `internal/workspace/skills_test.go`：新建，4 个 `TestLoadSkillsIndex_*` 测试
+3. `internal/cmd/learning.go`：dry-run 分支改为 `return runLearningDryRun(jobID)`；新增 `runLearningDryRun()` 函数
+4. `internal/cmd/dryrun_integration_test.go`：新建，4 个 `TestDryRun_*` 测试
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go test ./internal/prompt/ -run TestIntegration_RFC001 -v && go test ./internal/workspace/ -run TestLoadSkillsIndex -v && go test ./internal/cmd/ -run TestDryRun -v && go test ./...`
+- 测试输出：
+  ```
+  --- PASS: TestIntegration_RFC001 (0.02s) [17 sub-tests all PASS]
+  --- PASS: TestLoadSkillsIndex_FileExists (0.00s)
+  --- PASS: TestLoadSkillsIndex_FileNotExists (0.00s)
+  --- PASS: TestLoadSkillsIndex_EmptyFile (0.00s)
+  --- PASS: TestLoadSkillsIndex_SkillsDirExistsButNoIndex (0.00s)
+  --- PASS: TestDryRun_PlanPrintsPrompt (0.00s)
+  --- PASS: TestDryRun_LearningPrintsPrompt (0.00s)
+  --- PASS: TestDryRun_LearningPromptContainsOKR (0.00s)
+  --- PASS: TestDryRun_PlanPromptContainsJobPlanDir (0.00s)
+  ok  github.com/sunquan/rick/internal/cmd   26.193s
+  ok  github.com/sunquan/rick/internal/prompt   0.436s
+  ok  github.com/sunquan/rick/internal/workspace   0.593s
+  [all other packages: cached/pass]
+  ```
+- 结论：✅ 通过

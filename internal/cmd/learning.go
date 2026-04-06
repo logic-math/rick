@@ -28,8 +28,7 @@ func NewLearningCmd() *cobra.Command {
 			}
 
 			if GetDryRun() {
-				fmt.Println("[DRY-RUN] Would execute learning")
-				return nil
+				return runLearningDryRun(jobID)
 			}
 
 			// Get job ID from args, local flag, or global flag
@@ -74,6 +73,52 @@ type ExecutionData struct {
 	TasksJSON    *executor.TasksJSON
 	OKRContent   string
 	TaskMDContent string
+}
+
+// runLearningDryRun generates and prints the learning prompt without executing it.
+func runLearningDryRun(jobID string) error {
+	if jobID == "" {
+		jobID = "job_N"
+	}
+
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
+		return nil
+	}
+
+	// Build minimal ExecutionData for dry-run
+	data := &ExecutionData{
+		JobID:         jobID,
+		DebugContent:  "",
+		TasksJSON:     nil,
+		OKRContent:    "",
+		TaskMDContent: "",
+	}
+
+	// Try to read real data if available
+	jobDir := filepath.Join(rickDir, "jobs", jobID)
+	doingDir := filepath.Join(jobDir, "doing")
+	planDir := filepath.Join(jobDir, "plan")
+
+	if content, err := os.ReadFile(filepath.Join(doingDir, "debug.md")); err == nil {
+		data.DebugContent = string(content)
+	}
+	if content, err := os.ReadFile(filepath.Join(planDir, "OKR.md")); err == nil {
+		data.OKRContent = string(content)
+	}
+
+	learningDir := filepath.Join(jobDir, "learning")
+
+	promptContent, err := buildLearningPrompt(data, learningDir)
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to generate learning prompt: %v\n", err)
+		return nil
+	}
+
+	fmt.Printf("[DRY-RUN] Learning prompt:\n\n")
+	fmt.Println(promptContent)
+	return nil
 }
 
 // executeLearningWorkflow executes the complete learning workflow
