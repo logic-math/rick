@@ -373,11 +373,11 @@ task1, task2, ...
 ```
 
 **规则**：
-1. Plan 阶段生成的**所有文件**（task.md、tasks.json、OKR.md、SPEC.md 等）必须保存在上述工作目录或其子目录下
+1. Plan 阶段生成的**所有文件**（task.md、OKR.md、SPEC.md 等）必须保存在上述工作目录或其子目录下
 2. **禁止**在工作目录之外创建任何文件
 3. 如果用户要求将文件保存到其他位置，必须拒绝并说明原因
 4. 任务文件命名规范：`{{job_plan_dir}}/task1.md`、`{{job_plan_dir}}/task2.md` 等
-5. tasks.json 保存路径：`{{job_plan_dir}}/tasks.json`
+5. **不需要生成 tasks.json**，该文件由 `rick doing` 第一次执行时自动从 task*.md 解析生成
 
 **违反此约束将导致后续 `rick doing` 命令无法找到任务文件，整个工作流将中断！**
 

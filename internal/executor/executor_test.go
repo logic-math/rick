@@ -1091,6 +1091,161 @@ func contains(s, substr string) bool {
 	return false
 }
 
+// TestNewExecutorWithExistingTasksJSON verifies that when an existingTasksJSON is
+// passed to NewExecutor, the executor uses it as-is instead of generating a fresh one.
+func TestNewExecutorWithExistingTasksJSON(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
+	}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
+	tmpDir := t.TempDir()
+
+	// Build a TasksJSON that already marks task1 as success
+	dag, _ := NewDAG(tasks)
+	sorted, _ := TopologicalSort(dag)
+	existing, err := GenerateTasksJSON(dag, sorted)
+	if err != nil {
+		t.Fatalf("GenerateTasksJSON failed: %v", err)
+	}
+	if err := existing.UpdateTaskStatus("task1", "success"); err != nil {
+		t.Fatalf("UpdateTaskStatus failed: %v", err)
+	}
+
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_resume", existing)
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	// The executor must retain the pre-set status, not reset to pending
+	status, err := exec.tasksJSON.GetTaskStatus("task1")
+	if err != nil {
+		t.Fatalf("GetTaskStatus failed: %v", err)
+	}
+	if status != "success" {
+		t.Errorf("expected task1 status 'success', got '%s'", status)
+	}
+
+	// task2 should still be pending
+	status2, err := exec.tasksJSON.GetTaskStatus("task2")
+	if err != nil {
+		t.Fatalf("GetTaskStatus task2 failed: %v", err)
+	}
+	if status2 != "pending" {
+		t.Errorf("expected task2 status 'pending', got '%s'", status2)
+	}
+}
+
+// TestExecuteJobSkipsCompletedTasks verifies that ExecuteJob skips tasks whose
+// status is already "success" in the provided existingTasksJSON, and that the
+// skipped task is counted in SuccessfulTasks without appearing in TaskResults
+// (since no real execution happened).
+func TestExecuteJobSkipsCompletedTasks(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
+	}
+
+	// Use a non-existent claude path so any real execution attempt would fail
+	config := &ExecutionConfig{
+		MaxRetries:     1,
+		TimeoutSeconds: 5,
+		ClaudeCodePath: "/nonexistent/claude",
+	}
+	tmpDir := t.TempDir()
+
+	// Pre-build a TasksJSON with task1 already succeeded
+	dag, _ := NewDAG(tasks)
+	sorted, _ := TopologicalSort(dag)
+	existing, _ := GenerateTasksJSON(dag, sorted)
+	_ = existing.UpdateTaskStatus("task1", "success")
+
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_skip", existing)
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	result, err := exec.ExecuteJob()
+	// task2 will fail (no real claude), but task1 must have been skipped, not re-run
+	if result == nil {
+		t.Fatal("ExecuteJob returned nil result")
+	}
+
+	// task1 was skipped → counted as successful, not in TaskResults
+	skippedInResults := false
+	for _, tr := range result.TaskResults {
+		if tr.TaskID == "task1" {
+			skippedInResults = true
+			break
+		}
+	}
+	if skippedInResults {
+		t.Error("task1 should have been skipped and NOT appear in TaskResults")
+	}
+
+	// SuccessfulTasks must include the skipped task1
+	if result.SuccessfulTasks < 1 {
+		t.Errorf("expected SuccessfulTasks >= 1 (skipped task1), got %d", result.SuccessfulTasks)
+	}
+
+	// Execution log must mention the skip
+	if !contains(result.ExecutionLog, "Skipping already completed task: task1") {
+		t.Error("execution log should mention skipping task1")
+	}
+
+	_ = err // task2 failure error is expected
+}
+
+// TestExecuteJobSkipsCompletedTasksAllDone verifies that when ALL tasks are already
+// "success" in the existing TasksJSON, ExecuteJob returns status "completed" without
+// calling claude at all.
+func TestExecuteJobSkipsCompletedTasksAllDone(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
+	}
+
+	// Use a non-existent claude path — if any task is executed, the test will fail
+	config := &ExecutionConfig{
+		MaxRetries:     1,
+		TimeoutSeconds: 5,
+		ClaudeCodePath: "/nonexistent/claude",
+	}
+	tmpDir := t.TempDir()
+
+	dag, _ := NewDAG(tasks)
+	sorted, _ := TopologicalSort(dag)
+	existing, _ := GenerateTasksJSON(dag, sorted)
+	_ = existing.UpdateTaskStatus("task1", "success")
+	_ = existing.UpdateTaskStatus("task2", "success")
+
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_alldone", existing)
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	result, err := exec.ExecuteJob()
+	if err != nil {
+		t.Fatalf("ExecuteJob returned unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("ExecuteJob returned nil result")
+	}
+
+	if result.Status != "completed" {
+		t.Errorf("expected status 'completed', got '%s'", result.Status)
+	}
+	if result.SuccessfulTasks != 2 {
+		t.Errorf("expected SuccessfulTasks=2, got %d", result.SuccessfulTasks)
+	}
+	if result.FailedTasks != 0 {
+		t.Errorf("expected FailedTasks=0, got %d", result.FailedTasks)
+	}
+	if len(result.TaskResults) != 0 {
+		t.Errorf("expected empty TaskResults (all skipped), got %d entries", len(result.TaskResults))
+	}
+}
+
 // TestGetCurrentCommitHash tests getting git commit hash
 func TestGetCurrentCommitHash(t *testing.T) {
 	tasks := []*parser.Task{

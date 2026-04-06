@@ -44,12 +44,15 @@ type Executor struct {
 	tasksJSONPath    string
 }
 
-// NewExecutor creates a new Executor instance
+// NewExecutor creates a new Executor instance.
+// existingTasksJSON is optional: if non-nil, it is used as the initial state
+// (preserving completed task statuses) instead of generating a fresh one.
 func NewExecutor(
 	tasks []*parser.Task,
 	config *ExecutionConfig,
 	workspaceDir string,
 	jobID string,
+	existingTasksJSON ...*TasksJSON,
 ) (*Executor, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("tasks list cannot be empty")
@@ -73,10 +76,15 @@ func NewExecutor(
 		return nil, fmt.Errorf("failed to perform topological sort: %w", err)
 	}
 
-	// Generate tasks.json
-	tasksJSON, err := GenerateTasksJSON(dag, sortedTaskIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate tasks.json: %w", err)
+	// Use existing tasks.json if provided, otherwise generate a fresh one
+	var tasksJSON *TasksJSON
+	if len(existingTasksJSON) > 0 && existingTasksJSON[0] != nil {
+		tasksJSON = existingTasksJSON[0]
+	} else {
+		tasksJSON, err = GenerateTasksJSON(dag, sortedTaskIDs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate tasks.json: %w", err)
+		}
 	}
 
 	// Create task runner
@@ -132,6 +140,13 @@ func (e *Executor) ExecuteJob() (*ExecutionJobResult, error) {
 
 	// Execute each task in order
 	for i, taskID := range e.sortedTaskIDs {
+		// Skip tasks that are already successfully completed
+		if status, err := e.tasksJSON.GetTaskStatus(taskID); err == nil && status == "success" {
+			e.logf("[%d/%d] Skipping already completed task: %s", i+1, result.TotalTasks, taskID)
+			result.SuccessfulTasks++
+			continue
+		}
+
 		e.logf("[%d/%d] Executing task: %s", i+1, result.TotalTasks, taskID)
 
 		// Update task status to running

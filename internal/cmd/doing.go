@@ -142,6 +142,27 @@ func executeDoingWorkflow(jobID string) error {
 		}
 	}
 
+	// Step 3.5: Check for existing tasks.json in doing directory to resume progress
+	var existingTasksJSON *executor.TasksJSON
+	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
+	if _, err := os.Stat(tasksJSONPath); err == nil {
+		loaded, loadErr := executor.LoadTasksJSON(tasksJSONPath)
+		if loadErr == nil {
+			existingTasksJSON = loaded
+			if GetVerbose() {
+				completed := loaded.GetCompletedCount()
+				total := loaded.GetTaskCount()
+				fmt.Printf("[INFO] Resuming from existing tasks.json: %d/%d tasks already completed\n", completed, total)
+			} else {
+				completed := loaded.GetCompletedCount()
+				total := loaded.GetTaskCount()
+				fmt.Printf("Resuming job %s: %d/%d tasks already completed\n", jobID, completed, total)
+			}
+		} else if GetVerbose() {
+			fmt.Printf("[WARN] Failed to load existing tasks.json, starting fresh: %v\n", loadErr)
+		}
+	}
+
 	// Step 4: Create executor with execution config
 	execConfig := &executor.ExecutionConfig{
 		MaxRetries:     cfg.MaxRetries,
@@ -156,7 +177,7 @@ func executeDoingWorkflow(jobID string) error {
 			execConfig.MaxRetries, execConfig.TimeoutSeconds)
 	}
 
-	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID)
+	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, existingTasksJSON)
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}
