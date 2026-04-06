@@ -39,3 +39,34 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
+
+## task2: 优化 doing 重试循环的测试失败信息传递
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/executor/runner.go`：发现 `result.Error` 在 test-failed 路径只包含 `strings.Join(testResult.Errors, "; ")`，完整 `testOutput`（含 stderr/traceback）未传入 `result.Error`
+- 阅读了 `internal/executor/retry.go`：发现 `output[:500] + "... (truncated)"` 硬截断，且 `testErrorFeedback` 无限累积所有历史失败（前置拼接）
+- 确认 `TaskExecutionResult` 和 `RetryResult` 结构体无需新增字段，只需修改 `result.Error` 内容和 feedback 累积逻辑
+
+**实现步骤 (Implementation)**:
+1. `runner.go`：
+   - test execution error 路径（line 101）：`result.Error` 改为包含完整 `testOutput`（`"test execution failed: %v\n\nFull test output:\n%s"`）
+   - test did not pass 路径（line 113）：`result.Error` 改为包含完整 `testOutput`（`"test did not pass: %s\n\nFull test output:\n%s"`）
+2. `retry.go`：
+   - 添加 `strings` import
+   - 移除 500 字符硬截断和 `Output` 的额外追加
+   - 改为调用新的 `appendFailureFeedback(existing, newEntry, 2, 3000)` 函数
+   - 在 `err != nil` 分支同样使用 `appendFailureFeedback`
+   - 新增 `appendFailureFeedback` 函数：按 `=== Attempt ` 分割条目，保留最近 maxEntries 条，超过 maxBytes 时从尾部截断并对齐到行边界
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./internal/executor/... -v && go test ./... -count=1`
+- 测试输出：
+  ```
+  ok  github.com/sunquan/rick/internal/executor  3.556s
+  ok  github.com/sunquan/rick/internal/cmd       27.249s
+  ... all packages PASS
+  ```
+- 结论：✅ 通过

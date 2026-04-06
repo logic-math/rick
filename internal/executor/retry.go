@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sunquan/rick/internal/parser"
@@ -88,7 +89,8 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 			lastExecResult = execResult
 			// Accumulate test error for next retry
 			if execResult != nil && execResult.Error != "" {
-				testErrorFeedback = fmt.Sprintf("Attempt %d: %s\n%s", attempt, execResult.Error, testErrorFeedback)
+				newEntry := fmt.Sprintf("=== Attempt %d ===\n%s\n", attempt, execResult.Error)
+				testErrorFeedback = appendFailureFeedback(testErrorFeedback, newEntry, 2, 3000)
 			}
 			// Continue to next retry
 			continue
@@ -108,18 +110,11 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 		result.LastError = execResult.Error
 		// Note: debug.md is now managed by Claude, not by the program
 
-		// Accumulate test error feedback for next retry
-		// This allows Claude to see the history of test failures and fix the test script
+		// Accumulate test error feedback for next retry (keep last 2 attempts only)
+		// execResult.Error already contains the full test output (including stderr/traceback)
 		if execResult.Error != "" {
-			testErrorFeedback = fmt.Sprintf("Attempt %d: %s\n%s", attempt, execResult.Error, testErrorFeedback)
-		}
-		if execResult.Output != "" {
-			// Include test output for context (limit to 500 chars to avoid bloat)
-			output := execResult.Output
-			if len(output) > 500 {
-				output = output[:500] + "... (truncated)"
-			}
-			testErrorFeedback += fmt.Sprintf("\nOutput:\n%s\n", output)
+			newEntry := fmt.Sprintf("=== Attempt %d ===\n%s\n", attempt, execResult.Error)
+			testErrorFeedback = appendFailureFeedback(testErrorFeedback, newEntry, 2, 3000)
 		}
 
 		// If this is not the last attempt, continue to next retry
@@ -163,4 +158,41 @@ func (trm *TaskRetryManager) loadDebugContext(debugFile string) string {
 func RetryTaskSimple(task *parser.Task, runner *TaskRunner, config *ExecutionConfig, debugFile string) (*RetryResult, error) {
 	manager := NewTaskRetryManager(runner, config, debugFile)
 	return manager.RetryTask(task)
+}
+
+// appendFailureFeedback adds a new failure entry to the accumulated feedback,
+// keeping only the most recent maxEntries entries and capping total length at maxBytes.
+// Each entry is expected to start with "=== Attempt ".
+func appendFailureFeedback(existing, newEntry string, maxEntries int, maxBytes int) string {
+	const separator = "=== Attempt "
+
+	// Split existing into individual entries by the separator
+	var entries []string
+	if existing != "" {
+		parts := strings.Split(existing, separator)
+		for _, p := range parts {
+			if p != "" {
+				entries = append(entries, separator+p)
+			}
+		}
+	}
+
+	// Append new entry
+	entries = append(entries, newEntry)
+
+	// Keep only last maxEntries
+	if len(entries) > maxEntries {
+		entries = entries[len(entries)-maxEntries:]
+	}
+
+	// Join and cap at maxBytes (keep the tail to preserve most recent content)
+	result := strings.Join(entries, "")
+	if len(result) > maxBytes {
+		result = result[len(result)-maxBytes:]
+		// Trim to a clean line boundary to avoid partial lines
+		if idx := strings.Index(result, "\n"); idx >= 0 {
+			result = result[idx+1:]
+		}
+	}
+	return result
 }

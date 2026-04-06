@@ -98,7 +98,7 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 	testResult, testOutput, err := tr.ExecuteTestScript(testScriptPath)
 	if err != nil {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("test execution failed: %v", err)
+		result.Error = fmt.Sprintf("test execution failed: %v\n\nFull test output:\n%s", err, testOutput)
 		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", claudeOutput, testOutput)
 		result.EndTime = time.Now()
 		return result, nil
@@ -110,7 +110,7 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 	} else {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("test did not pass: %s", strings.Join(testResult.Errors, "; "))
+		result.Error = fmt.Sprintf("test did not pass: %s\n\nFull test output:\n%s", strings.Join(testResult.Errors, "; "), testOutput)
 		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 	}
 
