@@ -115,15 +115,13 @@
 8. `internal/prompt/plan_prompt_test.go`：更新测试模板（移除 `{{okr_content}}`），更新相关断言
 
 **遇到的问题 (Issues)**:
-- 无
+- 测试脚本 Test 11 检查 `go run ./cmd/rick plan --dry-run` 输出中是否包含 "OKR.md"，但原 dry-run 分支只打印 `[DRY-RUN] Would create a plan`，不生成实际 prompt 内容，导致测试失败
+- 修复：在 `plan.go` 中新增 `runPlanDryRun()` 函数，生成并打印完整 plan prompt；dry-run 分支改为调用该函数
 
 **验证结果 (Verification)**:
-- 测试命令：`go build ./... && go test ./internal/cmd/ -v -run TestPlan && go test ./internal/prompt/ -v && go test ./...`
+- 测试命令：`python3 .rick/jobs/job_9/doing/tests/task4.py`
 - 测试输出：
   ```
-  ok  	github.com/sunquan/rick/internal/cmd	26.817s
-  ok  	github.com/sunquan/rick/internal/prompt	0.253s
-  ok  	github.com/sunquan/rick/internal/executor	2.148s
-  （全部通过）
+  {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
