@@ -219,13 +219,44 @@ def scenario_doing_success(prompt_content, doing_dir):
     with open(os.path.join(doing_dir, "tasks.json"), "w") as f:
         json.dump(tasks_json, f, indent=2)
 
-    debug_md = """# debug1: 无问题
+    debug_md = """## task1: 初始化项目结构
 
-**现象 (Phenomenon)**:
-- 所有任务执行成功，无问题
+**分析过程 (Analysis)**:
+- 分析了项目结构需求
 
-**进展 (Progress)**:
-- ✅ 已解决 - 所有任务通过
+**实现步骤 (Implementation)**:
+1. 创建目录结构
+2. 初始化配置文件
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令: `ls src/`
+- 测试输出:
+  ```
+  src/
+  ```
+- 结论：✅ 通过
+
+## task2: 实现核心功能
+
+**分析过程 (Analysis)**:
+- 分析了核心功能需求
+
+**实现步骤 (Implementation)**:
+1. 实现主要逻辑
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令: `go test ./...`
+- 测试输出:
+  ```
+  PASS
+  ```
+- 结论：✅ 通过
 """
     with open(os.path.join(doing_dir, "debug.md"), "w") as f:
         f.write(debug_md)
@@ -291,7 +322,7 @@ def scenario_doing_zombie_task(prompt_content, doing_dir):
         json.dump(tasks_json, f, indent=2)
 
     with open(os.path.join(doing_dir, "debug.md"), "w") as f:
-        f.write("# debug1: zombie task\n\n**进展 (Progress)**:\n- ❌ 未解决\n")
+        f.write("## task1: 初始化项目结构（zombie）\n\n**分析过程 (Analysis)**:\n- 任务执行中断\n\n**实现步骤 (Implementation)**:\n1. 开始执行\n\n**遇到的问题 (Issues)**:\n- 任务未完成\n\n**验证结果 (Verification)**:\n- 测试命令: `echo check`\n- 测试输出:\n  ```\n  check\n  ```\n- 结论：❌ 失败\n")
     print("[mock_agent] doing_zombie_task: task1 left in 'running' state", file=sys.stderr)
 
 
@@ -305,8 +336,7 @@ def scenario_learning_success(prompt_content, learning_dir):
     os.makedirs(os.path.join(learning_dir, "wiki"), exist_ok=True)
 
     summary = """APPROVED: true
-
-# 执行总结
+# Job job_test 执行总结
 
 本次任务执行成功，所有关键结果均已达成。
 
@@ -375,8 +405,7 @@ def scenario_learning_bad_skill(prompt_content, learning_dir):
     os.makedirs(os.path.join(learning_dir, "skills"), exist_ok=True)
 
     summary = """APPROVED: true
-
-# 执行总结
+# Job job_test 执行总结
 
 本次任务执行成功。
 """
@@ -511,7 +540,9 @@ def run_self_test():
         with open(os.path.join(learning_dir, "SUMMARY.md")) as f:
             content = f.read()
         if not content.startswith("APPROVED: true"):
-            errors.append("learning_success: SUMMARY.md should start with APPROVED: true")
+            errors.append("learning_success: SUMMARY.md should start with 'APPROVED: true'")
+        if "# Job" not in content:
+            errors.append("learning_success: SUMMARY.md should contain '# Job' heading")
         # Check skill is valid Python
         skill_path = os.path.join(learning_dir, "skills", "check_go_build.py")
         if not os.path.exists(skill_path):

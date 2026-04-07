@@ -46,6 +46,7 @@ SCENARIOS = {
     "doing_success": "Creates valid tasks.json and debug.md",
     "doing_no_debug": "Creates tasks.json but no debug.md",
     "doing_zombie": "Creates tasks.json with zombie task",
+    "doing_zombie_task": "Alias for doing_zombie",
     "learning_success": "Creates valid SUMMARY.md and skills",
     "learning_bad_skill": "Creates skills with Python syntax errors",
     "learning_no_summary": "Creates learning dir without SUMMARY.md",
@@ -67,6 +68,9 @@ def find_project_root():
 def run_scenario(scenario, prompt_file):
     """Execute the given scenario."""
     project_root = find_project_root()
+    # Allow override via env vars for isolated testing
+    doing_dir_override = os.environ.get("RICK_DOING_DIR", "")
+    learning_dir_override = os.environ.get("RICK_LEARNING_DIR", "")
 
     if scenario == "claude_exit_nonzero":
         print("Mock agent: simulating failure", file=sys.stderr)
@@ -103,21 +107,72 @@ Test objective for task {i}
         sys.exit(0)
 
     if scenario == "doing_success":
-        doing_dir = os.path.join(project_root, ".rick", "jobs", "job_test", "doing")
+        doing_dir = doing_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "doing")
         os.makedirs(doing_dir, exist_ok=True)
-        tasks = [
-            {"task_id": "task1", "task_name": "Task 1", "dep": [],
-             "state_info": {"status": "success", "commit_hash": "abc123"}}
-        ]
+        now = "2026-01-01T00:00:00Z"
+        tasks_json = {
+            "version": "1.0",
+            "created_at": now,
+            "updated_at": now,
+            "tasks": [
+                {"task_id": "task1", "task_name": "Task 1", "status": "success",
+                 "dependencies": [], "attempts": 1, "commit_hash": "abc123",
+                 "created_at": now, "updated_at": now}
+            ]
+        }
         with open(os.path.join(doing_dir, "tasks.json"), "w") as f:
-            json.dump(tasks, f)
+            json.dump(tasks_json, f)
         with open(os.path.join(doing_dir, "debug.md"), "w") as f:
-            f.write("# debug1: Test entry\n\n**分析过程**: Normal execution.\n")
+            f.write("## task1: Test entry\n\n**分析过程 (Analysis)**:\n- Normal execution.\n\n**实现步骤 (Implementation)**:\n1. Created test files.\n\n**遇到的问题 (Issues)**:\n- 无\n\n**验证结果 (Verification)**:\n- 测试命令: `echo ok`\n- 测试输出:\n  ```\n  ok\n  ```\n- 结论：✅ 通过\n")
         print("Mock agent: created valid doing files")
         sys.exit(0)
 
+    if scenario in ("doing_no_debug",):
+        doing_dir = doing_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "doing")
+        os.makedirs(doing_dir, exist_ok=True)
+        now = "2026-01-01T00:00:00Z"
+        tasks_json = {
+            "version": "1.0",
+            "created_at": now,
+            "updated_at": now,
+            "tasks": [
+                {"task_id": "task1", "task_name": "Task 1", "status": "success",
+                 "dependencies": [], "attempts": 1, "commit_hash": "abc123",
+                 "created_at": now, "updated_at": now}
+            ]
+        }
+        with open(os.path.join(doing_dir, "tasks.json"), "w") as f:
+            json.dump(tasks_json, f)
+        # Intentionally no debug.md
+        print("Mock agent: created doing files without debug.md")
+        sys.exit(0)
+
+    if scenario in ("doing_zombie", "doing_zombie_task"):
+        doing_dir = doing_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "doing")
+        os.makedirs(doing_dir, exist_ok=True)
+        now = "2026-01-01T00:00:00Z"
+        tasks_json = {
+            "version": "1.0",
+            "created_at": now,
+            "updated_at": now,
+            "tasks": [
+                {"task_id": "task1", "task_name": "Task 1", "status": "success",
+                 "dependencies": [], "attempts": 1, "commit_hash": "abc123",
+                 "created_at": now, "updated_at": now},
+                {"task_id": "task2", "task_name": "Task 2", "status": "running",
+                 "dependencies": ["task1"], "attempts": 1,
+                 "created_at": now, "updated_at": now},
+            ]
+        }
+        with open(os.path.join(doing_dir, "tasks.json"), "w") as f:
+            json.dump(tasks_json, f)
+        with open(os.path.join(doing_dir, "debug.md"), "w") as f:
+            f.write("## task1: Test entry\n\n**分析过程 (Analysis)**:\n- Normal execution.\n\n**实现步骤 (Implementation)**:\n1. Done.\n\n**遇到的问题 (Issues)**:\n- 无\n\n**验证结果 (Verification)**:\n- 测试命令: `echo ok`\n- 测试输出:\n  ```\n  ok\n  ```\n- 结论：✅ 通过\n")
+        print("Mock agent: created doing files with zombie task")
+        sys.exit(0)
+
     if scenario == "learning_success":
-        learning_dir = os.path.join(project_root, ".rick", "jobs", "job_test", "learning")
+        learning_dir = learning_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "learning")
         os.makedirs(os.path.join(learning_dir, "skills"), exist_ok=True)
         with open(os.path.join(learning_dir, "SUMMARY.md"), "w") as f:
             f.write("<!-- APPROVED: false -->\n# Job job_test 执行总结\n\n## 执行概述\n\nTest summary.\n")
@@ -129,6 +184,28 @@ print(json.dumps({"pass": True, "errors": []}))
         with open(os.path.join(learning_dir, "skills", "test_skill.py"), "w") as f:
             f.write(skill_content)
         print("Mock agent: created valid learning files")
+        sys.exit(0)
+
+    if scenario == "learning_bad_skill":
+        learning_dir = learning_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "learning")
+        os.makedirs(os.path.join(learning_dir, "skills"), exist_ok=True)
+        with open(os.path.join(learning_dir, "SUMMARY.md"), "w") as f:
+            f.write("<!-- APPROVED: false -->\n# Job job_test 执行总结\n\n## 执行概述\n\nTest summary.\n")
+        bad_skill_content = '''#!/usr/bin/env python3
+"""Skill with syntax error."""
+def broken(:
+    pass
+'''
+        with open(os.path.join(learning_dir, "skills", "bad_skill.py"), "w") as f:
+            f.write(bad_skill_content)
+        print("Mock agent: created learning files with bad skill")
+        sys.exit(0)
+
+    if scenario == "learning_no_summary":
+        learning_dir = learning_dir_override or os.path.join(project_root, ".rick", "jobs", "job_test", "learning")
+        os.makedirs(learning_dir, exist_ok=True)
+        # Intentionally no SUMMARY.md
+        print("Mock agent: created learning dir without SUMMARY.md")
         sys.exit(0)
 
     # Default: print scenario info and exit

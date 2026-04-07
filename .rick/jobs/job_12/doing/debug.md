@@ -1,3 +1,41 @@
+## task4: 端到端验证 RFC-002 全部 KR 落地
+
+**分析过程 (Analysis)**:
+- 确认 task1/2/3 已完成：tools/ 有 5 个 .py，.rick/skills/ 只含 .md，learning.md 已区分 tools/skills
+- dry-run 输出：tools section 含 tools/ 路径，skills section 含 .md skill 名称（无 .py）
+- `tests/tools_integration_test.sh` 使用 `tests/mock_agent/mock_agent.py`（非 tools/ 目录），发现 4 个预存 bug：
+  1. `doing_success` debug.md 格式为 `# debug1:` 而非 `## task1:`（doing_check 要求 `## task`）
+  2. `doing_zombie_task` debug.md 同上
+  3. `learning_success` SUMMARY.md 第一行为 `APPROVED: true` 但缺少 `# Job` heading（learning_check 要求），且不满足 merge 的 `first line == APPROVED: true` 要求
+  4. `learning_bad_skill` SUMMARY.md 同上
+
+**实现步骤 (Implementation)**:
+1. 创建 `.rick/jobs/job_12/doing/tests/rfc002_e2e_test.sh`，10 个断言覆盖 KR1~KR4
+2. 运行 e2e 脚本：10/10 通过（exit 0）
+3. 修复 `tests/mock_agent/mock_agent.py`：
+   - `doing_success`/`doing_zombie_task` debug.md 改为 `## task1:` 格式
+   - `learning_success`/`learning_bad_skill` SUMMARY.md 改为 `APPROVED: true\n# Job...` 格式
+4. 修复 `tools/mock_agent_testing.py`（备用 mock）：
+   - 新增 `doing_zombie_task` 场景别名
+   - 修复 tasks.json 格式（从 array 改为 TasksJSON struct）
+   - 新增 `doing_no_debug`/`doing_zombie`/`learning_bad_skill`/`learning_no_summary` 场景实现
+   - 使用 `RICK_DOING_DIR`/`RICK_LEARNING_DIR` env var 覆盖路径
+
+**遇到的问题 (Issues)**:
+- **问题1**: `tests/tools_integration_test.sh` 使用 `tests/mock_agent/mock_agent.py`（非 `tools/mock_agent_testing.py`），两个文件有不同的 bug。
+  - 修复：分别修复两个文件
+- **问题2**: `learning_success` SUMMARY.md 需同时满足 learning_check（含 `# Job`）和 merge（第一行 `APPROVED: true`）。
+  - 修复：格式改为 `APPROVED: true\n# Job job_test 执行总结\n...`
+
+**验证结果 (Verification)**:
+- 测试命令：`bash .rick/jobs/job_12/doing/tests/rfc002_e2e_test.sh`
+- 测试输出：PASS: 10 / 10, FAIL: 0 / 10（exit 0）✅
+- 测试命令：`bash tests/tools_integration_test.sh`
+- 测试输出：Passed: 15, Failed: 0（exit 0）✅
+- 结论：✅ 通过
+
+---
+
 ## task2: 重建 `.rick/skills/` 为 Markdown 技能说明书
 
 **分析过程 (Analysis)**:
