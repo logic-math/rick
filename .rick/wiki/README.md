@@ -10,5 +10,6 @@
 | rick_tools_commands.md | rick tools 命令体系 | `rick tools` 是 Rick CLI 的工具链子命令体系，提供 plan/doing/learning 三阶段的自动校验和知识合并功能。设计目标是让 AI agent 和人类都能快速验证每个阶段的产出质量，并在出错时提供清晰的错误信息。 |
 | sense_merge_decision.md | rick 与 sense 的架构决策：将 sense 合并为 rick 的上下文引擎 | > **文档类型：** SENSE 思考记录 |
 | skills_and_tools_injection.md | Skills 与 Tools 注入机制 | Rick 在 plan 和 doing 阶段会自动将项目中可用的 Python 工具脚本注入到提示词中，让 AI agent 在规划和执行任务时能感知并复用现有能力，避免重复造轮子。 |
+| skills_tools_separation.md | Skills/Tools 分离机制 | Rick 将可复用知识分为两类：**Tools**（确定性工具脚本）和 **Skills**（组合技能说明书）。两者存放在不同目录，服务于不同目的，共同注入 doing 提示词，为 AI agent 提供完整的执行能力。 |
 | test_wiki.md | 测试 Wiki | This is a test wiki page. |
 | testing.md | Rick CLI 测试与验证文档 | - [测试策略概览](#测试策略概览) |
