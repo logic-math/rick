@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-04-07T13:53:05.716667+08:00",
-  "updated_at": "2026-04-07T14:03:23.52279+08:00",
+  "updated_at": "2026-04-07T14:07:12.813277+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -17,23 +17,25 @@
     {
       "task_id": "task3",
       "task_name": "更新 learning 提示词模板区分 tools 和 skills",
+      "task_file": "task3.md",
       "status": "success",
       "dependencies": [],
       "attempts": 0,
-      "commit_hash": "a84a726",
+      "commit_hash": "0cd6f81175f6bb93574be3a9868327b075e88562",
       "created_at": "2026-04-07T13:53:05.716667+08:00",
-      "updated_at": "2026-04-07T14:03:23.52279+08:00"
+      "updated_at": "2026-04-07T14:07:12.812421+08:00"
     },
     {
       "task_id": "task2",
       "task_name": "重建 `.rick/skills/` 为 Markdown 技能说明书",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
+      "commit_hash": "b76c872d723ea7e59472cc3e73b18077b467a7a1",
       "created_at": "2026-04-07T13:53:05.716667+08:00",
-      "updated_at": "2026-04-07T13:53:05.716667+08:00"
+      "updated_at": "2026-04-07T14:07:12.813277+08:00"
     },
     {
       "task_id": "task4",
