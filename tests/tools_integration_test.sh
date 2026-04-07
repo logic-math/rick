@@ -264,18 +264,30 @@ echo "--- Scenario: skills injection (dry-run) ---"
     plan_dir="$d/.rick/jobs/job_test/plan"
     MOCK_SCENARIO=plan_success RICK_PLAN_DIR="$plan_dir" python3 "$MOCK_AGENT" /dev/null 2>/dev/null
 
-    # Create a mock skill in .rick/skills/
+    # Create a mock .md skill in .rick/skills/
     mkdir -p "$d/.rick/skills"
-    cat > "$d/.rick/skills/test_skill.py" << 'EOF'
-def test_skill():
-    """A test skill for verifying skills injection."""
-    return True
+    cat > "$d/.rick/skills/test_skill.md" << 'EOF'
+# test_skill
+
+## 触发场景
+
+当需要测试 skills injection 时使用。
+
+## 使用的 Tools
+
+- tools/build_and_get_rick_bin.py
+
+## 执行步骤
+
+1. 运行测试
 EOF
 
-    # Run dry-run: should generate prompt containing skills list
+    # Run dry-run: should generate prompt containing skills section with .md skill name
     output=$(cd "$d" && "$RICK" doing job_test --dry-run 2>&1 || true)
-    if echo "$output" | grep -qi "skill\|test_skill\|DRY-RUN"; then
-        pass "skills injection → dry-run output references skills"
+    if echo "$output" | grep -q "test_skill.md"; then
+        pass "skills injection → dry-run output references .md skill name"
+    elif echo "$output" | grep -qi "skill\|DRY-RUN"; then
+        pass "skills injection → dry-run output references skills section"
     else
         # dry-run may not always show skills depending on implementation
         # just verify it doesn't crash

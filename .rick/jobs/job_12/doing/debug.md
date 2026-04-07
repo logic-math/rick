@@ -1,3 +1,37 @@
+## task2: 重建 `.rick/skills/` 为 Markdown 技能说明书
+
+**分析过程 (Analysis)**:
+- `.rick/skills/` 已无 `.py` 文件（task1 完成），但缺少 `verify_rick_check_commands.md` 和 `test_go_project_changes.md`
+- `index.md` 已有 4 个 skill 条目，需新增 2 个
+- `tests/tools_integration_test.sh` scenario 10 仍在创建 `.py` skill 文件，需改为 `.md`
+- dry-run 测试条件 `".py" in output and "skills" in output.lower()` 存在误判：tools section 合法包含 `.py`，OKR/task 描述也含 "skills"，导致检查全输出时误报。修复思路：提取 skills section 单独检查
+
+**实现步骤 (Implementation)**:
+1. 创建 `.rick/skills/verify_rick_check_commands.md`，包含触发场景、使用的 Tools、执行步骤三节
+2. 创建 `.rick/skills/test_go_project_changes.md`，包含触发场景、使用的 Tools、执行步骤三节
+3. 更新 `index.md`：新增两个 skill 条目，移除 index.md 中的 `.py` 引用（将 `python3 tools/<filename>.py` 改为文字描述）
+4. 更新 `tests/tools_integration_test.sh` scenario 10：改为创建 `.md` skill 文件，验证 dry-run 输出包含 `.md` skill 名称
+5. 修复 `internal/cmd/doing.go` `runDoingDryRun`：从 tasks.json 读取状态，展示第一个非 success 任务（而非始终展示 task1）
+6. 修复 `task2.py` 测试条件：提取 skills section 单独检查 `.py`，避免 tools section 干扰
+
+**遇到的问题 (Issues)**:
+- **问题1**: dry-run 测试条件误判。原条件 `".py" in output and "skills" in output.lower()` 检查全输出，但 tools section 合法含 `.py`，OKR/task 描述含 "skills"，导致永远失败。
+  - 修复：提取 `## 可用的项目 Skills` 至下一个 `##` 之间的内容，仅对该区间检查 `.py`
+- **问题2**: dry-run 始终展示 tasks[0]（task1），即使 task1 已 success。
+  - 修复：加载 tasks.json，找到第一个非 success 的任务展示
+
+**验证结果 (Verification)**:
+- 测试命令：`ls .rick/skills/ | grep -v "\.md" || echo "only md files"`
+- 测试输出：`only md files` ✅
+- 测试命令：`python3 .rick/jobs/job_12/doing/tests/task2.py`
+- 测试输出：
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过
+
+---
+
 ## task3: 更新 learning 提示词模板区分 tools 和 skills
 
 **分析过程 (Analysis)**:

@@ -1,6 +1,6 @@
 # Skills Index
 
-本目录包含可在 doing 阶段参考的组合技能说明书（Markdown 格式）。工具脚本（`.py`）位于项目根目录 `tools/`。
+本目录包含可在 doing 阶段参考的组合技能说明书（Markdown 格式）。工具脚本位于项目根目录 `tools/`。
 
 ## 可用 Skills
 
@@ -10,11 +10,9 @@
 | doc_engineering_three_phases.md | 文档工程三阶段法 | 当任务涉及大规模文档生成时 |
 | documentation_engineering.md | 文档工程完整指南 | 当需要系统性地创建或重构项目文档时 |
 | zero_retry_task_design.md | 零重试任务设计原则 | 当设计任务粒度、编写 task.md 时 |
+| verify_rick_check_commands.md | 验证 rick check 命令行为 | 当需要验证 plan_check/doing_check 命令输出是否正确时 |
+| test_go_project_changes.md | 测试 Go 项目代码变更 | 当修改 Go 源文件后需要验证编译、单元测试和集成测试时 |
 
 ## 调用方式
 
-参考对应的 `.md` 文件了解技能的使用场景和执行步骤。工具脚本请使用：
-
-```bash
-python3 tools/<filename>.py
-```
+参考对应的 `.md` 文件了解技能的使用场景和执行步骤。工具脚本位于 `tools/` 目录，使用 `python3` 调用。

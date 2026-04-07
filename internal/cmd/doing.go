@@ -493,7 +493,7 @@ func ensureGitInitialized(rickDir string) error {
 	return nil
 }
 
-// runDoingDryRun generates and prints the doing prompt for the first pending task
+// runDoingDryRun generates and prints the doing prompt for the first non-success task
 // without executing it. Used for inspection and testing.
 func runDoingDryRun(jobID string) error {
 	if jobID == "" {
@@ -519,8 +519,18 @@ func runDoingDryRun(jobID string) error {
 		return nil
 	}
 
-	// Use the first task for the dry-run preview
+	// Try to find the first non-success task from tasks.json
+	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
+	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
 	task := tasks[0]
+	if tasksJSON, err := executor.LoadTasksJSON(tasksJSONPath); err == nil {
+		for _, t := range tasks {
+			if status, err := tasksJSON.GetTaskStatus(t.ID); err != nil || status != "success" {
+				task = t
+				break
+			}
+		}
+	}
 
 	contextMgr := prompt.NewContextManager("doing")
 
