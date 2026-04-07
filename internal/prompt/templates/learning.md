@@ -47,7 +47,8 @@
 #### 按需产出
 
 - **wiki/\*.md**（按需）：系统运行原理与控制方法文档
-- **skills/\*.py**（按需）：可执行的 Python 技能脚本
+- **tools/\*.py**（按需）：确定性工具脚本，可直接执行的 Python 工具
+- **skills/\*.md**（按需）：组合技能说明书，描述在特定场景下如何组合使用 tools
 - **OKR.md**（按需）：完整新版本的 OKR 文件
 - **SPEC.md**（按需）：完整新版本的 SPEC 文件
 
@@ -105,16 +106,16 @@ graph TD
 
 ---
 
-### 2. Skills 产出规范
+### 2. Tools 产出规范
 
-**定义**：skills 必须是可执行的 Python 脚本（`.py`），不是 Markdown 文档
+**定义**：tools 是可执行的 Python 脚本（`.py`），提供确定性的工具能力，不依赖 AI 判断
 
-**输出目录**：`{{learning_dir}}/skills/*.py`
+**输出目录**：`{{learning_dir}}/tools/*.py`
 
 **标准格式**：
 
 ```python
-# Description: 一句话描述这个技能的用途
+# Description: 一句话描述这个工具的用途
 
 import argparse
 import json
@@ -138,32 +139,78 @@ if __name__ == "__main__":
     main()
 ```
 
-**技能进化四步流程**：
+**工具进化四步流程**：
 
-1. **定义目标**：明确这个技能要解决什么问题，与 OKR 的关联
+1. **定义目标**：明确这个工具要解决什么问题，与 OKR 的关联
 2. **GitHub搜索**：用 WebSearch 搜索 GitHub 上是否有现成的工具/脚本实现该功能，优先复用
-3. **组合评估**：检查 `.rick/skills/` 下的现有脚本，判断能否通过组合现有技能实现目标
+3. **组合评估**：检查 `tools/` 下的现有脚本，判断能否通过组合现有工具实现目标
 4. **实现决策**：
    - 找到 GitHub 实现 → 适配为标准格式的 .py 脚本
-   - 可组合现有技能 → 编写组装脚本，import 或 subprocess 调用现有 skills
-   - 需更新现有技能 → 使用同名文件覆盖（merge 时产生 diff）
-   - 全新技能 → 创建新的原子化脚本
+   - 可组合现有工具 → 编写组装脚本，import 或 subprocess 调用现有 tools
+   - 需更新现有工具 → 使用同名文件覆盖（merge 时产生 diff）
+   - 全新工具 → 创建新的原子化脚本
 
-**技能质量要求**：
+**工具质量要求**：
 - 原子化：一个脚本只做一件事
 - 与 OKR 相关：能提升后续任务成功率
-- 可独立调用：`python3 skill.py [args]` 直接运行
+- 可独立调用：`python3 tools/tool.py [args]` 直接运行
 - 有自测：脚本支持 `--test` 参数执行内置验证
+
+**重要**：无论新建还是更新工具，都在本 job 的 `{{learning_dir}}/tools/` 下创建完整文件。同名文件在 merge 时覆盖 `tools/` 旧版本，产生可审查的 git diff。不直接修改项目根目录的 `tools/`。
+
+**示例工具**：
+- `check_go_build.py`（原子工具：验证 Go 项目编译是否成功）
+- `check_task_format.py`（验证类工具：检查 task.md 格式是否符合规范）
+
+---
+
+### 3. Skills 产出规范
+
+**定义**：skills 是 Markdown 说明书（`.md`），描述在特定场景下如何组合使用 tools 完成复杂任务，面向 AI agent 阅读
+
+**输出目录**：`{{learning_dir}}/skills/*.md`
+
+**标准格式**：
+
+```markdown
+# <技能名称>
+
+## 适用场景
+
+描述什么情况下应该使用这个技能（触发条件）。
+
+## 执行步骤
+
+1. **步骤1**：调用 `tools/xxx.py` 完成 ...
+2. **步骤2**：根据输出判断 ...
+3. **步骤3**：...
+
+## 工具依赖
+
+| 工具 | 用途 |
+|------|------|
+| `tools/xxx.py` | 用于 ... |
+
+## 示例
+
+具体场景示例说明。
+```
+
+**技能质量要求**：
+- 场景明确：触发条件清晰，避免歧义
+- 步骤可执行：每个步骤都有明确的 tools 调用或判断逻辑
+- 工具依赖完整：列出所有依赖的 tools
+- 面向 AI：写作风格适合 AI agent 阅读和执行
 
 **重要**：无论新建还是更新技能，都在本 job 的 `{{learning_dir}}/skills/` 下创建完整文件。同名文件在 merge 时覆盖 `.rick/skills/` 旧版本，产生可审查的 git diff。不直接修改 `.rick/skills/`。
 
 **示例技能**：
-- `check_go_build.py`（原子技能：验证 Go 项目编译是否成功）
-- `check_task_format.py`（验证类技能：检查 task.md 格式是否符合规范）
+- `build_and_test.md`（组合技能：描述如何先构建再测试的完整流程）
+- `dag_task_decomposition.md`（方法论技能：描述如何将复杂任务拆解为 DAG）
 
 ---
 
-### 3. OKR 更新规范
+### 4. OKR 更新规范
 
 **触发条件**：本次 job 执行中发现目标需要调整（新增目标、修改 KR 指标、删除过时目标）
 
@@ -185,7 +232,7 @@ if __name__ == "__main__":
 
 ---
 
-### 4. SPEC 更新规范
+### 5. SPEC 更新规范
 
 **触发条件**：本次 job 执行中发现需要沉淀到规范的信息（新的技术约束、工程实践、路径规范等）
 
@@ -310,7 +357,8 @@ APPROVED: true
 
 ### 知识沉淀清单
 - [ ] wiki/xxx.md - 主题描述
-- [ ] skills/xxx.py - 技能描述
+- [ ] tools/xxx.py - 工具描述
+- [ ] skills/xxx.md - 技能描述
 - [ ] OKR.md - 变更说明（如有）
 - [ ] SPEC.md - 变更说明（如有）
 ```
@@ -321,4 +369,5 @@ APPROVED: true
 2. **所有输出在 learning 目录**：所有生成的文档必须在 `{{learning_dir}}` 下
 3. **OKR/SPEC 产出完整版本**：不是更新建议，是完整的新版本文件
 4. **旧格式废弃**：直接产出完整版本的 OKR.md / SPEC.md，不产出旧式的更新建议文件
-5. **Skills 是 .py 文件**：不是 .md 文档，必须是可执行的 Python 脚本
+5. **Tools 是 .py 文件**：`tools/*.py` 是可执行的 Python 脚本，不是 Markdown 文档
+6. **Skills 是 .md 文件**：`skills/*.md` 是组合技能说明书，不是 Python 脚本
