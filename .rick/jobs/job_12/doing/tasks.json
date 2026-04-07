@@ -20,6 +20,7 @@
       "status": "success",
       "dependencies": [],
       "attempts": 0,
+      "commit_hash": "a84a726",
       "created_at": "2026-04-07T13:53:05.716667+08:00",
       "updated_at": "2026-04-07T14:03:23.52279+08:00"
     },
