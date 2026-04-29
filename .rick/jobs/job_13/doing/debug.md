@@ -127,3 +127,29 @@
   complexity PASS
   ```
 - 结论：✅ 通过
+
+## task4: 删除 skills 目录，移除 install.sh 中的 skills 安装/验证逻辑
+
+**分析过程 (Analysis)**:
+- `skills/` 目录存在，含 `sense-human-loop/` 及其子目录（已迁移到 prompt 模板系统）
+- `scripts/install.sh` 有两个函数：`install_skills()`（第 297 行）和 `verify_skills()`（第 335 行），以及 main() 中的调用块
+- `scripts/uninstall.sh` 有 `uninstall_skills()`（第 154 行）及 main() 中的调用
+
+**实现步骤 (Implementation)**:
+1. `rm -rf skills/` 删除整个 skills 目录
+2. 从 `scripts/install.sh` 删除 `install_skills()` 函数、`verify_skills()` 函数及其在 main() 中的调用块
+3. 从 `scripts/uninstall.sh` 删除 `uninstall_skills()` 函数及其在 main() 中的调用
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`! test -d skills && echo PASS && ! grep -q "install_skills\|verify_skills\|claude/skills" scripts/install.sh && echo PASS && bash -n scripts/install.sh && echo PASS && bash -n scripts/uninstall.sh && echo PASS`
+- 测试输出：
+  ```
+  PASS
+  PASS
+  PASS
+  PASS
+  ```
+- 结论：✅ 通过
