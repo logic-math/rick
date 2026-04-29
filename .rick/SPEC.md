@@ -1,8 +1,7 @@
-<!-- 变更说明：本次 job_12 执行后更新
-- 新增：开发规范 - Skills/Tools 分离规范（原因：RFC-002 落地，明确 .py 放 tools/，.md 放 skills/）
-- 新增：开发规范 - Mock Agent 同步要求（原因：发现 mock_agent 与 check 命令格式不同步导致集成测试失败）
-- 新增：路径约定 - tools/ 目录说明补充（原因：tools/ 是项目级工具，区别于 .rick/skills/）
-- 修改：路径约定 - .rick/skills/ 说明（原因：skills/ 现在只含 .md，不含 .py）
+<!-- 变更说明：本次 job_13 执行后更新
+- 修改：命令规范 - rick human-loop dry-run 行为更新（原因：dry-run 现在输出完整 prompt 内容，不再输出占位消息）
+- 新增：命令规范 - human-loop sub agent 路径注入机制（原因：job_13 落地了渐进式加载设计）
+- 新增：开发规范 - task.md 测试方法精确性要求（原因：job_13 发现测试方法引用了不存在的工具接口）
 -->
 # SPEC
 
@@ -19,7 +18,7 @@
 - 模块划分: cmd（命令处理）/ executor（任务执行引擎）/ prompt（提示词管理）/ workspace（路径管理）/ parser（内容解析）/ git（Git 操作）/ callcli（Claude 集成）
 - 工具链模块: `rick tools` 子命令体系，plan_check/doing_check/learning_check/merge 四个子命令
 - 接口设计: check 命令统一输出格式（✅/❌ + 描述），exit code 0=pass / 1=fail
-- human-loop 模块: `rick human-loop <topic>` 命令，通过 SENSE 方法论模板引导 Claude 对复杂主题进行深度分析，产出存入 `.rick/RFC/` 目录
+- human-loop 模块: `rick human-loop <topic>` 命令，通过 SENSE 方法论模板引导 Claude 对复杂主题进行深度分析，产出存入 `.rick/RFC/` 目录；三个 sub agent 模板通过 Go embed 编译进二进制，运行时写出到 tmp 文件，路径注入主控 prompt
 - tools 扫描模块: `workspace/tools.go` 扫描 `projectRoot/tools/*.py`，提取 `# Description:` 注释，注入 plan/doing 提示词
 - skills 注入模块: `workspace/skills.go` 优先读取 `.rick/skills/index.md` 全文，注入 plan/doing 提示词
 
@@ -39,6 +38,7 @@
 - 包内函数共享: 同一 Go 包内的函数（如 `callClaudeCodeCLI`）可在多个文件中直接调用，不需要重新声明或导出
 - Dry-run 规范: `--dry-run` 标志必须输出完整的 prompt 内容（而非占位消息），便于调试和验证上下文注入效果
 - **测试断言精确性**: dry-run 输出包含大量上下文文本，断言需先定位 section（如 `## 可用的项目 Skills`）再检查内容，避免全文搜索误判
+- **task.md 测试方法精确性**: task.md 中"测试方法"描述的命令行调用必须基于工具**实际存在的参数接口**，不得引用尚未实现的参数。plan 阶段生成测试脚本前应验证 `tools/` 下对应工具的 `--help` 输出
 
 ## 工程实践
 
@@ -62,10 +62,13 @@
 ### rick human-loop
 
 - 必须提供 topic 参数（位置参数），否则返回 "topic is required" 错误
-- 支持 `--dry-run` 标志，输出 `[DRY-RUN] Would start human-loop session for topic: <topic>` 后退出
+- 支持 `--dry-run` 标志，输出完整 prompt 内容（包含 sub agent 占位路径），不写真实 tmp 文件
+- dry-run 输出中 sub agent 路径为占位符格式（如 `<tmp>/human_loop_think_*.md`），不含真实 `/tmp/` 路径
+- 三个 sub agent 模板（think/learn/express）通过 Go embed 编译进二进制，运行时写出到系统 tmp，路径注入主控 prompt
 - 自动创建 `.rick/RFC/` 目录（MkdirAll，幂等）
 - 复用 `callClaudeCodeCLI`（plan.go 中定义，同包内共享，不重复声明）
-- 会话结束后打印提示，引导用户查看 `.rick/RFC/` 目录
+- 会话结束后 defer 清理所有 tmp 文件（主 prompt + 三个 sub agent）
+- 验证 human-loop dry-run 输出：`python3 tools/check_prompt_variables.py --phase human-loop --topic '测试主题' --keywords human_loop_think`
 
 ### rick plan --job
 
