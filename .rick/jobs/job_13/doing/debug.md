@@ -52,6 +52,30 @@
   ```
 - 结论：✅ 通过
 
+## debug1: check_prompt_variables.py 不支持 human-loop 阶段，测试命令失败
+
+**现象 (Phenomenon)**:
+- task3 测试脚本调用 `check_prompt_variables.py --command ... --variables think_agent_path`
+- `check_prompt_variables.py` 报错：`unrecognized arguments: --command --variables`
+- 该工具只支持 `--phase {plan,doing,learning}` 三个阶段，无 `human-loop` 阶段
+
+**复现 (Reproduction)**:
+- 运行测试脚本中的任意一条 dry-run 检查命令即可复现
+
+**猜想 (Hypothesis)**:
+- task.md 测试方法写的是理想接口（`--command`、`--variables`），但 check_prompt_variables.py 从未实现这些参数
+- 同时检查关键词 `think_agent_path` 也不对：干运行输出用的是占位路径 `<tmp>/human_loop_think_*.md`，关键词应为 `human_loop_think`
+
+**验证 (Verification)**:
+- 直接运行 `./bin/rick human-loop --dry-run '测试主题'`，确认输出含 `human_loop_think` 而非字面 `think_agent_path`
+
+**修复 (Fix)**:
+- `tools/check_prompt_variables.py`：新增 `check_human_loop_prompt` 函数，支持 `--phase human-loop` 和 `--topic` 参数
+- 测试命令改为：`python3 tools/check_prompt_variables.py --phase human-loop --topic '测试主题' --keywords human_loop_think`
+
+**进展 (Progress)**:
+- 当前状态：✅ 已解决
+
 ## task2: 重写 human_loop.md 主控模板（注入 sub agent 路径）
 
 **分析过程 (Analysis)**:

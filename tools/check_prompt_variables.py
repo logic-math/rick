@@ -82,6 +82,31 @@ def check_learning_prompt(project_root, job_id, keywords):
         return False, f"error running rick learning --dry-run: {e}"
 
 
+def check_human_loop_prompt(project_root, topic, keywords):
+    """Run rick human-loop <topic> --dry-run and check for keywords."""
+    rick_bin = os.path.join(project_root, "bin", "rick")
+    if not os.path.exists(rick_bin):
+        return False, f"rick binary not found at {rick_bin}"
+
+    try:
+        result = subprocess.run(
+            [rick_bin, "human-loop", topic, "--dry-run"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=project_root,
+        )
+        output = result.stdout + result.stderr
+        missing = [kw for kw in keywords if kw not in output]
+        if missing:
+            return False, f"human-loop prompt missing keywords: {missing}"
+        return True, "all keywords found in human-loop prompt"
+    except subprocess.TimeoutExpired:
+        return False, "rick human-loop --dry-run timed out"
+    except Exception as e:
+        return False, f"error running rick human-loop --dry-run: {e}"
+
+
 def run_tests(project_root):
     """Built-in self-tests."""
     errors = []
@@ -113,12 +138,15 @@ def main():
     parser.add_argument("--test", action="store_true", help="Run built-in tests")
     parser.add_argument(
         "--phase",
-        choices=["plan", "doing", "learning"],
+        choices=["plan", "doing", "learning", "human-loop"],
         default="plan",
         help="Which phase to check (default: plan)",
     )
     parser.add_argument(
         "--job", default="job_1", help="Job ID for doing/learning phases (default: job_1)"
+    )
+    parser.add_argument(
+        "--topic", default="测试主题", help="Topic for human-loop phase (default: 测试主题)"
     )
     parser.add_argument(
         "--keywords",
@@ -149,6 +177,8 @@ def main():
         ok, msg = check_doing_prompt(args.project_root, args.job, args.keywords)
     elif args.phase == "learning":
         ok, msg = check_learning_prompt(args.project_root, args.job, args.keywords)
+    elif args.phase == "human-loop":
+        ok, msg = check_human_loop_prompt(args.project_root, args.topic, args.keywords)
 
     result = {"pass": ok, "errors": [] if ok else [msg]}
     print(json.dumps(result))
