@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-04-29T17:24:35.940471+08:00",
-  "updated_at": "2026-04-29T17:44:27.087976+08:00",
+  "updated_at": "2026-04-29T17:48:20.536278+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -43,14 +43,15 @@
     {
       "task_id": "task4",
       "task_name": "删除 skills 目录，移除 install.sh 中的 skills 安装/验证逻辑",
+      "task_file": "task4.md",
       "status": "success",
       "dependencies": [
         "task3"
       ],
       "attempts": 0,
-      "commit_hash": "cacdbe2",
+      "commit_hash": "ac30318ac085a5012c4ad9d5ed43ec4c42b2f21e",
       "created_at": "2026-04-29T17:24:35.940471+08:00",
-      "updated_at": "2026-04-29T17:44:27.087975+08:00"
+      "updated_at": "2026-04-29T17:48:20.53624+08:00"
     }
   ]
 }
