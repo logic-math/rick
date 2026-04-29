@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-29T17:24:35.940471+08:00",
+  "updated_at": "2026-04-29T17:24:35.941134+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "新建三个 sub agent 模板文件（RFC 规范内容）",
+      "status": "done",
+      "dependencies": [],
+      "attempts": 0,
+      "created_at": "2026-04-29T17:24:35.940471+08:00",
+      "updated_at": "2026-04-29T17:24:35.941134+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "重写 human_loop.md 主控模板（注入 sub agent 路径）",
+      "status": "pending",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "created_at": "2026-04-29T17:24:35.940471+08:00",
+      "updated_at": "2026-04-29T17:24:35.940471+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "更新 Go embed 和 human_loop_prompt.go，注入 sub agent 路径",
+      "status": "pending",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "created_at": "2026-04-29T17:24:35.940471+08:00",
+      "updated_at": "2026-04-29T17:24:35.940471+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "删除 skills 目录，移除 install.sh 中的 skills 安装/验证逻辑",
+      "status": "pending",
+      "dependencies": [
+        "task3"
+      ],
+      "attempts": 0,
+      "created_at": "2026-04-29T17:24:35.940471+08:00",
+      "updated_at": "2026-04-29T17:24:35.940471+08:00"
+    }
+  ]
+}
