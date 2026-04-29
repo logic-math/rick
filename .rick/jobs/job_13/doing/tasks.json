@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-04-29T17:24:35.940471+08:00",
-  "updated_at": "2026-04-29T17:29:05.346436+08:00",
+  "updated_at": "2026-04-29T17:31:22.020128+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -17,25 +17,28 @@
     {
       "task_id": "task2",
       "task_name": "重写 human_loop.md 主控模板（注入 sub agent 路径）",
+      "task_file": "task2.md",
       "status": "success",
       "dependencies": [
         "task1"
       ],
-      "attempts": 1,
-      "commit_hash": "f44feeb",
+      "attempts": 0,
+      "commit_hash": "e6bf1ba55270555ab77867ab0a1de6bcb0b7bf5b",
       "created_at": "2026-04-29T17:24:35.940471+08:00",
-      "updated_at": "2026-04-29T17:29:05.346436+08:00"
+      "updated_at": "2026-04-29T17:31:22.019847+08:00"
     },
     {
       "task_id": "task3",
       "task_name": "更新 Go embed 和 human_loop_prompt.go，注入 sub agent 路径",
-      "status": "pending",
+      "task_file": "task3.md",
+      "status": "success",
       "dependencies": [
         "task2"
       ],
       "attempts": 0,
+      "commit_hash": "f14419a",
       "created_at": "2026-04-29T17:24:35.940471+08:00",
-      "updated_at": "2026-04-29T17:24:35.940471+08:00"
+      "updated_at": "2026-04-29T17:31:22.020128+08:00"
     },
     {
       "task_id": "task4",
