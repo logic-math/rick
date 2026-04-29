@@ -17,16 +17,10 @@ func NewHumanLoopCmd() *cobra.Command {
 		Long:  `Start an interactive thinking session guided by the SENSE methodology. Provide a topic to think through deeply.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Require the topic argument
 			if len(args) == 0 || args[0] == "" {
 				return fmt.Errorf("topic is required")
 			}
 			topic := args[0]
-
-			if GetDryRun() {
-				fmt.Printf("[DRY-RUN] Would start human-loop session for topic: %s\n", topic)
-				return nil
-			}
 
 			// Get RFC directory and auto-create it
 			rfcDir, err := workspace.GetRFCDir()
@@ -37,27 +31,42 @@ func NewHumanLoopCmd() *cobra.Command {
 				return fmt.Errorf("failed to create RFC directory: %w", err)
 			}
 
+			promptMgr := prompt.NewPromptManager()
+
+			if GetDryRun() {
+				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, promptMgr)
+				if err != nil {
+					return fmt.Errorf("failed to generate human-loop prompt: %w", err)
+				}
+				fmt.Print(content)
+				return nil
+			}
+
 			// Load config
 			cfg, err := config.LoadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Generate human_loop prompt file
-			promptMgr := prompt.NewPromptManager()
-			promptFile, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, promptMgr)
+			// Generate human_loop prompt file and sub-agent files
+			mainFile, subAgentFiles, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, promptMgr)
 			if err != nil {
 				return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 			}
-			defer os.Remove(promptFile)
+			defer func() {
+				os.Remove(mainFile)
+				for _, f := range subAgentFiles {
+					os.Remove(f)
+				}
+			}()
 
 			if GetVerbose() {
-				fmt.Printf("[INFO] Human-loop prompt saved to: %s\n", promptFile)
+				fmt.Printf("[INFO] Human-loop prompt saved to: %s\n", mainFile)
 				fmt.Printf("[INFO] RFC directory: %s\n", rfcDir)
 			}
 
 			// Start Claude Code CLI interactive session
-			if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
+			if err := callClaudeCodeCLI(cfg, mainFile); err != nil {
 				return fmt.Errorf("failed to start Claude Code CLI: %w", err)
 			}
 
