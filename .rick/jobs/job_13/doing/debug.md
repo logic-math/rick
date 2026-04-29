@@ -52,6 +52,32 @@
   ```
 - 结论：✅ 通过
 
+## debug2: task3.py 测试脚本使用了错误的 check_prompt_variables.py 接口
+
+**现象 (Phenomenon)**:
+- task3.py 调用 `check_prompt_variables.py --command ... --variables think_agent_path`
+- 该工具不支持 `--command`/`--variables` 参数，导致测试全部失败
+- Test 5 尝试在 dry-run 输出中查找 `/tmp/` 路径，但 dry-run 使用占位路径 `<tmp>/...`，不含真实 `/tmp/` 路径
+
+**复现 (Reproduction)**:
+- 运行 `python3 .rick/jobs/job_13/doing/tests/task3.py` 即可复现
+
+**猜想 (Hypothesis)**:
+- task3.py 生成时直接套用了 task.md 中描述的理想接口，但未对齐实际工具接口
+- 正确接口为 `--phase human-loop --topic '测试主题' --keywords human_loop_think`
+- build_and_get_rick_bin.py 输出 JSON 格式，需解析 bin_path 字段
+
+**验证 (Verification)**:
+- 运行修复后的测试脚本：`python3 .rick/jobs/job_13/doing/tests/task3.py`
+
+**修复 (Fix)**:
+- 将 Tests 2/3/4 改为使用 `--phase human-loop --topic --keywords` 接口
+- 移除 Test 5 中对 `/tmp/` 真实路径的检查（dry-run 不写真实文件）
+- 修复 rick_bin 解析：从 `build_and_get_rick_bin.py` 的 JSON 输出中提取 `bin_path`
+
+**进展 (Progress)**:
+- 当前状态：✅ 已解决
+
 ## debug1: check_prompt_variables.py 不支持 human-loop 阶段，测试命令失败
 
 **现象 (Phenomenon)**:
