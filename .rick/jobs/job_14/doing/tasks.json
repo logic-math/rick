@@ -1,27 +1,29 @@
 {
   "version": "1.0",
   "created_at": "2026-06-02T00:11:47.3923+08:00",
-  "updated_at": "2026-06-02T00:11:47.393018+08:00",
+  "updated_at": "2026-06-02T00:24:42.195309+08:00",
   "tasks": [
     {
       "task_id": "task3",
       "task_name": "创建 core-skills 内嵌目录，按 SOP 阶段精准注入对应 skill",
-      "status": "done",
+      "task_file": "task3.md",
+      "status": "success",
       "dependencies": [],
-      "attempts": 1,
-      "commit_hash": "ca95d7e10f8f96e0218e30a040c5e68949fe947d",
-      "task_file": ".rick/jobs/job_14/plan/task3.md",
+      "attempts": 0,
+      "commit_hash": "e2e82c091fc8538e1f9c21dca9a736b14d913027",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:20:00+08:00"
+      "updated_at": "2026-06-02T00:24:42.195028+08:00"
     },
     {
       "task_id": "task1",
       "task_name": "定义 AgentSession/AgentExecutor 稳定接口与 act-path 生成器",
-      "status": "pending",
+      "task_file": "task1.md",
+      "status": "success",
       "dependencies": [],
       "attempts": 0,
+      "commit_hash": "30bda65ecc91a2fc9e06cc15178b092824e61215",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:11:47.3923+08:00"
+      "updated_at": "2026-06-02T00:24:42.195309+08:00"
     },
     {
       "task_id": "task4",
