@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-02T00:11:47.3923+08:00",
-  "updated_at": "2026-06-02T01:38:16.085237+08:00",
+  "updated_at": "2026-06-02T01:55:31.920252+08:00",
   "tasks": [
     {
       "task_id": "task3",
@@ -109,6 +109,7 @@
     {
       "task_id": "task9",
       "task_name": "实现 v2 端到端验收测试，基于 mock 覆盖 plan/doing/learning/dream 全流程",
+      "task_file": "task9.md",
       "status": "success",
       "dependencies": [
         "task5",
@@ -117,9 +118,9 @@
         "task8"
       ],
       "attempts": 0,
-      "commit_hash": "67be21a",
+      "commit_hash": "94994e5715e1f774648a350558cb512f3779aa94",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T02:00:00.000000+08:00"
+      "updated_at": "2026-06-02T01:55:31.920226+08:00"
     }
   ]
 }
