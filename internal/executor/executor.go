@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunquan/rick/internal/agent"
 	"github.com/sunquan/rick/internal/parser"
 )
 
@@ -45,13 +46,14 @@ type Executor struct {
 }
 
 // NewExecutor creates a new Executor instance.
-// existingTasksJSON is optional: if non-nil, it is used as the initial state
-// (preserving completed task statuses) instead of generating a fresh one.
+// agentExecutor is required. existingTasksJSON is optional: if non-nil, it is used as the initial
+// state (preserving completed task statuses) instead of generating a fresh one.
 func NewExecutor(
 	tasks []*parser.Task,
 	config *ExecutionConfig,
 	workspaceDir string,
 	jobID string,
+	agentExecutor agent.AgentExecutor,
 	existingTasksJSON ...*TasksJSON,
 ) (*Executor, error) {
 	if len(tasks) == 0 {
@@ -88,7 +90,7 @@ func NewExecutor(
 	}
 
 	// Create task runner
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, agentExecutor)
 
 	// Prepare paths
 	tasksJSONPath := filepath.Join(workspaceDir, "tasks.json")

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/claudecode"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/git"
@@ -177,7 +178,8 @@ func executeDoingWorkflow(jobID string) error {
 			execConfig.MaxRetries, execConfig.TimeoutSeconds)
 	}
 
-	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, existingTasksJSON)
+	claudeExec := claudecode.NewExecutor(cfg.ClaudeCodePath)
+	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, claudeExec, existingTasksJSON)
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}

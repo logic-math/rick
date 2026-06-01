@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sunquan/rick/internal/actpath"
+	"github.com/sunquan/rick/internal/agent"
 	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/prompt"
 )
@@ -25,13 +27,15 @@ type ExecutionConfig struct {
 
 // TaskRunner manages the execution of individual tasks
 type TaskRunner struct {
-	config *ExecutionConfig
+	config        *ExecutionConfig
+	agentExecutor agent.AgentExecutor
 }
 
 // NewTaskRunner creates a new TaskRunner instance
-func NewTaskRunner(config *ExecutionConfig) *TaskRunner {
+func NewTaskRunner(config *ExecutionConfig, agentExecutor agent.AgentExecutor) *TaskRunner {
 	return &TaskRunner{
-		config: config,
+		config:        config,
+		agentExecutor: agentExecutor,
 	}
 }
 
@@ -83,23 +87,28 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 	}
 	defer os.Remove(doingPromptFile) // Clean up temporary file
 
-	claudeOutput, err := tr.CallClaudeCodeCLI(doingPromptFile)
+	session, err := tr.agentExecutor.Execute(doingPromptFile, task.ID)
 	if err != nil {
 		result.Status = "failed"
-		result.Error = fmt.Sprintf("Claude Code CLI failed: %v", err)
-		result.Output = claudeOutput
+		result.Error = fmt.Sprintf("agent execution failed: %v", err)
 		result.EndTime = time.Now()
 		return result, nil
 	}
 
-	lastOutput = claudeOutput
+	if session != nil {
+		actPathFile := filepath.Join(tr.config.WorkspaceDir, "tasks", task.ID, "act-path.md")
+		if genErr := actpath.Generate(session, actPathFile); genErr != nil {
+			fmt.Printf("[WARN] failed to generate act-path: %v\n", genErr)
+		}
+		lastOutput = session.FinalMessage()
+	}
 
 	// Run test to validate
 	testResult, testOutput, err := tr.ExecuteTestScript(testScriptPath)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("test execution failed: %v\n\nFull test output:\n%s", err, testOutput)
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", claudeOutput, testOutput)
+		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 		result.EndTime = time.Now()
 		return result, nil
 	}
@@ -132,6 +141,11 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	}
 
 	testScriptPath := filepath.Join(testsDir, fmt.Sprintf("%s.py", task.ID))
+
+	// Skip generation if the test script already exists
+	if _, err := os.Stat(testScriptPath); err == nil {
+		return testScriptPath, nil
+	}
 
 	// Create test prompt file
 	testPromptFile, err := tr.buildTestGenerationPromptFile(task, testScriptPath)

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunquan/rick/internal/agent"
 	"github.com/sunquan/rick/internal/parser"
 )
 
@@ -17,6 +18,14 @@ func skipIfNoClaude(t *testing.T) {
 	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
 		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
 	}
+}
+
+
+// mockAgentExecutor is a test double for agent.AgentExecutor used in executor tests.
+type mockAgentExecutor struct{}
+
+func (m *mockAgentExecutor) Execute(promptFile, taskID string) (agent.AgentSession, error) {
+	return nil, nil
 }
 
 // TestNewExecutor tests the creation of a new Executor
@@ -40,7 +49,7 @@ func TestNewExecutor(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -71,7 +80,7 @@ func TestNewExecutorWithNilTasks(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	_, err := NewExecutor(nil, config, tmpDir, "job1")
+	_, err := NewExecutor(nil, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err == nil {
 		t.Fatal("Expected error for nil tasks")
 	}
@@ -86,7 +95,7 @@ func TestNewExecutorWithEmptyTasks(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	_, err := NewExecutor([]*parser.Task{}, config, tmpDir, "job1")
+	_, err := NewExecutor([]*parser.Task{}, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err == nil {
 		t.Fatal("Expected error for empty tasks")
 	}
@@ -107,7 +116,7 @@ func TestNewExecutorWithNilConfig(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	_, err := NewExecutor(tasks, nil, tmpDir, "job1")
+	_, err := NewExecutor(tasks, nil, tmpDir, "job1", &mockAgentExecutor{})
 	if err == nil {
 		t.Fatal("Expected error for nil config")
 	}
@@ -131,7 +140,7 @@ func TestNewExecutorWithEmptyWorkspaceDir(t *testing.T) {
 		TimeoutSeconds: 30,
 	}
 
-	_, err := NewExecutor(tasks, config, "", "job1")
+	_, err := NewExecutor(tasks, config, "", "job1", &mockAgentExecutor{})
 	if err == nil {
 		t.Fatal("Expected error for empty workspace dir")
 	}
@@ -173,7 +182,7 @@ func TestExecutorWithMultipleTasks(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_multi")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_multi", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -219,7 +228,7 @@ func TestExecutorWithDependencies(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_deps")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_deps", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -256,7 +265,7 @@ func TestGetTasksJSON(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -299,7 +308,7 @@ func TestGetDAG(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -346,7 +355,7 @@ func TestGetSortedTaskIDs(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -385,7 +394,7 @@ func TestSaveExecutionLog(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -445,7 +454,7 @@ func TestSaveExecutionLogWithEmptyPath(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -490,7 +499,7 @@ func TestExecutorLogf(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job1")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job1", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -551,7 +560,7 @@ func TestExecutorWithComplexDependencies(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_complex")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_complex", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -602,7 +611,7 @@ func TestExecutorDAGValidation(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	_, err := NewExecutor(tasks, config, tmpDir, "job_circular")
+	_, err := NewExecutor(tasks, config, tmpDir, "job_circular", &mockAgentExecutor{})
 	if err == nil {
 		t.Fatal("Expected error for circular dependency")
 	}
@@ -629,7 +638,7 @@ func TestExecuteJobSingleTask(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_single")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_single", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -681,7 +690,7 @@ func TestExecuteJobMultipleTasks(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_multi")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_multi", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -725,7 +734,7 @@ func TestExecuteJobTasksJSONPersistence(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_persist")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_persist", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -777,7 +786,7 @@ func TestExecuteJobResultStatus(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_status")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_status", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -819,7 +828,7 @@ func TestExecuteJobLogging(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_logging")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_logging", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -864,7 +873,7 @@ func TestExecuteJobTimestamps(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_timestamps")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_timestamps", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -912,7 +921,7 @@ func TestExecuteJobTaskResultsNotNil(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_results")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_results", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -960,7 +969,7 @@ func TestExecuteJobWithDependencies(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_deps")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_deps", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -1004,7 +1013,7 @@ func TestExecuteJobCounters(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_counters")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_counters", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -1052,7 +1061,7 @@ func TestGenerateErrorSummary(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	executor, err := NewExecutor(tasks, config, tmpDir, "job_error_summary")
+	executor, err := NewExecutor(tasks, config, tmpDir, "job_error_summary", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("Failed to create executor: %v", err)
 	}
@@ -1112,7 +1121,7 @@ func TestNewExecutorWithExistingTasksJSON(t *testing.T) {
 		t.Fatalf("UpdateTaskStatus failed: %v", err)
 	}
 
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_resume", existing)
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_resume", &mockAgentExecutor{}, existing)
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}
@@ -1160,7 +1169,7 @@ func TestExecuteJobSkipsCompletedTasks(t *testing.T) {
 	existing, _ := GenerateTasksJSON(dag, sorted)
 	_ = existing.UpdateTaskStatus("task1", "success")
 
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_skip", existing)
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_skip", &mockAgentExecutor{}, existing)
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}
@@ -1219,7 +1228,7 @@ func TestExecuteJobSkipsCompletedTasksAllDone(t *testing.T) {
 	_ = existing.UpdateTaskStatus("task1", "success")
 	_ = existing.UpdateTaskStatus("task2", "success")
 
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_alldone", existing)
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_alldone", &mockAgentExecutor{}, existing)
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}
@@ -1253,7 +1262,7 @@ func TestGetCurrentCommitHash(t *testing.T) {
 	}
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
 	tmpDir := t.TempDir()
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}
@@ -1273,7 +1282,7 @@ func TestRecordTaskMetadata(t *testing.T) {
 	}
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
 	tmpDir := t.TempDir()
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}
@@ -1291,7 +1300,7 @@ func TestRecordTaskMetadata_InvalidTask(t *testing.T) {
 	}
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
 	tmpDir := t.TempDir()
-	exec, err := NewExecutor(tasks, config, tmpDir, "job_test")
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_test", &mockAgentExecutor{})
 	if err != nil {
 		t.Fatalf("NewExecutor failed: %v", err)
 	}

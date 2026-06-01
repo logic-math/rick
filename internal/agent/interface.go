@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"time"
 )
 
@@ -24,7 +23,7 @@ type AgentSession interface {
 	RawLogPath() string
 }
 
-// AgentExecutor runs a prompt and returns a session capturing the execution.
+// AgentExecutor runs a prompt file and returns a session capturing the execution.
 type AgentExecutor interface {
-	Execute(ctx context.Context, prompt string) (AgentSession, error)
+	Execute(promptFile, taskID string) (AgentSession, error)
 }

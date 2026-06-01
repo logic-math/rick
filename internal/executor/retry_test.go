@@ -16,7 +16,7 @@ func TestRetryTaskNilTask(t *testing.T) {
 		TimeoutSeconds: 30,
 	}
 
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, "")
 
 	result, err := manager.RetryTask(nil)
@@ -31,7 +31,7 @@ func TestRetryTaskNilTask(t *testing.T) {
 
 // TestRetryTaskNilConfig tests handling of nil config
 func TestRetryTaskNilConfig(t *testing.T) {
-	runner := NewTaskRunner(&ExecutionConfig{})
+	runner := NewTaskRunner(&ExecutionConfig{}, &mockAgentExecutor{})
 	manager := &TaskRetryManager{
 		runner: runner,
 		config: nil,
@@ -64,7 +64,7 @@ func TestLoadDebugContext(t *testing.T) {
 		TimeoutSeconds: 30,
 	}
 
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, debugFile)
 
 	// Test loading non-existent file
@@ -108,7 +108,7 @@ func TestNewTaskRetryManager(t *testing.T) {
 		TimeoutSeconds: 30,
 	}
 
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, "/tmp/debug.md")
 
 	if manager.runner != runner {
@@ -127,7 +127,7 @@ func TestNewTaskRetryManager(t *testing.T) {
 // TestLoadDebugContext_EmptyPath tests loading with empty path
 func TestLoadDebugContext_EmptyPath(t *testing.T) {
 	config := &ExecutionConfig{MaxRetries: 3, TimeoutSeconds: 30}
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, "")
 
 	context := manager.loadDebugContext("")
@@ -142,7 +142,7 @@ func TestRetryTaskSimple_NilTask(t *testing.T) {
 		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
 	}
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 5}
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	_, err := RetryTaskSimple(nil, runner, config, "")
 	if err == nil {
 		t.Fatal("expected error for nil task")
@@ -155,7 +155,7 @@ func TestRetryTaskSimple_Valid(t *testing.T) {
 		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
 	}
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 30}
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	task := &parser.Task{
 		ID:         "task1",
 		Name:       "Test Task",
@@ -188,7 +188,7 @@ exit 0
 		TimeoutSeconds: 10,
 		ClaudeCodePath: mockPath,
 	}
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, "")
 
 	task := &parser.Task{
@@ -222,7 +222,7 @@ func TestRetryTaskSimple_WithMockClaude(t *testing.T) {
 	}
 
 	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 10, ClaudeCodePath: mockPath}
-	runner := NewTaskRunner(config)
+	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	task := &parser.Task{ID: "t1", Name: "T", Goal: "G", TestMethod: "echo"}
 
 	result, _ := RetryTaskSimple(task, runner, config, "")

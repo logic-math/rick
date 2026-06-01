@@ -206,3 +206,38 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
+
+## task6: 接线层：runner/executor/doing 组合根重构，完成 DIP 全链路
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/agent/interface.go`：发现 `AgentExecutor.Execute` 签名为 `Execute(ctx context.Context, prompt string)`，但 `claudecode.ClaudeCodeExecutor.Execute` 实现为 `Execute(promptFile, taskID string)`，存在不匹配，需先对齐接口
+- 阅读了 `internal/executor/runner.go`：`TaskRunner` 无 `agentExecutor` 字段，`RunTask` 直接调用 `CallClaudeCodeCLI`，需重构
+- 阅读了 `internal/executor/executor.go`：`NewExecutor` 无 `agentExecutor` 参数，需级联更新
+- 阅读了 `internal/cmd/doing.go`：未 import claudecode，需作为唯一组合根注入
+- 确认 `retry_test.go` 也有 `NewTaskRunner(config)` 调用需更新
+
+**实现步骤 (Implementation)**:
+1. `internal/agent/interface.go`：移除 `context` 导入，`Execute` 签名改为 `Execute(promptFile, taskID string)` 与 claudecode 实现对齐
+2. `internal/executor/runner.go`：新增 `agentExecutor agent.AgentExecutor` 字段；更新 `NewTaskRunner` 签名；`RunTask` 中用 `agentExecutor.Execute` 替代 `CallClaudeCodeCLI`，Execute 后调用 `actpath.Generate`（带 nil guard）；`GenerateTestWithAgent` 新增"脚本已存在则跳过"逻辑
+3. `internal/executor/executor.go`：`NewExecutor` 签名新增 `agentExecutor agent.AgentExecutor`；传入 `NewTaskRunner(config, agentExecutor)`
+4. `internal/cmd/doing.go`：新增 `claudecode` 导入；创建 `claudeExec` 并传入 `NewExecutor`
+5. `internal/executor/runner_test.go`：新增 `mockAgentSession` 和 `mockAgentExecutorWithSession`；更新所有 `NewTaskRunner` 调用；新增 `TestRunTask_ActPathGeneration` KR1 验证测试
+6. `internal/executor/executor_test.go`：新增 `mockAgentExecutor`；批量更新所有 `NewExecutor` 调用
+7. `internal/executor/retry_test.go`：批量更新所有 `NewTaskRunner` 调用
+
+**遇到的问题 (Issues)**:
+- `agent/interface.go` 与 `claudecode/executor.go` 接口签名不匹配：`context.Context` vs `string`。修复：以实现为准，更新接口
+- `runner_test.go` 和 `executor_test.go` 同包，`mockAgentExecutor` 重名冲突。修复：runner_test.go 改名为 `mockAgentExecutorWithSession`
+- `mockAgentExecutor.Execute` 返回 `nil, nil`，RunTask 调用 `actpath.Generate(nil, ...)` 导致 nil pointer panic。修复：RunTask 中加 `if session != nil` guard
+
+**验证结果 (Verification)**:
+- 编译：`go build ./...` → 无报错
+- DIP 验证：`grep -r "claudecode" internal/executor/` → 空；`grep -r "claudecode" internal/actpath/` → 空
+- 组合根验证：`grep "claudecode" internal/cmd/doing.go` → 有且仅有 doing.go 引用 ✅
+- 单元测试：`go test ./internal/executor/... -v` → 全部 PASS（含 TestRunTask_ActPathGeneration）
+- task6.py：`python3 .rick/jobs/job_14/doing/tests/task6.py`
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 全量测试：`go test ./...` 全部 PASS
+- 结论：✅ 通过

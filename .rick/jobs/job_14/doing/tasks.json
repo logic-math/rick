@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-02T00:11:47.3923+08:00",
-  "updated_at": "2026-06-02T00:58:25.926045+08:00",
+  "updated_at": "2026-06-02T01:06:30.748088+08:00",
   "tasks": [
     {
       "task_id": "task3",
@@ -74,21 +74,22 @@
         "task3"
       ],
       "attempts": 0,
-      "commit_hash": "044d9e5ebff28a19a6ac700d8e2740f835590e66",
+      "commit_hash": "d7d7189863109871ac7cfe16d72324487195bf0b",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T01:30:00.000000+08:00"
+      "updated_at": "2026-06-02T01:06:30.747711+08:00"
     },
     {
       "task_id": "task6",
       "task_name": "接线层：runner/executor/doing 组合根重构，完成 DIP 全链路",
-      "status": "pending",
+      "task_file": "task6.md",
+      "status": "success",
       "dependencies": [
         "task1",
         "task2"
       ],
       "attempts": 0,
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:11:47.3923+08:00"
+      "updated_at": "2026-06-02T01:17:00.000000+08:00"
     },
     {
       "task_id": "task8",
