@@ -1,10 +1,12 @@
 package prompt
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -40,6 +42,9 @@ var (
 
 	//go:embed templates/human_loop_express.md
 	humanLoopExpressTemplate string
+
+	//go:embed templates/skills
+	skillsFS embed.FS
 )
 
 // PromptManager manages prompt templates with caching
@@ -189,4 +194,24 @@ func (pm *PromptManager) GetCacheSize() int {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return len(pm.cache)
+}
+
+// LoadCoreSkills reads embedded skill files by name and returns their concatenated content.
+// Names like "tdd/testing-anti-patterns" map to templates/skills/tdd/testing-anti-patterns.md.
+// All other names map to templates/skills/{name}.md.
+// Missing files are logged as warnings and skipped — no panic.
+func LoadCoreSkills(names []string) string {
+	var parts []string
+	for _, name := range names {
+		path := "templates/skills/" + name + ".md"
+		content, err := skillsFS.ReadFile(path)
+		if err != nil {
+			log.Printf("warn: core skill not found: %s (%v)", path, err)
+			continue
+		}
+		if len(content) > 0 {
+			parts = append(parts, string(content))
+		}
+	}
+	return strings.Join(parts, "\n\n---\n\n")
 }

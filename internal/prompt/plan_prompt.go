@@ -180,6 +180,14 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *C
 		return "", fmt.Errorf("failed to build and save plan prompt: %w", err)
 	}
 
+	// Inject core skills for plan phase
+	coreSkills := LoadCoreSkills([]string{"sense", "tc"})
+	if coreSkills != "" {
+		if _, err := readAndAppend(promptFile, "\n\n## Core Skills\n\n"+coreSkills); err != nil {
+			return "", fmt.Errorf("failed to append core skills: %w", err)
+		}
+	}
+
 	return promptFile, nil
 }
 

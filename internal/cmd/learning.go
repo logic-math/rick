@@ -402,5 +402,11 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 		return "", fmt.Errorf("failed to build learning prompt: %w", err)
 	}
 
+	// Inject core skills for learning phase
+	coreSkills := prompt.LoadCoreSkills([]string{"gen-skill"})
+	if coreSkills != "" {
+		promptContent += "\n\n## Core Skills\n\n" + coreSkills
+	}
+
 	return promptContent, nil
 }

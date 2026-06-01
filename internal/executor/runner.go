@@ -221,6 +221,12 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 	}
 	defer tmpFile.Close()
 
+	// Append core skills for testing agent phase
+	coreSkills := prompt.LoadCoreSkills([]string{"tdd", "testing", "tc"})
+	if coreSkills != "" {
+		promptContent += "\n\n## Core Skills\n\n" + coreSkills
+	}
+
 	if _, err := tmpFile.WriteString(promptContent); err != nil {
 		os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("failed to write prompt to file: %w", err)

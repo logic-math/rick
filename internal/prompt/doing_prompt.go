@@ -229,6 +229,14 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 		return "", fmt.Errorf("failed to build and save doing prompt: %w", err)
 	}
 
+	// Inject core skills for doing phase (coding agent)
+	coreSkills := LoadCoreSkills([]string{"tdd", "tdd/testing-anti-patterns", "debug"})
+	if coreSkills != "" {
+		if _, err := readAndAppend(promptFile, "\n\n## Core Skills\n\n"+coreSkills); err != nil {
+			return "", fmt.Errorf("failed to append core skills: %w", err)
+		}
+	}
+
 	// Inject skills section if rickDir is provided
 	resolvedRickDir := ""
 	if len(rickDir) > 0 {

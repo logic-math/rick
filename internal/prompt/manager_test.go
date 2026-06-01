@@ -3,6 +3,7 @@ package prompt
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -191,6 +192,41 @@ func TestExtractVariables(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCoreSkillsEmbed(t *testing.T) {
+	t.Run("all_eight_skill_files_non_empty", func(t *testing.T) {
+		skills := []string{"sense", "tc", "tdd", "testing", "debug", "gen-skill", "evolve-skills"}
+		for _, name := range skills {
+			result := LoadCoreSkills([]string{name})
+			if result == "" {
+				t.Errorf("LoadCoreSkills(%q) returned empty string", name)
+			}
+		}
+	})
+
+	t.Run("tdd_testing_anti_patterns_slash_path", func(t *testing.T) {
+		result := LoadCoreSkills([]string{"tdd/testing-anti-patterns"})
+		if result == "" {
+			t.Error("LoadCoreSkills(\"tdd/testing-anti-patterns\") returned empty string")
+		}
+	})
+
+	t.Run("multi_skill_contains_separator", func(t *testing.T) {
+		result := LoadCoreSkills([]string{"sense", "tc"})
+		if result == "" {
+			t.Fatal("LoadCoreSkills returned empty for multiple skills")
+		}
+		if !strings.Contains(result, "---") {
+			t.Errorf("multi-skill result missing '---' separator")
+		}
+	})
+
+	t.Run("nonexistent_skill_no_panic", func(t *testing.T) {
+		result := LoadCoreSkills([]string{"nonexistent-skill-xyz"})
+		// should not panic; result may be empty
+		_ = result
+	})
 }
 
 func TestTrimSpace(t *testing.T) {
