@@ -9,6 +9,7 @@ import (
 type ToolCall struct {
 	Name    string
 	Input   string
+	Output  string
 	Line    int // line number in raw log
 	IsError bool
 }

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-02T00:11:47.3923+08:00",
-  "updated_at": "2026-06-02T00:38:24.037638+08:00",
+  "updated_at": "2026-06-02T00:51:12.864517+08:00",
   "tasks": [
     {
       "task_id": "task3",
@@ -47,20 +47,20 @@
         "task3"
       ],
       "attempts": 0,
-      "commit_hash": "e7fbeb0",
+      "commit_hash": "e07f93c952caf69d6a21e04a03361619a884853b",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:38:24.037638+08:00"
+      "updated_at": "2026-06-02T00:51:12.864177+08:00"
     },
     {
       "task_id": "task2",
       "task_name": "实现 Claude Code 适配器（NDJSON 解析 + raw_session 双写）",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:11:47.3923+08:00"
+      "updated_at": "2026-06-02T00:57:00.000000+08:00"
     },
     {
       "task_id": "task7",

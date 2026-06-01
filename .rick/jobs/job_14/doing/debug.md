@@ -141,3 +141,42 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过（11/11 测试全部通过）
+
+## task2: 实现 Claude Code 适配器（NDJSON 解析 + raw_session 双写）
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/agent/interface.go`：确认 `ToolCall` struct 无 `Output` 字段，需新增
+- `AgentSession` 接口和 `AgentExecutor` 接口已由 task1 定义
+- `claudecode` 包不存在，需新建 `internal/agent/claudecode/` 目录
+- 实测 NDJSON 格式：tool_use 嵌套在 `message.content[]` 内（非顶层），需 `ndContent` struct 解析
+- `ndContent.Content` 可能为 string 或 array，用 `json.RawMessage` 避免解析失败
+- 测试直接调用 `parseStream(io.Reader, rawLogPath)` 内部函数，无需 mock exec.Command
+
+**实现步骤 (Implementation)**:
+1. `internal/agent/interface.go`：`ToolCall` 新增 `Output string` 字段
+2. `internal/agent/claudecode/executor.go`：
+   - `ClaudeCodeExecutor{claudePath string}` + `NewExecutor()`
+   - `Execute(promptFile, taskID string)` 启动 claude CLI，调用 parseStream
+   - `ndLine/ndMessage/ndContent` JSON 解析 struct，Content 用 `json.RawMessage`
+   - `claudeSession` 实现 `agent.AgentSession` 接口，含 `GetRawLogPath()`/`GetErrorCount()`
+   - `parseStream(r io.Reader, rawLogPath string)` 逐行读取：先写 raw_session.log，再解析
+   - `truncate(s string, n int)` 用 `[]rune` 安全截断 Unicode
+3. `internal/agent/claudecode/executor_test.go`：
+   - `TestExecute_ParseNDJSON`：5 行 mock NDJSON，验证 sessionID/ToolCalls/FinalMessage/FinalMessageLine/raw_session.log
+   - `TestExecute_SkipNonJSON`：第 3 行为 "not json"，验证不 panic，ToolCalls 正常，raw_session.log 含非 JSON 行
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 编译命令：`go build ./internal/agent/claudecode/...` → 无报错
+- 单元测试：`go test ./internal/agent/claudecode/... -v`
+  ```
+  --- PASS: TestExecute_ParseNDJSON (0.00s)
+  --- PASS: TestExecute_SkipNonJSON (0.00s)
+  PASS
+  ok  	github.com/sunquan/rick/internal/agent/claudecode	0.464s
+  ```
+- 全量测试：`go test ./...` 全部 PASS，无新增失败
+- task2.py：`{"pass": true, "errors": []}`
+- 结论：✅ 通过
