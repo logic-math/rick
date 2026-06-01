@@ -1,3 +1,37 @@
+## task9: 实现 v2 端到端验收测试，基于 mock 覆盖 plan/doing/learning/dream 全流程
+
+**分析过程 (Analysis)**:
+- 阅读了 `tests/mock_agent/mock_agent.py`：现有 12 个场景，无 `--output-format` 参数，无 v2 场景
+- 阅读了 `tools/mock_agent_testing.py`：SCENARIOS dict 需新增 3 个 v2 场景描述
+- 阅读了 `.rick/jobs/job_14/doing/tests/task9.py`：测试验证 `doing_v2_success` stream-json 输出 ≥4 行，e2e_v2_test.py 4 阶段全通过
+- 分析 `doing_v2_success` 场景：需同时输出 NDJSON 到 stdout 并创建 tasks/task1/act-path.md + raw_session.log
+- 发现 `plan_success` 场景未创建 OKR.md，需补充（Phase 1 验证 OKR.md 存在）
+- self-test 中 stream-json 输出会打印到 stdout 干扰测试，需重定向 sys.stdout
+
+**实现步骤 (Implementation)**:
+1. `tests/mock_agent/mock_agent.py`：
+   - 头部更新文档字符串，新增 3 个 v2 场景描述
+   - 将 `main()` 改为 `argparse`，新增 `--output-format`（choices: text/stream-json，默认 text）、`--verbose`、`--dangerously-skip-permissions` 参数兼容性
+   - `scenario_plan_success`：新增 OKR.md 创建
+   - 新增 `scenario_doing_v2_success`：输出 9 行 NDJSON（system+tool_use*2×RED+GREEN+text+result），在 doing_dir 下创建 tasks/task1/act-path.md 和 raw_session.log
+   - 新增 `scenario_learning_v2_success`：创建 SUMMARY.md + OKR.md，在 rick_dir/dream/ 创建 run_log_1.md
+   - 新增 `scenario_dream_success`：追加写入 rick_dir/dream/readme.md，含 job_test 记录
+   - `run_self_test`：重定向 sys.stdout 避免 stream-json 干扰；新增三个 v2 场景测试
+2. `tools/mock_agent_testing.py`：SCENARIOS dict 新增 `doing_v2_success`、`learning_v2_success`、`dream_success` 三条描述
+3. 新建 `tests/e2e_v2_test.py`：4 阶段独立 tmpdir 隔离，每个 phase 调用 run_mock() 并验证关键文件
+
+**遇到的问题 (Issues)**:
+- `run_self_test` 中 `scenario_doing_v2_success` 的 stdout NDJSON 输出会混入 self-test 输出，干扰测试框架。修复：在 self-test 开始时将 sys.stdout 重定向到 /dev/null，结束时恢复
+
+**验证结果 (Verification)**:
+- 测试命令：`MOCK_SCENARIO=doing_v2_success python3 tests/mock_agent/mock_agent.py --output-format stream-json /dev/null | wc -l`
+- 测试输出：9 行
+- mock --self-test：`python3 tests/mock_agent/mock_agent.py --self-test` → `OK: all self-tests passed`
+- e2e_v2_test.py：`python3 tests/e2e_v2_test.py` → `✅ E2E v2 all phases passed`
+- task9.py：`python3 .rick/jobs/job_14/doing/tests/task9.py` → `{"pass": true, "errors": []}`
+- 全量测试：`go test ./...` 全部 PASS，`python3 tools/mock_agent_testing.py` 通过
+- 结论：✅ 通过
+
 ## task3: 创建 core-skills 内嵌目录，按 SOP 阶段精准注入对应 skill
 
 **分析过程 (Analysis)**:

@@ -3,7 +3,7 @@
 mock_agent.py - Mock AI agent for testing Rick workflows without Claude CLI.
 
 Usage:
-    MOCK_SCENARIO=<scenario> python3 mock_agent.py <prompt_file>
+    MOCK_SCENARIO=<scenario> python3 mock_agent.py [--output-format text|stream-json] <prompt_file>
     python3 mock_agent.py --self-test
 
 Scenarios:
@@ -13,14 +13,18 @@ Scenarios:
     doing_success           - Simulates successful task execution
     doing_no_debug          - Simulates doing without creating debug.md
     doing_zombie_task       - Simulates doing leaving a task in 'running' state
+    doing_v2_success        - stream-json mode, RED then GREEN (v2 TDD flow)
     learning_success        - Generates valid learning outputs
     learning_bad_skill      - Generates learning skill with Python syntax error
     learning_no_summary     - Generates learning outputs without SUMMARY.md
+    learning_v2_success     - Creates SUMMARY.md + run_log in .rick/dream/
+    dream_success           - Updates .rick/dream/readme.md with processed job record
     claude_exit_nonzero     - Exits with non-zero exit code
     claude_bad_output       - Outputs garbled/invalid content
     claude_timeout          - Sleeps for a long time (simulate timeout)
 """
 
+import argparse
 import json
 import os
 import sys
@@ -105,11 +109,22 @@ task1
 1. 运行 go test ./...
 2. 验证编译成功
 """
+    okr = """# Job OKR: 项目基础建设
+
+## 目标 (Objective)
+建立完整的项目基础结构，支持后续功能开发。
+
+## 关键结果 (Key Results)
+- KR1: 创建 src/ 目录和基础配置文件
+- KR2: 实现核心功能并通过单元测试
+"""
     with open(os.path.join(plan_dir, "task1.md"), "w") as f:
         f.write(task1)
     with open(os.path.join(plan_dir, "task2.md"), "w") as f:
         f.write(task2)
-    print("[mock_agent] plan_success: created task1.md and task2.md", file=sys.stderr)
+    with open(os.path.join(plan_dir, "OKR.md"), "w") as f:
+        f.write(okr)
+    print("[mock_agent] plan_success: created task1.md, task2.md, and OKR.md", file=sys.stderr)
 
 
 def scenario_plan_missing_section(prompt_content, plan_dir):
@@ -440,6 +455,179 @@ def scenario_learning_no_summary(prompt_content, learning_dir):
     print("[mock_agent] learning_no_summary: created OKR.md but NO SUMMARY.md", file=sys.stderr)
 
 
+def scenario_doing_v2_success(prompt_content, doing_dir):
+    """Output stream-json NDJSON with RED->GREEN TDD flow: testing agent first outputs fail, then pass."""
+    sess_id = "mock-session-v2-001"
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "session_id": sess_id, "model": "mock"}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "go build ./..."}}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "Build ok", "is_error": False}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "python3 test.py"}}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t2",
+             "content": json.dumps({"pass": False, "errors": ["RED: test not implemented yet"]}),
+             "is_error": False}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "python3 test.py"}}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t3",
+             "content": json.dumps({"pass": True, "errors": []}),
+             "is_error": False}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "text", "text": "Task completed successfully with RED->GREEN TDD flow."}
+        ]}, "session_id": sess_id}),
+        json.dumps({"type": "result", "subtype": "success", "is_error": False,
+                    "duration_ms": 5000, "session_id": sess_id}),
+    ]
+    for line in lines:
+        print(line)
+    sys.stdout.flush()
+
+    if doing_dir:
+        os.makedirs(doing_dir, exist_ok=True)
+        now = "2026-01-01T00:00:00Z"
+        tasks_json = {
+            "version": "1.0",
+            "created_at": now,
+            "updated_at": now,
+            "tasks": [
+                {"task_id": "task1", "task_name": "初始化项目结构", "status": "success",
+                 "dependencies": [], "attempts": 1, "commit_hash": "abc1234",
+                 "created_at": now, "updated_at": now}
+            ]
+        }
+        with open(os.path.join(doing_dir, "tasks.json"), "w") as f:
+            json.dump(tasks_json, f, indent=2)
+        with open(os.path.join(doing_dir, "debug.md"), "w") as f:
+            f.write("## task1: 初始化项目结构\n\n**分析过程 (Analysis)**:\n- RED->GREEN TDD flow used\n\n**实现步骤 (Implementation)**:\n1. Run test (RED)\n2. Implement\n3. Run test (GREEN)\n\n**遇到的问题 (Issues)**:\n- 无\n\n**验证结果 (Verification)**:\n- 测试命令: `python3 test.py`\n- 测试输出:\n  ```\n  {\"pass\": true, \"errors\": []}\n  ```\n- 结论：✅ 通过\n")
+
+        # Create act-path.md and raw_session.log in doing/tasks/task1/
+        task1_dir = os.path.join(doing_dir, "tasks", "task1")
+        os.makedirs(task1_dir, exist_ok=True)
+        raw_log_path = os.path.join(task1_dir, "raw_session.log")
+        # Write raw_session.log with valid NDJSON lines
+        with open(raw_log_path, "w") as f:
+            for line in lines:
+                f.write(line + "\n")
+        # Write act-path.md referencing raw_session.log
+        act_path_md = f"""## 执行摘要
+
+- 任务 ID: task1
+- 执行时长: 5000ms
+- 工具调用次数: 3
+- 报错次数: 0
+- Session ID: {sess_id}
+
+## 行为轨迹
+
+| # | 工具 | 输入摘要 | 结果 | 行号 |
+|---|------|----------|------|------|
+| 1 | Bash | go build ./... | Build ok | [L2]({raw_log_path}:2) |
+| 2 | Bash | python3 test.py | {{\"pass\": false, ...}} | [L4]({raw_log_path}:4) |
+| 3 | Bash | python3 test.py | {{\"pass\": true, ...}} | [L6]({raw_log_path}:6) |
+
+## Agent 最终输出
+
+Task completed successfully with RED->GREEN TDD flow.
+
+> [raw_session.log:8]({raw_log_path})
+"""
+        with open(os.path.join(task1_dir, "act-path.md"), "w") as f:
+            f.write(act_path_md)
+
+    print("[mock_agent] doing_v2_success: output stream-json NDJSON with RED->GREEN", file=sys.stderr)
+
+
+def scenario_learning_v2_success(prompt_content, learning_dir, rick_dir):
+    """Create SUMMARY.md in learning dir and run_log in .rick/dream/."""
+    if not learning_dir:
+        print("[mock_agent] ERROR: RICK_LEARNING_DIR not set", file=sys.stderr)
+        sys.exit(1)
+    os.makedirs(learning_dir, exist_ok=True)
+    os.makedirs(os.path.join(learning_dir, "skills"), exist_ok=True)
+
+    summary = """APPROVED: true
+# Job job_test 执行总结 (v2)
+
+本次任务执行成功，完成了 v2 升级。
+
+## 主要成果
+1. 完成了 act-path 生成
+2. 建立了 run_log 度量机制
+"""
+    with open(os.path.join(learning_dir, "SUMMARY.md"), "w") as f:
+        f.write(summary)
+
+    okr = """## O1: 完成 v2 核心升级
+
+### 关键结果
+1. KR1: act-path 生成 ✅
+2. KR2: run_log 度量 ✅
+"""
+    with open(os.path.join(learning_dir, "OKR.md"), "w") as f:
+        f.write(okr)
+
+    # Create run_log in .rick/dream/
+    if rick_dir:
+        dream_dir = os.path.join(rick_dir, "dream")
+        os.makedirs(dream_dir, exist_ok=True)
+        run_log = """# Run Log: job_test
+
+## 执行概述
+- Job ID: job_test
+- 执行时间: 2026-01-01T00:00:00Z
+- 总任务数: 1
+- 成功任务数: 1
+- 失败任务数: 0
+
+## act-path 摘要
+### task1
+- 工具调用次数: 3
+- 报错次数: 0
+- 执行时长: 5s
+"""
+        with open(os.path.join(dream_dir, "run_log_1.md"), "w") as f:
+            f.write(run_log)
+
+    print("[mock_agent] learning_v2_success: created SUMMARY.md and run_log", file=sys.stderr)
+
+
+def scenario_dream_success(prompt_content, rick_dir):
+    """Update .rick/dream/readme.md with processed job record."""
+    if not rick_dir:
+        print("[mock_agent] ERROR: RICK_DIR not set", file=sys.stderr)
+        sys.exit(1)
+    dream_dir = os.path.join(rick_dir, "dream")
+    os.makedirs(dream_dir, exist_ok=True)
+    readme_path = os.path.join(dream_dir, "readme.md")
+
+    existing = ""
+    if os.path.exists(readme_path):
+        with open(readme_path) as f:
+            existing = f.read()
+
+    new_entry = """
+## Processed Jobs
+
+| Job ID | 处理时间 | 状态 |
+|--------|----------|------|
+| job_test | 2026-01-01 | ✅ 已处理 |
+"""
+    with open(readme_path, "w") as f:
+        f.write(existing + new_entry)
+
+    print("[mock_agent] dream_success: updated readme.md with processed job record", file=sys.stderr)
+
+
 def scenario_claude_exit_nonzero(prompt_content):
     """Exit with non-zero exit code to simulate Claude failure."""
     print("[mock_agent] claude_exit_nonzero: exiting with code 1", file=sys.stderr)
@@ -467,6 +655,8 @@ def run_self_test():
     """Run self-test: verify each scenario produces the expected artifacts."""
     errors = []
     tmpdir = tempfile.mkdtemp(prefix="mock_agent_test_")
+    orig_stdout = sys.stdout
+    sys.stdout = open(os.devnull, 'w')  # suppress stream-json output during self-test
 
     try:
         # Test plan_success
@@ -477,6 +667,8 @@ def run_self_test():
             errors.append("plan_success: task1.md not created")
         if not os.path.exists(os.path.join(plan_dir, "task2.md")):
             errors.append("plan_success: task2.md not created")
+        if not os.path.exists(os.path.join(plan_dir, "OKR.md")):
+            errors.append("plan_success: OKR.md not created")
         # Verify task1.md has all required sections
         with open(os.path.join(plan_dir, "task1.md")) as f:
             content = f.read()
@@ -577,7 +769,41 @@ def run_self_test():
         if os.path.exists(os.path.join(learning_dir3, "SUMMARY.md")):
             errors.append("learning_no_summary: SUMMARY.md should NOT exist")
 
+        # Test doing_v2_success
+        doing_dir_v2 = os.path.join(tmpdir, "doing_v2", "doing")
+        scenario_doing_v2_success("", doing_dir_v2)
+        if not os.path.exists(os.path.join(doing_dir_v2, "tasks.json")):
+            errors.append("doing_v2_success: tasks.json not created")
+        if not os.path.exists(os.path.join(doing_dir_v2, "debug.md")):
+            errors.append("doing_v2_success: debug.md not created")
+
+        # Test learning_v2_success
+        learning_dir_v2 = os.path.join(tmpdir, "learning_v2", "learning")
+        rick_dir_v2 = os.path.join(tmpdir, "learning_v2", ".rick")
+        os.environ["RICK_LEARNING_DIR"] = learning_dir_v2
+        os.environ["RICK_DIR"] = rick_dir_v2
+        scenario_learning_v2_success("", learning_dir_v2, rick_dir_v2)
+        if not os.path.exists(os.path.join(learning_dir_v2, "SUMMARY.md")):
+            errors.append("learning_v2_success: SUMMARY.md not created")
+        if not os.path.exists(os.path.join(rick_dir_v2, "dream", "run_log_1.md")):
+            errors.append("learning_v2_success: run_log_1.md not created in .rick/dream/")
+
+        # Test dream_success
+        rick_dir_dream = os.path.join(tmpdir, "dream_test", ".rick")
+        os.environ["RICK_DIR"] = rick_dir_dream
+        scenario_dream_success("", rick_dir_dream)
+        readme_path = os.path.join(rick_dir_dream, "dream", "readme.md")
+        if not os.path.exists(readme_path):
+            errors.append("dream_success: readme.md not created")
+        else:
+            with open(readme_path) as f:
+                content = f.read()
+            if "job_test" not in content:
+                errors.append("dream_success: readme.md missing job_test record")
+
     finally:
+        sys.stdout.close()
+        sys.stdout = orig_stdout
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     if errors:
@@ -597,17 +823,24 @@ def main():
         run_self_test()
         return
 
-    if len(sys.argv) < 2:
-        print("Usage: mock_agent.py <prompt_file>", file=sys.stderr)
-        print("       mock_agent.py --self-test", file=sys.stderr)
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Mock AI agent for Rick testing")
+    parser.add_argument("--output-format", choices=["text", "stream-json"], default="text",
+                        help="Output format (default: text)")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output (ignored)")
+    parser.add_argument("--dangerously-skip-permissions", action="store_true",
+                        help="Compatibility flag (ignored)")
+    parser.add_argument("-p", action="store_true", help="Compatibility flag (ignored)")
+    parser.add_argument("prompt_file", nargs="?", help="Prompt file path")
+    args = parser.parse_args()
 
-    prompt_file = sys.argv[1]
-    if not os.path.exists(prompt_file):
-        print(f"Error: prompt file not found: {prompt_file}", file=sys.stderr)
+    if args.prompt_file is None or args.prompt_file == "/dev/null":
+        prompt_content = ""
+    elif not os.path.exists(args.prompt_file):
+        print(f"Error: prompt file not found: {args.prompt_file}", file=sys.stderr)
         sys.exit(1)
+    else:
+        prompt_content = read_prompt_file(args.prompt_file)
 
-    prompt_content = read_prompt_file(prompt_file)
     scenario = os.environ.get("MOCK_SCENARIO", "")
 
     if not scenario:
@@ -639,6 +872,10 @@ def main():
         doing_dir = find_doing_dir_from_env() or extract_job_dir_from_prompt(prompt_content)
         scenario_doing_zombie_task(prompt_content, doing_dir)
 
+    elif scenario == "doing_v2_success":
+        doing_dir = find_doing_dir_from_env() or extract_job_dir_from_prompt(prompt_content)
+        scenario_doing_v2_success(prompt_content, doing_dir)
+
     elif scenario == "learning_success":
         learning_dir = find_learning_dir_from_env() or extract_job_dir_from_prompt(prompt_content)
         scenario_learning_success(prompt_content, learning_dir)
@@ -650,6 +887,15 @@ def main():
     elif scenario == "learning_no_summary":
         learning_dir = find_learning_dir_from_env() or extract_job_dir_from_prompt(prompt_content)
         scenario_learning_no_summary(prompt_content, learning_dir)
+
+    elif scenario == "learning_v2_success":
+        learning_dir = find_learning_dir_from_env() or extract_job_dir_from_prompt(prompt_content)
+        rick_dir = os.environ.get("RICK_DIR", "")
+        scenario_learning_v2_success(prompt_content, learning_dir, rick_dir)
+
+    elif scenario == "dream_success":
+        rick_dir = os.environ.get("RICK_DIR", "")
+        scenario_dream_success(prompt_content, rick_dir)
 
     elif scenario == "claude_exit_nonzero":
         scenario_claude_exit_nonzero(prompt_content)

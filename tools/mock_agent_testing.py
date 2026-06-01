@@ -47,9 +47,12 @@ SCENARIOS = {
     "doing_no_debug": "Creates tasks.json but no debug.md",
     "doing_zombie": "Creates tasks.json with zombie task",
     "doing_zombie_task": "Alias for doing_zombie",
+    "doing_v2_success": "stream-json NDJSON output with RED->GREEN TDD flow (v2)",
     "learning_success": "Creates valid SUMMARY.md and skills",
     "learning_bad_skill": "Creates skills with Python syntax errors",
     "learning_no_summary": "Creates learning dir without SUMMARY.md",
+    "learning_v2_success": "Creates SUMMARY.md and run_log in .rick/dream/ (v2)",
+    "dream_success": "Updates .rick/dream/readme.md with processed job record (v2)",
     "claude_exit_nonzero": "Exits with code 1",
     "claude_timeout": "Sleeps 60s to simulate timeout",
 }
