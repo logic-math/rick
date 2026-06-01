@@ -107,3 +107,37 @@
 - task1.py：`python3 .rick/jobs/job_14/doing/tests/task1.py` → `{"pass": true, "errors": []}`
 - 全量测试：`go test ./...` 全部 PASS，无新增失败
 - 结论：✅ 通过
+
+## task5: 实现 dream cmd 基础版本，显式引用 sense 和 evolve-skills skill
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/workspace/paths.go`：无 DreamDirName 常量，需新增
+- 阅读了 `internal/workspace/workspace.go`：`EnsureDirectories()` 需追加 dream 目录
+- 阅读了 `internal/prompt/dream_prompt.go`：已存在 stub，但签名为 `(string, *PromptManager)` 而非任务要求的 `([]string, string)`，需完全重写
+- 阅读了 `internal/prompt/manager.go`：无 dream 模板嵌入，需新增 `//go:embed templates/dream.md` 和 switch case
+- 阅读了 `internal/cmd/learning.go` 和 `plan.go`：确认 `callClaudeCodeCLI(cfg, promptFile)` 的调用模式
+- 阅读了 `tools/check_prompt_variables.py`：无 dream phase，需新增 `check_dream_prompt()` 函数和 "dream" 选项
+- 发现 `task5.py` 调用 `build_and_get_rick_bin.py` 期望返回纯文本路径，但该脚本实际输出 JSON；job_12 测试明确依赖 JSON 格式，故不可改脚本，改 task5.py 解析 JSON
+
+**实现步骤 (Implementation)**:
+1. `internal/workspace/paths.go`：追加 `DreamDirName = "dream"` 常量
+2. `internal/workspace/workspace.go`：`EnsureDirectories()` 追加 `filepath.Join(w.rickDir, DreamDirName)`
+3. `internal/workspace/workspace_test.go`：新增 `TestDreamDir` 测试验证 EnsureDirectories 创建 dream 目录
+4. `internal/prompt/templates/dream.md`：新建全 SOP（a-h 步），步骤 c 含 "I will use skill:sense"，步骤 f 含 "I will use skill:evolve-skills"，约束 SPEC.md ≤ 500 行
+5. `internal/prompt/manager.go`：新增 `//go:embed templates/dream.md` 和 `dreamTemplate string`，`getEmbeddedTemplate()` 追加 "dream" case
+6. `internal/prompt/dream_prompt.go`：完全重写，新签名 `GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, error)`，读取 act-path.md 和 run_log、注入 sense+evolve-skills
+7. `internal/cmd/dream.go`：新建，`NewDreamCmd()` 含 `--dry-run`；`dreamWorkflow()` 读 readme.md → 取最多 5 个待处理 job → 生成 prompt → 调用 callClaudeCodeCLI；`ensureDreamReadme()` 自动创建默认 readme.md
+8. `internal/cmd/root.go`：`rootCmd.AddCommand(NewDreamCmd())`
+9. `tools/check_prompt_variables.py`：新增 `check_dream_prompt()` 函数，`--phase` choices 追加 "dream"，main() 追加 `elif args.phase == "dream":` 分支
+10. `task5.py`：修复 build_and_get_rick_bin.py JSON 解析（`json.loads()` 提取 `bin_path`）
+
+**遇到的问题 (Issues)**:
+- `task5.py` 调用 `build_and_get_rick_bin.py` 期望纯文本路径，但该脚本实际输出 JSON（`{"pass": true, "bin_path": "...", ...}`）。job_12 的测试明确验证 JSON 格式，不能改脚本。修复方案：在 task5.py 中先 `json.loads()` 再提取 `bin_path`，若解析失败则 fallback 到原有逻辑
+
+**验证结果 (Verification)**:
+- 测试命令：`python3 .rick/jobs/job_14/doing/tests/task5.py`
+- 测试输出：
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过（11/11 测试全部通过）

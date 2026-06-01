@@ -20,6 +20,7 @@ const (
 	PlanDirName    = "plan"
 	DoingDirName   = "doing"
 	LearningDirName = "learning"
+	DreamDirName   = "dream"
 )
 
 // GetHomeDir returns the user's home directory

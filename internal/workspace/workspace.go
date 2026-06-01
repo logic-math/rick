@@ -108,6 +108,7 @@ func (w *Workspace) EnsureDirectories() error {
 		filepath.Join(w.rickDir, WikiDirName),
 		filepath.Join(w.rickDir, SkillsDirName),
 		filepath.Join(w.rickDir, JobsDirName),
+		filepath.Join(w.rickDir, DreamDirName),
 	}
 
 	for _, dir := range directories {

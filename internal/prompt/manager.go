@@ -43,6 +43,9 @@ var (
 	//go:embed templates/human_loop_express.md
 	humanLoopExpressTemplate string
 
+	//go:embed templates/dream.md
+	dreamTemplate string
+
 	//go:embed templates/skills
 	skillsFS embed.FS
 )
@@ -133,6 +136,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return humanLoopLearnTemplate
 	case "human_loop_express":
 		return humanLoopExpressTemplate
+	case "dream":
+		return dreamTemplate
 	default:
 		return ""
 	}

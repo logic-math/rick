@@ -544,6 +544,31 @@ func TestJobPathHierarchy(t *testing.T) {
 	}
 }
 
+func TestDreamDir(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	ws, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+
+	if err := ws.EnsureDirectories(); err != nil {
+		t.Fatalf("EnsureDirectories() failed: %v", err)
+	}
+
+	dreamPath := filepath.Join(ws.rickDir, DreamDirName)
+	if _, err := os.Stat(dreamPath); os.IsNotExist(err) {
+		t.Errorf("Dream directory %s was not created by EnsureDirectories()", dreamPath)
+	}
+
+	if DreamDirName == "" {
+		t.Error("DreamDirName constant is empty")
+	}
+}
+
 func TestGetRFCDir(t *testing.T) {
 	originalDir, err := os.Getwd()
 	if err != nil {
