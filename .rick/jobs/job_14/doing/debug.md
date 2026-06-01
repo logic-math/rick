@@ -241,3 +241,41 @@
   ```
 - 全量测试：`go test ./...` 全部 PASS
 - 结论：✅ 通过
+
+## task8: 升级 doing 双 agent 提示词为红绿 TDD SOP，实现 RED 验证逻辑
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/templates/test_python.md`：已有 Cialdini 章节含 skill:tdd，缺少 `{{okr_content}}/{{spec_content}}/{{debug_content}}` 变量、开头承诺声明和 RED 验证指令
+- 阅读了 `internal/prompt/templates/doing.md`：已有 Cialdini 框架（task4），缺少 TDD 铁律三法则和 skill:debug 强制声明
+- 阅读了 `internal/executor/runner.go`：`buildTestGenerationPromptFile` 无 variadic，`GenerateTestWithAgent` 使用 `exec.Command` 而非 `agentExecutor`，`RunTask` 无 RED 验证
+- 阅读了 `tools/check_prompt_variables.py`：无 `testing` phase，`check_doing_prompt` 错误消息不含"关键词未找到"
+- 确认 `check_variadic_api.py` 不支持 method（仅支持 standalone func），无法用于验证 method 的 variadic，改用 grep 直接验证
+
+**实现步骤 (Implementation)**:
+1. `test_python.md`：开头新增 `YOU MUST declare: "I will use skill:tdd and skill:tc for test generation."` 强制声明；在任务信息节新增 `{{okr_content}}`/`{{spec_content}}`/`{{debug_content}}` 变量；在重要提醒前新增 RED 验证章节（含 "RED phase" 字面量）
+2. `doing.md`：开头新增 `YOU MUST declare: "I will use skill:tdd for implementation."` 强制声明；在 Authority 节展开为 TDD 铁律三法则（RED→GREEN→REFACTOR）+ DEBUG 铁律（skill:debug 强制声明）；更新 Commitment 节示例为 `skill:tdd`
+3. `runner.go`：新增 `TestGenContext` struct；`buildTestGenerationPromptFile` 签名改为 variadic `ctx ...TestGenContext`，设置 okr/spec/debug 变量；`GenerateTestWithAgent` 去掉 `exec.Command` 改用 `tr.agentExecutor.Execute(testPromptFile, task.ID+"-test-gen")`；`RunTask` 在 `GenerateTestWithAgent` 后增加 RED 验证循环（maxREDRetries=2）；新增 `appendREDWarning` helper
+4. `runner_test.go`：新增 `sync` import；新增 `testGenExecutor` mock（按 taskID 后缀 "-test-gen" 创建脚本，支持 passValues 配置）；新增三个测试：`TestRunTask_REDFail_Normal`/`TestRunTask_REDPass_TriggersRetry`/`TestRunTask_REDPass_MaxRetry`
+5. `tools/check_prompt_variables.py`：新增 `check_testing_prompt` 函数（直接读取 test_python.md 模板文件）；`check_doing_prompt` 错误消息改为含"关键词未找到"；`--phase` choices 追加 `"testing"`；main() 追加 `elif args.phase == "testing":` 分支
+
+**遇到的问题 (Issues)**:
+- `check_variadic_api.py` 使用 `func\s+{func_name}\s*\(` 正则，不支持 Go method（`func (tr *TaskRunner) buildTestGenerationPromptFile(...)`），工具返回 "Function not found"。解决：直接用 grep 验证签名含 `...TestGenContext`
+
+**验证结果 (Verification)**:
+- 测试命令：`go test ./internal/executor/... -v -run "TestRunTask_RED|TestBuildTestGeneration"`
+- 测试输出：
+  ```
+  --- PASS: TestBuildTestGenerationPromptFile (0.00s)
+  --- PASS: TestBuildTestGenerationPromptFile_NilTask (0.00s)
+  --- PASS: TestRunTask_REDFail_Normal (0.08s)
+  --- PASS: TestRunTask_REDPass_TriggersRetry (0.08s)
+  --- PASS: TestRunTask_REDPass_MaxRetry (0.06s)
+  PASS
+  ok  github.com/sunquan/rick/internal/executor  0.693s
+  ```
+- 全量测试：`go test ./...` 全部 PASS
+- skill:tdd 检查：`python3 tools/check_prompt_variables.py --phase testing --keywords "skill:tdd"` → `{"pass": true, "errors": []}`
+- RED phase 检查：`python3 tools/check_prompt_variables.py --phase testing --keywords "RED phase"` → `{"pass": true, "errors": []}`
+- skill:debug 检查：`python3 tools/check_prompt_variables.py --phase doing --job job_14 --keywords "skill:debug"` → `{"pass": true, "errors": []}`
+- gen-skill 无污染：`python3 tools/check_prompt_variables.py --phase doing --keywords "gen-skill"` → `{"pass": false, "errors": ["关键词未找到: doing prompt does not contain: ['gen-skill']"]}`
+- 结论：✅ 通过

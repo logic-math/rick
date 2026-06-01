@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -428,5 +429,144 @@ func TestRunTask_ActPathGeneration(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("act-path.md missing %q", want)
 		}
+	}
+}
+
+// testGenExecutor is a mock for RED validation tests.
+// It creates the test script file on -test-gen Execute calls with configurable pass values.
+type testGenExecutor struct {
+	mu             sync.Mutex
+	testScriptPath string
+	passValues     []bool // indexed by testGenCount; last value is repeated
+	testGenCount   int
+	totalCount     int
+}
+
+func (m *testGenExecutor) Execute(promptFile, taskID string) (agent.AgentSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.totalCount++
+	if strings.HasSuffix(taskID, "-test-gen") {
+		idx := m.testGenCount
+		if idx >= len(m.passValues) {
+			idx = len(m.passValues) - 1
+		}
+		passStr := "False"
+		if m.passValues[idx] {
+			passStr = "True"
+		}
+		content := "import json\nprint(json.dumps({\"pass\": " + passStr + ", \"errors\": []}))\n"
+		os.WriteFile(m.testScriptPath, []byte(content), 0644)
+		m.testGenCount++
+	}
+	return nil, nil
+}
+
+// TestRunTask_REDFail_Normal verifies normal RED state: test fails before implementation,
+// testing agent called exactly once, no RED warning in debug.md.
+func TestRunTask_REDFail_Normal(t *testing.T) {
+	tmpDir := t.TempDir()
+	testsDir := filepath.Join(tmpDir, "tests")
+	os.MkdirAll(testsDir, 0755)
+	testScript := filepath.Join(testsDir, "task1.py")
+
+	mock := &testGenExecutor{
+		testScriptPath: testScript,
+		passValues:     []bool{false}, // normal RED: test fails
+	}
+
+	runner := NewTaskRunner(&ExecutionConfig{TimeoutSeconds: 30, WorkspaceDir: tmpDir}, mock)
+	task := &parser.Task{ID: "task1", Name: "Test Task", Goal: "Test goal"}
+
+	runner.RunTask(task, "", "")
+
+	mock.mu.Lock()
+	testGenCount := mock.testGenCount
+	mock.mu.Unlock()
+
+	if testGenCount != 1 {
+		t.Errorf("expected testGenCount=1 (no RED retry), got %d", testGenCount)
+	}
+
+	// No RED warning in debug.md
+	debugPath := filepath.Join(tmpDir, "debug.md")
+	if content, err := os.ReadFile(debugPath); err == nil {
+		if strings.Contains(string(content), "RED") || strings.Contains(string(content), "unexpected pass") {
+			t.Error("debug.md should not have RED warning for normal RED state")
+		}
+	}
+}
+
+// TestRunTask_REDPass_TriggersRetry verifies that when test unexpectedly passes (unexpected green),
+// testing agent is re-invoked and debug.md contains RED/unexpected-pass warning.
+func TestRunTask_REDPass_TriggersRetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	testsDir := filepath.Join(tmpDir, "tests")
+	os.MkdirAll(testsDir, 0755)
+	testScript := filepath.Join(testsDir, "task1.py")
+
+	mock := &testGenExecutor{
+		testScriptPath: testScript,
+		passValues:     []bool{true, false}, // first gen: unexpected green; second: normal RED
+	}
+
+	runner := NewTaskRunner(&ExecutionConfig{TimeoutSeconds: 30, WorkspaceDir: tmpDir}, mock)
+	task := &parser.Task{ID: "task1", Name: "Test Task", Goal: "Test goal"}
+
+	runner.RunTask(task, "", "")
+
+	mock.mu.Lock()
+	testGenCount := mock.testGenCount
+	mock.mu.Unlock()
+
+	if testGenCount < 2 {
+		t.Errorf("expected testGenCount>=2 (testing agent retried), got %d", testGenCount)
+	}
+
+	debugPath := filepath.Join(tmpDir, "debug.md")
+	content, err := os.ReadFile(debugPath)
+	if err != nil {
+		t.Fatalf("debug.md should exist after RED warning: %v", err)
+	}
+	if !strings.Contains(string(content), "RED") && !strings.Contains(string(content), "unexpected pass") {
+		t.Error("debug.md missing RED or unexpected pass warning")
+	}
+}
+
+// TestRunTask_REDPass_MaxRetry verifies that after 2 consecutive unexpected-green states,
+// execution continues without infinite loop.
+func TestRunTask_REDPass_MaxRetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	testsDir := filepath.Join(tmpDir, "tests")
+	os.MkdirAll(testsDir, 0755)
+	testScript := filepath.Join(testsDir, "task1.py")
+
+	mock := &testGenExecutor{
+		testScriptPath: testScript,
+		passValues:     []bool{true, true}, // both retries: unexpected green (max retries exhausted)
+	}
+
+	runner := NewTaskRunner(&ExecutionConfig{TimeoutSeconds: 30, WorkspaceDir: tmpDir}, mock)
+	task := &parser.Task{ID: "task1", Name: "Test Task", Goal: "Test goal"}
+
+	done := make(chan struct{})
+	go func() {
+		runner.RunTask(task, "", "")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// completed without infinite loop ✓
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunTask hung — possible infinite loop in RED validation")
+	}
+
+	mock.mu.Lock()
+	testGenCount := mock.testGenCount
+	mock.mu.Unlock()
+
+	if testGenCount > 2 {
+		t.Errorf("testGenCount=%d exceeds maxREDRetries=2, possible infinite loop", testGenCount)
 	}
 }

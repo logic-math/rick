@@ -49,12 +49,30 @@ def check_doing_prompt(project_root, job_id, keywords):
         output = result.stdout + result.stderr
         missing = [kw for kw in keywords if kw not in output]
         if missing:
-            return False, f"doing prompt missing keywords: {missing}"
+            return False, f"关键词未找到: doing prompt does not contain: {missing}"
         return True, "all keywords found in doing prompt"
     except subprocess.TimeoutExpired:
         return False, "rick doing --dry-run timed out"
     except Exception as e:
         return False, f"error running rick doing --dry-run: {e}"
+
+
+def check_testing_prompt(project_root, keywords):
+    """Read test_python.md template and check for keywords."""
+    template_path = os.path.join(
+        project_root, "internal", "prompt", "templates", "test_python.md"
+    )
+    if not os.path.exists(template_path):
+        return False, f"test_python.md template not found at {template_path}"
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        missing = [kw for kw in keywords if kw not in content]
+        if missing:
+            return False, f"关键词未找到: testing prompt does not contain: {missing}"
+        return True, "all keywords found in testing prompt"
+    except Exception as e:
+        return False, f"error reading test_python.md: {e}"
 
 
 def check_learning_prompt(project_root, job_id, keywords):
@@ -163,7 +181,7 @@ def main():
     parser.add_argument("--test", action="store_true", help="Run built-in tests")
     parser.add_argument(
         "--phase",
-        choices=["plan", "doing", "learning", "human-loop", "dream"],
+        choices=["plan", "doing", "learning", "human-loop", "dream", "testing"],
         default="plan",
         help="Which phase to check (default: plan)",
     )
@@ -206,6 +224,8 @@ def main():
         ok, msg = check_human_loop_prompt(args.project_root, args.topic, args.keywords)
     elif args.phase == "dream":
         ok, msg = check_dream_prompt(args.project_root, args.keywords)
+    elif args.phase == "testing":
+        ok, msg = check_testing_prompt(args.project_root, args.keywords)
 
     result = {"pass": ok, "errors": [] if ok else [msg]}
     print(json.dumps(result, ensure_ascii=False))

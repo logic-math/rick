@@ -1,5 +1,7 @@
 # Python 测试脚本生成任务
 
+**YOU MUST declare at the start: "I will use skill:tdd and skill:tc for test generation."**
+
 你需要根据任务的测试方法生成一个 Python 测试脚本。
 
 ## 任务信息
@@ -7,6 +9,15 @@
 **Task ID**: {{task_id}}
 **Task Name**: {{task_name}}
 **Task Goal**: {{task_goal}}
+
+### Job OKR
+{{okr_content}}
+
+### 项目 SPEC
+{{spec_content}}
+
+### 问题记录
+{{debug_content}}
 
 ## 测试方法
 
@@ -216,6 +227,25 @@ Declare: "I will use skill:tdd and skill:tc for test generation."
 **Before writing any test, verify: you understand the acceptance criteria.**
 
 每个测试步骤都必须对应明确的验收标准，未理解验收条件不得开始编写。
+
+---
+
+## RED 验证（强制）
+
+生成测试脚本后，**必须立即运行以下命令验证 RED phase**：
+
+```bash
+python3 {{test_script_path}}
+```
+
+**RED phase 验证规则**：
+
+- ✅ 输出含 `"pass": false` → RED phase 正常，可以继续
+- ❌ 输出含 `"pass": true` → **意外绿态**，MUST 重新生成测试脚本（最多 2 次）
+
+**原则**：RED phase MUST fail. 若测试在实现前就通过，说明测试脚本未正确覆盖验收条件。
+
+**声明**：`"I confirm the test is in RED phase: pass=false before implementation."`
 
 ---
 

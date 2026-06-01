@@ -45,6 +45,13 @@ type TestResult struct {
 	Errors []string `json:"errors"`
 }
 
+// TestGenContext provides optional additional context for test generation prompts.
+type TestGenContext struct {
+	OKRContent   string
+	SPECContent  string
+	DebugContent string
+}
+
 // RunTask executes a single task following the new workflow:
 // 1. Generate test script using Agent (test generation phase)
 // 2. Execute task -> run test
@@ -72,7 +79,30 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 		result.EndTime = time.Now()
 		return result, nil
 	}
-	// Keep test script for audit purposes (do not delete)
+
+	// RED validation: verify test fails before implementation (max 2 retries on unexpected green)
+	const maxREDRetries = 2
+	debugFile := filepath.Join(tr.config.WorkspaceDir, "debug.md")
+	for redAttempt := 0; redAttempt < maxREDRetries; redAttempt++ {
+		redResult, _, redErr := tr.ExecuteTestScript(testScriptPath)
+		if redErr != nil || redResult == nil || !redResult.Pass {
+			// Normal RED state: test fails as expected, proceed
+			break
+		}
+		// Unexpected green state: warn and retry test generation
+		appendREDWarning(debugFile, task.ID, redAttempt+1)
+		if redAttempt == maxREDRetries-1 {
+			fmt.Printf("[WARN] RED validation: test unexpectedly passes for task %s after %d retries, continuing\n", task.ID, maxREDRetries)
+			break
+		}
+		// Retry: delete test script and regenerate
+		os.Remove(testScriptPath)
+		testScriptPath, err = tr.GenerateTestWithAgent(task)
+		if err != nil {
+			fmt.Printf("[WARN] RED validation: failed to regenerate test script: %v\n", err)
+			break
+		}
+	}
 
 	// Step 2: Execute task with context (debug.md + test error feedback)
 	var lastOutput string
@@ -154,38 +184,9 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	}
 	defer os.Remove(testPromptFile) // Clean up temporary file
 
-	// Call Claude to generate the test script
-	claudePath := tr.config.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-
-	// Create command to generate test
-	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", testPromptFile)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Wait with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Run()
-	}()
-
-	timeout := 300 * time.Second // 5 minutes for test generation
-	select {
-	case err := <-done:
-		if err != nil {
-			output := stdout.String()
-			if stderr.String() != "" {
-				output += "\n\nSTDERR:\n" + stderr.String()
-			}
-			return "", fmt.Errorf("test generation failed: %w\nOutput: %s", err, output)
-		}
-	case <-time.After(timeout):
-		cmd.Process.Kill()
-		return "", fmt.Errorf("test generation timeout after %v", timeout)
+	// Use agentExecutor (mockable, DI-friendly)
+	if _, err := tr.agentExecutor.Execute(testPromptFile, task.ID+"-test-gen"); err != nil {
+		return "", fmt.Errorf("test generation agent failed: %w", err)
 	}
 
 	// Verify test script was created
@@ -196,9 +197,9 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	return testScriptPath, nil
 }
 
-// buildTestGenerationPromptFile builds a prompt file for Claude to generate a Python test script
-// Uses the test_python.md template for consistent formatting
-func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string) (string, error) {
+// buildTestGenerationPromptFile builds a prompt file for Claude to generate a Python test script.
+// Uses the test_python.md template. Optional TestGenContext provides OKR/SPEC/debug content.
+func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string, ctx ...TestGenContext) (string, error) {
 	// Create prompt manager to load template
 	promptMgr := prompt.NewPromptManager("")
 
@@ -221,6 +222,15 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 
 	// Set test script path
 	builder.SetVariable("test_script_path", testScriptPath)
+
+	// Set optional context variables (OKR, SPEC, debug)
+	var genCtx TestGenContext
+	if len(ctx) > 0 {
+		genCtx = ctx[0]
+	}
+	builder.SetVariable("okr_content", genCtx.OKRContent)
+	builder.SetVariable("spec_content", genCtx.SPECContent)
+	builder.SetVariable("debug_content", genCtx.DebugContent)
 
 	// Build prompt
 	promptContent, err := builder.Build()
@@ -473,6 +483,22 @@ func (tr *TaskRunner) parseTestResult(output string) (*TestResult, error) {
 	}
 
 	return nil, fmt.Errorf("no valid JSON result found in output")
+}
+
+// appendREDWarning writes a RED phase warning to debug.md when a test unexpectedly passes before implementation.
+func appendREDWarning(debugFile, taskID string, attempt int) {
+	warning := fmt.Sprintf(
+		"\n\n## RED Warning (attempt %d): unexpected pass for %s\n\nTest script returned pass=true before implementation (unexpected green state). "+
+			"This indicates the test script may not correctly cover the required behavior. Regenerating test script.\n\n",
+		attempt, taskID,
+	)
+	f, err := os.OpenFile(debugFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Printf("[WARN] failed to write RED warning to debug.md: %v\n", err)
+		return
+	}
+	defer f.Close()
+	f.WriteString(warning)
 }
 
 // TaskExecutionResult represents the result of a task execution
