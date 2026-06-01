@@ -6,11 +6,13 @@
     {
       "task_id": "task3",
       "task_name": "创建 core-skills 内嵌目录，按 SOP 阶段精准注入对应 skill",
-      "status": "running",
+      "status": "done",
       "dependencies": [],
-      "attempts": 0,
+      "attempts": 1,
+      "commit_hash": "ca95d7e10f8f96e0218e30a040c5e68949fe947d",
+      "task_file": ".rick/jobs/job_14/plan/task3.md",
       "created_at": "2026-06-02T00:11:47.3923+08:00",
-      "updated_at": "2026-06-02T00:11:47.393018+08:00"
+      "updated_at": "2026-06-02T00:20:00+08:00"
     },
     {
       "task_id": "task1",
