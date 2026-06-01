@@ -193,6 +193,32 @@ if __name__ == '__main__':
     main()
 ```
 
+## Cialdini 合规原则
+
+### 权威（Authority）
+
+**YOU MUST generate a failing test first (RED phase). No exceptions.**
+
+测试脚本生成必须覆盖全部验收条件，不得遗漏任何测试步骤。
+
+### 承诺（Commitment）
+
+在开始生成测试脚本前，声明你将使用的 skills：
+
+```
+Declare: "I will use skill:tdd and skill:tc for test generation."
+```
+
+使用 `skill:tc` 时，必须检查四要素：前置条件 / 输入参数 / 操作序列 / 预期输出。
+
+### 稀缺（Scarcity）
+
+**Before writing any test, verify: you understand the acceptance criteria.**
+
+每个测试步骤都必须对应明确的验收标准，未理解验收条件不得开始编写。
+
+---
+
 ## 重要提醒
 
 1. **只生成测试脚本，不要执行任务本身**

@@ -44,6 +44,34 @@
 
 {{debug_context}}
 
+## Cialdini 合规原则
+
+### 权威（Authority）
+
+**YOU MUST follow TDD. No exceptions.**
+
+在开始任何实现之前，必须先编写失败的测试（RED phase）。这是不可协商的工程规范。
+
+### 承诺（Commitment）
+
+在开始实现前，声明你将使用的 skills：
+
+```
+I will use skill:[skill-name] for this task.
+```
+
+明确的承诺能提升 skill 合规率，防止任务执行过程中遗忘关键工程实践。
+
+### 稀缺（Scarcity）
+
+**Before proceeding to next task, verify: all tests pass.**
+
+**Immediately after test failure, run systematic-debugging Phase 1.**
+
+每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
+
+---
+
 ## 做事方法
 
 1. **理解需求**: 仔细阅读任务目标和关键结果

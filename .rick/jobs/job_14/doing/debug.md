@@ -42,6 +42,32 @@
 - 全量测试：`go test ./...` 全部 PASS，无新增失败
 - 结论：✅ 通过
 
+## task4: 升级 plan.md 六步 SOP 并集成 Cialdini 说服原则到 doing/test_python 提示词
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/templates/plan.md`：当前有 0-10 节，无 a-j 步 SOP
+- 阅读了 `doing.md`：有"做事方法"和"行为约束"，无 Cialdini 三原则
+- 阅读了 `test_python.md`：有 DO/DON'T 列表，无 Cialdini 三原则
+- 分析 `task4.py` 测试：检查 `a.` 到 `j.` 10 步、`sense`、`tc`、`权威`/`承诺`/`稀缺` 关键词
+- 发现 `task4.py` 存在路径 bug：`dirname` 调用 5 次只到 `.rick/` 而非项目根，需改为 6 次
+
+**实现步骤 (Implementation)**:
+1. 在 `plan.md` 七、完整工作流程之后插入 `## 七.1、Plan SOP（a-j 步）`，含 a-j 10 步，步骤 a 引用 `skill:sense`，步骤 e 引用 `skill:sense`，步骤 h 列出 6 个 subagent，步骤 i 调用 `plan_check`，步骤 g/h 引用 `skill:tc`
+2. 在 `doing.md` "做事方法"之前插入 `## Cialdini 合规原则`，含权威/承诺/稀缺三个子节
+3. 在 `test_python.md` "重要提醒"之前插入 `## Cialdini 合规原则`，含权威/承诺/稀缺三个子节
+4. 修复 `task4.py` 路径 bug：5 个 `os.path.dirname` → 6 个
+
+**遇到的问题 (Issues)**:
+- `task4.py` 中 project_root 计算比实际项目根少一层 dirname（5次→到 `.rick/`，需 6 次才到真正项目根）
+
+**验证结果 (Verification)**:
+- 测试命令：`python3 .rick/jobs/job_14/doing/tests/task4.py`
+- 测试输出：
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过
+
 ## task1: 定义 AgentSession/AgentExecutor 稳定接口与 act-path 生成器
 
 **分析过程 (Analysis)**:
