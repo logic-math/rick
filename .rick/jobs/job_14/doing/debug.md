@@ -180,3 +180,29 @@
 - 全量测试：`go test ./...` 全部 PASS，无新增失败
 - task2.py：`{"pass": true, "errors": []}`
 - 结论：✅ 通过
+
+## task7: 升级 learning 六步 SOP，注入 gen-skill，生成 run_log 度量文件
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/templates/learning.md`：当前是五步 SOP（Step 1-5），无 act-path 注入，无 run_log
+- 阅读了 `internal/cmd/learning.go`：`buildLearningPrompt` 无 `{{act_path_content}}` 注入，需新增 `collectActPathContent`
+- 阅读了 `task7.py`：检查 TestCollectActPathContent 单元测试、学习模板含 gen-skill/act-path/run_log、无 skill:tdd 污染
+- 发现 `check_prompt_variables.py` 的中文错误信息被 `json.dumps` 转为 unicode 转义，导致 task7.py 的字符串匹配失败
+
+**实现步骤 (Implementation)**:
+1. 重写 `learning.md` 为七步 RFC SOP（Step 0-6 + Step 7 SUMMARY），注入 `{{act_path_content}}`，Step 3 含 gen-skill 声明，Step 6 写入 run_log
+2. `learning.go` 新增 `collectActPathContent(doingDir string) string`：使用 `filepath.Glob` 遍历 `tasks/*/act-path.md`，用 `\n\n---\n\n` 拼接
+3. `buildLearningPrompt` 调用 `workspace.GetRickDir()` 计算 doingDir，注入 `{{act_path_content}}`
+4. `learning_test.go` 新增 `TestCollectActPathContent` 和 `TestCollectActPathContent_Empty` 单元测试
+5. 修复 `check_prompt_variables.py`：将 check_learning_prompt 的缺失消息改为含 "关键词未找到"，并将所有 `json.dumps(result)` 改为 `json.dumps(result, ensure_ascii=False)` 以输出原始中文字符
+
+**遇到的问题 (Issues)**:
+- `check_prompt_variables.py` 使用 `json.dumps` 默认 `ensure_ascii=True`，中文字符被转为 `\uXXXX` 转义，导致 task7.py 的 `"关键词未找到" not in combined` 判断失败。修复：`ensure_ascii=False` + 修改消息格式
+
+**验证结果 (Verification)**:
+- 测试命令：`python3 .rick/jobs/job_14/doing/tests/task7.py`
+- 测试输出：
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过

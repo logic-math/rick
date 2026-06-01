@@ -74,7 +74,7 @@ def check_learning_prompt(project_root, job_id, keywords):
         output = result.stdout + result.stderr
         missing = [kw for kw in keywords if kw not in output]
         if missing:
-            return False, f"learning prompt missing keywords: {missing}"
+            return False, f"关键词未找到: learning prompt does not contain: {missing}"
         return True, "all keywords found in learning prompt"
     except subprocess.TimeoutExpired:
         return False, "rick learning --dry-run timed out"
@@ -189,7 +189,7 @@ def main():
     if args.test:
         errors = run_tests(args.project_root)
         result = {"pass": len(errors) == 0, "errors": errors}
-        print(json.dumps(result))
+        print(json.dumps(result, ensure_ascii=False))
         sys.exit(0 if result["pass"] else 1)
 
     if not args.keywords:
@@ -208,7 +208,7 @@ def main():
         ok, msg = check_dream_prompt(args.project_root, args.keywords)
 
     result = {"pass": ok, "errors": [] if ok else [msg]}
-    print(json.dumps(result))
+    print(json.dumps(result, ensure_ascii=False))
     sys.exit(0 if ok else 1)
 
 

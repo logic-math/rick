@@ -396,6 +396,15 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 		builder.SetVariable("task_md_content", "（本 job 无 task*.md 文件）")
 	}
 
+	// Inject act-path content
+	rickDir, _ := workspace.GetRickDir()
+	doingDir := filepath.Join(rickDir, "jobs", data.JobID, "doing")
+	actPathContent := collectActPathContent(doingDir)
+	if actPathContent == "" {
+		actPathContent = "（无 act-path 记录）"
+	}
+	builder.SetVariable("act_path_content", actPathContent)
+
 	// Build the prompt
 	promptContent, err := builder.Build()
 	if err != nil {
@@ -409,4 +418,23 @@ func buildLearningPrompt(data *ExecutionData, learningDir string) (string, error
 	}
 
 	return promptContent, nil
+}
+
+// collectActPathContent reads all act-path.md files under doingDir/tasks/*/act-path.md
+// and concatenates them with separator.
+func collectActPathContent(doingDir string) string {
+	pattern := filepath.Join(doingDir, "tasks", "*", "act-path.md")
+	files, err := filepath.Glob(pattern)
+	if err != nil || len(files) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(files))
+	for _, f := range files {
+		content, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		parts = append(parts, string(content))
+	}
+	return strings.Join(parts, "\n\n---\n\n")
 }

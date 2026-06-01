@@ -70,6 +70,47 @@ func TestExecutionDataStruct(t *testing.T) {
 	}
 }
 
+func TestCollectActPathContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	doingDir := filepath.Join(tmpDir, "doing")
+
+	task1Dir := filepath.Join(doingDir, "tasks", "task1")
+	task2Dir := filepath.Join(doingDir, "tasks", "task2")
+	if err := os.MkdirAll(task1Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(task2Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(task1Dir, "act-path.md"), []byte("# act-path task1"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(task2Dir, "act-path.md"), []byte("# act-path task2"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := collectActPathContent(doingDir)
+	if !strings.Contains(result, "act-path task1") {
+		t.Errorf("result missing 'act-path task1', got: %s", result)
+	}
+	if !strings.Contains(result, "act-path task2") {
+		t.Errorf("result missing 'act-path task2', got: %s", result)
+	}
+	if !strings.Contains(result, "---") {
+		t.Errorf("result missing separator '---', got: %s", result)
+	}
+}
+
+// TestCollectActPathContent_Empty tests empty directory
+func TestCollectActPathContent_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	result := collectActPathContent(tmpDir)
+	if result != "" {
+		t.Errorf("expected empty string for missing act-paths, got: %s", result)
+	}
+}
+
 // TestExecuteLearningWorkflow_NoDoingDir tests executeLearningWorkflow with missing doing dir
 func TestExecuteLearningWorkflow_NoDoingDir(t *testing.T) {
 	orig, err := os.Getwd()
