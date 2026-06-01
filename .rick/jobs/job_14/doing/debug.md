@@ -41,3 +41,43 @@
   ```
 - 全量测试：`go test ./...` 全部 PASS，无新增失败
 - 结论：✅ 通过
+
+## task1: 定义 AgentSession/AgentExecutor 稳定接口与 act-path 生成器
+
+**分析过程 (Analysis)**:
+- 确认 `internal/agent/` 和 `internal/actpath/` 目录不存在，需新建
+- 无 claudecode 包，无需处理依赖隔离问题（actpath 只依赖 agent 接口）
+- 梳理测试断言：RawLogPath="/tmp/raw_session.log"，basename="raw_session.log"，FinalMessageLine=42 → 输出应含 "raw_session.log:42"
+- 任务要求 FinalMessage 截断到 ≤200 字符，使用 []rune 处理 Unicode 安全
+
+**实现步骤 (Implementation)**:
+1. 创建 `internal/agent/interface.go`：定义 `ToolCall` struct、`AgentSession` 接口（ID/Duration/ToolCalls/FinalMessage/FinalMessageLine/RawLogPath）、`AgentExecutor` 接口
+2. 创建 `internal/actpath/generator.go`：实现 `Generate(session AgentSession, outputFile string) error`
+   - `os.MkdirAll(filepath.Dir(outputFile), 0755)` 自动创建目录
+   - 输出三个 Markdown 节：执行摘要 / 行为轨迹 / Agent 最终输出
+   - FinalMessage 用 []rune 截断到 200 字符
+   - 行号链接格式 `[L{n}]({rawLogPath}:{n})`
+   - Agent 最终输出尾注：`> [{base}:{finalLine}]({rawLogPath})`
+3. 创建 `internal/actpath/generator_test.go`：
+   - `mockSession` struct 实现 `AgentSession` 接口
+   - `TestGenerate_Format`：2 ToolCall（1 IsError），含截断子测试
+   - `TestGenerate_EmptyToolCalls`：零 ToolCall，仅表头
+   - `TestGenerate_CreatesDir`：嵌套目录自动创建
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 编译：`go build ./internal/agent/... ./internal/actpath/...` → 无报错
+- 接口隔离：`grep -r "claudecode" internal/actpath/` → 空（exit 1 = 无匹配）
+- 单元测试：`go test ./internal/actpath/... -v`
+  ```
+  --- PASS: TestGenerate_Format (0.01s)
+  --- PASS: TestGenerate_EmptyToolCalls (0.00s)
+  --- PASS: TestGenerate_CreatesDir (0.00s)
+  PASS
+  ok  	github.com/sunquan/rick/internal/actpath	0.488s
+  ```
+- task1.py：`python3 .rick/jobs/job_14/doing/tests/task1.py` → `{"pass": true, "errors": []}`
+- 全量测试：`go test ./...` 全部 PASS，无新增失败
+- 结论：✅ 通过
