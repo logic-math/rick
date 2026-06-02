@@ -1,8 +1,10 @@
-<!-- 变更说明：本次 job_9 执行后更新
-- 新增：KR1.5 - tools/ 目录扫描机制（原因：job_9 新增了项目特定工具的注入能力）
-- 修改：KR1.1 - 补充 tools 和 job OKR 注入（原因：doing 提示词现在还注入 tools 和 job OKR）
-- 修改：KR2.3 - 补充 index.md 优先机制（原因：skills 注入改为优先读取 index.md）
-- 新增：KR3.6 - dry-run 输出完整 prompt（原因：plan/doing/learning 的 --dry-run 现在输出完整提示词内容）
+<!-- 变更说明：本次 job_14 执行后更新
+- 新增：O4 - 建立 act-path 进化循环（原因：v2.0 核心升级，通过程序性 NDJSON 解析建立负反馈机制）
+- 新增：KR4.1 - act-path 自动生成（原因：doing 执行后需产出可机读的行为轨迹）
+- 新增：KR4.2 - learning 六步 SOP + act-path 注入（原因：learning 需消费 act-path 提取优化信号）
+- 新增：KR4.3 - dream 命令落地（原因：人工触发的进化层，消费 act-path + run_log）
+- 新增：KR4.4 - core-skills 精准注入（原因：不同 SOP 阶段需要不同 skill 组合，避免信息污染）
+- 修改：KR3.1 - 补充 rick dream（原因：核心命令扩展为四个）
 -->
 # OKR
 
@@ -37,9 +39,20 @@ Rick 应该足够简单，让开发者能在 5 分钟内上手；足够健壮，
 
 ### 关键结果 (Key Results)
 
-- KR3.1: 核心命令只有三个（`rick plan` / `rick doing` / `rick learning`），无需 init，自动初始化
+- KR3.1: 核心命令只有四个（`rick plan` / `rick doing` / `rick learning` / `rick dream`），无需 init，自动初始化
 - KR3.2: 核心模块（cmd/executor/prompt）单元测试覆盖率 ≥ 70%，集成测试覆盖所有 tools 子命令
 - KR3.3: 移除所有硬编码项目名称，Rick 可用于任意 Git 项目，零配置启动
 - KR3.4: 支持生产版（`rick`）和开发版（`rick_dev`）并行运行，用于 Rick 自我重构场景
 - KR3.5: `--auto-fix` 标志为 opt-in 设计，check 命令默认行为确定性，可在 CI 中稳定使用
-- KR3.6: plan/doing/learning 的 `--dry-run` 标志输出完整 prompt 内容，便于调试和验证上下文注入效果
+- KR3.6: plan/doing/learning/dream 的 `--dry-run` 标志输出完整 prompt 内容，便于调试和验证上下文注入效果
+
+## O4: 建立可靠的 act-path 进化循环
+
+通过程序性 NDJSON 解析建立 act-path 负反馈机制，使 learning/dream 层能够从真实行为轨迹中提取优化信号，形成"执行→观测→进化"的闭环，而非依赖 LLM 自觉记录。
+
+### 关键结果 (Key Results)
+
+- KR4.1: `rick doing` 执行后自动生成 `doing/tasks/{taskID}/act-path.md`，包含工具调用轨迹（含行号链接）、报错次数、执行时长，原始日志双写到 `raw_session.log`
+- KR4.2: `rick learning` 升级为七步 RFC SOP，自动收集所有 act-path 内容注入 `{{act_path_content}}`，Step 2 评估更优轨迹，Step 6 写入 `.rick/dream/run_log_{n}.md` 度量文件
+- KR4.3: `rick dream` 命令可运行，`--dry-run` 正常输出完整提示词，消费 act-path + run_log，执行 SENSE 反思和 evolve-skills 进化
+- KR4.4: 8 个 core-skill 文件通过 `embed.FS` 编译进二进制，按 SOP 阶段精准注入（plan/doing/learning/dream 各不相同），无跨阶段污染
