@@ -91,13 +91,9 @@ func TestIntegration_PromptBuilderWorks(t *testing.T) {
 		t.Error("project_description variable not replaced")
 	}
 
-	// Verify context was injected
-	if !strings.Contains(prompt, "Test Project") {
-		t.Error("project_name value not found in prompt")
-	}
-
-	if !strings.Contains(prompt, "A test project") {
-		t.Error("project_description value not found in prompt")
+	// Verify user requirement is injected
+	if !strings.Contains(prompt, "Implement feature X") {
+		t.Error("user_requirement value not found in prompt")
 	}
 
 	t.Logf("Prompt builder works correctly, generated %d character prompt", len(prompt))
@@ -196,7 +192,7 @@ func TestIntegration_AllPromptGeneratorsWork(t *testing.T) {
 
 	// Test plan prompt generation
 	t.Run("PlanPrompt", func(t *testing.T) {
-		prompt, err := GeneratePlanPrompt("New requirement", "/tmp/test_plan", cm, pm)
+		prompt, err := GeneratePlanPrompt("New requirement", "/tmp/test_plan", "")
 		if err != nil {
 			t.Fatalf("Failed to generate plan prompt: %v", err)
 		}
@@ -360,7 +356,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	})
 
 	// Step 1: Planning
-	planPrompt, err := GeneratePlanPrompt("Add user authentication", "/tmp/test_plan", cm, pm)
+	planPrompt, err := GeneratePlanPrompt("Add user authentication", "/tmp/test_plan", "")
 	if err != nil {
 		t.Fatalf("Planning failed: %v", err)
 	}

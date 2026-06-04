@@ -11,10 +11,9 @@ import (
 )
 
 func TestBuildLearningPrompt(t *testing.T) {
-	// Create test data
 	data := &ExecutionData{
 		JobID:        "job_0",
-		DebugContent: "Test debug content",
+		DebugContent: "## debug1: test error\n**现象**: something went wrong",
 		TasksJSON: &executor.TasksJSON{
 			Version: "1.0",
 			Tasks: []executor.TaskState{
@@ -29,27 +28,31 @@ func TestBuildLearningPrompt(t *testing.T) {
 			},
 		},
 	}
-	
-	// Build prompt
-	prompt, err := buildLearningPrompt(data, "/tmp/test-learning")
+
+	learningDir := t.TempDir()
+	promptsDir := filepath.Join(learningDir, "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
 	if err != nil {
 		t.Fatalf("buildLearningPrompt failed: %v", err)
 	}
 
-	// Verify prompt contains expected sections
-	if prompt == "" {
-		t.Fatal("Prompt should not be empty")
+	if promptFile == "" {
+		t.Fatal("Prompt file path should not be empty")
 	}
 
-	// Check for key sections
-	expectedSections := []string{
-		"task1",
-		"abc123",
+	content, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("failed to read prompt file: %v", err)
 	}
-	
-	for _, section := range expectedSections {
-		if !strings.Contains(prompt, section) {
-			t.Errorf("Prompt missing expected section: %s", section)
+	prompt := string(content)
+
+	for _, want := range []string{"task1", "abc123"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("Prompt missing expected content: %s", want)
 		}
 	}
 }
@@ -57,57 +60,15 @@ func TestBuildLearningPrompt(t *testing.T) {
 func TestExecutionDataStruct(t *testing.T) {
 	data := &ExecutionData{
 		JobID:        "job_0",
-		DebugContent: "test",
-		TasksJSON:    nil,
+		DebugContent: "## debug1: test error",
 	}
-	
+
 	if data.JobID != "job_0" {
 		t.Errorf("Expected JobID 'job_0', got '%s'", data.JobID)
 	}
-	
-	if data.DebugContent != "test" {
-		t.Errorf("Expected DebugContent 'test', got '%s'", data.DebugContent)
-	}
-}
 
-func TestCollectActPathContent(t *testing.T) {
-	tmpDir := t.TempDir()
-	doingDir := filepath.Join(tmpDir, "doing")
-
-	task1Dir := filepath.Join(doingDir, "tasks", "task1")
-	task2Dir := filepath.Join(doingDir, "tasks", "task2")
-	if err := os.MkdirAll(task1Dir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(task2Dir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.WriteFile(filepath.Join(task1Dir, "act-path.md"), []byte("# act-path task1"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(task2Dir, "act-path.md"), []byte("# act-path task2"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := collectActPathContent(doingDir)
-	if !strings.Contains(result, "act-path task1") {
-		t.Errorf("result missing 'act-path task1', got: %s", result)
-	}
-	if !strings.Contains(result, "act-path task2") {
-		t.Errorf("result missing 'act-path task2', got: %s", result)
-	}
-	if !strings.Contains(result, "---") {
-		t.Errorf("result missing separator '---', got: %s", result)
-	}
-}
-
-// TestCollectActPathContent_Empty tests empty directory
-func TestCollectActPathContent_Empty(t *testing.T) {
-	tmpDir := t.TempDir()
-	result := collectActPathContent(tmpDir)
-	if result != "" {
-		t.Errorf("expected empty string for missing act-paths, got: %s", result)
+	if data.DebugContent != "## debug1: test error" {
+		t.Errorf("Expected DebugContent, got '%s'", data.DebugContent)
 	}
 }
 
@@ -152,7 +113,6 @@ func TestExecuteLearningWorkflow_WithMockClaude(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
-	// Set up workspace with doing dir and tasks.json
 	doingDir := filepath.Join(dir, ".rick", "jobs", "job_test", "doing")
 	if err := os.MkdirAll(doingDir, 0755); err != nil {
 		t.Fatal(err)

@@ -1,43 +1,43 @@
-# skill:testing (Test Execution Specification)
+# skill:testing（测试执行规范）
 
-Use when executing tests to diagnose failures and ensure test quality.
+执行测试、诊断失败、保证测试质量时使用。
 
-## Test Execution Rules
+## 执行规则
 
-### Before Running Tests
-- Ensure the code compiles (`go build ./...` or equivalent)
-- Run tests in isolation first (`go test ./path/to/package/...`)
-- Never run `go test ./...` as the first step when debugging a failure
+### 运行测试之前
+- 确保代码能编译（`go build ./...` 或等效命令）
+- 先对单个包运行测试（`go test ./path/to/package/...`）
+- 调试失败时不要第一步就运行 `go test ./...`
 
-### Interpreting Test Output
-- `PASS` — all tests in the package passed
-- `FAIL` — at least one test failed; read the specific failure message
-- `no test files` — package has no tests (may be intentional)
-- Build errors before tests = compilation failure, fix first
+### 解读测试输出
+- `PASS` — 该包所有测试通过
+- `FAIL` — 至少一个测试失败；阅读具体的失败信息
+- `no test files` — 该包没有测试（可能是有意为之）
+- 测试前出现构建错误 = 编译失败，先修编译
 
-### Diagnosing Failures
-1. Read the FULL error message, not just the last line
-2. Find the exact file and line number from the stack trace
-3. Check if the failure is:
-   - Assertion failure: expected vs actual mismatch
-   - Panic: nil dereference, out of bounds, etc.
-   - Timeout: test hung, likely deadlock or infinite loop
-   - Setup failure: precondition not met
+### 诊断失败
+1. 读完整的错误信息，不要只看最后一行
+2. 从调用栈找到确切的文件和行号
+3. 判断失败类型：
+   - 断言失败：期望值与实际值不匹配
+   - panic：nil 引用、越界等
+   - 超时：测试挂起，可能是死锁或死循环
+   - 初始化失败：前置条件未满足
 
-### Test Isolation
-- Each test must be independent — no shared mutable state
-- Use `t.TempDir()` for file system tests (auto-cleaned)
-- Use table-driven tests for multiple input scenarios
-- Mock external dependencies at boundaries, not internal functions
+### 测试隔离
+- 每个测试必须独立——不共享可变状态
+- 文件系统测试使用 `t.TempDir()`（自动清理）
+- 多输入场景使用表驱动测试
+- 在边界处 mock 外部依赖，不要 mock 内部函数
 
-### Running Specific Tests
+### 运行特定测试
 ```bash
-go test ./pkg/... -run TestFunctionName -v       # specific test with verbose
-go test ./pkg/... -run TestSuite/SubTest -v      # subtests
-go test ./pkg/... -count=1                       # disable test cache
-go test ./pkg/... -race                          # race condition detection
+go test ./pkg/... -run TestFunctionName -v       # 指定测试，显示详情
+go test ./pkg/... -run TestSuite/SubTest -v      # 子测试
+go test ./pkg/... -count=1                       # 禁用测试缓存
+go test ./pkg/... -race                          # 竞态检测
 ```
 
-### After All Tests Pass
-- Run `go test ./...` to ensure no regressions
-- Check that new tests are actually exercising the code (coverage hint: `-cover`)
+### 所有测试通过后
+- 运行 `go test ./...` 确保没有回归
+- 用 `-cover` 检查新测试是否真正覆盖了代码路径

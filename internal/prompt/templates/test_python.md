@@ -1,6 +1,13 @@
 # Python 测试脚本生成任务
 
-**YOU MUST declare at the start: "I will use skill:tdd and skill:tc for test generation."**
+**YOU MUST declare at the start: "I will use skill:tdd and skill:testing-anti-patterns for test generation."**
+
+## 核心 Skills（必须加载）
+
+在开始任何工作之前，必须读取以下 skill 文件：
+
+- skill:tdd（测试驱动开发）：`{{tdd_skill_path}}`
+- skill:testing-anti-patterns（测试反模式）：`{{testing_anti_patterns_path}}`
 
 你需要根据任务的测试方法生成一个 Python 测试脚本。
 
@@ -230,22 +237,22 @@ Declare: "I will use skill:tdd and skill:tc for test generation."
 
 ---
 
-## RED 验证（强制）
+## 测试质量自检（强制）
 
-生成测试脚本后，**必须立即运行以下命令验证 RED phase**：
+生成测试脚本后，**必须立即运行以下命令**：
 
 ```bash
 python3 {{test_script_path}}
 ```
 
-**RED phase 验证规则**：
+**根据运行结果判断**：
 
-- ✅ 输出含 `"pass": false` → RED phase 正常，可以继续
-- ❌ 输出含 `"pass": true` → **意外绿态**，MUST 重新生成测试脚本（最多 2 次）
+- 输出 `"pass": false` → 符合预期，测试正确覆盖了待实现的功能
+- 输出 `"pass": true` → 需要判断原因：
+  - ✅ **可接受**：该功能已被前面的 task 顺带实现，测试通过是合理的
+  - ❌ **需重写**：功能尚未实现但测试已通过，说明测试逻辑有缺陷（如断言过弱、检查对象错误），**必须重新编写测试脚本**
 
-**原则**：RED phase MUST fail. 若测试在实现前就通过，说明测试脚本未正确覆盖验收条件。
-
-**声明**：`"I confirm the test is in RED phase: pass=false before implementation."`
+**你负责判断**，不依赖程序的硬性检查。判断依据：查看当前代码库，确认被测功能是否已存在。
 
 ---
 

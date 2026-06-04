@@ -46,6 +46,9 @@ var (
 	//go:embed templates/dream.md
 	dreamTemplate string
 
+	//go:embed templates/easy.md
+	easyTemplate string
+
 	//go:embed templates/skills
 	skillsFS embed.FS
 )
@@ -138,6 +141,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return humanLoopExpressTemplate
 	case "dream":
 		return dreamTemplate
+	case "easy":
+		return easyTemplate
 	default:
 		return ""
 	}
@@ -219,4 +224,42 @@ func LoadCoreSkills(names []string) string {
 		}
 	}
 	return strings.Join(parts, "\n\n---\n\n")
+}
+
+// WriteSkillTmpFile writes a core skill's content to a named tmp file and returns its path.
+// Caller is responsible for cleanup via os.Remove.
+func WriteSkillTmpFile(pattern string, skillName string) (string, error) {
+	content := LoadCoreSkills([]string{skillName})
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", fmt.Errorf("failed to create skill tmp file: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(content); err != nil {
+		os.Remove(f.Name())
+		return "", fmt.Errorf("failed to write skill tmp file: %w", err)
+	}
+	return f.Name(), nil
+}
+
+// EnsurePromptsDir creates and returns the prompts/ subdirectory inside baseDir.
+func EnsurePromptsDir(baseDir string) (string, error) {
+	dir := filepath.Join(baseDir, "prompts")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create prompts directory: %w", err)
+	}
+	return dir, nil
+}
+
+// WriteSkillFile writes an embedded skill to dir/filename (persistent, no cleanup needed).
+func WriteSkillFile(dir, filename, skillName string) (string, error) {
+	content := LoadCoreSkills([]string{skillName})
+	if content == "" {
+		return "", fmt.Errorf("embedded skill %q not found", skillName)
+	}
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write skill file: %w", err)
+	}
+	return path, nil
 }

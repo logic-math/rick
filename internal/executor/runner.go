@@ -80,44 +80,19 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 		return result, nil
 	}
 
-	// RED validation: verify test fails before implementation (max 2 retries on unexpected green)
-	const maxREDRetries = 2
-	debugFile := filepath.Join(tr.config.WorkspaceDir, "debug.md")
-	for redAttempt := 0; redAttempt < maxREDRetries; redAttempt++ {
-		redResult, _, redErr := tr.ExecuteTestScript(testScriptPath)
-		if redErr != nil || redResult == nil || !redResult.Pass {
-			// Normal RED state: test fails as expected, proceed
-			break
-		}
-		// Unexpected green state: warn and retry test generation
-		appendREDWarning(debugFile, task.ID, redAttempt+1)
-		if redAttempt == maxREDRetries-1 {
-			fmt.Printf("[WARN] RED validation: test unexpectedly passes for task %s after %d retries, continuing\n", task.ID, maxREDRetries)
-			break
-		}
-		// Retry: delete test script and regenerate
-		os.Remove(testScriptPath)
-		testScriptPath, err = tr.GenerateTestWithAgent(task)
-		if err != nil {
-			fmt.Printf("[WARN] RED validation: failed to regenerate test script: %v\n", err)
-			break
-		}
-	}
-
 	// Step 2: Execute task with context (debug.md + test error feedback)
 	var lastOutput string
 
 	// Execute once and test
-	doingPromptFile, err := tr.GenerateDoingPromptFile(task, debugContext, testErrorFeedback)
+	doingPromptFile, _, err := tr.GenerateDoingPromptFile(task, debugContext, testErrorFeedback)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("failed to generate doing prompt: %v", err)
 		result.EndTime = time.Now()
 		return result, nil
 	}
-	defer os.Remove(doingPromptFile) // Clean up temporary file
 
-	session, err := tr.agentExecutor.Execute(doingPromptFile, task.ID)
+	session, err := tr.agentExecutor.Execute(doingPromptFile, task.ID, tr.config.WorkspaceDir, "raw_session_coding.log")
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("agent execution failed: %v", err)
@@ -157,14 +132,12 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 	return result, nil
 }
 
-// GenerateTestWithAgent generates a Python test script using Claude Agent
-// This is the "test generation phase" in the workflow
+// GenerateTestWithAgent generates a Python test script using Claude Agent.
 func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
 	}
 
-	// Create tests directory if it doesn't exist
 	testsDir := filepath.Join(tr.config.WorkspaceDir, "tests")
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create tests directory: %w", err)
@@ -172,24 +145,28 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 
 	testScriptPath := filepath.Join(testsDir, fmt.Sprintf("%s.py", task.ID))
 
-	// Skip generation if the test script already exists
 	if _, err := os.Stat(testScriptPath); err == nil {
 		return testScriptPath, nil
 	}
 
-	// Create test prompt file
-	testPromptFile, err := tr.buildTestGenerationPromptFile(task, testScriptPath)
+	// Load OKR / SPEC / debug content from workspace files
+	jobDir := filepath.Dir(tr.config.WorkspaceDir)
+	rickDir := filepath.Dir(filepath.Dir(jobDir))
+	genCtx := TestGenContext{
+		OKRContent:   loadFileContent(filepath.Join(jobDir, "plan", "OKR.md")),
+		SPECContent:  loadFileContent(filepath.Join(rickDir, "SPEC.md")),
+		DebugContent: loadFileContent(filepath.Join(tr.config.WorkspaceDir, "debug.md")),
+	}
+
+	testPromptFile, _, err := tr.buildTestGenerationPromptFile(task, testScriptPath, genCtx)
 	if err != nil {
 		return "", fmt.Errorf("failed to build test prompt: %w", err)
 	}
-	defer os.Remove(testPromptFile) // Clean up temporary file
 
-	// Use agentExecutor (mockable, DI-friendly)
-	if _, err := tr.agentExecutor.Execute(testPromptFile, task.ID+"-test-gen"); err != nil {
+	if _, err := tr.agentExecutor.Execute(testPromptFile, task.ID, tr.config.WorkspaceDir, "raw_session_test_gen.log"); err != nil {
 		return "", fmt.Errorf("test generation agent failed: %w", err)
 	}
 
-	// Verify test script was created
 	if _, err := os.Stat(testScriptPath); os.IsNotExist(err) {
 		return "", fmt.Errorf("test script was not created at %s", testScriptPath)
 	}
@@ -197,76 +174,54 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	return testScriptPath, nil
 }
 
-// buildTestGenerationPromptFile builds a prompt file for Claude to generate a Python test script.
-// Uses the test_python.md template. Optional TestGenContext provides OKR/SPEC/debug content.
-func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string, ctx ...TestGenContext) (string, error) {
-	// Create prompt manager to load template
-	promptMgr := prompt.NewPromptManager("")
-
-	// Load test_python template
-	template, err := promptMgr.LoadTemplate("test_python")
+// buildTestGenerationPromptFile builds a prompt file for test generation.
+// Saves to doing/prompts/; files are persistent, no cleanup needed.
+func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScriptPath string, genCtx TestGenContext) (string, []string, error) {
+	promptsDir, err := prompt.EnsurePromptsDir(tr.config.WorkspaceDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to load test_python template: %w", err)
+		return "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
 	}
 
-	// Create prompt builder
-	builder := prompt.NewPromptBuilder(template)
+	tddZhFile, err := prompt.WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write tdd-zh skill: %w", err)
+	}
+	testingAntiPatternsFile, err := prompt.WriteSkillFile(promptsDir, "skill_testing_anti_patterns_zh.md", "testing-anti-patterns-zh")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write testing-anti-patterns-zh skill: %w", err)
+	}
 
-	// Set task information
+	promptMgr := prompt.NewPromptManager("")
+	tmpl, err := promptMgr.LoadTemplate("test_python")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load test_python template: %w", err)
+	}
+
+	builder := prompt.NewPromptBuilder(tmpl)
 	builder.SetVariable("task_id", task.ID)
 	builder.SetVariable("task_name", task.Name)
 	builder.SetVariable("task_goal", task.Goal)
-
-	// Set test method
 	builder.SetVariable("test_method", task.TestMethod)
-
-	// Set test script path
 	builder.SetVariable("test_script_path", testScriptPath)
-
-	// Set optional context variables (OKR, SPEC, debug)
-	var genCtx TestGenContext
-	if len(ctx) > 0 {
-		genCtx = ctx[0]
-	}
 	builder.SetVariable("okr_content", genCtx.OKRContent)
 	builder.SetVariable("spec_content", genCtx.SPECContent)
 	builder.SetVariable("debug_content", genCtx.DebugContent)
+	builder.SetVariable("tdd_skill_path", tddZhFile)
+	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
 
-	// Build prompt
-	promptContent, err := builder.Build()
-	if err != nil {
-		return "", fmt.Errorf("failed to build test generation prompt: %w", err)
+	promptFile := filepath.Join(promptsDir, fmt.Sprintf("%s_testgen_prompt.md", task.ID))
+	if err := builder.SaveToFile(promptFile); err != nil {
+		return "", nil, fmt.Errorf("failed to save test generation prompt: %w", err)
 	}
 
-	// Create temporary file
-	tmpFile, err := os.CreateTemp("", fmt.Sprintf("rick-test-gen-%s-*.md", task.ID))
-	if err != nil {
-		return "", fmt.Errorf("failed to create temporary file: %w", err)
-	}
-	defer tmpFile.Close()
-
-	// Append core skills for testing agent phase
-	coreSkills := prompt.LoadCoreSkills([]string{"tdd", "testing", "tc"})
-	if coreSkills != "" {
-		promptContent += "\n\n## Core Skills\n\n" + coreSkills
-	}
-
-	if _, err := tmpFile.WriteString(promptContent); err != nil {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("failed to write prompt to file: %w", err)
-	}
-
-	return tmpFile.Name(), nil
+	return promptFile, []string{tddZhFile, testingAntiPatternsFile}, nil
 }
 
-// GenerateDoingPromptFile generates the doing prompt file for Claude Code CLI
-// Parameters:
-//   - task: The task to execute
-//   - debugContext: Content from debug.md (managed by Claude)
-//   - testErrorFeedback: Previous test execution errors for test script correction
-func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string, testErrorFeedback string) (string, error) {
+// GenerateDoingPromptFile generates the doing prompt file for Claude Code CLI.
+// Returns the prompt file path, skill tmp files (caller must remove all), and any error.
+func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string, testErrorFeedback string) (string, []string, error) {
 	if task == nil {
-		return "", fmt.Errorf("task cannot be nil")
+		return "", nil, fmt.Errorf("task cannot be nil")
 	}
 
 	// Extract jobID from WorkspaceDir (.rick/jobs/job_X/doing → job_X)
@@ -275,74 +230,65 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	// Create context manager with actual job ID
 	contextMgr := prompt.NewContextManager(jobID)
 
-	// Compute rickDir from workspaceDir (.rick/jobs/job_X/doing → .rick)
+	// Compute rickDir and jobDir from workspaceDir (.rick/jobs/job_X/doing → .rick)
 	rickDir := ""
 	if tr.config.WorkspaceDir != "" {
-		jobDir := filepath.Dir(tr.config.WorkspaceDir)  // go up to .rick/jobs/job_X
-		rickDir = filepath.Dir(filepath.Dir(jobDir))    // go up to .rick
+		jobDir := filepath.Dir(tr.config.WorkspaceDir) // .rick/jobs/job_X
+		rickDir = filepath.Dir(filepath.Dir(jobDir))   // .rick
 
-		// Load job-level OKR from job_N/plan/OKR.md (not global .rick/OKR.md)
+		// OKR: from job_N/plan/OKR.md
 		jobOKRPath := filepath.Join(jobDir, "plan", "OKR.md")
 		if _, err := os.Stat(jobOKRPath); err == nil {
 			contextMgr.LoadOKRFromFile(jobOKRPath)
 		}
 
+		// SPEC: from .rick/SPEC.md
 		specPath := filepath.Join(rickDir, "SPEC.md")
 		if _, err := os.Stat(specPath); err == nil {
 			contextMgr.LoadSPECFromFile(specPath)
 		}
+
+		// Debug: from doing/debug.md (always load; errors silently ignored)
+		debugMdPath := filepath.Join(tr.config.WorkspaceDir, "debug.md")
+		contextMgr.LoadDebugFromFile(debugMdPath) // nolint: ignore error when file absent
 	}
 
 	// Create prompt manager (use embedded templates)
 	promptMgr := prompt.NewPromptManager("")
 
-	// Generate doing prompt file (pass rickDir for skills injection)
-	doingPromptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, rickDir)
+	// Generate doing prompt file (pass doingDir for prompts/, rickDir for skills injection)
+	doingPromptFile, skillFiles, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, tr.config.WorkspaceDir, rickDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate doing prompt: %w", err)
+		return "", nil, fmt.Errorf("failed to generate doing prompt: %w", err)
 	}
 
-	// Read existing content
-	content, err := os.ReadFile(doingPromptFile)
-	if err != nil {
-		os.Remove(doingPromptFile)
-		return "", fmt.Errorf("failed to read prompt file: %w", err)
-	}
-
-	var additionalContext strings.Builder
-
-	// Append debug context if available
-	if debugContext != "" {
-		additionalContext.WriteString("\n\n## Previous Debugging Context\n\n")
-		additionalContext.WriteString(debugContext)
-		additionalContext.WriteString("\n\nPlease review the debugging context above and avoid the same mistakes.\n")
-	}
-
-	// Append test error feedback if available
+	// Append test error feedback if available (not part of normal context; retry-specific)
 	if testErrorFeedback != "" {
-		additionalContext.WriteString("\n\n## Test Execution Feedback\n\n")
-		additionalContext.WriteString("**Previous test execution encountered errors. You may need to fix the test script.**\n\n")
-		additionalContext.WriteString("Test error details:\n")
-		additionalContext.WriteString("```\n")
-		additionalContext.WriteString(testErrorFeedback)
-		additionalContext.WriteString("\n```\n\n")
-		additionalContext.WriteString("**Action Required**:\n")
-		additionalContext.WriteString("1. Review the test script for potential issues\n")
-		additionalContext.WriteString("2. Check if the test logic correctly validates the task requirements\n")
-		additionalContext.WriteString("3. Fix any bugs in the test script (path issues, logic errors, etc.)\n")
-		additionalContext.WriteString("4. Ensure the test script outputs valid JSON format\n")
-		additionalContext.WriteString("5. Re-run the task to verify the fix\n")
-	}
-
-	// Write back with additional context
-	if additionalContext.Len() > 0 {
-		if err := os.WriteFile(doingPromptFile, append(content, []byte(additionalContext.String())...), 0644); err != nil {
-			os.Remove(doingPromptFile)
-			return "", fmt.Errorf("failed to append additional context: %w", err)
+		content, err := os.ReadFile(doingPromptFile)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read prompt file: %w", err)
+		}
+		var fb strings.Builder
+		fb.WriteString("\n\n## Test Execution Feedback\n\n")
+		fb.WriteString("**Previous test execution encountered errors. You may need to fix the test script.**\n\n")
+		fb.WriteString("```\n")
+		fb.WriteString(testErrorFeedback)
+		fb.WriteString("\n```\n")
+		if err := os.WriteFile(doingPromptFile, append(content, []byte(fb.String())...), 0644); err != nil {
+			return "", nil, fmt.Errorf("failed to append test feedback: %w", err)
 		}
 	}
 
-	return doingPromptFile, nil
+	return doingPromptFile, skillFiles, nil
+}
+
+// loadFileContent reads a file and returns its content, or "暂无" if the file is absent.
+func loadFileContent(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "暂无"
+	}
+	return string(content)
 }
 
 // extractJobIDFromPath extracts the job ID (e.g. "job_1") from a workspace directory path.
@@ -485,21 +431,6 @@ func (tr *TaskRunner) parseTestResult(output string) (*TestResult, error) {
 	return nil, fmt.Errorf("no valid JSON result found in output")
 }
 
-// appendREDWarning writes a RED phase warning to debug.md when a test unexpectedly passes before implementation.
-func appendREDWarning(debugFile, taskID string, attempt int) {
-	warning := fmt.Sprintf(
-		"\n\n## RED Warning (attempt %d): unexpected pass for %s\n\nTest script returned pass=true before implementation (unexpected green state). "+
-			"This indicates the test script may not correctly cover the required behavior. Regenerating test script.\n\n",
-		attempt, taskID,
-	)
-	f, err := os.OpenFile(debugFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Printf("[WARN] failed to write RED warning to debug.md: %v\n", err)
-		return
-	}
-	defer f.Close()
-	f.WriteString(warning)
-}
 
 // TaskExecutionResult represents the result of a task execution
 type TaskExecutionResult struct {

@@ -3,6 +3,7 @@ package prompt
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sunquan/rick/internal/parser"
@@ -111,8 +112,11 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	}
 	builder.SetVariable("job_okr_content", jobOKRContent)
 
-	// Set SPEC content
-	specContent := formatSPECContent(contextMgr.GetSPECInfo())
+	// Set SPEC content (raw, not parsed)
+	specContent := contextMgr.GetSPECRaw()
+	if specContent == "" {
+		specContent = "暂无项目 SPEC 信息"
+	}
 	builder.SetVariable("spec_content", specContent)
 
 	// Set project architecture
@@ -148,27 +152,48 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	return prompt, nil
 }
 
-// GenerateDoingPromptFile generates the execution phase prompt and saves it to a temporary file
-// Returns the file path and any error
-// The caller is responsible for cleaning up the temporary file
+// GenerateDoingPromptFile generates the execution phase prompt and saves it to doingDir/prompts/.
+// doingDir is the job's doing directory; when empty, falls back to a temp directory.
 // rickDir is optional: when non-empty, skills from .rick/skills/ are appended to the prompt.
-func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
+// Files are persistent; no cleanup needed.
+func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *ContextManager, manager *PromptManager, doingDir string, rickDir ...string) (string, []string, error) {
 	if task == nil {
-		return "", fmt.Errorf("task cannot be nil")
+		return "", nil, fmt.Errorf("task cannot be nil")
 	}
 
 	if contextMgr == nil {
-		return "", fmt.Errorf("context manager cannot be nil")
+		return "", nil, fmt.Errorf("context manager cannot be nil")
 	}
 
 	if manager == nil {
-		return "", fmt.Errorf("prompt manager cannot be nil")
+		return "", nil, fmt.Errorf("prompt manager cannot be nil")
 	}
+
+	// Determine prompts directory
+	promptsDir, err := resolvePromptsDir(doingDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to resolve prompts dir: %w", err)
+	}
+
+	// Write core skill files to prompts/
+	tddZhFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write tdd-zh skill: %w", err)
+	}
+	testingAntiPatternsFile, err := WriteSkillFile(promptsDir, "skill_testing_anti_patterns_zh.md", "testing-anti-patterns-zh")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write testing-anti-patterns-zh skill: %w", err)
+	}
+	systematicDebuggingFile, err := WriteSkillFile(promptsDir, "skill_systematic_debugging_zh.md", "systematic-debugging-zh")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write systematic-debugging-zh skill: %w", err)
+	}
+	skillFiles := []string{tddZhFile, testingAntiPatternsFile, systematicDebuggingFile}
 
 	// Load doing template
 	template, err := manager.LoadTemplate("doing")
 	if err != nil {
-		return "", fmt.Errorf("failed to load doing template: %w", err)
+		return "", nil, fmt.Errorf("failed to load doing template: %w", err)
 	}
 
 	// Create prompt builder
@@ -195,8 +220,11 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	}
 	builder.SetVariable("job_okr_content", jobOKRContent2)
 
-	// Set SPEC content
-	specContent := formatSPECContent(contextMgr.GetSPECInfo())
+	// Set SPEC content (raw, not parsed)
+	specContent := contextMgr.GetSPECRaw()
+	if specContent == "" {
+		specContent = "暂无项目 SPEC 信息"
+	}
 	builder.SetVariable("spec_content", specContent)
 
 	// Set project architecture
@@ -215,6 +243,11 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	debugContext := formatDebugContext(contextMgr.GetDebug())
 	builder.SetVariable("debug_context", debugContext)
 
+	// Set skill paths for path injection
+	builder.SetVariable("tdd_skill_path", tddZhFile)
+	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
+	builder.SetVariable("systematic_debugging_path", systematicDebuggingFile)
+
 	// Set rick_bin_path and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	jobIDVal := contextMgr.GetJobID()
@@ -223,18 +256,10 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	}
 	builder.SetVariable("job_id", jobIDVal)
 
-	// Build and save to temporary file
-	promptFile, err := builder.BuildAndSave(fmt.Sprintf("doing-%s", task.ID))
-	if err != nil {
-		return "", fmt.Errorf("failed to build and save doing prompt: %w", err)
-	}
-
-	// Inject core skills for doing phase (coding agent)
-	coreSkills := LoadCoreSkills([]string{"tdd", "tdd/testing-anti-patterns", "debug"})
-	if coreSkills != "" {
-		if _, err := readAndAppend(promptFile, "\n\n## Core Skills\n\n"+coreSkills); err != nil {
-			return "", fmt.Errorf("failed to append core skills: %w", err)
-		}
+	// Save to doing/prompts/
+	promptFile := filepath.Join(promptsDir, fmt.Sprintf("%s_doing_prompt.md", task.ID))
+	if err := builder.SaveToFile(promptFile); err != nil {
+		return "", nil, fmt.Errorf("failed to save doing prompt: %w", err)
 	}
 
 	// Inject skills section if rickDir is provided
@@ -245,7 +270,7 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	skillsSection := formatSkillsSection(resolvedRickDir)
 	if skillsSection != "" {
 		if _, err := readAndAppend(promptFile, skillsSection); err != nil {
-			return "", fmt.Errorf("failed to append skills section: %w", err)
+			return "", nil, fmt.Errorf("failed to append skills section: %w", err)
 		}
 	}
 
@@ -254,11 +279,19 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	toolsSection := formatToolsSection(projectRoot)
 	if toolsSection != "" {
 		if _, err := readAndAppend(promptFile, toolsSection); err != nil {
-			return "", fmt.Errorf("failed to append tools section: %w", err)
+			return "", nil, fmt.Errorf("failed to append tools section: %w", err)
 		}
 	}
 
-	return promptFile, nil
+	return promptFile, skillFiles, nil
+}
+
+// resolvePromptsDir returns doingDir/prompts/ (created), or a temp dir if doingDir is empty.
+func resolvePromptsDir(doingDir string) (string, error) {
+	if doingDir == "" {
+		return os.MkdirTemp("", "rick-doing-prompts-*")
+	}
+	return EnsurePromptsDir(doingDir)
 }
 
 // readAndAppend appends text to a file and returns nil on success

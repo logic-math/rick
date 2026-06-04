@@ -7,7 +7,7 @@ import (
 	"github.com/sunquan/rick/internal/cmd"
 )
 
-const VERSION = "1.1.2"
+const VERSION = "2.0.0"
 
 func main() {
 	rootCmd := cmd.NewRootCmd(VERSION)

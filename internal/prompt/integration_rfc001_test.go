@@ -28,16 +28,12 @@ func TestIntegration_RFC001(t *testing.T) {
 	// ─── task1: learning input refactor ──────────────────────────────────────
 
 	t.Run("task1/learning_prompt_contains_task_name", func(t *testing.T) {
-		// buildLearningPrompt in cmd/learning.go injects task_md_content.
-		// The learning template renders {{task_md_content}}.
-		// We test via GenerateLearningPrompt which uses the same template,
-		// but also test that the template has the variable.
 		tmpl, err := pm.LoadTemplate("learning")
 		if err != nil {
 			t.Fatalf("load learning template: %v", err)
 		}
-		if !strings.Contains(tmpl.Content, "{{task_md_content}}") {
-			t.Error("learning template must contain {{task_md_content}} variable")
+		if !strings.Contains(tmpl.Content, "{{task_md_files}}") {
+			t.Error("learning template must contain {{task_md_files}} variable")
 		}
 		if !strings.Contains(tmpl.Content, "{{okr_content}}") {
 			t.Error("learning template must contain {{okr_content}} variable")
@@ -73,26 +69,24 @@ func TestIntegration_RFC001(t *testing.T) {
 	})
 
 	t.Run("task1/buildLearningPrompt_contains_task_md_content", func(t *testing.T) {
-		// Build a learning prompt with real task content and verify it appears.
+		// Now task*.md are injected as paths, not content.
+		// Verify the task file path appears in the prompt.
 		tmpDir := t.TempDir()
 		planDir := filepath.Join(tmpDir, "plan")
 		if err := os.MkdirAll(planDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		taskContent := "# 依赖关系\n\n# 任务名称\n实现登录接口\n\n# 任务目标\n创建 /login 端点\n\n# 关键结果\n1. 返回 JWT token\n"
-		if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(taskContent), 0644); err != nil {
+		taskFile := filepath.Join(planDir, "task1.md")
+		if err := os.WriteFile(taskFile, []byte("# 任务名称\n实现登录接口\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		prompt, err := buildLearningPromptForTest(t, "job_test", taskContent, "", tmpDir)
+		prompt, err := buildLearningPromptForTest(t, "job_test", taskFile, "", tmpDir)
 		if err != nil {
 			t.Fatalf("buildLearningPromptForTest: %v", err)
 		}
-		if !strings.Contains(prompt, "实现登录接口") {
-			t.Error("learning prompt must contain task name from task.md")
-		}
-		if !strings.Contains(prompt, "关键结果") {
-			t.Error("learning prompt must contain key results from task.md")
+		if !strings.Contains(prompt, "task1.md") {
+			t.Error("learning prompt must contain task file path")
 		}
 	})
 
@@ -120,11 +114,10 @@ func TestIntegration_RFC001(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		promptContent, err := GenerateDoingPromptFile(task, 0, cm, pm, tmpDir)
+		promptContent, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir(), tmpDir)
 		if err != nil {
 			t.Fatalf("GenerateDoingPromptFile: %v", err)
 		}
-		defer os.Remove(promptContent)
 
 		data, err := os.ReadFile(promptContent)
 		if err != nil {
@@ -135,23 +128,20 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task2/plan_prompt_contains_skills_index_when_exists", func(t *testing.T) {
+	t.Run("task2/plan_prompt_skills_from_spec_not_index", func(t *testing.T) {
+		// skills are now expected in SPEC.md (via spec_content), not injected from index.md
 		tmpDir := t.TempDir()
-		skillsDir := filepath.Join(tmpDir, "skills")
-		if err := os.MkdirAll(skillsDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		indexContent := "# Skills Index\n\n| 文件 | 描述 |\n|------|------|\n| my_skill.py | 描述 |\n"
-		if err := os.WriteFile(filepath.Join(skillsDir, "index.md"), []byte(indexContent), 0644); err != nil {
+		specContent := "# SPEC\n## 技能列表\n| 名称 | 触发词 | 路径 |\n|------|--------|------|\n| my_skill | debug | .rick/wiki/my_skill.md |\n"
+		if err := os.WriteFile(filepath.Join(tmpDir, "SPEC.md"), []byte(specContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		promptContent, err := GeneratePlanPrompt("需求描述", "/tmp/plan", cm, pm, tmpDir)
+		promptContent, err := GeneratePlanPrompt("需求描述", "/tmp/plan", tmpDir)
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
-		if !strings.Contains(promptContent, "Skills Index") {
-			t.Error("plan prompt must contain skills index content when index.md exists")
+		if !strings.Contains(promptContent, "技能列表") {
+			t.Error("plan prompt must contain skills from SPEC.md spec_content")
 		}
 	})
 
@@ -167,11 +157,10 @@ func TestIntegration_RFC001(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		promptFile, err := GenerateDoingPromptFile(task, 0, cm, pm, tmpDir)
+		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir(), tmpDir)
 		if err != nil {
 			t.Fatalf("GenerateDoingPromptFile: %v", err)
 		}
-		defer os.Remove(promptFile)
 
 		data, err := os.ReadFile(promptFile)
 		if err != nil {
@@ -202,11 +191,10 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 		defer os.Chdir(orig)
 
-		promptFile, err := GenerateDoingPromptFile(task, 0, cm, pm)
+		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir())
 		if err != nil {
 			t.Fatalf("GenerateDoingPromptFile: %v", err)
 		}
-		defer os.Remove(promptFile)
 
 		data, err := os.ReadFile(promptFile)
 		if err != nil {
@@ -220,7 +208,8 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task3/plan_prompt_contains_tools_when_tools_exist", func(t *testing.T) {
+	t.Run("task3/plan_prompt_no_tools_injection", func(t *testing.T) {
+		// tools are no longer injected directly into plan prompt (moved to SPEC.md 控制方法)
 		tmpDir := t.TempDir()
 		toolsDir := filepath.Join(tmpDir, "tools")
 		if err := os.MkdirAll(toolsDir, 0755); err != nil {
@@ -236,12 +225,13 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 		defer os.Chdir(orig)
 
-		promptContent, err := GeneratePlanPrompt("需求", "/tmp/plan", cm, pm)
+		promptContent, err := GeneratePlanPrompt("需求", "/tmp/plan", "")
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
-		if !strings.Contains(promptContent, "plan_tool") {
-			t.Error("plan prompt must contain tools list when tools/*.py exist")
+		// tools are no longer auto-injected into plan prompt
+		if strings.Contains(promptContent, "{{tools_list}}") {
+			t.Error("plan prompt must not contain unreplaced {{tools_list}} variable")
 		}
 	})
 
@@ -255,11 +245,10 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 		defer os.Chdir(orig)
 
-		promptFile, err := GenerateDoingPromptFile(task, 0, cm, pm)
+		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir())
 		if err != nil {
 			t.Fatalf("GenerateDoingPromptFile: %v", err)
 		}
-		defer os.Remove(promptFile)
 
 		data, err := os.ReadFile(promptFile)
 		if err != nil {
@@ -279,7 +268,7 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 		defer os.Chdir(orig)
 
-		promptContent, err := GeneratePlanPrompt("需求", "/tmp/plan", cm, pm)
+		promptContent, err := GeneratePlanPrompt("需求", "/tmp/plan", "")
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
@@ -339,9 +328,9 @@ func TestIntegration_RFC001(t *testing.T) {
 	})
 }
 
-// buildLearningPromptForTest is a helper that calls cmd.buildLearningPrompt indirectly
-// by constructing the prompt via the template system directly (same logic as cmd/learning.go).
-func buildLearningPromptForTest(t *testing.T, jobID, taskMDContent, okrContent, tmpDir string) (string, error) {
+// buildLearningPromptForTest is a helper that constructs a learning prompt via the template system.
+// taskMDPath is a file path (or empty), okrContent is inline OKR text.
+func buildLearningPromptForTest(t *testing.T, jobID, taskMDPath, okrContent, tmpDir string) (string, error) {
 	t.Helper()
 	pm := NewPromptManager("")
 	tmpl, err := pm.LoadTemplate("learning")
@@ -349,13 +338,14 @@ func buildLearningPromptForTest(t *testing.T, jobID, taskMDContent, okrContent, 
 		return "", err
 	}
 	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("project_name", "rick")
-	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 	builder.SetVariable("job_id", jobID)
 	builder.SetVariable("learning_dir", filepath.Join(tmpDir, "learning"))
 	builder.SetVariable("rick_bin_path", "./bin/rick")
-	builder.SetVariable("task_execution_results", "| task1 | Test | success | task1.md | abc12345 | 1 |")
-	builder.SetVariable("debug_records", "无调试信息")
+	builder.SetVariable("task_execution_results", "| task1 | Test | success | abc12345 | 1 |")
+	builder.SetVariable("debug_path", "/tmp/debug.md")
+	builder.SetVariable("spec_path", "/tmp/SPEC.md")
+	builder.SetVariable("act_path_files", "  （无 act-path.md 文件）")
+	builder.SetVariable("gen_skill_path", "/tmp/gen-skill.md")
 
 	if okrContent != "" {
 		builder.SetVariable("okr_content", okrContent)
@@ -363,10 +353,10 @@ func buildLearningPromptForTest(t *testing.T, jobID, taskMDContent, okrContent, 
 		builder.SetVariable("okr_content", "（本 job 无 OKR.md）")
 	}
 
-	if taskMDContent != "" {
-		builder.SetVariable("task_md_content", taskMDContent)
+	if taskMDPath != "" {
+		builder.SetVariable("task_md_files", "  - `"+taskMDPath+"`")
 	} else {
-		builder.SetVariable("task_md_content", "（本 job 无 task*.md 文件）")
+		builder.SetVariable("task_md_files", "  （本 job 无 task*.md 文件）")
 	}
 
 	return builder.Build()

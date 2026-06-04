@@ -30,39 +30,10 @@ func New() (*Workspace, error) {
 	return ws, nil
 }
 
-// InitWorkspace initializes the .rick directory structure
+// InitWorkspace initializes the .rick directory structure.
+// Delegates to EnsureDirectories which handles both dirs and stub files.
 func (w *Workspace) InitWorkspace() error {
-	// Create main directories
-	directories := []string{
-		w.rickDir,
-		filepath.Join(w.rickDir, WikiDirName),
-		filepath.Join(w.rickDir, SkillsDirName),
-		filepath.Join(w.rickDir, JobsDirName),
-	}
-
-	for _, dir := range directories {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	// Create OKR.md file if it doesn't exist
-	okriPath := filepath.Join(w.rickDir, OKRFileName)
-	if _, err := os.Stat(okriPath); os.IsNotExist(err) {
-		if err := os.WriteFile(okriPath, []byte("# OKR\n\n"), 0644); err != nil {
-			return fmt.Errorf("failed to create OKR.md: %w", err)
-		}
-	}
-
-	// Create SPEC.md file if it doesn't exist
-	specPath := filepath.Join(w.rickDir, SpecFileName)
-	if _, err := os.Stat(specPath); os.IsNotExist(err) {
-		if err := os.WriteFile(specPath, []byte("# SPEC\n\n"), 0644); err != nil {
-			return fmt.Errorf("failed to create SPEC.md: %w", err)
-		}
-	}
-
-	return nil
+	return w.EnsureDirectories()
 }
 
 // GetJobPath returns the path to a specific job directory
@@ -101,19 +72,31 @@ func (w *Workspace) CreateJobStructure(jobID string) error {
 	return nil
 }
 
-// EnsureDirectories ensures all necessary workspace directories exist
+// EnsureDirectories ensures all necessary workspace directories and stub files exist.
+// Idempotent: safe to call on every plan/doing invocation.
 func (w *Workspace) EnsureDirectories() error {
-	directories := []string{
+	dirs := []string{
 		w.rickDir,
 		filepath.Join(w.rickDir, WikiDirName),
-		filepath.Join(w.rickDir, SkillsDirName),
 		filepath.Join(w.rickDir, JobsDirName),
 		filepath.Join(w.rickDir, DreamDirName),
 	}
-
-	for _, dir := range directories {
+	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to ensure directory %s: %w", dir, err)
+		}
+	}
+
+	// Create stub files only if they don't exist yet
+	stubs := map[string]string{
+		filepath.Join(w.rickDir, OKRFileName):  "# OKR\n\n",
+		filepath.Join(w.rickDir, SpecFileName): "# SPEC\n\n## 调试环境\n\n## 架构设计\n\n## 编译与运行方法\n\n## 观测方法\n\n## 控制方法\n\n## 技能列表\n\n| 名称 | 触发词 | 路径 |\n|------|--------|------|\n",
+	}
+	for path, content := range stubs {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				return fmt.Errorf("failed to create %s: %w", path, err)
+			}
 		}
 	}
 

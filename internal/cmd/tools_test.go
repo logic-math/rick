@@ -94,8 +94,9 @@ func TestRunPlanCheck_Valid(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "task2.md"), []byte(task2), 0644); err != nil {
 		t.Fatal(err)
 	}
-	// OKR.md is required
-	if err := os.WriteFile(filepath.Join(dir, "OKR.md"), []byte("# Job OKR\n## O1: 目标\n"), 0644); err != nil {
+	// OKR.md is required with meaningful content
+	okrContent := "# Job OKR\n## O1: 目标\n- KR1: 完成核心功能实现并通过测试\n- KR2: 代码覆盖率达到 80% 以上\n"
+	if err := os.WriteFile(filepath.Join(dir, "OKR.md"), []byte(okrContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runPlanCheck(dir); err != nil {
@@ -298,57 +299,6 @@ func TestRunLearningCheck_MissingJobHeading(t *testing.T) {
 	}
 }
 
-func TestRunLearningCheck_BadPythonSyntax(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	skillsDir := filepath.Join(dir, "skills")
-	if err := os.MkdirAll(skillsDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	badPy := "def broken(\n    x = 1 +\n"
-	if err := os.WriteFile(filepath.Join(skillsDir, "bad.py"), []byte(badPy), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runLearningCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for bad Python syntax")
-	}
-	if !containsStr(err.Error(), "syntax") && !containsStr(err.Error(), "Python") {
-		t.Errorf("expected syntax error, got: %v", err)
-	}
-}
-
-func TestRunLearningCheck_OKRMissingSection(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// OKR.md without required sections
-	if err := os.WriteFile(filepath.Join(dir, "OKR.md"), []byte("# OKR\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runLearningCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for OKR missing sections")
-	}
-}
-
-func TestRunLearningCheck_SPECMissingSection(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// SPEC.md missing required sections
-	if err := os.WriteFile(filepath.Join(dir, "SPEC.md"), []byte("# SPEC\n## 技术栈\nGo"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runLearningCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for SPEC missing sections")
-	}
-}
 
 func TestRunLearningCheck_Valid(t *testing.T) {
 	dir := t.TempDir()
@@ -365,12 +315,12 @@ func TestRunLearningCheck_ValidWithSkill(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	skillsDir := filepath.Join(dir, "skills")
-	if err := os.MkdirAll(skillsDir, 0755); err != nil {
+	toolsDir := filepath.Join(dir, "tools")
+	if err := os.MkdirAll(toolsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	goodPy := "def hello():\n    return 'world'\n"
-	if err := os.WriteFile(filepath.Join(skillsDir, "good.py"), []byte(goodPy), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(toolsDir, "good.py"), []byte(goodPy), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runLearningCheck(dir); err != nil {
@@ -397,7 +347,7 @@ func TestRunLearningCheck_ValidSPEC(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	spec := "## 技术栈\nGo\n## 架构设计\nModular\n## 开发规范\nStandard\n## 工程实践\nDAG\n"
+	spec := "## 调试环境\ngo run\n## 架构设计\nModular\n## 编译与运行方法\ngo build\n## 观测方法\nlogs\n## 控制方法\nconfig\n## 技能列表\n| 名称 | 触发词 | 路径 |\n"
 	if err := os.WriteFile(filepath.Join(dir, "SPEC.md"), []byte(spec), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -469,66 +419,6 @@ func TestToolsSubcommands(t *testing.T) {
 		if !subNames[name] {
 			t.Errorf("missing subcommand: %s", name)
 		}
-	}
-}
-
-func TestCheckOKRSections_Valid(t *testing.T) {
-	dir := t.TempDir()
-	okrPath := filepath.Join(dir, "OKR.md")
-	content := "## O1: 完成项目\n### 关键结果\n1. KR1\n"
-	if err := os.WriteFile(okrPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkOKRSections(okrPath); err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-}
-
-func TestCheckOKRSections_MissingObjective(t *testing.T) {
-	dir := t.TempDir()
-	okrPath := filepath.Join(dir, "OKR.md")
-	content := "# OKR\n### 关键结果\n1. KR1\n"
-	if err := os.WriteFile(okrPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkOKRSections(okrPath); err == nil {
-		t.Fatal("expected error for missing objective")
-	}
-}
-
-func TestCheckOKRSections_MissingKR(t *testing.T) {
-	dir := t.TempDir()
-	okrPath := filepath.Join(dir, "OKR.md")
-	content := "## O1: 目标\nsome content\n"
-	if err := os.WriteFile(okrPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkOKRSections(okrPath); err == nil {
-		t.Fatal("expected error for missing 关键结果")
-	}
-}
-
-func TestCheckSPECSections_Valid(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "SPEC.md")
-	content := "## 技术栈\nGo\n## 架构设计\nModular\n## 开发规范\nStandard\n## 工程实践\nDAG\n"
-	if err := os.WriteFile(specPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkSPECSections(specPath); err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-}
-
-func TestCheckSPECSections_Missing(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "SPEC.md")
-	content := "## 技术栈\nGo\n## 架构设计\nModular\n"
-	if err := os.WriteFile(specPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkSPECSections(specPath); err == nil {
-		t.Fatal("expected error for missing SPEC sections")
 	}
 }
 
@@ -836,7 +726,14 @@ func TestRunPlanCheck_WithWorkspace(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(task1), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(planDir, "OKR.md"), []byte("# Job OKR\n## O1: 目标\n"), 0644); err != nil {
+		okrContent := "# Job OKR\n## O1: 目标\n- KR1: 完成核心功能实现并通过测试\n"
+		if err := os.WriteFile(filepath.Join(planDir, "OKR.md"), []byte(okrContent), 0644); err != nil {
+			t.Fatal(err)
+		}
+		// Write meaningful SPEC.md so the project-level check passes
+		specPath := filepath.Join(dir, ".rick", "SPEC.md")
+		specContent := "# SPEC\n## 架构设计\n本项目采用 Go 标准库实现，无外部依赖。\n## 编译与运行方法\n```\ngo build ./...\n```\n"
+		if err := os.WriteFile(specPath, []byte(specContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := runPlanCheck(planDir); err != nil {
@@ -1067,8 +964,8 @@ func TestCollectExecutionData_NoDebugMD(t *testing.T) {
 		if err != nil {
 			t.Errorf("expected no error even without debug.md, got: %v", err)
 		}
-		if data != nil && !containsStr(data.DebugContent, "No debugging") {
-			t.Logf("debug content: %s", data.DebugContent)
+		if data != nil && data.DebugContent != "" {
+			t.Logf("debug content unexpectedly set: %s", data.DebugContent)
 		}
 	})
 }
@@ -1291,13 +1188,13 @@ func TestEnsureGitUserConfigured_WithConfig(t *testing.T) {
 	}
 }
 
-func TestRunMerge_WithWikiAndSkills(t *testing.T) {
+func TestRunMerge_WithWikiAndTools(t *testing.T) {
 	dir := setupGitRepo(t)
 	learningDir := filepath.Join(dir, ".rick", "jobs", "job_test", "learning")
 	if err := os.MkdirAll(filepath.Join(learningDir, "wiki"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(learningDir, "skills"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(learningDir, "tools"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("APPROVED: true\n\ncontent"), 0644); err != nil {
@@ -1306,7 +1203,7 @@ func TestRunMerge_WithWikiAndSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(learningDir, "wiki", "test.md"), []byte("# Test\ncontent"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(learningDir, "skills", "test.py"), []byte("def test(): pass\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(learningDir, "tools", "test.py"), []byte("def test(): pass\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// Pre-commit .rick dir
@@ -1319,6 +1216,6 @@ func TestRunMerge_WithWikiAndSkills(t *testing.T) {
 
 	err := runMerge("job_test")
 	if err != nil {
-		t.Logf("runMerge with wiki/skills returned: %v", err)
+		t.Logf("runMerge with wiki/tools returned: %v", err)
 	}
 }

@@ -1,45 +1,45 @@
-# skill:gen-skill (Generate Skill from Act-Path)
+# skill:gen-skill（从 act-path 提取技能）
 
-Use when extracting reusable skills from observed agent execution patterns in act-path logs.
+从 act-path 日志中观察到的 agent 执行模式中提取可复用技能时使用。
 
-## Skill Generation Format
+## 技能文件格式
 
-A skill file must contain three sections:
+技能文件必须包含三个部分：
 
-### 触发场景（Trigger Scenario）
-When should this skill be applied?
-- Describe the concrete situation where this pattern is useful
-- Use "Use when..." format
-- Be specific: "Use when debugging a test that passes locally but fails in CI" not "Use when debugging"
-- Include the problem signals that indicate this skill is needed
+### 触发场景
+什么情况下应该使用这个技能？
+- 描述该模式有用的具体情境
+- 格式："当...时使用"
+- 要具体："当调试本地通过但 CI 失败的测试时使用"，而不是"调试时使用"
+- 包含表明需要该技能的问题信号
 
-### 预期效果（Expected Effect）
-What outcome does applying this skill produce?
-- Measurable result: "reduces debugging time from hours to minutes"
-- Quality signal: "produces a test that actually exercises the code path"
-- Failure prevention: "prevents X type of mistake"
+### 预期效果
+应用这个技能会产生什么结果？
+- 可衡量的结果："将调试时间从数小时缩短到数分钟"
+- 质量信号："产出真正覆盖代码路径的测试"
+- 防止失败："防止 X 类型的错误"
 
-### 核心内容（Core Content）
-The reusable procedure or framework:
-- Step-by-step instructions if sequential
-- Decision tree if conditional
-- Checklist if parallel
-- Include concrete examples, not just abstract principles
-- Reference actual code patterns where relevant
+### 核心内容
+可复用的步骤或框架：
+- 顺序执行的步骤
+- 条件判断的决策树
+- 并行执行的检查清单
+- 包含具体示例，而不仅仅是抽象原则
+- 在相关的地方引用实际代码模式
 
-## Extraction Protocol from Act-Path
+## 从 act-path 提取协议
 
 ```
-1. Read act-path-{taskID}.md for the completed task
-2. Identify repeated tool call patterns (3+ similar sequences)
-3. Find error→fix sequences (what went wrong and how it was resolved)
-4. Check if the pattern is generalizable (applicable beyond this specific task)
-5. Write the skill in the three-section format above
-6. Add the skill to .rick/skills/ with descriptive filename
+1. 读取已完成任务的 act-path-{taskID}.md
+2. 识别重复出现的工具调用模式（3次以上的相似序列）
+3. 找出"出错→修复"序列（哪里出了问题以及如何解决的）
+4. 判断该模式是否可泛化（是否适用于这个特定任务之外）
+5. 按上述三部分格式编写技能
+6. 将技能以描述性文件名添加到 .rick/skills/
 ```
 
-## Quality Criteria
-- Trigger is specific enough to know when to apply it
-- Content is actionable (not just principles, but steps)
-- Effect is observable (you can tell if it worked)
-- Length: 100-300 words (concise but complete)
+## 质量标准
+- 触发条件足够具体，知道何时应用
+- 核心内容可操作（不只是原则，还有步骤）
+- 效果可观测（能判断是否生效）
+- 长度：100-300 字（简洁但完整）

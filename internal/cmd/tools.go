@@ -22,6 +22,7 @@ Available subcommands:
   plan_check      Validate the plan directory structure for a job
   doing_check     Validate the doing directory structure for a job
   learning_check  Validate the learning directory structure for a job
+  dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/
   merge           Merge learning outputs into the main .rick context`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -31,6 +32,7 @@ Available subcommands:
 	toolsCmd.AddCommand(NewPlanCheckCmd())
 	toolsCmd.AddCommand(NewDoingCheckCmd())
 	toolsCmd.AddCommand(NewLearningCheckCmd())
+	toolsCmd.AddCommand(NewDreamCheckCmd())
 	toolsCmd.AddCommand(NewMergeCmd())
 
 	return toolsCmd

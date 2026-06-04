@@ -25,5 +25,5 @@ type AgentSession interface {
 
 // AgentExecutor runs a prompt file and returns a session capturing the execution.
 type AgentExecutor interface {
-	Execute(promptFile, taskID string) (AgentSession, error)
+	Execute(promptFile, taskID, workspaceDir, logFileName string) (AgentSession, error)
 }

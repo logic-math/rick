@@ -19,6 +19,7 @@ import (
 
 func NewDoingCmd() *cobra.Command {
 	var jobID string
+	var easy bool
 
 	doingCmd := &cobra.Command{
 		Use:   "doing [job_id]",
@@ -30,7 +31,24 @@ func NewDoingCmd() *cobra.Command {
 				fmt.Println("[INFO] Starting doing phase...")
 			}
 
-			// Get job ID from args, local flag, or global flag
+			// Easy mode: args[0] is requirement (not job_id); --job flag is for resume
+			if easy {
+				// --job flag explicitly set → resume existing session
+				if jobID == "" {
+					jobID = GetJobID()
+				}
+				if jobID != "" {
+					return resumeEasyMode(jobID)
+				}
+				// New easy session: args[0] is the requirement
+				requirement := ""
+				if len(args) > 0 {
+					requirement = args[0]
+				}
+				return runEasyMode(requirement)
+			}
+
+			// Normal doing: args[0] is job_id
 			if len(args) > 0 {
 				jobID = args[0]
 			} else if jobID == "" {
@@ -65,6 +83,7 @@ func NewDoingCmd() *cobra.Command {
 	}
 
 	doingCmd.Flags().StringVar(&jobID, "job", "", "Job ID to execute")
+	doingCmd.Flags().BoolVar(&easy, "easy", false, "Easy mode: skip plan, start interactive Claude session")
 
 	return doingCmd
 }
@@ -544,12 +563,11 @@ func runDoingDryRun(jobID string) error {
 
 	promptMgr := prompt.NewPromptManager("")
 
-	promptFile, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, rickDir)
+	promptFile, _, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, doingDir, rickDir)
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
 		return nil
 	}
-	defer os.Remove(promptFile)
 
 	content, err := os.ReadFile(promptFile)
 	if err != nil {

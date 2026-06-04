@@ -39,7 +39,7 @@ func TestGenerate_Format(t *testing.T) {
 		},
 		finalMessage:     "done",
 		finalMessageLine: 42,
-		rawLogPath:       "/tmp/raw_session.log",
+		rawLogPath:       "/tmp/raw_session_coding.log",
 	}
 
 	if err := Generate(sess, outFile); err != nil {
@@ -58,7 +58,7 @@ func TestGenerate_Format(t *testing.T) {
 		"## Agent 最终输出",
 		"报错次数: 1",
 		"[L",
-		"raw_session.log:42",
+		"raw_session_coding.log:42",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("output missing %q\ncontent:\n%s", want, s)
@@ -73,7 +73,7 @@ func TestGenerate_Format(t *testing.T) {
 		toolCalls:        nil,
 		finalMessage:     longMsg,
 		finalMessageLine: 1,
-		rawLogPath:       "/tmp/raw_session.log",
+		rawLogPath:       "/tmp/raw_session_coding.log",
 	}
 	outFile2 := filepath.Join(dir, "act-path2.md")
 	if err := Generate(sess2, outFile2); err != nil {
@@ -101,7 +101,7 @@ func TestGenerate_EmptyToolCalls(t *testing.T) {
 		toolCalls:        []agent.ToolCall{},
 		finalMessage:     "ok",
 		finalMessageLine: 1,
-		rawLogPath:       "/tmp/raw_session.log",
+		rawLogPath:       "/tmp/raw_session_coding.log",
 	}
 
 	if err := Generate(sess, outFile); err != nil {
@@ -132,7 +132,7 @@ func TestGenerate_CreatesDir(t *testing.T) {
 		toolCalls:        nil,
 		finalMessage:     "ok",
 		finalMessageLine: 1,
-		rawLogPath:       "/tmp/raw_session.log",
+		rawLogPath:       "/tmp/raw_session_coding.log",
 	}
 
 	if err := Generate(sess, outFile); err != nil {

@@ -27,10 +27,10 @@ Flow:
   2. Create branch learning/job_N from current HEAD
   3. Switch to that branch
   4. Copy learning/wiki/ → .rick/wiki/ (overwrite)
-  5. Copy learning/skills/ → .rick/skills/ (overwrite)
+  5. Copy learning/tools/ → tools/ (project root, overwrite)
   6. Copy learning/OKR.md → .rick/OKR.md (if exists)
   7. Copy learning/SPEC.md → .rick/SPEC.md (if exists)
-  8. Regenerate .rick/wiki/README.md and .rick/skills/README.md
+  8. Regenerate .rick/wiki/README.md
   9. git commit "learning: merge job_N knowledge"
   10. Switch back to original branch
   11. Print structured summary for AI agent
@@ -93,6 +93,7 @@ func runMerge(jobID string) error {
 
 	// Step 4: Copy learning/wiki/ → .rick/wiki/
 	learningWikiDir := filepath.Join(learningDir, "wiki")
+	learningToolsDir := filepath.Join(learningDir, "tools")
 	if info, err := os.Stat(learningWikiDir); err == nil && info.IsDir() {
 		destWikiDir := filepath.Join(rickDir, workspace.WikiDirName)
 		if err := os.MkdirAll(destWikiDir, 0755); err != nil {
@@ -109,22 +110,17 @@ func runMerge(jobID string) error {
 		mergedItems = append(mergedItems, fmt.Sprintf("wiki: %d files copied", count))
 	}
 
-	// Step 5: Copy learning/skills/ → .rick/skills/
-	learningSkillsDir := filepath.Join(learningDir, "skills")
-	if info, err := os.Stat(learningSkillsDir); err == nil && info.IsDir() {
-		destSkillsDir := filepath.Join(rickDir, workspace.SkillsDirName)
-		if err := os.MkdirAll(destSkillsDir, 0755); err != nil {
-			return fmt.Errorf("failed to create skills directory: %w", err)
+	// Step 5: Copy learning/tools/ → tools/ (project root)
+	if info, err := os.Stat(learningToolsDir); err == nil && info.IsDir() {
+		destToolsDir := filepath.Join(filepath.Dir(rickDir), "tools")
+		if err := os.MkdirAll(destToolsDir, 0755); err != nil {
+			return fmt.Errorf("failed to create tools directory: %w", err)
 		}
-		count, err := copyDir(learningSkillsDir, destSkillsDir)
+		count, err := copyDir(learningToolsDir, destToolsDir)
 		if err != nil {
-			return fmt.Errorf("failed to copy skills: %w", err)
+			return fmt.Errorf("failed to copy tools: %w", err)
 		}
-		// Regenerate skills README
-		if err := workspace.GenerateSkillsREADME(rickDir); err != nil {
-			return fmt.Errorf("failed to regenerate skills README: %w", err)
-		}
-		mergedItems = append(mergedItems, fmt.Sprintf("skills: %d files copied", count))
+		mergedItems = append(mergedItems, fmt.Sprintf("tools: %d files copied", count))
 	}
 
 	// Step 6: Copy learning/OKR.md → .rick/OKR.md
@@ -150,11 +146,11 @@ func runMerge(jobID string) error {
 	// Step 8: git add changed paths (only those that exist)
 	pathsToAdd := []string{}
 	wikiDir := filepath.Join(rickDir, workspace.WikiDirName)
-	skillsDir := filepath.Join(rickDir, workspace.SkillsDirName)
+	toolsDir := filepath.Join(filepath.Dir(rickDir), "tools")
 	okrFile := filepath.Join(rickDir, workspace.OKRFileName)
 	specFile := filepath.Join(rickDir, workspace.SpecFileName)
 
-	for _, p := range []string{wikiDir, skillsDir, okrFile, specFile} {
+	for _, p := range []string{wikiDir, toolsDir, okrFile, specFile} {
 		if _, err := os.Stat(p); err == nil {
 			pathsToAdd = append(pathsToAdd, p)
 		}
@@ -189,11 +185,10 @@ func runMerge(jobID string) error {
 		_, _ = copyDir(learningWikiDir, destWikiDir)
 		_ = generateWikiREADME(rickDir)
 	}
-	if info, err := os.Stat(learningSkillsDir); err == nil && info.IsDir() {
-		destSkillsDir := filepath.Join(rickDir, workspace.SkillsDirName)
-		_ = os.MkdirAll(destSkillsDir, 0755)
-		_, _ = copyDir(learningSkillsDir, destSkillsDir)
-		_ = workspace.GenerateSkillsREADME(rickDir)
+	if info, err := os.Stat(learningToolsDir); err == nil && info.IsDir() {
+		reapplyToolsDir := filepath.Join(filepath.Dir(rickDir), "tools")
+		_ = os.MkdirAll(reapplyToolsDir, 0755)
+		_, _ = copyDir(learningToolsDir, reapplyToolsDir)
 	}
 	if _, err := os.Stat(learningOKR); err == nil {
 		_ = copyFile(learningOKR, filepath.Join(rickDir, workspace.OKRFileName))

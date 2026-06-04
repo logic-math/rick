@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -24,10 +23,7 @@ Arguments:
   job_id    Job identifier (e.g. job_1)
 
 Checks performed:
-  - learning/SUMMARY.md exists
-  - if learning/skills/*.py exist, each passes Python syntax check
-  - if learning/OKR.md exists, it contains required sections
-  - if learning/SPEC.md exists, it contains required sections
+  - learning/SUMMARY.md exists and contains a "# Job" heading
 
 Output:
   ✅ learning check passed
@@ -94,9 +90,8 @@ Exit codes:
 	return cmd
 }
 
-// runLearningCheck performs all structural checks on the learning directory.
+// runLearningCheck checks that SUMMARY.md exists in the learning directory.
 func runLearningCheck(learningDir string) error {
-	// 1. SUMMARY.md exists and has valid content
 	summaryPath := filepath.Join(learningDir, "SUMMARY.md")
 	if _, err := os.Stat(summaryPath); os.IsNotExist(err) {
 		return fmt.Errorf("SUMMARY.md not found in %s", learningDir)
@@ -109,97 +104,11 @@ func runLearningCheck(learningDir string) error {
 		return fmt.Errorf("SUMMARY.md exists but is empty or missing required '# Job' heading")
 	}
 
-	// 2. If learning/skills/*.py exist, each must pass Python syntax check
-	skillsDir := filepath.Join(learningDir, "skills")
-	if info, err := os.Stat(skillsDir); err == nil && info.IsDir() {
-		entries, err := os.ReadDir(skillsDir)
-		if err != nil {
-			return fmt.Errorf("failed to read skills directory: %w", err)
-		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".py") {
-				continue
-			}
-			pyFile := filepath.Join(skillsDir, e.Name())
-			checkCmd := exec.Command("python3", "-c",
-				fmt.Sprintf("import ast; ast.parse(open(%q).read())", pyFile))
-			if out, err := checkCmd.CombinedOutput(); err != nil {
-				return fmt.Errorf("Python syntax error in skills/%s: %s", e.Name(), strings.TrimSpace(string(out)))
-			}
-		}
-	}
-
-	// 3. If learning/OKR.md exists, check required sections
-	okrPath := filepath.Join(learningDir, "OKR.md")
-	if _, err := os.Stat(okrPath); err == nil {
-		if checkErr := checkOKRSections(okrPath); checkErr != nil {
-			return checkErr
-		}
-	}
-
-	// 4. If learning/SPEC.md exists, check required sections
-	specPath := filepath.Join(learningDir, "SPEC.md")
-	if _, err := os.Stat(specPath); err == nil {
-		if checkErr := checkSPECSections(specPath); checkErr != nil {
-			return checkErr
-		}
-	}
-
 	fmt.Printf("✅ learning check passed\n")
 	return nil
 }
 
-// checkOKRSections verifies OKR.md contains the required sections.
-func checkOKRSections(okrPath string) error {
-	content, err := os.ReadFile(okrPath)
-	if err != nil {
-		return fmt.Errorf("failed to read OKR.md: %w", err)
-	}
-	text := string(content)
-
-	// Must contain a line starting with "## O"
-	hasObjective := false
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "## O") {
-			hasObjective = true
-			break
-		}
-	}
-	if !hasObjective {
-		return fmt.Errorf("OKR.md is missing required section: ## O (objective heading)")
-	}
-
-	if !strings.Contains(text, "### 关键结果") {
-		return fmt.Errorf("OKR.md is missing required section: ### 关键结果")
-	}
-
-	return nil
-}
-
-// checkSPECSections verifies SPEC.md contains the four required sections.
-func checkSPECSections(specPath string) error {
-	content, err := os.ReadFile(specPath)
-	if err != nil {
-		return fmt.Errorf("failed to read SPEC.md: %w", err)
-	}
-	text := string(content)
-
-	requiredSections := []string{
-		"## 技术栈",
-		"## 架构设计",
-		"## 开发规范",
-		"## 工程实践",
-	}
-	for _, section := range requiredSections {
-		if !strings.Contains(text, section) {
-			return fmt.Errorf("SPEC.md is missing required section: %s", section)
-		}
-	}
-
-	return nil
-}
-
-// writeLearningCheckFixPrompt writes a prompt file asking claude to fix learning check errors.
+// writeLearningCheckFixPrompt writes a prompt file asking claude to fix SUMMARY.md.
 func writeLearningCheckFixPrompt(learningDir string, checkErr error) (string, error) {
 	tmpFile, err := os.CreateTemp("", "rick-learning-check-fix-*.md")
 	if err != nil {
@@ -207,26 +116,20 @@ func writeLearningCheckFixPrompt(learningDir string, checkErr error) (string, er
 	}
 	defer tmpFile.Close()
 
-	prompt := fmt.Sprintf(`# Fix Learning Check Errors
+	content := fmt.Sprintf(`# Fix Learning Check Errors
 
-The following errors were found in the learning directory: %s
+The following error was found in the learning directory: %s
 
-## Errors
+## Error
 
 %v
 
 ## Instructions
 
-Please fix the above errors in the learning directory. Make sure:
-1. SUMMARY.md exists, is non-empty, and contains a "# Job" heading summarizing the job execution
-2. Any .py files in skills/ are valid Python (fix syntax errors)
-3. If OKR.md exists, it contains a "## O..." objective heading and "### 关键结果" section
-4. If SPEC.md exists, it contains all four sections: ## 技术栈, ## 架构设计, ## 开发规范, ## 工程实践
+Please fix the above error. Ensure SUMMARY.md exists in %s, is non-empty, and contains a "# Job" heading summarizing the job execution.
+`, learningDir, checkErr, learningDir)
 
-Fix the documents and scripts in place, preserving existing content where possible.
-`, learningDir, checkErr)
-
-	if _, err := tmpFile.WriteString(prompt); err != nil {
+	if _, err := tmpFile.WriteString(content); err != nil {
 		return "", fmt.Errorf("failed to write prompt file: %w", err)
 	}
 

@@ -6,12 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
 // resolveRickBinPath returns the path to the rick binary.
-// Prefers ./bin/rick if it exists, otherwise falls back to "rick".
 func resolveRickBinPath() string {
 	projectRoot, err := os.Getwd()
 	if err != nil {
@@ -25,11 +23,8 @@ func resolveRickBinPath() string {
 }
 
 // extractJobID extracts the job ID (e.g. "job_1") from a plan or doing directory path.
-// Expected formats: .rick/jobs/job_N/plan or .rick/jobs/job_N/doing
 func extractJobID(dirPath string) string {
-	// Normalize separators and split
 	parts := strings.Split(filepath.ToSlash(dirPath), "/")
-	// Walk backwards to find a segment matching "job_*"
 	for i := len(parts) - 1; i >= 0; i-- {
 		if strings.HasPrefix(parts[i], "job_") {
 			return parts[i]
@@ -38,250 +33,145 @@ func extractJobID(dirPath string) string {
 	return "job_N"
 }
 
-// GeneratePlanPrompt generates the planning phase prompt from user requirement.
-// jobPlanDir is the absolute path to the job's plan directory.
-// rickDir is optional: when non-empty, skills index from .rick/skills/index.md is injected.
-func GeneratePlanPrompt(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
+// GeneratePlanPrompt generates the plan prompt content with placeholder paths (for dry-run).
+func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (string, error) {
 	if requirement == "" {
 		return "", fmt.Errorf("requirement cannot be empty")
 	}
 
-	if contextMgr == nil {
-		return "", fmt.Errorf("context manager cannot be nil")
-	}
-
-	if manager == nil {
-		return "", fmt.Errorf("prompt manager cannot be nil")
-	}
-
-	// Load plan template
-	template, err := manager.LoadTemplate("plan")
+	mgr := NewPromptManager()
+	tmpl, err := mgr.LoadTemplate("plan")
 	if err != nil {
 		return "", fmt.Errorf("failed to load plan template: %w", err)
 	}
 
-	// Create prompt builder
-	builder := NewPromptBuilder(template)
-
-	// Set project information
-	projectName, _ := workspace.GetProjectName()
-	builder.SetVariable("project_name", projectName)
-	builder.SetVariable("project_description", "Context-First AI Coding Framework")
-
-	// Set SPEC content: use parsed result, fall back to raw file content
-	specContent := formatSPECContent(contextMgr.GetSPECInfo())
-	if specContent == "暂无项目 SPEC 信息" && contextMgr.GetSPECRaw() != "" {
-		specContent = contextMgr.GetSPECRaw()
-	}
-	builder.SetVariable("spec_content", specContent)
-
-	// Set user requirement
+	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("okr_path", loadOKRPath(rickDir))
+	builder.SetVariable("spec_path", loadSpecPath(rickDir))
+	builder.SetVariable("rfc_dir", loadRFCDir(rickDir))
+	builder.SetVariable("rfc_paths", loadRFCPaths(rickDir))
 	builder.SetVariable("user_requirement", requirement)
-
-	// Set completed work history
-	completedWork := formatCompletedWork(contextMgr.GetHistory())
-	builder.SetVariable("completed_work", completedWork)
-
-	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
-
-	// Set rick_bin_path and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	builder.SetVariable("job_id", extractJobID(jobPlanDir))
+	builder.SetVariable("sense_skill_path", "<tmp>/rick-plan-skill-sense-*.md")
+	builder.SetVariable("write_spec_skill_path", "<tmp>/rick-plan-skill-write_spec-*.md")
+	builder.SetVariable("tdd_skill_path", "<tmp>/rick-plan-skill-tdd-zh-*.md")
+	builder.SetVariable("testing_anti_patterns_path", "<tmp>/rick-plan-skill-testing-anti-patterns-zh-*.md")
 
-	// Set skills index
-	resolvedRickDir := ""
-	if len(rickDir) > 0 {
-		resolvedRickDir = rickDir[0]
-	}
-	skillsIndex := formatSkillsIndexSection(resolvedRickDir)
-	builder.SetVariable("skills_index", skillsIndex)
-
-	// Set tools list
-	toolsList := formatToolsListSection()
-	builder.SetVariable("tools_list", toolsList)
-
-	// Build final prompt
-	prompt, err := builder.Build()
-	if err != nil {
-		return "", fmt.Errorf("failed to build plan prompt: %w", err)
-	}
-
-	return prompt, nil
+	return builder.Build()
 }
 
-// GeneratePlanPromptFile generates the planning phase prompt and saves it to a temporary file.
-// jobPlanDir is the absolute path to the job's plan directory (e.g. .rick/jobs/job_1/plan).
-// rickDir is optional: when non-empty, skills index from .rick/skills/index.md is injected.
-// Returns the file path and any error. The caller is responsible for cleaning up the temporary file.
-func GeneratePlanPromptFile(requirement string, jobPlanDir string, contextMgr *ContextManager, manager *PromptManager, rickDir ...string) (string, error) {
+// GeneratePlanPromptFile generates the plan prompt and saves to jobPlanDir/prompts/.
+// All files are persistent; no cleanup needed by caller.
+func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir string) (string, []string, error) {
 	if requirement == "" {
-		return "", fmt.Errorf("requirement cannot be empty")
+		return "", nil, fmt.Errorf("requirement cannot be empty")
 	}
 
-	if contextMgr == nil {
-		return "", fmt.Errorf("context manager cannot be nil")
-	}
-
-	if manager == nil {
-		return "", fmt.Errorf("prompt manager cannot be nil")
-	}
-
-	// Load plan template
-	template, err := manager.LoadTemplate("plan")
+	promptsDir, err := EnsurePromptsDir(jobPlanDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to load plan template: %w", err)
+		return "", nil, err
 	}
 
-	// Create prompt builder
-	builder := NewPromptBuilder(template)
-
-	// Set project information
-	projectName, _ := workspace.GetProjectName()
-	builder.SetVariable("project_name", projectName)
-	builder.SetVariable("project_description", "Context-First AI Coding Framework")
-
-	// Set SPEC content: use parsed result, fall back to raw file content
-	specContent2 := formatSPECContent(contextMgr.GetSPECInfo())
-	if specContent2 == "暂无项目 SPEC 信息" && contextMgr.GetSPECRaw() != "" {
-		specContent2 = contextMgr.GetSPECRaw()
+	mgr := NewPromptManager()
+	tmpl, err := mgr.LoadTemplate("plan")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load plan template: %w", err)
 	}
-	builder.SetVariable("spec_content", specContent2)
 
-	// Set user requirement
+	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
+	if err != nil {
+		return "", nil, err
+	}
+	writeSpecFile, err := WriteSkillFile(promptsDir, "skill_write_spec.md", "write_spec")
+	if err != nil {
+		return "", nil, err
+	}
+	tddZhFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
+	if err != nil {
+		return "", nil, err
+	}
+	testingAntiPatternsFile, err := WriteSkillFile(promptsDir, "skill_testing_anti_patterns_zh.md", "testing-anti-patterns-zh")
+	if err != nil {
+		return "", nil, err
+	}
+
+	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("okr_path", loadOKRPath(rickDir))
+	builder.SetVariable("spec_path", loadSpecPath(rickDir))
+	builder.SetVariable("rfc_dir", loadRFCDir(rickDir))
+	builder.SetVariable("rfc_paths", loadRFCPaths(rickDir))
 	builder.SetVariable("user_requirement", requirement)
-
-	// Set completed work history
-	completedWork2 := formatCompletedWork(contextMgr.GetHistory())
-	builder.SetVariable("completed_work", completedWork2)
-
-	// Set job plan directory
 	builder.SetVariable("job_plan_dir", jobPlanDir)
-
-	// Set rick_bin_path and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	builder.SetVariable("job_id", extractJobID(jobPlanDir))
+	builder.SetVariable("sense_skill_path", senseFile)
+	builder.SetVariable("write_spec_skill_path", writeSpecFile)
+	builder.SetVariable("tdd_skill_path", tddZhFile)
+	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
 
-	// Set skills index
-	resolvedRickDir2 := ""
-	if len(rickDir) > 0 {
-		resolvedRickDir2 = rickDir[0]
-	}
-	skillsIndex2 := formatSkillsIndexSection(resolvedRickDir2)
-	builder.SetVariable("skills_index", skillsIndex2)
-
-	// Set tools list
-	toolsList2 := formatToolsListSection()
-	builder.SetVariable("tools_list", toolsList2)
-
-	// Build and save to temporary file
-	promptFile, err := builder.BuildAndSave("plan")
-	if err != nil {
-		return "", fmt.Errorf("failed to build and save plan prompt: %w", err)
+	promptFile := filepath.Join(promptsDir, "plan_prompt.md")
+	if err := builder.SaveToFile(promptFile); err != nil {
+		return "", nil, fmt.Errorf("failed to save plan prompt: %w", err)
 	}
 
-	// Inject core skills for plan phase
-	coreSkills := LoadCoreSkills([]string{"sense", "tc"})
-	if coreSkills != "" {
-		if _, err := readAndAppend(promptFile, "\n\n## Core Skills\n\n"+coreSkills); err != nil {
-			return "", fmt.Errorf("failed to append core skills: %w", err)
-		}
-	}
-
-	return promptFile, nil
+	return promptFile, nil, nil
 }
 
-// formatToolsListSection returns a formatted tools list for injection into plan prompts.
-// Scans os.Getwd()/tools/*.py and returns empty string if no tools exist.
-func formatToolsListSection() string {
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		return ""
+// loadOKRPath returns the path to .rick/OKR.md, or "暂无" if missing.
+func loadOKRPath(rickDir string) string {
+	if rickDir == "" {
+		return "暂无"
 	}
-	tools, err := workspace.LoadToolsList(projectRoot)
-	if err != nil || len(tools) == 0 {
-		return ""
+	p := filepath.Join(rickDir, "OKR.md")
+	if _, err := os.Stat(p); err != nil {
+		return "暂无"
+	}
+	return p
+}
+
+// loadSpecPath returns the path to .rick/SPEC.md, or "暂无" if missing.
+func loadSpecPath(rickDir string) string {
+	if rickDir == "" {
+		return "暂无"
+	}
+	p := filepath.Join(rickDir, workspace.SpecFileName)
+	if _, err := os.Stat(p); err != nil {
+		return "暂无"
+	}
+	return p
+}
+
+// loadRFCDir returns the path to .rick/RFC/ directory, or "暂无" if rickDir is empty.
+func loadRFCDir(rickDir string) string {
+	if rickDir == "" {
+		return "暂无"
+	}
+	return filepath.Join(rickDir, "RFC")
+}
+
+// loadRFCPaths returns a bullet list of paths to .md files under .rick/RFC/, or "暂无".
+func loadRFCPaths(rickDir string) string {
+	if rickDir == "" {
+		return "暂无"
+	}
+	rfcDir := filepath.Join(rickDir, "RFC")
+	entries, err := os.ReadDir(rfcDir)
+	if err != nil || len(entries) == 0 {
+		return "暂无"
 	}
 
 	var sb strings.Builder
-	sb.WriteString("以下 Python 脚本位于 `tools/`，规划任务时优先考虑利用这些工具：\n\n")
-	sb.WriteString("| 文件 | 描述 |\n")
-	sb.WriteString("|------|------|\n")
-	for _, t := range tools {
-		sb.WriteString(fmt.Sprintf("| tools/%s.py | %s |\n", t.Name, t.Description))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		sb.WriteString("- `" + filepath.Join(rfcDir, e.Name()) + "`\n")
 	}
-	sb.WriteString("\n调用方式：`python3 tools/<filename>.py`\n")
+	if sb.Len() == 0 {
+		return "暂无"
+	}
 	return sb.String()
 }
 
-// formatSkillsIndexSection returns the skills index content for injection into plan prompts.
-// Returns empty string if rickDir is empty or index.md doesn't exist.
-func formatSkillsIndexSection(rickDir string) string {
-	if rickDir == "" {
-		return ""
-	}
-	content, err := workspace.LoadSkillsIndex(rickDir)
-	if err != nil || content == "" {
-		return ""
-	}
-	return content
-}
-
-// formatOKRContent formats OKR information for the prompt
-func formatOKRContent(okrInfo *parser.ContextInfo) string {
-	if okrInfo == nil || (len(okrInfo.Objectives) == 0 && len(okrInfo.KeyResults) == 0) {
-		return "暂无项目 OKR 信息"
-	}
-
-	var content strings.Builder
-
-	if len(okrInfo.Objectives) > 0 {
-		content.WriteString("**Objectives**:\n")
-		for _, obj := range okrInfo.Objectives {
-			content.WriteString(fmt.Sprintf("- %s\n", obj))
-		}
-		content.WriteString("\n")
-	}
-
-	if len(okrInfo.KeyResults) > 0 {
-		content.WriteString("**Key Results**:\n")
-		for _, kr := range okrInfo.KeyResults {
-			content.WriteString(fmt.Sprintf("- %s\n", kr))
-		}
-	}
-
-	return content.String()
-}
-
-// formatSPECContent formats SPEC information for the prompt
-func formatSPECContent(specInfo *parser.ContextInfo) string {
-	if specInfo == nil || len(specInfo.Specifications) == 0 {
-		return "暂无项目 SPEC 信息"
-	}
-
-	var content strings.Builder
-	content.WriteString("**Specifications**:\n")
-	for _, spec := range specInfo.Specifications {
-		content.WriteString(fmt.Sprintf("- %s\n", spec))
-	}
-
-	return content.String()
-}
-
-// formatCompletedWork formats completed work history for the prompt
-// Deprecated: History/completed work feature removed as per requirements
-// Keeping this function for potential future use
-func formatCompletedWork(history []string) string {
-	if len(history) == 0 {
-		return "这是项目的第一阶段规划"
-	}
-
-	var content strings.Builder
-	content.WriteString("**已完成的工作:**\n")
-
-	for _, item := range history {
-		content.WriteString(fmt.Sprintf("- %s\n", item))
-	}
-
-	return content.String()
-}

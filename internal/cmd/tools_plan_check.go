@@ -178,14 +178,45 @@ func runPlanCheck(planDir string) error {
 		return fmt.Errorf("dependency check failed: %w", err)
 	}
 
-	// 6. OKR.md exists in plan directory
+	// 6. OKR.md exists in plan directory and has meaningful content
 	okrPath := filepath.Join(planDir, "OKR.md")
 	if _, err := os.Stat(okrPath); os.IsNotExist(err) {
 		return fmt.Errorf("OKR.md not found in plan directory: %s", planDir)
 	}
+	if !fileHasMeaningfulContent(okrPath) {
+		return fmt.Errorf("OKR.md has no meaningful content (only stub headers): %s", okrPath)
+	}
+
+	// 7. Project-level .rick/SPEC.md has meaningful content
+	// planDir is .rick/jobs/job_N/plan — go up 3 levels to reach .rick
+	rickDir := filepath.Dir(filepath.Dir(filepath.Dir(planDir)))
+	specPath := filepath.Join(rickDir, "SPEC.md")
+	if _, err := os.Stat(specPath); err == nil {
+		if !fileHasMeaningfulContent(specPath) {
+			return fmt.Errorf("SPEC.md has no meaningful content (only stub headers): %s\nPlease fill in architecture, build instructions, and skill list", specPath)
+		}
+	}
 
 	fmt.Printf("✅ plan check passed: %d tasks, dependencies valid\n", len(tasks))
 	return nil
+}
+
+// fileHasMeaningfulContent returns true if the file has content beyond markdown
+// structural lines (headers starting with #, table rows starting with |, empty lines).
+func fileHasMeaningfulContent(path string) bool {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	meaningful := 0
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "|") {
+			continue
+		}
+		meaningful += len(line)
+	}
+	return meaningful >= 10
 }
 
 // runAutoFix calls claude in non-interactive mode with the given prompt file.

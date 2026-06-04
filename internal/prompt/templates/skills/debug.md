@@ -1,47 +1,47 @@
-# skill:debug (Systematic Debugging)
+# skill:debug（系统化调试）
 
-Use when encountering a bug, unexpected behavior, or test failure that is not immediately obvious.
+遇到 bug、非预期行为或不明显的测试失败时使用。
 
-## Four-Phase Systematic Debugging
+## 四阶段系统化调试
 
-### Phase 1: Information Collection（信息收集）
-Gather all available evidence before forming hypotheses:
-- Read the FULL error message and stack trace (not just the last line)
-- Reproduce the failure consistently — if it's flaky, that's a separate bug
-- Identify exact inputs and environment that trigger the failure
-- Check recent changes: `git log --oneline -10`, `git diff HEAD~1`
-- Collect: error message, stack trace, relevant logs, system state
+### 阶段一：信息收集
+在形成假设之前，收集所有可用证据：
+- 读完整的错误信息和调用栈（不要只看最后一行）
+- 稳定复现失败——如果是偶发的，那本身就是另一个 bug
+- 确定触发失败的确切输入和环境
+- 检查最近的变更：`git log --oneline -10`，`git diff HEAD~1`
+- 收集：错误信息、调用栈、相关日志、系统状态
 
-**Output**: A precise problem statement: "When I call X with Y, I expect Z but get W"
+**产出**：精确的问题描述："当我用 Y 调用 X 时，期望得到 Z，但实际得到 W"
 
-### Phase 2: Hypothesis（假设）
-Form testable explanations:
-- List 2-3 candidate root causes ordered by likelihood
-- Each hypothesis must be falsifiable (can be proven wrong)
-- Consider: off-by-one, nil pointer, type mismatch, race condition, wrong config
-- Don't fix anything yet — premature fixes hide the real cause
+### 阶段二：假设
+形成可验证的解释：
+- 列出 2-3 个候选根因，按可能性排序
+- 每个假设必须可证伪（能被证明是错的）
+- 考虑：差一错误、nil 指针、类型不匹配、竞态条件、配置错误
+- 先不要修复任何东西——仓促修复会掩盖真正的原因
 
-**Output**: "My top hypothesis is [X] because [evidence]. I can verify by [test]."
+**产出**："我最可能的假设是 [X]，理由是 [证据]。验证方法：[测试]。"
 
-### Phase 3: Verification（验证）
-Test one hypothesis at a time:
-- Add targeted logging or print statements to confirm/deny
-- Write a minimal reproduction case (smallest code that triggers the bug)
-- Use debugger or unit test to isolate the failing component
-- If hypothesis is wrong, eliminate it and test the next one
+### 阶段三：验证
+每次只验证一个假设：
+- 添加有针对性的日志或打印语句来确认/否定假设
+- 写一个最小复现用例（触发 bug 的最小代码）
+- 用调试器或单元测试隔离失败的组件
+- 假设被证否则排除，继续测试下一个
 
-**Output**: Confirmed root cause with evidence: "The bug is [X] as proven by [observation]."
+**产出**：附带证据的确认根因："bug 是 [X]，证明是 [观察到的现象]。"
 
-### Phase 4: Fix（修复）
-Apply the minimal correct fix:
-- Fix the root cause, not just the symptom
-- Write a regression test that would have caught this bug
-- Verify the fix with: original reproduction case passes, existing tests still pass
-- Clean up any debug logging added in Phase 3
+### 阶段四：修复
+应用最小化的正确修复：
+- 修复根因，而不是症状
+- 写一个能捕获此 bug 的回归测试
+- 验证修复：原来的复现用例通过，现有测试仍然通过
+- 清理阶段三中添加的调试日志
 
-**Output**: Commit message: "fix: [what was wrong] - [how it was fixed]"
+**产出**：提交信息："fix: [什么出了问题] - [如何修复的]"
 
-## Anti-patterns
-- Guessing and randomly changing code without forming hypotheses
-- Fixing the symptom (e.g., catching an exception) instead of the root cause
-- Adding workarounds without understanding why the bug occurred
+## 反模式
+- 不形成假设就随机修改代码（靠猜）
+- 修复症状（比如捕获异常）而不是根因
+- 在不理解原因的情况下添加 workaround

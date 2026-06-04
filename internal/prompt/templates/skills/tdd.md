@@ -1,41 +1,41 @@
-# skill:tdd (Test-Driven Development)
+# skill:tdd（测试驱动开发）
 
-Use when implementing any new function, feature, or bug fix that requires code changes.
+实现任何新函数、新功能或需要代码改动的 bug 修复时使用。
 
-## The Iron Law: RED → GREEN → REFACTOR
+## 铁律：红 → 绿 → 重构
 
-### RED: Write a Failing Test First
-- Write the test BEFORE writing implementation code
-- The test must fail for the right reason (not compile error, not wrong assertion)
-- Test name should document the behavior: `TestUserService_GetByID_ReturnsNotFoundWhenMissing`
-- One behavior per test — do not test multiple scenarios in one test function
+### 红（RED）：先写一个失败的测试
+- 在写实现代码之前先写测试
+- 测试必须因为正确的原因失败（不是编译错误，不是错误的断言）
+- 测试名称应描述行为：`TestUserService_GetByID_ReturnsNotFoundWhenMissing`
+- 一个测试只测一个行为——不要在一个测试函数里测多个场景
 
-### GREEN: Write the Minimum Code to Pass
-- Write ONLY enough code to make the failing test pass
-- Do not add features not required by current tests
-- It's OK if the code is ugly or duplicated at this stage
-- Run the test — it must pass (green) before proceeding
+### 绿（GREEN）：写最少的代码使测试通过
+- 只写让当前失败测试通过所必需的代码
+- 不要添加当前测试未要求的功能
+- 这个阶段代码丑陋或有重复都可以接受
+- 运行测试——必须通过（绿色）才能继续
 
-### REFACTOR: Clean Up Without Breaking Tests
-- Remove duplication, improve naming, extract functions
-- Run tests after EVERY change — if anything breaks, revert
-- Refactor implementation AND tests separately, never both at once
-- When done: all tests still pass
+### 重构（REFACTOR）：在不破坏测试的前提下整理代码
+- 消除重复、改进命名、抽取函数
+- 每次修改后都运行测试——如果有任何失败就回滚
+- 分开重构实现代码和测试代码，不要同时改
+- 完成后：所有测试仍然通过
 
-## Cycle Discipline
+## 循环纪律
 
 ```
-1. Write ONE failing test
-2. Run test → must see RED
-3. Write minimum code
-4. Run test → must see GREEN
-5. Refactor
-6. Run test → must still be GREEN
-7. Repeat
+1. 写一个失败的测试
+2. 运行测试 → 必须看到红色（RED）
+3. 写最少的实现代码
+4. 运行测试 → 必须看到绿色（GREEN）
+5. 重构
+6. 运行测试 → 必须仍然是绿色
+7. 重复
 ```
 
-## Critical Rules
-- Never write implementation before tests
-- Never skip the RED phase (if test passes immediately, the test is wrong)
-- Never refactor when tests are RED
-- Test the behavior (what), not the implementation (how)
+## 关键规则
+- 绝不在写测试之前写实现代码
+- 绝不跳过红色阶段（如果测试一开始就通过，说明这个测试有问题）
+- 测试为红色时绝不重构
+- 测试行为（做什么），而不是实现（怎么做）

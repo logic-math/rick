@@ -18,7 +18,7 @@ func TestExecute_ParseNDJSON(t *testing.T) {
 	ndjson := strings.Join(lines, "\n")
 
 	tmpDir := t.TempDir()
-	rawLogPath := tmpDir + "/raw_session.log"
+	rawLogPath := tmpDir + "/raw_session_coding.log"
 
 	sess, err := parseStream(strings.NewReader(ndjson), rawLogPath)
 	if err != nil {
@@ -47,19 +47,19 @@ func TestExecute_ParseNDJSON(t *testing.T) {
 		t.Errorf("FinalMessageLine: got %d, want 4", sess.FinalMessageLine())
 	}
 
-	// raw_session.log: 5 lines, each valid JSON
+	// raw_session_coding.log: 5 lines, each valid JSON
 	data, err := os.ReadFile(rawLogPath)
 	if err != nil {
-		t.Fatalf("read raw_session.log: %v", err)
+		t.Fatalf("read raw_session_coding.log: %v", err)
 	}
 	fileLines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	if len(fileLines) != 5 {
-		t.Errorf("raw_session.log lines: got %d, want 5", len(fileLines))
+		t.Errorf("raw_session_coding.log lines: got %d, want 5", len(fileLines))
 	}
 	for i, l := range fileLines {
 		var m map[string]interface{}
 		if err := json.Unmarshal([]byte(l), &m); err != nil {
-			t.Errorf("raw_session.log line %d not valid JSON: %v", i+1, err)
+			t.Errorf("raw_session_coding.log line %d not valid JSON: %v", i+1, err)
 		}
 	}
 }
@@ -75,7 +75,7 @@ func TestExecute_SkipNonJSON(t *testing.T) {
 	ndjson := strings.Join(lines, "\n")
 
 	tmpDir := t.TempDir()
-	rawLogPath := tmpDir + "/raw_session.log"
+	rawLogPath := tmpDir + "/raw_session_coding.log"
 
 	sess, err := parseStream(strings.NewReader(ndjson), rawLogPath)
 	if err != nil {
@@ -89,15 +89,15 @@ func TestExecute_SkipNonJSON(t *testing.T) {
 		t.Fatalf("ToolCalls length: got %d, want 1", len(sess.ToolCalls()))
 	}
 
-	// raw_session.log exists and contains the non-JSON line
+	// raw_session_coding.log exists and contains the non-JSON line
 	data, err := os.ReadFile(rawLogPath)
 	if err != nil {
-		t.Fatalf("read raw_session.log: %v", err)
+		t.Fatalf("read raw_session_coding.log: %v", err)
 	}
 	if len(data) == 0 {
-		t.Error("raw_session.log is empty")
+		t.Error("raw_session_coding.log is empty")
 	}
 	if !strings.Contains(string(data), "not json") {
-		t.Error("raw_session.log should contain the non-JSON line")
+		t.Error("raw_session_coding.log should contain the non-JSON line")
 	}
 }

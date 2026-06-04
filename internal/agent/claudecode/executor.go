@@ -23,12 +23,15 @@ func NewExecutor(claudePath string) *ClaudeCodeExecutor {
 	return &ClaudeCodeExecutor{claudePath: claudePath}
 }
 
-func (e *ClaudeCodeExecutor) Execute(promptFile, taskID string) (agent.AgentSession, error) {
-	dir := filepath.Join("doing", "tasks", taskID)
+func (e *ClaudeCodeExecutor) Execute(promptFile, taskID, workspaceDir, logFileName string) (agent.AgentSession, error) {
+	dir := filepath.Join(workspaceDir, "tasks", taskID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	rawLogPath, err := filepath.Abs(filepath.Join(dir, "raw_session.log"))
+	if logFileName == "" {
+		logFileName = "raw_session_coding.log"
+	}
+	rawLogPath, err := filepath.Abs(filepath.Join(dir, logFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +116,7 @@ func parseStream(r io.Reader, rawLogPath string) (*claudeSession, error) {
 
 	sess := &claudeSession{rawLogPath: rawLogPath}
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 64*1024*1024), 64*1024*1024) // 64MB per line for large tool outputs
 	lineNo := 0
 
 	for scanner.Scan() {

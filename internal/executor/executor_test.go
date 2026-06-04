@@ -24,7 +24,7 @@ func skipIfNoClaude(t *testing.T) {
 // mockAgentExecutor is a test double for agent.AgentExecutor used in executor tests.
 type mockAgentExecutor struct{}
 
-func (m *mockAgentExecutor) Execute(promptFile, taskID string) (agent.AgentSession, error) {
+func (m *mockAgentExecutor) Execute(promptFile, taskID, workspaceDir, logFileName string) (agent.AgentSession, error) {
 	return nil, nil
 }
 

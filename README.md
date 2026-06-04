@@ -1,246 +1,198 @@
-# Rick CLI
+# Rick CLI 2.0
 
 **Context-First AI Coding Framework**
 
-Rick CLI 是一个基于上下文优先理念的 AI 编程框架，帮助开发者通过 AI 助手高效完成软件开发任务。
+Rick 是一个上下文优先的 AI 编程框架。核心公式：
 
-## 🚀 快速开始
+```
+AICoding = Humans + Agents
+Agents   = Models + Harness（上下文）
+```
+
+每次执行都在积累上下文（`wiki/`、`tools/`、`SPEC.md`），让后续的 AI agent 越跑越准。
+
+---
+
+## 安装
 
 ```bash
-# 安装 Rick CLI
 ./scripts/install.sh
-
-# 规划任务
-rick plan "创建一个 Web API 项目"
-
-# 执行任务
-rick doing job_1
-
-# 知识积累
-rick learning job_1
-
-# 验证和合并（AI agent 工具）
-rick tools plan_check job_1      # 验证 plan 结构
-rick tools doing_check job_1     # 验证 doing 结果
-rick tools learning_check job_1  # 验证 learning 输出
-rick tools merge job_1           # 合并到主上下文
 ```
-
-## 📚 文档导航
-
-### 📖 Wiki 文档（推荐）
-
-完整的项目文档请访问 [**Wiki 文档中心**](wiki/README.md)：
-
-- [系统架构](wiki/architecture.md) - 整体架构和模块关系
-- [运行时流程](wiki/runtime-flow.md) - 任务执行流程详解
-- [DAG 执行](wiki/dag-execution.md) - 依赖管理和拓扑排序
-- [提示词系统](wiki/prompt-system.md) - 提示词管理机制
-- [测试与验证](wiki/testing.md) - 测试策略和方法
-- [安装部署](wiki/installation.md) - 详细的安装指南
-- [模块文档](wiki/modules/) - 各核心模块详细说明
-- [贡献指南](wiki/CONTRIBUTING.md) - 如何为 Wiki 做贡献
-
-### 📝 开发文档
-
-本目录包含 Rick CLI 使用 Go 语言开发的完整研究和规范文档。
-
-### 🚀 快速开始（5分钟）
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - 快速参考卡片
-  - 核心命令速查
-  - 常用脚本命令
-  - 文件位置速查
-  - 故障排查
-
-### 📖 详细文档
-
-#### 1. 研究报告（深度分析）
-- **[research/使用_golang_开发_rick_命令行程序.md](research/使用_golang_开发_rick_命令行程序.md)** - 完整研究报告
-  - 项目概述与核心理论
-  - Morty 参考实现分析
-  - Rick 的简化设计原则
-  - 技术栈选择详解
-  - 版本管理与安装机制
-  - 核心算法与执行流程
-  - 实现阶段规划（7个阶段）
-  - 潜在挑战与解决方案
-  - **规模**: 11KB, 11个主要章节
-
-#### 2. 开发指南（实操规范）
-- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - 完整开发指南
-  - 版本管理规范
-  - 安装脚本详解（build.sh, install.sh, uninstall.sh, update.sh）
-  - 开发工作流（4个典型场景）
-  - 代码组织规范
-  - 测试规范
-  - 提交规范
-  - 常见问题解答
-  - **规模**: 11KB, 完整实操指南
-
-#### 3. 研究总结（快速参考）
-- **[RESEARCH_SUMMARY.md](RESEARCH_SUMMARY.md)** - 研究成果总结
-  - 研究成果清单
-  - 关键设计决策
-  - 项目结构概览
-  - 技术栈总结
-  - 实现阶段规划
-  - 开发工作流示例
-  - **规模**: 5.9KB, 快速参考
-
-#### 4. 项目记忆（持久化）
-- **[~/.claude/projects/.../memory/MEMORY.md](~/.claude/projects/-Users-sunquan-ai-coding-CODING-rick/memory/MEMORY.md)** - 项目记忆库
-  - 项目概述
-  - 核心设计原则
-  - 关键技术决策
-  - 项目结构
-  - 参考资源
-  - **用途**: 跨会话记忆，自动加载到上下文
 
 ---
 
-## 🎯 按使用场景选择文档
+## 工作流
 
-### 场景1：我是新手，想快速了解 Rick CLI
-1. 阅读 [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 5分钟快速入门
-2. 查看 [RESEARCH_SUMMARY.md](RESEARCH_SUMMARY.md) - 了解核心概念
-3. 参考 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) - 学习开发流程
+Rick 2.0 支持两种执行模式：
 
-### 场景2：我要开始开发 Rick CLI
-1. 阅读 [RESEARCH_SUMMARY.md](RESEARCH_SUMMARY.md) - 理解设计决策
-2. 查看 [research/使用_golang_开发_rick_命令行程序.md](research/使用_golang_开发_rick_命令行程序.md) - 深入技术细节
-3. 遵循 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) - 按规范开发
-
-### 场景3：我要维护或扩展 Rick CLI
-1. 查看 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) - 了解代码组织
-2. 参考 [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - 快速查找信息
-3. 查阅 [research/使用_golang_开发_rick_命令行程序.md](research/使用_golang_开发_rick_命令行程序.md) - 深入理解设计
-
-### 场景4：我要使用 rick_dev 进行自我重构
-1. 阅读 [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) 中的"开发工作流"部分
-2. 参考 [QUICK_REFERENCE.md](QUICK_REFERENCE.md) 中的安装脚本命令
-3. 查看 [RESEARCH_SUMMARY.md](RESEARCH_SUMMARY.md) 中的"开发工作流示例"
-
----
-
-## 🔄 工作流：Plan → Doing → Learning
-
-### `rick plan` — 规划
-
-描述需求，生成任务列表。
-
-```bash
-rick plan "创建一个用户登录 API"
+```
+标准模式：plan → doing → learning → dream
+简单模式：doing --easy → (auto learning) → dream
 ```
 
-plan 完成后，检查 `.rick/job_1/plan/tasks/` 下的任务文件，确认分解合理后再执行。
-
-### `rick doing` — 执行
-
-自动逐个完成任务，每个任务通过测试后自动 git commit。
+### 标准模式（适合有明确任务分解的需求）
 
 ```bash
-rick doing job_1
-```
-
-若某任务失败超过重试限制，编辑对应 `task.md` 补充说明，再重新运行。
-
-### `rick learning` — 积累
-
-提取本次经验，更新上下文，供后续 job 使用。
-
-```bash
-rick learning job_1
-```
-
-### 典型使用
-
-```bash
+# 1. 规划：AI 将需求分解为 task 列表
 rick plan "为用户系统添加 JWT 认证"
+
+# 2. 执行：自动逐任务执行，每个任务通过测试后自动 git commit
+rick doing job_1
+
+# 3. 积累：提取经验，更新 .rick/wiki/、.rick/tools/、.rick/SPEC.md
+rick learning job_1
+
+# 4. 全局反思：跨 job 知识进化（见下方）
+rick dream
+```
+
+### Easy 模式（适合探索性任务、快速修复、对话式开发）
+
+跳过 plan，直接与 Claude 交互式对话完成任务。
+
+```bash
+# 新建 easy 会话（交互式）
+rick doing --easy "帮我修复登录 bug"
+rick doing --easy          # 不带需求，进入后输入
+
+# 恢复中断的 easy 会话
+rick doing --easy --job job_5
+```
+
+Easy 模式特点：
+- **无需 plan**：直接进入 Claude 交互式对话
+- **会话续接**：中断后可通过 `--job` 恢复同一对话（`session_id` 已保存）
+- **强制 debug 记录**：每解决一个问题，agent 必须写入 `doing/debug.md`（dream 的分析依据）
+- **自动 learning**：会话退出后自动在后台运行 learning，直接更新 `.rick/wiki/`、`.rick/tools/`、`.rick/SPEC.md`
+
+---
+
+## Dream — 跨 Job 知识进化
+
+Dream 定期运行，对已完成的 job 进行全局反思，维护 `.rick/` 知识体系的质量。
+
+```bash
+# 交互式 dream（查看 AI 思考过程）
+rick dream
+
+# 后台自动化 dream（无需人工干预）
+rick dream -p
+```
+
+Dream 会自动：
+1. 扫描未处理的已完成 job（标准模式 + easy 模式均支持）
+2. 加载 `debug.md`、`tasks.json`、`act-path.md` 等行为轨迹
+3. 提取优化信号，进化 skills，精简 SPEC.md（≤ 500 行）
+4. 运行四维质量验证（引用链、冗余清理、运行仿真、路径推演）
+5. 写入 `dream_run_{job_id}_log.md` 作为记录
+
+> **Dream 是 learning 的兜底**：即使 learning 写出了问题，dream 也会在后续修复，无需追求 learning 的完美一致性。
+
+### 典型运行频率
+
+```bash
+# 每完成 3-5 个 job 后运行一次
+rick dream -p
+```
+
+---
+
+## 工具命令（AI agent 使用）
+
+```bash
+rick tools plan_check job_1      # 验证 plan 目录结构
+rick tools doing_check job_1     # 验证 doing 执行结果
+rick tools learning_check job_1  # 验证 SUMMARY.md 已生成
+rick tools dream_check           # 验证 dream log 文件格式
+rick tools merge job_1           # 手动合并（一般无需，learning 直接写入）
+```
+
+---
+
+## 完整示例
+
+### 标准模式
+
+```bash
+# 第一个需求
+rick plan "添加用户注册功能"
 rick doing job_1
 rick learning job_1
 
-# 下一个需求，自动继承上次积累的上下文
-rick plan "添加 token 刷新机制"
+# 第二个需求（自动继承上次积累的上下文）
+rick plan "添加 JWT 登录"
 rick doing job_2
 rick learning job_2
+
+# 定期全局反思
+rick dream -p
+```
+
+### Easy 模式
+
+```bash
+# 快速修复一个 bug
+rick doing --easy "Redis 连接池泄漏，帮我排查修复"
+
+# 会话中直接与 Claude 对话：
+# - Claude 调试、修复问题
+# - 每个问题自动记录到 debug.md
+# - 退出后自动触发 learning
+
+# 如果中途断开，恢复会话
+rick doing --easy --job job_3
+
+# 定期 dream 整合所有 easy job 的经验
+rick dream -p
+```
+
+### 混合使用
+
+```bash
+# 复杂需求用标准模式，临时修复用 easy 模式
+rick plan "重构认证模块"     # 标准
+rick doing job_1
+rick learning job_1
+
+rick doing --easy "修复线上 500 错误"   # easy
+rick doing --easy "优化查询性能"        # easy
+
+rick dream -p   # 统一整合所有 job 的经验
 ```
 
 ---
 
-## 📊 关键设计决策一览
-
-### 简化原则（vs Morty）
-- ✅ 最小化日志系统：仅使用 Go 标准库 `log`，文本格式
-- ✅ 移除状态追踪命令：通过 Git 本身进行版本管理
-- ✅ 简化配置系统：仅需 `~/.rick/config.json` 一个全局配置
-- ✅ 移除 init 命令：自动初始化，由人类完全控制 plan-doing-learning 循环
-
-### 独特模块设计 ⭐
-- **提示词管理模块** (`internal/prompt/`)：独立管理提示词、构建器、模板
-- **版本管理机制**：生产版本 + 开发版本，支持并行运行和自我重构
-
-### 核心特性
-- **串行执行**：按拓扑排序顺序执行任务
-- **失败重试**：可配置重试次数（默认5次）
-- **问题记录**：每次失败记录到 debug.md
-- **人工干预**：超过重试限制后退出，由人工修改 task.md
-
----
-
-## 🛠 技术栈速览
-
-| 功能 | 选择 | 理由 |
-|------|------|------|
-| CLI 框架 | Cobra | 业界标准 |
-| JSON 处理 | encoding/json | 标准库 |
-| Markdown 解析 | Goldmark | 功能完整 |
-| DAG/拓扑排序 | 自实现 | 简单场景 |
-| 日志 | log | 标准库 |
-| 配置管理 | encoding/json | 标准库 |
-| 文件操作 | os/io | 标准库 |
-| Git 操作 | go-git | 纯 Go 实现 |
-
-**原则**：最小化外部依赖，优先使用 Go 标准库
-
----
-
-## 📁 项目结构
+## .rick/ 目录结构
 
 ```
-rick/
-├── cmd/rick/main.go                 # 入口点
-├── internal/
-│   ├── cmd/                         # 命令处理器（4个）
-│   ├── config/                      # 配置管理（简化版）
-│   ├── workspace/                   # 工作空间管理
-│   ├── parser/                      # 内容解析
-│   ├── executor/                    # 任务执行引擎
-│   ├── prompt/                      # ⭐ 提示词管理模块
-│   ├── git/                         # Git 操作
-│   └── callcli/                     # Claude Code CLI 交互
-├── scripts/
-│   ├── build.sh                     # 构建脚本
-│   ├── install.sh                   # 安装脚本
-│   ├── uninstall.sh                 # 卸载脚本
-│   └── update.sh                    # 更新脚本
-└── README.md
+.rick/
+├── OKR.md            # 项目目标
+├── SPEC.md           # 技术规范（≤ 500 行，dream 维护）
+├── wiki/             # 知识文档（learning/dream 直接写入）
+├── tools/            # 可复用 Python 工具（learning/dream 直接写入）
+├── skills/           # .rick/skills/ 自定义 skills
+├── dream/            # dream 运行日志
+│   └── dream_run_{job_id}_log.md
+└── jobs/
+    └── job_N/
+        ├── plan/               # 标准模式：task*.md、OKR.md
+        └── doing/
+            ├── debug.md        # 问题记录（easy/标准均有）
+            ├── tasks.json      # 任务状态（标准模式 = 多任务；easy = 单条 easy_session）
+            ├── session_id      # easy 模式：Claude 会话 ID
+            └── prompts/        # 本次生成的所有提示词文件（持久化）
 ```
 
 ---
 
-## ⚙️ 配置说明
+## 配置
 
-### 配置文件位置
-- **生产版本**: `~/.rick/config.json`
-- **开发版本**: `~/.rick_dev/config.json`
-
-### 配置文件格式
+**配置文件**: `~/.rick/config.json`
 
 ```json
 {
   "max_retries": 5,
   "claude_code_path": "",
-  "default_workspace": "",
   "git": {
     "user_name": "Your Name",
     "user_email": "your.email@example.com"
@@ -248,140 +200,17 @@ rick/
 }
 ```
 
-### 配置项说明
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `max_retries` | int | 5 | 任务失败最大重试次数 |
-| `claude_code_path` | string | "" | Claude Code CLI 路径（空则使用 PATH） |
-| `default_workspace` | string | `~/.rick` | 默认工作空间路径 |
-| `git.user_name` | string | "Rick CLI" | Git commit 用户名 |
-| `git.user_email` | string | "rick@localhost" | Git commit 邮箱 |
-
-### 快速配置
-
-```bash
-# 复制示例配置
-cp config.example.json ~/.rick/config.json
-
-# 编辑配置
-vim ~/.rick/config.json
-```
-
-**详细文档**: 参见 [GIT_CONFIG_GLOBAL.md](GIT_CONFIG_GLOBAL.md)
+| 配置项 | 说明 |
+|--------|------|
+| `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
+| `claude_code_path` | Claude CLI 路径（空则使用 PATH 中的 `claude`） |
+| `git.user_name/email` | 自动 commit 时使用的 Git 用户信息 |
 
 ---
 
-## 🚀 实现阶段规划
+## 版本
 
-| 阶段 | 内容 | 周期 |
+| 版本 | 日期 | 说明 |
 |------|------|------|
-| Phase 1 | 基础设施（go mod, cobra, 工作空间, 配置, 日志） | Week 1 |
-| Phase 2 | 核心解析（Markdown, DAG, 提示词管理） | Week 1-2 |
-| Phase 3 | 执行引擎（Claude Code 集成, 测试, 重试循环） | Week 2-3 |
-| Phase 4 | Git 与提交（自动提交） | Week 3 |
-| Phase 5 | 安装机制（build/install/uninstall/update 脚本） | Week 3-4 |
-| Phase 6 | Learning 阶段 | Week 4 |
-| Phase 7 | 测试与文档 | Week 4-5 |
-
----
-
-## 📝 核心命令
-
-```bash
-# 规划任务（首次使用会自动创建 .rick 目录）
-rick plan "需求描述"
-
-# 执行任务（首次使用会在项目根目录自动初始化 Git）
-rick doing job_1
-
-# 知识积累
-rick learning job_1
-
-# 安装开发版本
-./install.sh --source --dev
-
-# 卸载开发版本
-./uninstall.sh --dev
-
-# 更新生产版本
-./update.sh
-```
-
----
-
-## 💡 开发工作流示例
-
-### 开发新功能
-```bash
-./install.sh --source --dev        # 安装 dev 版本
-rick_dev plan "新功能"              # 使用 dev 版本规划
-rick_dev doing job_1                # 使用 dev 版本执行
-rick plan "集成新功能"              # 使用生产版本集成
-rick doing job_2
-./uninstall.sh --dev               # 卸载 dev 版本
-```
-
-### 使用 rick 重构 rick
-```bash
-rick plan "重构 Rick 架构"           # 使用生产版本规划
-./install.sh --source --dev        # 安装 dev 版本
-rick doing job_1                    # 使用生产版本执行
-rick_dev plan "验证重构"            # 使用 dev 版本验证
-rick_dev doing job_2
-./update.sh                         # 更新生产版本
-./uninstall.sh --dev               # 卸载 dev 版本
-```
-
----
-
-## 🔍 文档版本信息
-
-| 项目 | 版本 | 最后更新 | 状态 |
-|------|------|---------|------|
-| 研究报告 | 2.0 | 2026-03-13 | ✅ 完成 |
-| 开发指南 | 1.0 | 2026-03-13 | ✅ 完成 |
-| 研究总结 | 1.0 | 2026-03-13 | ✅ 完成 |
-| 快速参考 | 1.0 | 2026-03-13 | ✅ 完成 |
-| 项目记忆 | 1.0 | 2026-03-13 | ✅ 完成 |
-
----
-
-## ✅ 研究成果
-
-本研究已完成以下工作：
-
-- ✅ 分析 Rick 项目核心理论和 Morty 参考实现
-- ✅ 设计简化的 Rick CLI 架构
-- ✅ 设计独特的提示词管理模块
-- ✅ 设计优雅的版本管理机制
-- ✅ 规划 7 个实现阶段
-- ✅ 编写完整的开发规范和工作流
-- ✅ 创建 4 个详细文档和 1 个快速参考
-- ✅ 记录项目记忆用于跨会话参考
-
----
-
-## 🎓 关键学习成果
-
-1. **Rick 的核心价值**在于 Context Loop，而非单纯的 Agent Loop
-2. **简化设计原则**：删除不必要的复杂性，保留核心功能
-3. **提示词管理**是 AI 编程工具的关键模块
-4. **版本管理机制**需要支持自我重构的灵活性
-5. **失败重试与人工干预**的平衡至关重要
-
----
-
-## 📞 支持
-
-如有问题或建议，请参考：
-- [常见问题解答](DEVELOPMENT_GUIDE.md#常见问题)
-- [故障排查](QUICK_REFERENCE.md#故障排查)
-- [Rick 项目规范](Rick_Project_Complete_Description.md)
-- [Morty 参考实现](../morty/)
-
----
-
-**研究完成**: 2026-03-13
-**文档版本**: 1.0
-**状态**: ✅ 已完成
+| 2.0.0 | 2026-06-04 | Easy 模式、Dream 命令、prompts 持久化、learning 直写 .rick/ |
+| 1.1.2 | 2026-03 | 标准 plan/doing/learning 流程 |

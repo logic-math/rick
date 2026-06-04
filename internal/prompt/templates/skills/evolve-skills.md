@@ -1,44 +1,44 @@
-# skill:evolve-skills (Skill Evolution Decision Logic)
+# skill:evolve-skills（技能进化决策逻辑）
 
-Use when reviewing the .rick/skills/ directory to decide which skills to keep, upgrade, or deprecate.
+评审 `.rick/skills/` 目录、决定哪些技能保留、升级或淘汰时使用。
 
-## Evolution Decision Logic
+## 进化决策逻辑
 
-Decisions are based on `run_log` statistics for each skill:
+基于 `.rick/dream/dream_run_*_log.md` 文件中的历史执行记录做决策：
 
-### 保留（Keep）
-Criteria: trigger_count ≥ 3 AND error_count < (trigger_count / 3)
+### 保留
+条件：触发次数 ≥ 3 且 出错次数 < 触发次数 / 3
 
-The skill is working — it's applied frequently and rarely causes errors. Keep it as-is.
+技能在正常运作——被频繁使用且很少出错。保持不变。
 
-### 升级（Upgrade）
-Criteria: The skill is effective (produces correct results) BUT the description is unclear, incomplete, or hard to understand when re-reading.
+### 升级
+条件：技能有效（能产出正确结果），但描述不清晰、不完整或重读时难以理解。
 
-Signs that upgrade is needed:
-- The trigger scenario is too vague (skill gets applied in wrong situations)
-- The core content lacks concrete steps or examples
-- The expected effect is unmeasurable
+需要升级的信号：
+- 触发场景过于模糊（技能被用在错误的情况下）
+- 核心内容缺乏具体步骤或示例
+- 预期效果无法衡量
 
-Action: Rewrite the description/content to be more precise. Do NOT change what the skill does, only how it's documented.
+操作：重写描述/内容使其更精确。不要改变技能的实际功能，只改文档表述。
 
-### 淘汰（Deprecate）
-Criteria: trigger_count = 0 OR error_count ≥ (trigger_count / 2)
+### 淘汰
+条件：触发次数 = 0 或 出错次数 ≥ 触发次数 / 2
 
-Two failure modes:
-- trigger_count = 0: The skill was never needed, or the trigger scenario doesn't match real usage → remove
-- error_count ≥ trigger_count/2: The skill causes errors more than half the time → it's harmful, remove or rewrite from scratch
+两种失败模式：
+- 触发次数 = 0：技能从未被用到，或触发场景与实际使用不匹配 → 删除
+- 出错次数 ≥ 触发次数/2：技能弊大于利 → 删除或从头重写
 
-## Audit Process
+## 审计流程
 
 ```
-1. List all skills in .rick/skills/index.md
-2. For each skill, read its run_log entry
-3. Apply the decision logic above
-4. For "upgrade" skills: rewrite in-place, bump version comment
-5. For "deprecate" skills: remove file, update index.md
-6. Run tests to ensure no broken references
+1. 列出 .rick/skills/ 技能列表（从 SPEC.md 技能列表章节读取）
+2. 读取 `.rick/dream/dream_run_*_log.md`，从"Skills 变更"章节统计每个技能的使用与出错次数
+3. 应用上述决策逻辑
+4. 对"升级"技能：原地重写，添加版本注释
+5. 对"淘汰"技能：删除文件，更新 SPEC.md 技能列表
+6. 运行测试确保没有断开的引用
 ```
 
-## Edge Cases
-- New skills (trigger_count = 0, just created): exempt from deprecation for 3 runs
-- Skills with no run_log entry: treat as trigger_count = 0
+## 边界情况
+- 新技能（触发次数 = 0，刚创建）：前 3 次运行豁免淘汰
+- 在所有 dream_run_*_log.md 中均未出现的技能：视作触发次数 = 0
