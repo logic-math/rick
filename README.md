@@ -1,15 +1,19 @@
 # Rick CLI 2.0
 
-**Context-First AI Coding Framework**
+**对抗上下文熵增的 AI Coding 控制框架**
 
-Rick 是一个上下文优先的 AI 编程框架。核心公式：
+随着项目迭代，软件复杂性逐渐升高，这种复杂性表现为上下文的熵增。Rick 通过模块化与自进化机制控制上下文的生命周期，保持其整洁性，以实现最佳的 AI Coding 效果。
+
+> 一切以上下文为中心构建的 AI Coding 控制框架。
+
+核心公式：
 
 ```
 AICoding = Humans + Agents
 Agents   = Models + Harness（上下文）
 ```
 
-每次执行都在积累上下文（`wiki/`、`tools/`、`SPEC.md`），让后续的 AI agent 越跑越准。
+每次执行都在积累上下文（`wiki/`、`tools/`、`SPEC.md`），由 dream 定期维护熵减，让后续的 AI agent 越跑越准。
 
 ---
 
