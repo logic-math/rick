@@ -1,4 +1,4 @@
-# Rick CLI 2.0
+# Rick CLI
 
 **对抗上下文熵增的 AI Coding 控制框架**
 
