@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -398,23 +397,13 @@ func TestNewLearningCheckCmd(t *testing.T) {
 	}
 }
 
-func TestNewMergeCmd(t *testing.T) {
-	cmd := NewMergeCmd()
-	if cmd == nil {
-		t.Fatal("NewMergeCmd returned nil")
-	}
-	if cmd.Use != "merge <job_id>" {
-		t.Errorf("unexpected Use: %s", cmd.Use)
-	}
-}
-
 func TestToolsSubcommands(t *testing.T) {
 	cmd := NewToolsCmd()
 	subNames := make(map[string]bool)
 	for _, sub := range cmd.Commands() {
 		subNames[sub.Name()] = true
 	}
-	expected := []string{"plan_check", "doing_check", "learning_check", "merge"}
+	expected := []string{"plan_check", "doing_check", "learning_check", "dream_check"}
 	for _, name := range expected {
 		if !subNames[name] {
 			t.Errorf("missing subcommand: %s", name)
@@ -422,243 +411,6 @@ func TestToolsSubcommands(t *testing.T) {
 	}
 }
 
-// ─── Merge Helper Tests ───────────────────────────────────────────────────────
-
-func TestCheckApproved_Valid(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "SUMMARY.md")
-	if err := os.WriteFile(p, []byte("APPROVED: true\n\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkApproved(p); err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-}
-
-func TestCheckApproved_NotApproved(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "SUMMARY.md")
-	if err := os.WriteFile(p, []byte("APPROVED: false\n\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkApproved(p); err == nil {
-		t.Fatal("expected error for APPROVED: false")
-	}
-}
-
-func TestCheckApproved_Missing(t *testing.T) {
-	err := checkApproved("/nonexistent/SUMMARY.md")
-	if err == nil {
-		t.Fatal("expected error for missing SUMMARY.md")
-	}
-}
-
-func TestCheckApproved_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "SUMMARY.md")
-	if err := os.WriteFile(p, []byte(""), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkApproved(p); err == nil {
-		t.Fatal("expected error for empty SUMMARY.md")
-	}
-}
-
-func TestCopyFile(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	dst := filepath.Join(dir, "dst.txt")
-	if err := os.WriteFile(src, []byte("hello world"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyFile(src, dst); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
-	data, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "hello world" {
-		t.Errorf("expected 'hello world', got '%s'", string(data))
-	}
-}
-
-func TestCopyFile_CreatesDirs(t *testing.T) {
-	dir := t.TempDir()
-	src := filepath.Join(dir, "src.txt")
-	dst := filepath.Join(dir, "nested", "deep", "dst.txt")
-	if err := os.WriteFile(src, []byte("data"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := copyFile(src, dst); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
-	}
-	if _, err := os.Stat(dst); err != nil {
-		t.Errorf("expected dst to exist: %v", err)
-	}
-}
-
-func TestCopyDir(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	// Create files in src
-	for _, name := range []string{"a.md", "b.md", "c.txt"} {
-		if err := os.WriteFile(filepath.Join(srcDir, name), []byte(name+" content"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Create a subdirectory (should be skipped)
-	if err := os.MkdirAll(filepath.Join(srcDir, "subdir"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	count, err := copyDir(srcDir, dstDir)
-	if err != nil {
-		t.Fatalf("copyDir failed: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("expected 3 files copied, got %d", count)
-	}
-	for _, name := range []string{"a.md", "b.md", "c.txt"} {
-		if _, err := os.Stat(filepath.Join(dstDir, name)); err != nil {
-			t.Errorf("expected %s to exist in dst", name)
-		}
-	}
-}
-
-func TestGenerateWikiREADME(t *testing.T) {
-	dir := t.TempDir()
-	wikiDir := filepath.Join(dir, "wiki")
-	if err := os.MkdirAll(wikiDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	// Create wiki files
-	doc1 := "# Architecture\n\nThis is the architecture document."
-	doc2 := "# Runtime Flow\n\nThis describes runtime flow."
-	if err := os.WriteFile(filepath.Join(wikiDir, "architecture.md"), []byte(doc1), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(wikiDir, "runtime.md"), []byte(doc2), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := generateWikiREADME(dir); err != nil {
-		t.Fatalf("generateWikiREADME failed: %v", err)
-	}
-
-	readmePath := filepath.Join(wikiDir, "README.md")
-	if _, err := os.Stat(readmePath); err != nil {
-		t.Fatalf("README.md not created: %v", err)
-	}
-	data, err := os.ReadFile(readmePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	if !containsStr(content, "architecture") {
-		t.Errorf("README.md should mention architecture.md")
-	}
-	if !containsStr(content, "runtime") {
-		t.Errorf("README.md should mention runtime.md")
-	}
-}
-
-func TestWriteDoingCheckFixPrompt(t *testing.T) {
-	dir := t.TempDir()
-	path, err := writeDoingCheckFixPrompt(dir, fmt.Errorf("test error"))
-	if err != nil {
-		t.Fatalf("writeDoingCheckFixPrompt failed: %v", err)
-	}
-	defer os.Remove(path)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("prompt file not created: %v", err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsStr(string(data), "test error") {
-		t.Errorf("prompt file should contain error message")
-	}
-}
-
-func TestWriteLearningCheckFixPrompt(t *testing.T) {
-	dir := t.TempDir()
-	path, err := writeLearningCheckFixPrompt(dir, fmt.Errorf("learning error"))
-	if err != nil {
-		t.Fatalf("writeLearningCheckFixPrompt failed: %v", err)
-	}
-	defer os.Remove(path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsStr(string(data), "learning error") {
-		t.Errorf("prompt file should contain error message")
-	}
-}
-
-func TestWritePlanCheckFixPrompt(t *testing.T) {
-	dir := t.TempDir()
-	path, err := writePlanCheckFixPrompt(dir, fmt.Errorf("plan error"))
-	if err != nil {
-		t.Fatalf("writePlanCheckFixPrompt failed: %v", err)
-	}
-	defer os.Remove(path)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsStr(string(data), "plan error") {
-		t.Errorf("prompt file should contain error message")
-	}
-}
-
-func TestPrintMergeSummary_NoItems(t *testing.T) {
-	// Just verify it doesn't panic
-	printMergeSummary("job_1", "learning/job_1", "main", nil)
-}
-
-func TestPrintMergeSummary_WithItems(t *testing.T) {
-	printMergeSummary("job_1", "learning/job_1", "main", []string{"wiki: 3 files", "OKR.md: updated"})
-}
-
-func TestExtractWikiTitleAndSummary(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "test.md")
-	content := "# My Title\n\nThis is the summary paragraph.\n\n## Section\nMore content."
-	if err := os.WriteFile(f, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	title, summary := extractWikiTitleAndSummary(f)
-	if title != "My Title" {
-		t.Errorf("expected 'My Title', got '%s'", title)
-	}
-	if summary != "This is the summary paragraph." {
-		t.Errorf("expected summary, got '%s'", summary)
-	}
-}
-
-func TestExtractWikiTitleAndSummary_NoTitle(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "test.md")
-	content := "Just a paragraph, no heading."
-	if err := os.WriteFile(f, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	title, summary := extractWikiTitleAndSummary(f)
-	// Should not panic
-	_ = title
-	_ = summary
-}
-
-func TestExtractWikiTitleAndSummary_Missing(t *testing.T) {
-	title, summary := extractWikiTitleAndSummary("/nonexistent/file.md")
-	if title != "" || summary != "" {
-		t.Errorf("expected empty for missing file, got title='%s' summary='%s'", title, summary)
-	}
-}
 
 // ─── Workspace-dependent tests ────────────────────────────────────────────────
 
@@ -819,57 +571,6 @@ func setupGitRepo(t *testing.T) string {
 	return dir
 }
 
-func TestRunGit_Success(t *testing.T) {
-	setupGitRepo(t)
-	out, err := runGit("status")
-	if err != nil {
-		t.Errorf("expected no error, got: %v (output: %s)", err, out)
-	}
-}
-
-func TestGetCurrentBranch(t *testing.T) {
-	setupGitRepo(t)
-	branch, err := getCurrentBranch()
-	if err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-	if branch == "" {
-		t.Error("expected non-empty branch name")
-	}
-}
-
-func TestGitCreateAndSwitch(t *testing.T) {
-	setupGitRepo(t)
-	if err := gitCreateAndSwitch("test-branch"); err != nil {
-		t.Errorf("expected no error, got: %v", err)
-	}
-	// Verify we're on the new branch
-	branch, err := getCurrentBranch()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if branch != "test-branch" {
-		t.Errorf("expected branch=test-branch, got %s", branch)
-	}
-}
-
-func TestGitCheckout(t *testing.T) {
-	dir := setupGitRepo(t)
-	_ = dir
-	// Create and switch to a new branch
-	if err := gitCreateAndSwitch("new-branch"); err != nil {
-		t.Fatal(err)
-	}
-	// Switch back to main/master
-	mainBranch := "main"
-	if err := gitCheckout(mainBranch); err != nil {
-		// Try master
-		if err2 := gitCheckout("master"); err2 != nil {
-			t.Logf("gitCheckout to main/master failed (acceptable): %v / %v", err, err2)
-		}
-	}
-}
-
 func TestFindClaudeBinary(t *testing.T) {
 	// Just verify the function runs without panic
 	path, err := findClaudeBinary()
@@ -968,65 +669,6 @@ func TestCollectExecutionData_NoDebugMD(t *testing.T) {
 			t.Logf("debug content unexpectedly set: %s", data.DebugContent)
 		}
 	})
-}
-
-// ─── runMerge tests ───────────────────────────────────────────────────────────
-
-func TestRunMerge_NoSummary(t *testing.T) {
-	dir := setupGitRepo(t)
-	// Create .rick structure
-	if err := os.MkdirAll(filepath.Join(dir, ".rick", "jobs", "job_test", "learning"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	// No SUMMARY.md
-	err := runMerge("job_test")
-	if err == nil {
-		t.Fatal("expected error for missing SUMMARY.md")
-	}
-}
-
-func TestRunMerge_NotApproved(t *testing.T) {
-	dir := setupGitRepo(t)
-	learningDir := filepath.Join(dir, ".rick", "jobs", "job_test", "learning")
-	if err := os.MkdirAll(learningDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("APPROVED: false\n\ncontent"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runMerge("job_test")
-	if err == nil {
-		t.Fatal("expected error for not approved")
-	}
-}
-
-func TestRunMerge_Success(t *testing.T) {
-	dir := setupGitRepo(t)
-	learningDir := filepath.Join(dir, ".rick", "jobs", "job_test", "learning")
-	if err := os.MkdirAll(learningDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("APPROVED: true\n\ncontent"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Add OKR.md so there's something to merge
-	okrContent := "## O1: Test\n### 关键结果\n1. KR1\n"
-	if err := os.WriteFile(filepath.Join(learningDir, "OKR.md"), []byte(okrContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Pre-create .rick dir and git-add it so merge can commit
-	rickDir := filepath.Join(dir, ".rick")
-	gitAddCmd := exec.Command("git", "add", rickDir)
-	gitAddCmd.Dir = dir
-	_ = gitAddCmd.Run()
-	gitCommitCmd := exec.Command("git", "commit", "-m", "add rick dir")
-	gitCommitCmd.Dir = dir
-	_ = gitCommitCmd.Run()
-
-	err := runMerge("job_test")
-	if err != nil {
-		t.Errorf("expected no error for valid merge, got: %v", err)
-	}
 }
 
 // ─── commitDoingResults tests ─────────────────────────────────────────────────
@@ -1185,37 +827,5 @@ func TestEnsureGitUserConfigured_WithConfig(t *testing.T) {
 	err := ensureGitUserConfigured(dir)
 	if err != nil {
 		t.Logf("ensureGitUserConfigured error (acceptable): %v", err)
-	}
-}
-
-func TestRunMerge_WithWikiAndTools(t *testing.T) {
-	dir := setupGitRepo(t)
-	learningDir := filepath.Join(dir, ".rick", "jobs", "job_test", "learning")
-	if err := os.MkdirAll(filepath.Join(learningDir, "wiki"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(learningDir, "tools"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(learningDir, "SUMMARY.md"), []byte("APPROVED: true\n\ncontent"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(learningDir, "wiki", "test.md"), []byte("# Test\ncontent"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(learningDir, "tools", "test.py"), []byte("def test(): pass\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Pre-commit .rick dir
-	gitAdd := exec.Command("git", "add", filepath.Join(dir, ".rick"))
-	gitAdd.Dir = dir
-	_ = gitAdd.Run()
-	gitCommit := exec.Command("git", "commit", "-m", "add rick")
-	gitCommit.Dir = dir
-	_ = gitCommit.Run()
-
-	err := runMerge("job_test")
-	if err != nil {
-		t.Logf("runMerge with wiki/tools returned: %v", err)
 	}
 }

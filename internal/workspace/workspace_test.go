@@ -41,7 +41,6 @@ func TestInitWorkspace(t *testing.T) {
 	// Verify directories were created
 	requiredDirs := []string{
 		WikiDirName,
-		SkillsDirName,
 		JobsDirName,
 	}
 
@@ -180,7 +179,6 @@ func TestEnsureDirectories(t *testing.T) {
 	// Verify directories exist
 	requiredDirs := []string{
 		WikiDirName,
-		SkillsDirName,
 		JobsDirName,
 	}
 
@@ -256,7 +254,6 @@ func TestPathConstants(t *testing.T) {
 		"OKRFileName":     OKRFileName,
 		"SpecFileName":    SpecFileName,
 		"WikiDirName":     WikiDirName,
-		"SkillsDirName":   SkillsDirName,
 		"JobsDirName":     JobsDirName,
 		"PlanDirName":     PlanDirName,
 		"DoingDirName":    DoingDirName,

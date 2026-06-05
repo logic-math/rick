@@ -103,31 +103,6 @@ func TestIntegration_RFC001(t *testing.T) {
 
 	// ─── task2: skills index ──────────────────────────────────────────────────
 
-	t.Run("task2/doing_prompt_contains_skills_index_when_exists", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		skillsDir := filepath.Join(tmpDir, "skills")
-		if err := os.MkdirAll(skillsDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		indexContent := "# Skills Index\n\n| 文件 | 描述 | 触发场景 |\n|------|------|----------|\n| check_go_build.py | 检查 Go 编译 | |\n"
-		if err := os.WriteFile(filepath.Join(skillsDir, "index.md"), []byte(indexContent), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		promptContent, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir(), tmpDir)
-		if err != nil {
-			t.Fatalf("GenerateDoingPromptFile: %v", err)
-		}
-
-		data, err := os.ReadFile(promptContent)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), "Skills Index") {
-			t.Error("doing prompt must contain skills index content when index.md exists")
-		}
-	})
-
 	t.Run("task2/plan_prompt_skills_from_spec_not_index", func(t *testing.T) {
 		// skills are now expected in SPEC.md (via spec_content), not injected from index.md
 		tmpDir := t.TempDir()
@@ -145,68 +120,7 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task2/doing_prompt_fallback_to_py_scan_when_no_index", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		skillsDir := filepath.Join(tmpDir, "skills")
-		if err := os.MkdirAll(skillsDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		// No index.md, but has a .py file
-		pyContent := "# Description: 检查 Go 编译状态\nprint('ok')\n"
-		if err := os.WriteFile(filepath.Join(skillsDir, "check_go_build.py"), []byte(pyContent), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir(), tmpDir)
-		if err != nil {
-			t.Fatalf("GenerateDoingPromptFile: %v", err)
-		}
-
-		data, err := os.ReadFile(promptFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), "check_go_build") {
-			t.Error("doing prompt must fall back to .py scan when index.md does not exist")
-		}
-	})
-
 	// ─── task3: tools injection ───────────────────────────────────────────────
-
-	t.Run("task3/doing_prompt_contains_tools_when_tools_exist", func(t *testing.T) {
-		// Set up a temp project root with tools/*.py
-		tmpDir := t.TempDir()
-		toolsDir := filepath.Join(tmpDir, "tools")
-		if err := os.MkdirAll(toolsDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(toolsDir, "my_tool.py"), []byte("# Description: 示例工具\nprint('hi')\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-
-		// Change to tmpDir so os.Getwd() returns tmpDir
-		orig, _ := os.Getwd()
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
-		defer os.Chdir(orig)
-
-		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir())
-		if err != nil {
-			t.Fatalf("GenerateDoingPromptFile: %v", err)
-		}
-
-		data, err := os.ReadFile(promptFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), "my_tool") {
-			t.Error("doing prompt must contain tools list when tools/*.py exist")
-		}
-		if !strings.Contains(string(data), "示例工具") {
-			t.Error("doing prompt must contain tool description")
-		}
-	})
 
 	t.Run("task3/plan_prompt_no_tools_injection", func(t *testing.T) {
 		// tools are no longer injected directly into plan prompt (moved to SPEC.md 控制方法)

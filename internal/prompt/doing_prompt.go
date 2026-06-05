@@ -10,62 +10,6 @@ import (
 	"github.com/sunquan/rick/internal/workspace"
 )
 
-// formatToolsSection generates the tools section for the doing prompt.
-// projectRoot is the user's project root directory (os.Getwd()).
-// Returns empty string if no tools are available.
-func formatToolsSection(projectRoot string) string {
-	if projectRoot == "" {
-		return ""
-	}
-
-	tools, err := workspace.LoadToolsList(projectRoot)
-	if err != nil || len(tools) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("\n## 可用的项目 Tools\n\n")
-	sb.WriteString("以下 Python 脚本位于 `tools/`，优先使用这些工具完成任务，避免重复造轮子：\n\n")
-	sb.WriteString("| 文件 | 描述 |\n")
-	sb.WriteString("|------|------|\n")
-	for _, t := range tools {
-		sb.WriteString(fmt.Sprintf("| tools/%s.py | %s |\n", t.Name, t.Description))
-	}
-	sb.WriteString("\n调用方式：`python3 tools/<filename>.py`\n")
-	return sb.String()
-}
-
-// formatSkillsSection generates the skills section for the doing prompt.
-// Prefers index.md content; falls back to scanning .py files if index.md doesn't exist.
-// Returns empty string if no skills are available.
-func formatSkillsSection(rickDir string) string {
-	if rickDir == "" {
-		return ""
-	}
-
-	// Prefer index.md
-	indexContent, err := workspace.LoadSkillsIndex(rickDir)
-	if err == nil && indexContent != "" {
-		return "\n## 可用的项目 Skills\n\n" + indexContent + "\n"
-	}
-
-	// Fallback: scan .py files
-	skills, err := workspace.LoadSkillsList(rickDir)
-	if err != nil || len(skills) == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("\n## 可用的项目 Skills\n\n")
-	sb.WriteString("以下 Python 脚本位于 `.rick/skills/`，你可以在合适时机调用它们：\n\n")
-	sb.WriteString("| 文件 | 描述 |\n")
-	sb.WriteString("|------|------|\n")
-	for _, s := range skills {
-		sb.WriteString(fmt.Sprintf("| %s.py | %s |\n", s.Name, s.Description))
-	}
-	sb.WriteString("\n调用方式：`python3 .rick/skills/<filename>.py`\n")
-	return sb.String()
-}
 
 // GenerateDoingPrompt generates the execution phase prompt from a task
 // It includes task information, test methods, and debug context
@@ -260,27 +204,6 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	promptFile := filepath.Join(promptsDir, fmt.Sprintf("%s_doing_prompt.md", task.ID))
 	if err := builder.SaveToFile(promptFile); err != nil {
 		return "", nil, fmt.Errorf("failed to save doing prompt: %w", err)
-	}
-
-	// Inject skills section if rickDir is provided
-	resolvedRickDir := ""
-	if len(rickDir) > 0 {
-		resolvedRickDir = rickDir[0]
-	}
-	skillsSection := formatSkillsSection(resolvedRickDir)
-	if skillsSection != "" {
-		if _, err := readAndAppend(promptFile, skillsSection); err != nil {
-			return "", nil, fmt.Errorf("failed to append skills section: %w", err)
-		}
-	}
-
-	// Inject tools section from project root
-	projectRoot, _ := os.Getwd()
-	toolsSection := formatToolsSection(projectRoot)
-	if toolsSection != "" {
-		if _, err := readAndAppend(promptFile, toolsSection); err != nil {
-			return "", nil, fmt.Errorf("failed to append tools section: %w", err)
-		}
 	}
 
 	return promptFile, skillFiles, nil

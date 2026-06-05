@@ -15,7 +15,6 @@ const (
 	OKRFileName    = "OKR.md"
 	SpecFileName   = "SPEC.md"
 	WikiDirName    = "wiki"
-	SkillsDirName  = "skills"
 	JobsDirName    = "jobs"
 	PlanDirName    = "plan"
 	DoingDirName   = "doing"
