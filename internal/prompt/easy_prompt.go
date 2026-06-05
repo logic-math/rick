@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // GenerateEasyPromptFile generates the easy mode interactive prompt and learning prompt.
 // Both files are persisted to doingDir (not tmp) so they survive session exits.
+// ctxPath is optional; when non-empty the prompt includes ctx-inheritance instructions.
 // Returns mainFile (easy_prompt.md), learningFile (learning_prompt.md), skill tmp files, error.
-// Caller must defer-cleanup the skill tmp files.
-func GenerateEasyPromptFile(jobID, requirement, rickDir string) (string, string, []string, error) {
+func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string, string, []string, error) {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 
 	// Write skill files to doing/prompts/ (persistent)
@@ -55,6 +56,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir string) (string, string,
 	builder.SetVariable("learning_prompt_path", learningPromptPath)
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)
+	builder.SetVariable("ctx_section", buildCtxSection(ctxPath, rickDir))
 
 	mainContent, err := builder.Build()
 	if err != nil {
@@ -164,6 +166,46 @@ func buildEasyLearningPrompt(jobID, rickDir, doingDir, rickBinPath string) strin
 		result += l + "\n"
 	}
 	return result
+}
+
+// buildCtxSection returns the context-inheritance instructions for easy.md when ctxPath is set.
+// Returns empty string when ctxPath is empty (no inheritance).
+func buildCtxSection(ctxPath, localRickDir string) string {
+	if ctxPath == "" {
+		return ""
+	}
+	q := "`"
+	var sb strings.Builder
+	sb.WriteString("---\n\n")
+	sb.WriteString("## 继承上下文（--ctx 模式）\n\n")
+	sb.WriteString(fmt.Sprintf("本次会话继承了父级 .rick 上下文：%s%s%s\n\n", q, ctxPath, q))
+	sb.WriteString("### 第一步：启动 subagent 分析并迁移上下文\n\n")
+	sb.WriteString("**在开始处理用户需求之前**，先启动一个 subagent 完成上下文初始化：\n\n")
+	sb.WriteString("1. 读取父级 ctx 的以下文件（按优先级）：\n")
+	sb.WriteString(fmt.Sprintf("   - %s%s/OKR.md%s\n", q, ctxPath, q))
+	sb.WriteString(fmt.Sprintf("   - %s%s/SPEC.md%s\n", q, ctxPath, q))
+	sb.WriteString(fmt.Sprintf("   - %s%s/wiki/*.md%s（逐一读取）\n\n", q, ctxPath, q))
+	sb.WriteString(fmt.Sprintf("2. 结合当前需求文档，在本地 .rick 目录（%s%s%s）生成：\n", q, localRickDir, q))
+	sb.WriteString(fmt.Sprintf("   - %s%s/OKR.md%s — 以父级 OKR 为参考，结合当前需求起草本项目目标\n", q, localRickDir, q))
+	sb.WriteString(fmt.Sprintf("   - %s%s/SPEC.md%s — 以父级 SPEC 为架构模板，**剔除环境强相关内容**（见下方约束），补充当前项目技术细节\n\n", q, localRickDir, q))
+	sb.WriteString(fmt.Sprintf("3. 对于父级 wiki 中的文档：有通用价值的迁移到本地 %s%s/wiki/%s，项目特定的跳过\n\n", q, localRickDir, q))
+	sb.WriteString("### ⚠️ 环境隔离约束（必须遵守）\n\n")
+	sb.WriteString("父级 ctx 中以下内容**不得直接复制**，必须以当前环境为准重新配置：\n\n")
+	sb.WriteString("| 内容类型 | 处理方式 |\n")
+	sb.WriteString("|----------|----------|\n")
+	sb.WriteString("| IP 地址、域名、端口 | 留空或标注 `TODO: 填写当前环境地址` |\n")
+	sb.WriteString("| 密码、密钥、Token | 删除，标注 `TODO: 从当前环境获取` |\n")
+	sb.WriteString("| 文件系统路径（/home/xxx、/opt/xxx） | 留空或标注 `TODO: 确认当前路径` |\n")
+	sb.WriteString("| 数据库名、集群名 | 留空或标注 `TODO: 填写当前环境配置` |\n")
+	sb.WriteString("| 服务账号、用户名 | 留空或标注 `TODO: 确认当前账号` |\n\n")
+	sb.WriteString("**原则**：迁移的是架构知识和流程经验，不是环境配置。保持环境隔离。\n\n")
+	sb.WriteString("### 知识查询规则\n\n")
+	sb.WriteString("在会话过程中遇到模糊或不确定的信息时：\n")
+	sb.WriteString("1. 先查当前 .rick（已迁移的上下文）\n")
+	sb.WriteString(fmt.Sprintf("2. 若当前 .rick 无答案，**优先去父级 ctx 路径搜索**：%s%s%s\n", q, ctxPath, q))
+	sb.WriteString("3. 找到相关知识后，将其适配当前环境后使用\n\n")
+	sb.WriteString("---\n")
+	return sb.String()
 }
 
 // readFileOrDefault reads a file and returns its content, or the default string if absent.

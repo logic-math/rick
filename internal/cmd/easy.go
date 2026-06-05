@@ -15,7 +15,7 @@ import (
 )
 
 // runEasyMode creates a new job and starts an easy interactive session.
-func runEasyMode(requirement string) error {
+func runEasyMode(requirement, ctxPath string) error {
 	if requirement == "" {
 		var err error
 		requirement, err = promptForRequirement()
@@ -32,6 +32,13 @@ func runEasyMode(requirement string) error {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
+	// --ctx: guard against overwriting existing context
+	if ctxPath != "" {
+		if err := validateCtxInheritance(rickDir, ctxPath); err != nil {
+			return err
+		}
+	}
+
 	jobID, err := workspace.NextJobID()
 	if err != nil {
 		return fmt.Errorf("failed to determine next job ID: %w", err)
@@ -42,7 +49,25 @@ func runEasyMode(requirement string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	return startEasySession(jobID, requirement, rickDir, cfg)
+	return startEasySession(jobID, requirement, rickDir, cfg, ctxPath)
+}
+
+// validateCtxInheritance checks that:
+// 1. The target ctxPath exists and looks like a .rick directory.
+// 2. The local .rick does NOT already have OKR.md or SPEC.md (to prevent accidental overwrite).
+func validateCtxInheritance(localRickDir, ctxPath string) error {
+	// Verify the source ctx path exists
+	if _, err := os.Stat(ctxPath); os.IsNotExist(err) {
+		return fmt.Errorf("--ctx path does not exist: %s", ctxPath)
+	}
+	// Verify local .rick has no existing OKR.md / SPEC.md
+	for _, name := range []string{"OKR.md", "SPEC.md"} {
+		p := filepath.Join(localRickDir, name)
+		if _, err := os.Stat(p); err == nil {
+			return fmt.Errorf("local context already exists (%s). Remove it first or omit --ctx", p)
+		}
+	}
+	return nil
 }
 
 // resumeEasyMode resumes an existing easy session by job ID.
@@ -94,7 +119,7 @@ func resumeEasyMode(jobID string) error {
 }
 
 // startEasySession runs the full easy session flow for a new job.
-func startEasySession(jobID, requirement, rickDir string, cfg *config.Config) error {
+func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ctxPath string) error {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 	if err := os.MkdirAll(doingDir, 0755); err != nil {
 		return fmt.Errorf("failed to create doing directory: %w", err)
@@ -115,7 +140,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config) er
 	}
 
 	// Generate prompts (easy_prompt.md + learning_prompt.md saved to doing/prompts/)
-	mainFile, learningFile, _, err := prompt.GenerateEasyPromptFile(jobID, requirement, rickDir)
+	mainFile, learningFile, _, err := prompt.GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath)
 	if err != nil {
 		return fmt.Errorf("failed to generate easy prompt: %w", err)
 	}

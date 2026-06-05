@@ -20,6 +20,7 @@ import (
 func NewDoingCmd() *cobra.Command {
 	var jobID string
 	var easy bool
+	var ctxPath string
 
 	doingCmd := &cobra.Command{
 		Use:   "doing [job_id]",
@@ -45,7 +46,7 @@ func NewDoingCmd() *cobra.Command {
 				if len(args) > 0 {
 					requirement = args[0]
 				}
-				return runEasyMode(requirement)
+				return runEasyMode(requirement, ctxPath)
 			}
 
 			// Normal doing: args[0] is job_id
@@ -84,6 +85,7 @@ func NewDoingCmd() *cobra.Command {
 
 	doingCmd.Flags().StringVar(&jobID, "job", "", "Job ID to execute")
 	doingCmd.Flags().BoolVar(&easy, "easy", false, "Easy mode: skip plan, start interactive Claude session")
+	doingCmd.Flags().StringVar(&ctxPath, "ctx", "", "Inherit context from specified .rick directory (easy mode only)")
 
 	return doingCmd
 }
