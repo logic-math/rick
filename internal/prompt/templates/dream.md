@@ -136,64 +136,15 @@ skill:evolve-skills 内容参考：`{{evolve_skills_skill_path}}`
 
 #### subagent_5：源码与上下文一致性检查
 
-深度搜索项目源码，对 `.rick/` 上下文中与源码事实不符的部分进行修正：
+YOU MUST declare: "I will use skill:source-context-consistency." Before starting.
 
-1. 阅读 `.rick/SPEC.md` 中的架构设计、编译方法、控制方法等章节描述
-2. 使用 Read / Grep / Glob 对照实际源码（`internal/`、`cmd/`、`pkg/` 等）逐条验证
-3. 检查 `.rick/wiki/` 中的文档描述是否与当前代码实现一致
-4. 识别已失效的描述（函数签名已改、模块已删除、流程已重构等）
-5. **输出**：不一致清单（文件路径 + 具体差异说明）
-6. **修复**：直接更新 `.rick/SPEC.md` 和 `.rick/wiki/` 中不实的内容，使上下文如实反映源码现状
-
-⚠️ **允许**：Read、Grep、Glob 查阅源码；写入 `.rick/SPEC.md`、`.rick/wiki/`  
-⚠️ **禁止**：修改任何业务源代码
+skill:source-context-consistency 内容参考：`{{source_context_consistency_skill_path}}`
 
 #### subagent_6：死代码与重构调查 RFC
 
-以软件工程架构简洁性为第一目标，深度扫描源码，形成重构建议 RFC：
+YOU MUST declare: "I will use skill:refactor-rfc." Before starting.
 
-1. 使用 Read / Grep / Glob 全面扫描项目源码（`internal/`、`cmd/`、`pkg/` 等）
-2. 识别以下问题：
-   - **死代码**：未被任何路径调用的函数、类型、常量
-   - **重复逻辑**：多处相似实现可合并为公共抽象
-   - **过度耦合**：模块间依赖不合理，可拆分解耦
-   - **命名混乱**：命名与实际职责不符的标识符
-   - **冗余抽象**：只有一个实现的 interface、只被一处调用的 helper 等
-3. 以架构简洁性为目标排优先级：优先列出删除成本低、收益高的死代码
-4. 确定 RFC 文件序号：扫描 `.rick/RFC/RFC-refactor-*.md`，取最大数字 +1；若无则从 1 开始
-5. **输出**：创建 `.rick/RFC/RFC-refactor-{n}.md`，格式如下：
-
-```markdown
-# RFC-refactor-{n}: 代码简洁性重构建议
-
-## 背景
-
-{1-2 句说明扫描范围和目标}
-
-## 发现的问题
-
-### 死代码
-| 文件 | 函数/类型 | 说明 |
-|------|-----------|------|
-| ... | ... | ... |
-
-### 重复逻辑
-{列表}
-
-### 过度耦合 / 冗余抽象
-{列表}
-
-## 优先级建议
-
-{按删除成本低→高排序的 Top 5 改进项}
-
-## 影响评估
-
-{每项改动的预估影响范围，说明是否有测试覆盖}
-```
-
-⚠️ **允许**：Read、Grep、Glob 查阅任意源码；写入 `.rick/RFC/RFC-refactor-{n}.md`  
-⚠️ **禁止**：修改任何源代码或 `.rick/` 其他文件
+skill:refactor-rfc 内容参考：`{{refactor_rfc_skill_path}}`
 
 ---
 

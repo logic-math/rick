@@ -20,6 +20,8 @@ func GenerateDreamPrompt(jobIDs []string, rickDir string) (string, error) {
 	builder.SetVariable("run_logs", loadRunLogs(rickDir))
 	builder.SetVariable("sense_skill_path", "<tmp>/rick-dream-skill-sense-*.md")
 	builder.SetVariable("evolve_skills_skill_path", "<tmp>/rick-dream-skill-evolve-*.md")
+	builder.SetVariable("source_context_consistency_skill_path", "<tmp>/rick-dream-skill-source-context-consistency-*.md")
+	builder.SetVariable("refactor_rfc_skill_path", "<tmp>/rick-dream-skill-refactor-rfc-*.md")
 	builder.SetVariable("rick_bin_path", "<rick>")
 	content, err := builder.Build()
 	if err != nil {
@@ -57,12 +59,22 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 	if err != nil {
 		return "", nil, err
 	}
+	sourceContextFile, err := WriteSkillFile(promptsDir, "skill_source_context_consistency.md", "source-context-consistency")
+	if err != nil {
+		return "", nil, err
+	}
+	refactorRFCFile, err := WriteSkillFile(promptsDir, "skill_refactor_rfc.md", "refactor-rfc")
+	if err != nil {
+		return "", nil, err
+	}
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("pending_jobs", formatPendingJobs(jobIDs))
 	builder.SetVariable("run_logs", loadRunLogs(rickDir))
 	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("evolve_skills_skill_path", evolveFile)
+	builder.SetVariable("source_context_consistency_skill_path", sourceContextFile)
+	builder.SetVariable("refactor_rfc_skill_path", refactorRFCFile)
 	projectRoot, _ := os.Getwd()
 	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
 
