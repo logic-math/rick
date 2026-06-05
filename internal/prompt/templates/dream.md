@@ -85,7 +85,7 @@ skill:evolve-skills 内容参考：`{{evolve_skills_skill_path}}`
 4. 合并语义重复的条目
 5. 确保精简后行数 ≤ 500 行
 
-### 7. 四维质量验证（subagent 串行执行，每个完成后根据结论修正再启动下一个）
+### 7. 六维质量验证（subagent 串行执行，每个完成后根据结论修正再启动下一个）
 
 #### subagent_1：规范一致性检查
 
@@ -133,6 +133,67 @@ skill:evolve-skills 内容参考：`{{evolve_skills_skill_path}}`
 
 ⚠️ **允许**：Read、Grep、Glob 查阅任意文件  
 ⚠️ **禁止**：写入或修改任何文件、执行 shell 命令（编译/测试/运行）
+
+#### subagent_5：源码与上下文一致性检查
+
+深度搜索项目源码，对 `.rick/` 上下文中与源码事实不符的部分进行修正：
+
+1. 阅读 `.rick/SPEC.md` 中的架构设计、编译方法、控制方法等章节描述
+2. 使用 Read / Grep / Glob 对照实际源码（`internal/`、`cmd/`、`pkg/` 等）逐条验证
+3. 检查 `.rick/wiki/` 中的文档描述是否与当前代码实现一致
+4. 识别已失效的描述（函数签名已改、模块已删除、流程已重构等）
+5. **输出**：不一致清单（文件路径 + 具体差异说明）
+6. **修复**：直接更新 `.rick/SPEC.md` 和 `.rick/wiki/` 中不实的内容，使上下文如实反映源码现状
+
+⚠️ **允许**：Read、Grep、Glob 查阅源码；写入 `.rick/SPEC.md`、`.rick/wiki/`  
+⚠️ **禁止**：修改任何业务源代码
+
+#### subagent_6：死代码与重构调查 RFC
+
+以软件工程架构简洁性为第一目标，深度扫描源码，形成重构建议 RFC：
+
+1. 使用 Read / Grep / Glob 全面扫描项目源码（`internal/`、`cmd/`、`pkg/` 等）
+2. 识别以下问题：
+   - **死代码**：未被任何路径调用的函数、类型、常量
+   - **重复逻辑**：多处相似实现可合并为公共抽象
+   - **过度耦合**：模块间依赖不合理，可拆分解耦
+   - **命名混乱**：命名与实际职责不符的标识符
+   - **冗余抽象**：只有一个实现的 interface、只被一处调用的 helper 等
+3. 以架构简洁性为目标排优先级：优先列出删除成本低、收益高的死代码
+4. 确定 RFC 文件序号：扫描 `.rick/RFC/RFC-refactor-*.md`，取最大数字 +1；若无则从 1 开始
+5. **输出**：创建 `.rick/RFC/RFC-refactor-{n}.md`，格式如下：
+
+```markdown
+# RFC-refactor-{n}: 代码简洁性重构建议
+
+## 背景
+
+{1-2 句说明扫描范围和目标}
+
+## 发现的问题
+
+### 死代码
+| 文件 | 函数/类型 | 说明 |
+|------|-----------|------|
+| ... | ... | ... |
+
+### 重复逻辑
+{列表}
+
+### 过度耦合 / 冗余抽象
+{列表}
+
+## 优先级建议
+
+{按删除成本低→高排序的 Top 5 改进项}
+
+## 影响评估
+
+{每项改动的预估影响范围，说明是否有测试覆盖}
+```
+
+⚠️ **允许**：Read、Grep、Glob 查阅任意源码；写入 `.rick/RFC/RFC-refactor-{n}.md`  
+⚠️ **禁止**：修改任何源代码或 `.rick/` 其他文件
 
 ---
 
@@ -195,15 +256,16 @@ dream_run_{job_id}_log.md
 2. 更新了哪些 skills（新增/修改/删除）
 3. SPEC.md 变化（删除了哪些条目，当前行数）
 4. wiki 文档更新情况
-5. subagent 验证结果摘要（四维质量评分）
+5. subagent 验证结果摘要（六维质量评分；subagent_6 生成的 RFC 文件路径）
 6. 下次建议关注的重点
 
 ## 行为约束
 
-1. **严禁修改业务代码**：仅允许修改 `wiki/`、`tools/`、`.rick/SPEC.md`
+1. **严禁修改业务代码**：仅允许修改 `wiki/`、`tools/`、`.rick/SPEC.md`、`.rick/RFC/`（RFC 文件）
 2. **SPEC.md 硬约束**：修改后必须确保 SPEC.md ≤ 500 行
 3. **强制声明**：步骤 3 必须声明 "I will use skill:sense"，步骤 6 必须声明 "I will use skill:evolve-skills"
-4. **四维验证必须执行**：步骤 7 的 4 个 subagent 串行执行，每个完成后根据结论修正再启动下一个，不可跳过
+4. **六维验证必须执行**：步骤 7 的 6 个 subagent 串行执行，每个完成后根据结论修正再启动下一个，不可跳过
 5. **必须写 dream log**：步骤 9 是硬约束，每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
 6. **subagent_4 只读不写**：路径推演可用 Read/Grep/Glob 查阅代码事实，但不得写入文件、执行 shell 命令（编译/测试/运行）
-7. **不含 TDD/debug skill**：Dream 阶段不引用 tdd、debug、tc、gen-skill
+7. **subagent_6 只写 RFC**：仅创建 `.rick/RFC/RFC-refactor-{n}.md` 一个文件，不得修改源代码或其他 `.rick/` 文件
+8. **不含 TDD/debug skill**：Dream 阶段不引用 tdd、debug、tc、gen-skill
