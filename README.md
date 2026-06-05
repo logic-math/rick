@@ -216,5 +216,6 @@ rick dream -p   # 统一整合所有 job 的经验
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 2.1.1 | 2026-06-05 | `--ctx` 上下文继承、dream 六维验证、dead code 清理 |
 | 2.0.0 | 2026-06-04 | Easy 模式、Dream 命令、prompts 持久化、learning 直写 .rick/ |
 | 1.1.2 | 2026-03 | 标准 plan/doing/learning 流程 |
