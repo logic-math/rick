@@ -52,6 +52,9 @@ var (
 	//go:embed templates/easy_ctx.md
 	easyCtxTemplate string
 
+	//go:embed templates/ctrl.md
+	ctrlTemplate string
+
 	//go:embed templates/skills
 	skillsFS embed.FS
 )
@@ -148,6 +151,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return easyTemplate
 	case "easy_ctx":
 		return easyCtxTemplate
+	case "ctrl":
+		return ctrlTemplate
 	default:
 		return ""
 	}

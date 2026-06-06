@@ -22,7 +22,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", "", nil, err
 	}
-	debuggingFile, err := WriteSkillFile(promptsDir, "skill_systematic_debugging_zh.md", "systematic-debugging-zh")
+	debuggingFile, err := WriteSkillFile(promptsDir, "skill_super_debugging_zh.md", "super-debugging-zh")
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -51,7 +51,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("requirement", requirement)
 	builder.SetVariable("doing_dir", doingDir)
 	builder.SetVariable("tdd_skill_path", tddFile)
-	builder.SetVariable("systematic_debugging_path", debuggingFile)
+	builder.SetVariable("super_debugging_path", debuggingFile)
 	builder.SetVariable("learning_prompt_path", learningPromptPath)
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)
