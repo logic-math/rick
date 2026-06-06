@@ -52,7 +52,7 @@ graph TD
 ./bin/rick human-loop --dry-run '测试主题' | grep -E "human_loop_think|human_loop_learn|human_loop_express"
 
 # 使用统一验证工具
-python3 tools/check_prompt_variables.py --phase human-loop --topic '测试主题' --keywords human_loop_think
+python3 .rick/tools/check_prompt_variables.py --phase human-loop --topic '测试主题' --keywords human_loop_think
 ```
 
 ## 示例

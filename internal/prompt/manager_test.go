@@ -196,7 +196,7 @@ func TestExtractVariables(t *testing.T) {
 
 func TestCoreSkillsEmbed(t *testing.T) {
 	t.Run("all_eight_skill_files_non_empty", func(t *testing.T) {
-		skills := []string{"sense", "tc", "tdd", "testing", "debug", "gen-skill", "evolve-skills"}
+		skills := []string{"sense", "tc", "tdd", "testing", "super-debugging-zh", "gen-skill", "evolve-skills"}
 		for _, name := range skills {
 			result := LoadCoreSkills([]string{name})
 			if result == "" {

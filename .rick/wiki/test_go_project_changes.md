@@ -9,14 +9,14 @@
 
 ## 使用的 Tools
 
-- `tools/check_go_build.py` — 检查 Go 项目编译是否通过
-- `tools/build_and_get_rick_bin.py` — 构建 rick 二进制并获取路径（用于集成测试）
+- `.rick/tools/check_go_build.py` — 检查 Go 项目编译是否通过
+- `.rick/tools/build_and_get_rick_bin.py` — 构建 rick 二进制并获取路径（用于集成测试）
 
 ## 执行步骤
 
 1. **检查 Go 编译**
    ```bash
-   python3 tools/check_go_build.py
+   python3 .rick/tools/check_go_build.py
    # 返回 {"pass": true, "errors": []}
    ```
 
@@ -29,7 +29,7 @@
 
 3. **运行集成测试**（如有）
    ```bash
-   python3 tools/build_and_get_rick_bin.py
+   python3 .rick/tools/build_and_get_rick_bin.py
    # 获取 bin_path 后运行集成测试脚本
    bash tests/tools_integration_test.sh
    ```
@@ -44,13 +44,13 @@
 
 ```bash
 # 修改 internal/prompt/builder.go 后验证
-python3 tools/check_go_build.py
+python3 .rick/tools/check_go_build.py
 # => {"pass": true, "errors": []}
 
 go test ./internal/...
 # => ok  rick/internal/prompt  0.012s
 
-python3 tools/build_and_get_rick_bin.py
+python3 .rick/tools/build_and_get_rick_bin.py
 # => {"pass": true, "bin_path": "/path/to/bin/rick"}
 
 /path/to/bin/rick doing job_12 --dry-run | grep "可用的项目 Tools"

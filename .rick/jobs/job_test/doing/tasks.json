@@ -1,1 +1,0 @@
-{"version": "1.0", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z", "tasks": [{"task_id": "task1", "task_name": "Task 1", "status": "success", "dependencies": [], "attempts": 1, "commit_hash": "abc123", "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"}]}

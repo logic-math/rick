@@ -9,14 +9,14 @@
 
 ## 使用的 Tools
 
-- `tools/build_and_get_rick_bin.py` — 构建最新 rick 二进制，获取本地路径
-- `tools/check_go_build.py` — 确认 Go 项目编译无误
+- `.rick/tools/build_and_get_rick_bin.py` — 构建最新 rick 二进制，获取本地路径
+- `.rick/tools/check_go_build.py` — 确认 Go 项目编译无误
 
 ## 执行步骤
 
 1. **构建最新 rick 二进制**
    ```bash
-   python3 tools/build_and_get_rick_bin.py
+   python3 .rick/tools/build_and_get_rick_bin.py
    # 返回 {"pass": true, "bin_path": "..."}
    ```
 
@@ -39,7 +39,7 @@
 
 ```bash
 # 构建并验证 job_12
-python3 tools/build_and_get_rick_bin.py
+python3 .rick/tools/build_and_get_rick_bin.py
 # => {"pass": true, "bin_path": "/path/to/bin/rick"}
 
 /path/to/bin/rick tools doing_check job_12
