@@ -25,3 +25,34 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
+
+## task2: 更新 doing.md / plan.md 模板引用，删除 super-debugging-zh.md
+
+**分析过程 (Analysis)**:
+- 阅读了 `internal/prompt/templates/doing.md`、`plan.md`、`easy.md` 确认所有 super_debugging 引用位置
+- 确认 `internal/prompt/templates/skills/super-debugging-zh.md` 存在，需用 `git rm` 删除
+- doing.md 中 DEBUG 铁律、skill 列表、Commitment、Scarcity 章节均需更新；debug{N} 格式整节需删除
+- plan.md 中 task.md 格式的调试方法章节需替换 super_debugging_skill_path → debug_skill_path
+- easy.md 中 skill 列表第2条需替换为 debug-skill（测试也检查了此文件）
+
+**实现步骤 (Implementation)**:
+1. `git rm internal/prompt/templates/skills/super-debugging-zh.md`
+2. doing.md：Line 3 声明改为 skill:debug-skill
+3. doing.md：skill 列表第3行替换为 debug-skill，新增 sense_skill_path 行
+4. doing.md：DEBUG 铁律章节替换为三阶段调试法
+5. doing.md：Commitment 块改为 debug-skill
+6. doing.md：Scarcity 章节更新 Phase 1 描述
+7. doing.md：删除"遇到问题时的详细记录"debug{N} 整节，替换为单行 bug{n}-{描述}.md 指引
+8. plan.md：调试方法章节替换为 debug_skill_path + 三阶段调试法描述
+9. easy.md：skill:super-debugging 条目替换为 skill:debug-skill
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`python3 .rick/jobs/job_16/doing/tests/task2.py`
+- 测试输出：
+  ```
+  {"pass": true, "errors": []}
+  ```
+- 结论：✅ 通过
