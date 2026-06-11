@@ -120,8 +120,15 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 
 	// Check if test passed
 	if testResult.Pass {
-		result.Status = "success"
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+		// Run doing_check to validate debug/ format before marking success
+		if checkErr := RunDoingCheck(tr.config.WorkspaceDir); checkErr != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("doing_check failed: %v", checkErr)
+			result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+		} else {
+			result.Status = "success"
+			result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+		}
 	} else {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("test did not pass: %s\n\nFull test output:\n%s", strings.Join(testResult.Errors, "; "), testOutput)

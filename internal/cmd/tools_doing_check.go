@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/executor"
@@ -96,52 +95,14 @@ Exit codes:
 
 // runDoingCheck performs all structural checks on the doing directory.
 func runDoingCheck(doingDir string) error {
-	// 1. tasks.json exists and is parseable
+	if err := executor.RunDoingCheck(doingDir); err != nil {
+		return err
+	}
 	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
 	tasksJSON, err := executor.LoadTasksJSON(tasksJSONPath)
 	if err != nil {
-		return fmt.Errorf("tasks.json not found or invalid: %w", err)
+		return err
 	}
-
-	// 2. If debug/ directory exists, all bug*.md files must have valid frontmatter
-	debugDir := filepath.Join(doingDir, "debug")
-	if info, err := os.Stat(debugDir); err == nil && info.IsDir() {
-		entries, err := os.ReadDir(debugDir)
-		if err != nil {
-			return fmt.Errorf("failed to read debug/ directory: %w", err)
-		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasPrefix(e.Name(), "bug") || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			bugPath := filepath.Join(debugDir, e.Name())
-			content, err := os.ReadFile(bugPath)
-			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", e.Name(), err)
-			}
-			if !strings.Contains(string(content), "status:") {
-				return fmt.Errorf("%s is missing required 'status:' field in frontmatter", e.Name())
-			}
-			if strings.Contains(string(content), `"🔄 进行中"`) {
-				return fmt.Errorf("%s has unresolved status '🔄 进行中' — must be resolved before task completes", e.Name())
-			}
-		}
-	}
-
-	// 3. No tasks in "running" zombie state
-	for _, task := range tasksJSON.GetAllTasks() {
-		if task.Status == "running" {
-			return fmt.Errorf("task %s is in zombie 'running' state", task.TaskID)
-		}
-	}
-
-	// 4. All success tasks have a non-empty commit_hash
-	for _, task := range tasksJSON.GetAllTasks() {
-		if task.Status == "success" && task.CommitHash == "" {
-			return fmt.Errorf("task %s has status=success but missing commit_hash", task.TaskID)
-		}
-	}
-
 	successCount := tasksJSON.GetCompletedCount()
 	totalCount := tasksJSON.GetTaskCount()
 	fmt.Printf("✅ doing check passed: %d/%d tasks succeeded\n", successCount, totalCount)
