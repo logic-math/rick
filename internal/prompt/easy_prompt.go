@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 // GenerateEasyPromptFile generates the easy mode interactive prompt and learning prompt.
@@ -35,7 +37,10 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	// Load context (embedded in main prompt, read latest at session start)
 	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
 	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
-	debugContent := readFileOrDefault(filepath.Join(doingDir, "debug.md"), "暂无（首次会话）")
+	debugContent := loadDebugContextLocal(doingDir)
+	if debugContent == "" {
+		debugContent = "暂无（首次会话）"
+	}
 
 	// Build main easy prompt
 	mgr := NewPromptManager()
@@ -105,7 +110,7 @@ func buildEasyLearningPrompt(jobID, rickDir, doingDir, rickBinPath string) strin
 		"",
 		"### 数据来源（请读取以下文件）",
 		"",
-		fmt.Sprintf("- **debug.md（行为轨迹与问题记录）**: %s%s%s", q, debugPath, q),
+		fmt.Sprintf("- **debug 记录（优先读取 debug/ 下的 bug*.md 摘要，若无则读取 debug.md）**: 请读取 %sdebug/%s 目录或 %s%s%s", q, q, q, debugPath, q),
 		fmt.Sprintf("- **OKR**: %s%s%s", q, okrPath, q),
 		fmt.Sprintf("- **SPEC.md**: %s%s%s", q, specPath, q),
 		"",
@@ -113,9 +118,9 @@ func buildEasyLearningPrompt(jobID, rickDir, doingDir, rickBinPath string) strin
 		"",
 		"## ⚠️ 执行 SOP",
 		"",
-		"### Step 1：读取并分析 debug.md",
+		"### Step 1：读取并分析 debug 记录",
 		"",
-		"读取 debug.md 文件，分析：",
+		"优先读取 debug/ 下的 bug*.md 摘要，若无则读取 debug.md，分析：",
 		"- 每个 debug 条目的根因与解决方案",
 		"- 跨问题的共性模式",
 		"- 未解决的问题",
@@ -191,6 +196,77 @@ func buildCtxSection(ctxPath, localRickDir string) string {
 		return ""
 	}
 	return content
+}
+
+// loadDebugContextLocal mirrors executor.LoadDebugContext without creating a circular import.
+// Prefers bug*.md frontmatter summaries from doingDir/debug/; falls back to doingDir/debug.md.
+// Returns "" when doingDir is empty or does not exist.
+//
+// TODO(2026-08): remove fallback to debug.md after full migration to debug/ dir format.
+func loadDebugContextLocal(doingDir string) string {
+	if doingDir == "" {
+		return ""
+	}
+	if _, err := os.Stat(doingDir); os.IsNotExist(err) {
+		return ""
+	}
+	debugDir := filepath.Join(doingDir, "debug")
+	entries, err := os.ReadDir(debugDir)
+	if err == nil {
+		var files []string
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() && strings.HasPrefix(name, "bug") && strings.HasSuffix(name, ".md") {
+				files = append(files, name)
+			}
+		}
+		if len(files) > 0 {
+			sort.Strings(files)
+			var sb strings.Builder
+			for _, name := range files {
+				data, err := os.ReadFile(filepath.Join(debugDir, name))
+				if err != nil {
+					continue
+				}
+				// parse YAML frontmatter for summary and status
+				var summary, status string
+				lines := strings.Split(string(data), "\n")
+				inFM, started := false, false
+				for _, line := range lines {
+					t := strings.TrimSpace(line)
+					if t == "---" {
+						if !started {
+							inFM, started = true, true
+							continue
+						}
+						if inFM {
+							break
+						}
+					}
+					if !inFM {
+						continue
+					}
+					if strings.HasPrefix(t, "summary:") {
+						v := strings.TrimSpace(strings.TrimPrefix(t, "summary:"))
+						summary = strings.Trim(v, `"'`)
+					} else if strings.HasPrefix(t, "status:") {
+						v := strings.TrimSpace(strings.TrimPrefix(t, "status:"))
+						status = strings.Trim(v, `"'`)
+					}
+				}
+				sb.WriteString(fmt.Sprintf("- [%s] summary: %s | status: %s\n", name, summary, status))
+			}
+			if result := sb.String(); result != "" {
+				return result
+			}
+		}
+	}
+	// TODO(2026-08): remove fallback after full migration
+	data, err := os.ReadFile(filepath.Join(doingDir, "debug.md"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // readFileOrDefault reads a file and returns its content, or the default string if absent.

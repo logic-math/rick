@@ -3,6 +3,7 @@ package executor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,36 +55,37 @@ func TestRetryTaskNilConfig(t *testing.T) {
 	}
 }
 
-// TestLoadDebugContext tests loading debug context
+// TestLoadDebugContext tests that loadDebugContext returns summaries from debug/ dir, not full text.
 func TestLoadDebugContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	debugFile := filepath.Join(tmpDir, "debug.md")
 
-	config := &ExecutionConfig{
-		MaxRetries:     3,
-		TimeoutSeconds: 30,
-	}
-
+	config := &ExecutionConfig{MaxRetries: 3, TimeoutSeconds: 30}
 	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, debugFile)
 
-	// Test loading non-existent file
-	context := manager.loadDebugContext(debugFile)
-	if context != "" {
-		t.Errorf("Expected empty context for non-existent file, got: %s", context)
+	// No debug/ and no debug.md → empty
+	ctx := manager.loadDebugContext(debugFile)
+	if ctx != "" {
+		t.Errorf("expected empty context when nothing exists, got: %s", ctx)
 	}
 
-	// Create debug file with content
-	testContent := "- debug1: test entry"
-	err := os.WriteFile(debugFile, []byte(testContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create test file: %v", err)
+	// Create debug/bug1-test.md with frontmatter
+	debugDir := filepath.Join(tmpDir, "debug")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	bugBody := "---\nsummary: nil pointer in runner\nstatus: resolved\n---\n\nThis full body should NOT appear."
+	if err := os.WriteFile(filepath.Join(debugDir, "bug1-test.md"), []byte(bugBody), 0644); err != nil {
+		t.Fatal(err)
 	}
 
-	// Test loading existing file
-	context = manager.loadDebugContext(debugFile)
-	if context != testContent {
-		t.Errorf("Expected '%s', got '%s'", testContent, context)
+	ctx = manager.loadDebugContext(debugFile)
+	if !strings.Contains(ctx, "nil pointer in runner") {
+		t.Errorf("expected summary in context, got: %s", ctx)
+	}
+	if strings.Contains(ctx, "full body should NOT appear") {
+		t.Error("context should contain summary only, not full body text")
 	}
 }
 

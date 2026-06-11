@@ -80,3 +80,34 @@
   ok  	github.com/sunquan/rick/internal/prompt	0.462s
   ```
 - 结论：✅ 通过
+
+## task4: 全局替换 debug.md 读取为 debug/ 优先、回退 debug.md 的兼容策略
+
+**分析过程 (Analysis)**:
+- 阅读了 7 处变更位置的实际代码：retry.go、runner.go（×2）、learning.go（×2）、easy_prompt.go（×2）
+- 确认 `executor` 包导入 `prompt`，`prompt` 不能反向导入 `executor`（循环依赖），因此 easy_prompt.go 需本地 `loadDebugContextLocal` 函数复制同等逻辑
+- runner.go location 3 需要新增 `SetDebugRaw/GetDebugRaw` 到 ContextManager，并在 doing_prompt.go 的 `formatDebugContext` 中加回退逻辑，以保持旧测试（`LoadDebugFromContent`）兼容
+
+**实现步骤 (Implementation)**:
+1. 新建 `internal/executor/debug_dir.go`：`extractBugFrontmatter`、`LoadDebugDirSummaries`、`LoadDebugContext`（含 TODO 2026-08 回退注释）
+2. `retry.go`：`loadDebugContext` 改为 `return LoadDebugContext(filepath.Dir(debugFile))`，移除 `os` 依赖改用 `path/filepath`
+3. `runner.go`：location 2 `DebugContent: LoadDebugContext(tr.config.WorkspaceDir)`；location 3 `contextMgr.SetDebugRaw(LoadDebugContext(tr.config.WorkspaceDir))`
+4. `context.go`：新增 `debugRaw` 字段 + `SetDebugRaw/GetDebugRaw` 方法
+5. `doing_prompt.go`：`formatDebugContext(contextMgr.GetDebug())` → `GetDebugRaw()` 优先，空时回退 `formatDebugContext`（保持旧测试兼容）
+6. `learning.go`：location 4 `doingDir` + `executor.LoadDebugContext(doingDir)`；location 5 同理，删除旧 os.ReadFile 模式
+7. `easy_prompt.go`：`loadDebugContextLocal` 复制逻辑；更新 Step 1 和数据来源描述
+8. 新建 `debug_dir_test.go`（6 个测试）；更新 `retry_test.go`、`runner_test.go`（debug/ 路径）
+
+**遇到的问题 (Issues)**:
+- 初次运行测试失败：`TestGenerateDoingPrompt_WithRetry` 和 `TestIntegration_RetryPromptsIncludeDebug` 均使用 `LoadDebugFromContent` 路径（旧 API），但 `GetDebugRaw()` 返回 ""
+- 修复：在 `doing_prompt.go` 中，`GetDebugRaw()` 为空时回退至 `formatDebugContext(contextMgr.GetDebug())`，兼容旧测试
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./internal/executor/... ./internal/cmd/... ./internal/prompt/...`
+- 测试输出：
+  ```
+  ok  	github.com/sunquan/rick/internal/executor	1.529s
+  ok  	github.com/sunquan/rick/internal/cmd	63.679s
+  ok  	github.com/sunquan/rick/internal/prompt	(cached)
+  ```
+- 结论：✅ 通过

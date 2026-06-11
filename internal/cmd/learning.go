@@ -99,9 +99,8 @@ func runLearningDryRun(jobID string) error {
 	if content, err := os.ReadFile(filepath.Join(jobDir, "plan", "OKR.md")); err == nil {
 		data.OKRContent = string(content)
 	}
-	if content, err := os.ReadFile(filepath.Join(jobDir, "doing", "debug.md")); err == nil {
-		data.DebugContent = string(content)
-	}
+	doingDir := filepath.Join(jobDir, "doing")
+	data.DebugContent = executor.LoadDebugContext(doingDir)
 
 	promptsDir, _ := prompt.EnsurePromptsDir(learningDir)
 	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
@@ -161,14 +160,9 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 		SpecPath: filepath.Join(rickDir, "SPEC.md"),
 	}
 
-	// debug.md — embed content directly
-	debugPath := filepath.Join(doingDir, "debug.md")
-	if content, err := os.ReadFile(debugPath); err == nil {
-		data.DebugContent = string(content)
-		fmt.Printf("✅ Read debug.md (%d bytes)\n", len(content))
-	} else {
-		fmt.Println("⚠ debug.md not found")
-	}
+	// Load debug context: prefers debug/ summaries, falls back to debug.md
+	data.DebugContent = executor.LoadDebugContext(doingDir)
+	fmt.Printf("✅ Loaded debug context (%d bytes)\n", len(data.DebugContent))
 
 	// tasks.json
 	tasksJSONPath := filepath.Join(doingDir, "tasks.json")

@@ -262,16 +262,17 @@ func TestGenerateDoingPromptFile_ValidTask(t *testing.T) {
 	}
 }
 
-// TestGenerateDoingPromptFile_WithDebugContext tests that debug.md content is embedded in prompt
+// TestGenerateDoingPromptFile_WithDebugContext tests that debug/ bug summaries are embedded in prompt.
 func TestGenerateDoingPromptFile_WithDebugContext(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Simulate .rick/jobs/job_1/doing structure
 	workspaceDir := filepath.Join(tmpDir, ".rick", "jobs", "job_1", "doing")
-	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+	debugDir := filepath.Join(workspaceDir, "debug")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	debugContent := "## debug1: Previous error\nSome debug info"
-	if err := os.WriteFile(filepath.Join(workspaceDir, "debug.md"), []byte(debugContent), 0644); err != nil {
+	bugContent := "---\nsummary: Previous error in auth\nstatus: resolved\n---\n\nThis body text should not appear in prompt."
+	if err := os.WriteFile(filepath.Join(debugDir, "bug1.md"), []byte(bugContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -289,8 +290,11 @@ func TestGenerateDoingPromptFile_WithDebugContext(t *testing.T) {
 		t.Fatalf("Failed to read prompt file: %v", err)
 	}
 
-	if !strings.Contains(string(content), "Previous error") {
-		t.Error("Prompt file should contain debug.md content")
+	if !strings.Contains(string(content), "Previous error in auth") {
+		t.Error("Prompt file should contain bug summary from debug/bug1.md")
+	}
+	if strings.Contains(string(content), "body text should not appear") {
+		t.Error("Prompt file should not contain full body text from bug file")
 	}
 }
 

@@ -18,6 +18,7 @@ type ContextManager struct {
 	SPECInfo    *parser.ContextInfo
 	OKRRaw      string // raw file content, used as fallback when parsing yields no data
 	SPECRaw     string // raw file content, used as fallback when parsing yields no data
+	debugRaw    string // pre-formatted debug context string (bypasses parser)
 	History     []string
 	mu          sync.RWMutex
 }
@@ -69,6 +70,21 @@ func (cm *ContextManager) LoadDebugFromFile(filePath string) error {
 	}
 
 	return cm.LoadDebugFromContent(string(content))
+}
+
+// SetDebugRaw stores a pre-formatted debug context string, bypassing the parser.
+// When set, GetDebugRaw takes precedence over formatDebugContext(GetDebug()) in prompt generation.
+func (cm *ContextManager) SetDebugRaw(raw string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.debugRaw = raw
+}
+
+// GetDebugRaw returns the pre-formatted debug context string, or "" if not set.
+func (cm *ContextManager) GetDebugRaw() string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	return cm.debugRaw
 }
 
 // LoadOKRFromContent loads OKR information from OKR.md content

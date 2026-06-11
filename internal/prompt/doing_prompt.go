@@ -75,8 +75,11 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	taskDeps := formatTaskDependencies(task.Dependencies)
 	builder.SetVariable("task_dependencies", taskDeps)
 
-	// Always include debug context
-	debugContext := formatDebugContext(contextMgr.GetDebug())
+	// Always include debug context: prefer raw (from LoadDebugContext), fall back to parsed entries
+	debugContext := contextMgr.GetDebugRaw()
+	if debugContext == "" {
+		debugContext = formatDebugContext(contextMgr.GetDebug())
+	}
 	builder.SetVariable("debug_context", debugContext)
 
 	// Set rick_bin_path and job_id for check commands in template
@@ -187,8 +190,11 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	taskDeps := formatTaskDependencies(task.Dependencies)
 	builder.SetVariable("task_dependencies", taskDeps)
 
-	// Always include debug context
-	debugContext := formatDebugContext(contextMgr.GetDebug())
+	// Always include debug context: prefer raw (from LoadDebugContext), fall back to parsed entries
+	debugContext := contextMgr.GetDebugRaw()
+	if debugContext == "" {
+		debugContext = formatDebugContext(contextMgr.GetDebug())
+	}
 	builder.SetVariable("debug_context", debugContext)
 
 	// Set skill paths for path injection

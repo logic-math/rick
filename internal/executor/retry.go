@@ -2,7 +2,7 @@ package executor
 
 import (
 	"fmt"
-	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -134,20 +134,12 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 	return result, nil
 }
 
-// loadDebugContext reads the debug.md file and returns its content
-// This provides context for retry decisions
+// loadDebugContext delegates to LoadDebugContext using the workspace dir derived from debugFile.
 func (trm *TaskRetryManager) loadDebugContext(debugFile string) string {
 	if debugFile == "" {
 		return ""
 	}
-
-	content, err := os.ReadFile(debugFile)
-	if err != nil {
-		// File might not exist yet, which is okay
-		return ""
-	}
-
-	return string(content)
+	return LoadDebugContext(filepath.Dir(debugFile))
 }
 
 // Note: Debug logging is now handled by Claude, not by the program

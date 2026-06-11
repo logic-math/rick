@@ -155,7 +155,7 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	genCtx := TestGenContext{
 		OKRContent:   loadFileContent(filepath.Join(jobDir, "plan", "OKR.md")),
 		SPECContent:  loadFileContent(filepath.Join(rickDir, "SPEC.md")),
-		DebugContent: loadFileContent(filepath.Join(tr.config.WorkspaceDir, "debug.md")),
+		DebugContent: LoadDebugContext(tr.config.WorkspaceDir),
 	}
 
 	testPromptFile, _, err := tr.buildTestGenerationPromptFile(task, testScriptPath, genCtx)
@@ -248,9 +248,8 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 			contextMgr.LoadSPECFromFile(specPath)
 		}
 
-		// Debug: from doing/debug.md (always load; errors silently ignored)
-		debugMdPath := filepath.Join(tr.config.WorkspaceDir, "debug.md")
-		contextMgr.LoadDebugFromFile(debugMdPath) // nolint: ignore error when file absent
+		// Debug: prefer debug/ summaries, fall back to debug.md
+		contextMgr.SetDebugRaw(LoadDebugContext(tr.config.WorkspaceDir))
 	}
 
 	// Create prompt manager (use embedded templates)
