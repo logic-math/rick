@@ -88,17 +88,16 @@
 2. 在 `{{doing_dir}}/debug/` 下创建 `bug{N}-{描述}.md`（含 YAML frontmatter，N 全局递增）
 3. 加载 `{{debug_skill_path}}`，严格按三阶段执行：
 
-   **阶段一：源码推理法**（上限 3 次）
+   **阶段一：源码推理法**（上限 3 次，记录到 `## 阶段一：源码推理法`）
    - 启动 review debug agent 建立假设列表
    - 每次选优先级最高假设 → 最小改动验证 → 通过则修复提交，失败则 `git checkout .` 回滚
-   - 3 次失败 → 进入阶段二
 
-   **阶段二：增量调试法**（有基线时执行）
+   **阶段二：增量调试法**（上限 3 次失败后，记录到 `## 阶段二：增量调试法`）
    - 启动 review debug agent 产出最小复现建议
    - 从 git 历史或最小配置找基线 → 逐步添加变量 → 定位引入 bug 的最小改动
    - 无基线则跳过 → 进入阶段三
 
-   **阶段三：科学实验法**（上限 5 次）
+   **阶段三：科学实验法**（上限 5 次，记录到 `## 阶段三：科学实验法`）
    - 启动 review debug agent 分析错误传播链
    - 使用运行时工具（delve/pprof/pdb/strace）设计实验 → 收集数据 → 定位根因
    - 5 次仍失败 → 写结论章节，status 标记 `❌ 无法修复`，等待人类决策
@@ -122,7 +121,7 @@ I will use skill:debug-skill for any unexpected behavior.
 
 **Before proceeding to next task, verify: all tests pass.**
 
-**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `{{doing_dir}}/debug/` 创建 `bug{N}-{描述}.md`，按阶段一→阶段二→阶段三顺序调试，不可跳过。**
+**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `{{doing_dir}}/debug/` 创建 `bug{N}-{描述}.md`，按阶段一：源码推理法 → 阶段二：增量调试法 → 阶段三：科学实验法 顺序调试，不可跳过。**
 
 每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
 
