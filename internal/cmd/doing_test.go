@@ -432,6 +432,16 @@ func TestExecuteDoingWorkflow_ResumesFromTasksJSON(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(orig) }()
 
+	// Override HOME so LoadConfig reads from temp dir (MaxRetries=2 avoids long sleeps).
+	t.Setenv("HOME", dir)
+	rickCfgDir := filepath.Join(dir, ".rick")
+	if err := os.MkdirAll(rickCfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rickCfgDir, "config.json"), []byte(`{"max_retries":2}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	// Set up plan directory with two tasks
 	planDir := filepath.Join(dir, ".rick", "jobs", "job_resume", "plan")
 	if err := os.MkdirAll(planDir, 0755); err != nil {
@@ -517,6 +527,16 @@ func TestExecuteDoingWorkflow_WithMockClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chdir(orig) }()
+
+	// Override HOME so LoadConfig reads from temp dir (MaxRetries=2 avoids long sleeps).
+	t.Setenv("HOME", dir)
+	rickCfgDir := filepath.Join(dir, ".rick")
+	if err := os.MkdirAll(rickCfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rickCfgDir, "config.json"), []byte(`{"max_retries":2}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Set up workspace
 	planDir := filepath.Join(dir, ".rick", "jobs", "job_test", "plan")

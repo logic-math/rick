@@ -111,3 +111,24 @@
   ok  	github.com/sunquan/rick/internal/prompt	(cached)
   ```
 - 结论：✅ 通过
+
+## debug1: TestExecuteDoingWorkflow 测试超时（task4 测试脚本 go test ./internal/... 超时）
+
+**现象 (Phenomenon)**:
+- `go test ./internal/...` 在 180s 内超时，`TestExecuteDoingWorkflow_ResumesFromTasksJSON` 和 `TestExecuteDoingWorkflow_WithMockClaude` 挂起
+
+**复现 (Reproduction)**:
+- `go test -timeout 60s ./internal/cmd/...` → 60s 后 FAIL，stack trace 卡在 `retry.go:123 time.Sleep`
+
+**猜想 (Hypothesis)**:
+- `~/.rick/config.json` 设置了 `max_retries: 16`，导致 retry sleep 累计 = 1+2+...+15 = 120s
+
+**验证 (Verification)**:
+- `cat ~/.rick/config.json` → `max_retries: 16` ✅ 确认
+
+**修复 (Fix)**:
+- 两个测试函数开头加 `t.Setenv("HOME", dir)` + 写入 `dir/.rick/config.json`（`{"max_retries":2}`）
+- 测试从挂起 60s+ 降至 ~1s 完成
+
+**进展 (Progress)**:
+- 当前状态：✅ 已解决
