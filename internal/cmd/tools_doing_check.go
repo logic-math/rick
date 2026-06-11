@@ -103,20 +103,29 @@ func runDoingCheck(doingDir string) error {
 		return fmt.Errorf("tasks.json not found or invalid: %w", err)
 	}
 
-	// 2. debug.md exists and has valid content
-	debugMDPath := filepath.Join(doingDir, "debug.md")
-	if _, err := os.Stat(debugMDPath); os.IsNotExist(err) {
-		return fmt.Errorf("debug.md not found in %s", doingDir)
-	}
-	debugContent, err := os.ReadFile(debugMDPath)
-	if err != nil {
-		return fmt.Errorf("failed to read debug.md: %w", err)
-	}
-	if len(strings.TrimSpace(string(debugContent))) == 0 {
-		return fmt.Errorf("debug.md exists but is empty")
-	}
-	if !strings.Contains(string(debugContent), "## task") {
-		return fmt.Errorf("debug.md contains no task records (missing ## task section)")
+	// 2. If debug/ directory exists, all bug*.md files must have valid frontmatter
+	debugDir := filepath.Join(doingDir, "debug")
+	if info, err := os.Stat(debugDir); err == nil && info.IsDir() {
+		entries, err := os.ReadDir(debugDir)
+		if err != nil {
+			return fmt.Errorf("failed to read debug/ directory: %w", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasPrefix(e.Name(), "bug") || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			bugPath := filepath.Join(debugDir, e.Name())
+			content, err := os.ReadFile(bugPath)
+			if err != nil {
+				return fmt.Errorf("failed to read %s: %w", e.Name(), err)
+			}
+			if !strings.Contains(string(content), "status:") {
+				return fmt.Errorf("%s is missing required 'status:' field in frontmatter", e.Name())
+			}
+			if strings.Contains(string(content), `"🔄 进行中"`) {
+				return fmt.Errorf("%s has unresolved status '🔄 进行中' — must be resolved before task completes", e.Name())
+			}
+		}
 	}
 
 	// 3. No tasks in "running" zombie state

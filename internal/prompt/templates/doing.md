@@ -73,13 +73,20 @@
 
 #### DEBUG 铁律
 
-**When encountering ANY bug, YOU MUST declare: "I will use skill:debug-skill." No random fixes. No exceptions.**
+**所有代码都是 debug 出来的。RED 阶段测试失败 = 遇到 bug，必须触发 debug-skill，无一例外。**
 
-遇到任何不符合预期的行为时，必须：
+> RED 不是"预期中的失败"，而是发现了系统与预期的差距——这正是 bug 的定义。
+> 跳过 debug-skill 直接修改代码 = 随机修复 = 制造下一个 bug。
+
+**触发条件（以下任意一条即触发，不得跳过）**：
+- 运行测试出现 FAIL / 错误输出
+- 代码行为与预期不符
+- 编译报错（编译错误也是 bug）
+
+**触发后必须执行**：
 1. 声明 `"I will use skill:debug-skill."`
-2. 加载 `{{debug_skill_path}}`，严格按三阶段执行：
-
-   **准备**：在 `{{doing_dir}}/debug/` 下创建 `bug{N}-{描述}.md`（含 YAML frontmatter）
+2. 在 `{{doing_dir}}/debug/` 下创建 `bug{N}-{描述}.md`（含 YAML frontmatter，N 全局递增）
+3. 加载 `{{debug_skill_path}}`，严格按三阶段执行：
 
    **阶段一：源码推理法**（上限 3 次）
    - 启动 review debug agent 建立假设列表
@@ -96,7 +103,9 @@
    - 使用运行时工具（delve/pprof/pdb/strace）设计实验 → 收集数据 → 定位根因
    - 5 次仍失败 → 写结论章节，status 标记 `❌ 无法修复`，等待人类决策
 
-3. 不得随机修改代码（no random fixes）
+4. 不得随机修改代码（no random fixes）
+
+**doing_check 会验证 `debug/` 目录是否存在且有 `bug*.md` 文件。无 debug 记录 = check 失败。**
 
 ### 承诺（Commitment）
 

@@ -147,62 +147,11 @@ func TestRunDoingCheck_NoTasksJSON(t *testing.T) {
 	}
 }
 
-func TestRunDoingCheck_NoDebugMD(t *testing.T) {
-	dir := t.TempDir()
-	makeTasksJSON(t, dir, []executor.TaskState{
-		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
-	})
-	err := runDoingCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for missing debug.md")
-	}
-	if !containsStr(err.Error(), "debug.md") {
-		t.Errorf("expected debug.md in error, got: %v", err)
-	}
-}
-
-func TestRunDoingCheck_EmptyDebugMD(t *testing.T) {
-	dir := t.TempDir()
-	makeTasksJSON(t, dir, []executor.TaskState{
-		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
-	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("   "), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runDoingCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for empty debug.md")
-	}
-	if !containsStr(err.Error(), "empty") {
-		t.Errorf("expected 'empty' in error, got: %v", err)
-	}
-}
-
-func TestRunDoingCheck_NoTaskRecords(t *testing.T) {
-	dir := t.TempDir()
-	makeTasksJSON(t, dir, []executor.TaskState{
-		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
-	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("# debug log\nsome notes"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	err := runDoingCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for debug.md with no ## task records")
-	}
-	if !containsStr(err.Error(), "## task") {
-		t.Errorf("expected '## task' in error, got: %v", err)
-	}
-}
-
 func TestRunDoingCheck_ZombieTask(t *testing.T) {
 	dir := t.TempDir()
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "running"},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	err := runDoingCheck(dir)
 	if err == nil {
 		t.Fatal("expected error for zombie task")
@@ -217,9 +166,6 @@ func TestRunDoingCheck_MissingCommitHash(t *testing.T) {
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: ""},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	err := runDoingCheck(dir)
 	if err == nil {
 		t.Fatal("expected error for missing commit_hash")
@@ -235,9 +181,6 @@ func TestRunDoingCheck_Valid(t *testing.T) {
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
 		{TaskID: "task2", TaskName: "T2", Status: "success", CommitHash: "def456"},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
-		t.Fatal(err)
-	}
 	if err := runDoingCheck(dir); err != nil {
 		t.Errorf("expected no error for valid doing dir, got: %v", err)
 	}
@@ -245,15 +188,73 @@ func TestRunDoingCheck_Valid(t *testing.T) {
 
 func TestRunDoingCheck_FailedTaskNoCommit(t *testing.T) {
 	dir := t.TempDir()
-	// failed tasks don't need commit_hash
 	makeTasksJSON(t, dir, []executor.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "failed", CommitHash: ""},
 	})
-	if err := os.WriteFile(filepath.Join(dir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
+	if err := runDoingCheck(dir); err != nil {
+		t.Errorf("expected no error for failed task without commit_hash, got: %v", err)
+	}
+}
+
+func TestRunDoingCheck_DebugBugUnresolved(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksJSON(t, dir, []executor.TaskState{
+		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
+	})
+	debugDir := filepath.Join(dir, "debug")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nsummary: \"some bug\"\nstatus: \"🔄 进行中\"\n---\n## 阶段一记录\n..."
+	if err := os.WriteFile(filepath.Join(debugDir, "bug1-some-bug.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runDoingCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for unresolved bug")
+	}
+	if !containsStr(err.Error(), "进行中") {
+		t.Errorf("expected '进行中' in error, got: %v", err)
+	}
+}
+
+func TestRunDoingCheck_DebugBugMissingStatus(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksJSON(t, dir, []executor.TaskState{
+		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
+	})
+	debugDir := filepath.Join(dir, "debug")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "## 阶段一记录\n没有 frontmatter"
+	if err := os.WriteFile(filepath.Join(debugDir, "bug1-no-frontmatter.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runDoingCheck(dir)
+	if err == nil {
+		t.Fatal("expected error for bug file missing status frontmatter")
+	}
+	if !containsStr(err.Error(), "status:") {
+		t.Errorf("expected 'status:' in error, got: %v", err)
+	}
+}
+
+func TestRunDoingCheck_DebugBugResolved(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksJSON(t, dir, []executor.TaskState{
+		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc123"},
+	})
+	debugDir := filepath.Join(dir, "debug")
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nsummary: \"fixed\"\nstatus: \"✅ 已解决\"\n---\n## 阶段一记录\n..."
+	if err := os.WriteFile(filepath.Join(debugDir, "bug1-fixed.md"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := runDoingCheck(dir); err != nil {
-		t.Errorf("expected no error for failed task without commit_hash, got: %v", err)
+		t.Errorf("expected no error for resolved bug, got: %v", err)
 	}
 }
 
