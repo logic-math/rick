@@ -241,7 +241,9 @@ Rick 项目采用模块化架构设计：
 
 以下是执行过程中遇到的问题记录，请重点关注避免重复错误：
 
-暂无问题记录
+**debug1: TestExecuteDoingWorkflow 测试超时（task4 测试脚本 go test ./internal/... 超时）**
+
+
 
 ## Cialdini 合规原则
 
@@ -499,10 +501,10 @@ Flags:
   -h, --help       help for learning_check
 
 Invalid API key · Fix external API key
-❌ plan check failed: OKR.md has no meaningful content (only stub headers): /private/var/folders/c2/9ln3nxr55z7fqd9jpxscvg9w0000gn/T/TestNewPlanCheckCmd_RunE_WithWorkspace1732783721/001/.rick/jobs/job_test/plan/OKR.md
-FAIL	github.com/sunquan/rick/internal/cmd	29.472s
+❌ plan check failed: OKR.md has no meaningful content (only stub headers): /private/var/folders/c2/9ln3nxr55z7fqd9jpxscvg9w0000gn/T/TestNewPlanCheckCmd_RunE_WithWorkspace3656574218/001/.rick/jobs/job_test/plan/OKR.md
+FAIL	github.com/sunquan/rick/internal/cmd	9.711s
 ok  	github.com/sunquan/rick/internal/config	(cached)
-ok  	github.com/sunquan/rick/internal/executor	1.362s
+ok  	github.com/sunquan/rick/internal/executor	1.375s
 ok  	github.com/sunquan/rick/internal/git	(cached)
 ok  	github.com/sunquan/rick/internal/logging	(cached)
 ok  	github.com/sunquan/rick/internal/parser	(cached)
