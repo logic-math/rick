@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-11T15:25:52.267863+08:00",
-  "updated_at": "2026-06-11T17:39:07.751978+08:00",
+  "updated_at": "2026-06-11T18:54:10.455625+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -36,10 +36,10 @@
         "task2"
       ],
       "attempts": 0,
-      "error": "task failed after 5 attempts: test did not pass: doing_prompt.go still contains old pattern: 'super-debugging-zh'; doing_prompt.go still contains old pattern: 'super_debugging_zh'; doing_prompt.go still contains old pattern: 'super_debugging_path'; doing_prompt.go still contains old pattern: 'super-debugging'; plan_prompt.go still contains old pattern: 'super_debugging_zh'; plan_prompt.go still contains old pattern: 'super_debugging_skill_path'; easy_prompt.go still contains old pattern: 'super-debugging-zh'; easy_prompt.go still contains old pattern: 'super_debugging_zh'; easy_prompt.go still contains old pattern: 'super_debugging_path'; easy_prompt.go still contains old pattern: 'super-debugging'; doing_prompt.go missing 'debug_skill'/'debug-skill' reference; easy_prompt.go missing 'debug_skill'/'debug-skill' reference; plan_prompt.go missing 'debug_skill_path' reference; manager_test.go still contains old pattern: 'super-debugging-zh'; manager_test.go still contains old pattern: 'super-debugging'; manager_test.go missing 'debug_skill'/'debug-skill' reference; go test ./internal/prompt/... FAILED:\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)\n--- FAIL: TestIntegration_RFC001 (0.00s)\n    --- FAIL: TestIntegration_RFC001/task3/doing_prompt_no_tools_section_when_no_tools (0.00s)\n        integration_rfc001_test.go:164: GenerateDoingPromptFile: failed to write super-debugging-zh skill: embedded skill \"super-debugging-zh\" not found\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/nonexistent-skill-xyz.md (open templates/skills/nonexistent-skill-xyz.md: file does not exist)\n--- FAIL: TestCoreSkillsEmbed (0.00s)\n    --- FAIL: TestCoreSkillsEmbed/all_eight_skill_files_non_empty (0.00s)\n        manager_test.go:203: LoadCoreSkills(\"super-debugging-zh\") returned empty string\n--- FAIL: TestGeneratePlanPrompt_NoUnreplacedVars (0.00s)\n    plan_prompt_test.go:80: Expected all template variables to be replaced\nFAIL\nFAIL\tgithub.com/sunquan/rick/internal/prompt\t0.196s\nFAIL\n\n\n\nFull test output:\n{\"pass\": false, \"errors\": [\"doing_prompt.go still contains old pattern: 'super-debugging-zh'\", \"doing_prompt.go still contains old pattern: 'super_debugging_zh'\", \"doing_prompt.go still contains old pattern: 'super_debugging_path'\", \"doing_prompt.go still contains old pattern: 'super-debugging'\", \"plan_prompt.go still contains old pattern: 'super_debugging_zh'\", \"plan_prompt.go still contains old pattern: 'super_debugging_skill_path'\", \"easy_prompt.go still contains old pattern: 'super-debugging-zh'\", \"easy_prompt.go still contains old pattern: 'super_debugging_zh'\", \"easy_prompt.go still contains old pattern: 'super_debugging_path'\", \"easy_prompt.go still contains old pattern: 'super-debugging'\", \"doing_prompt.go missing 'debug_skill'/'debug-skill' reference\", \"easy_prompt.go missing 'debug_skill'/'debug-skill' reference\", \"plan_prompt.go missing 'debug_skill_path' reference\", \"manager_test.go still contains old pattern: 'super-debugging-zh'\", \"manager_test.go still contains old pattern: 'super-debugging'\", \"manager_test.go missing 'debug_skill'/'debug-skill' reference\", \"go test ./internal/prompt/... FAILED:\\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)\\n--- FAIL: TestIntegration_RFC001 (0.00s)\\n    --- FAIL: TestIntegration_RFC001/task3/doing_prompt_no_tools_section_when_no_tools (0.00s)\\n        integration_rfc001_test.go:164: GenerateDoingPromptFile: failed to write super-debugging-zh skill: embedded skill \\\"super-debugging-zh\\\" not found\\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)\\n2026/06/11 15:42:21 warn: core skill not found: templates/skills/nonexistent-skill-xyz.md (open templates/skills/nonexistent-skill-xyz.md: file does not exist)\\n--- FAIL: TestCoreSkillsEmbed (0.00s)\\n    --- FAIL: TestCoreSkillsEmbed/all_eight_skill_files_non_empty (0.00s)\\n        manager_test.go:203: LoadCoreSkills(\\\"super-debugging-zh\\\") returned empty string\\n--- FAIL: TestGeneratePlanPrompt_NoUnreplacedVars (0.00s)\\n    plan_prompt_test.go:80: Expected all template variables to be replaced\\nFAIL\\nFAIL\\tgithub.com/sunquan/rick/internal/prompt\\t0.196s\\nFAIL\\n\\n\"]}\n",
+      "error": "",
       "commit_hash": "eab9121b78b69aea2d426138e097cc6e14ee2a95",
       "created_at": "2026-06-11T15:25:52.267863+08:00",
-      "updated_at": "2026-06-11T16:02:10.365715+08:00"
+      "updated_at": "2026-06-11T18:54:10.455625+08:00"
     },
     {
       "task_id": "task4",
@@ -51,8 +51,9 @@
       "attempts": 1,
       "error": "",
       "created_at": "2026-06-11T15:25:52.267863+08:00",
-      "updated_at": "2026-06-11T17:39:07.751978+08:00",
-      "commit_hash": "bba235b1d17f83cfbadadc431eb087561c27c9ef"
+      "updated_at": "2026-06-11T18:54:10.455625+08:00",
+      "commit_hash": "bba235b1d17f83cfbadadc431eb087561c27c9ef",
+      "task_file": "task4.md"
     }
   ]
 }
