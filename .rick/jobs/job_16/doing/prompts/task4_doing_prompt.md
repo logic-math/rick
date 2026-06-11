@@ -432,35 +432,81 @@ I will use skill:super-debugging for any unexpected behavior.
 **Previous test execution encountered errors. You may need to fix the test script.**
 
 ```
---- FAIL: TestGenerateDoingPromptFile_ValidTask (0.00s)
-    runner_test.go:247: GenerateDoingPromptFile failed: failed to generate doing prompt: failed to write super-debugging-zh skill: embedded skill "super-debugging-zh" not found
-2026/06/11 15:48:16 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)
---- FAIL: TestGenerateDoingPromptFile_WithDebugContext (0.00s)
-    runner_test.go:283: GenerateDoingPromptFile failed: failed to generate doing prompt: failed to write super-debugging-zh skill: embedded skill "super-debugging-zh" not found
-2026/06/11 15:48:16 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)
---- FAIL: TestGenerateDoingPromptFile_WithTestErrorFeedback (0.00s)
-    runner_test.go:310: GenerateDoingPromptFile failed: failed to generate doing prompt: failed to write super-debugging-zh skill: embedded skill "super-debugging-zh" not found
-2026/06/11 15:48:16 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)
---- FAIL: TestRunTask_ActPathGeneration (0.00s)
-    runner_test.go:423: act-path.md not created at /var/folders/c2/9ln3nxr55z7fqd9jpxscvg9w0000gn/T/TestRunTask_ActPathGeneration2991147389/001/tasks/task1/act-path.md: stat /var/folders/c2/9ln3nxr55z7fqd9jpxscvg9w0000gn/T/TestRunTask_ActPathGeneration2991147389/001/tasks/task1/act-path.md: no such file or directory
-FAIL
-FAIL	github.com/sunquan/rick/internal/executor	1.419s
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go test ./internal/auth/... -v`
+- 测试输出：
+  ```
+  --- PASS: TestValidateToken (0.00s)
+  --- PASS: TestMiddleware (0.01s)
+  PASS
+  ok  	project/internal/auth	0.023s
+  ```
+- 结论：✅ 通过
+```
+
+## 行为约束
+
+1. **强制工作日志**: **在 git commit 之前必须先更新 debug.md**，这是硬约束，不可跳过
+2. **四个必填部分**: 分析过程、实现步骤、遇到的问题（无则写"无"）、验证结果（含测试命令和实际输出）
+3. **测试通过**: 确保所有测试都通过后才能提交代码
+4. **生产就绪**: 代码应该能够在生产环境中正确运行
+5. **明确阻碍**: 如果无法完成任务，请在 debug.md 中详细记录阻碍因素
+6. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
+7. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
+   ```bash
+   rick tools doing_check job_N
+   ```
+   如果 check 失败，根据错误信息修复（如补充 debug.md、解决 zombie 任务等），修复后重新运行，循环直到 check 通过。**check 通过后才算任务完成**，不可跳过。
+
+✅ plan check passed: 1 tasks, dependencies valid
+✅ doing check passed: 1/1 tasks succeeded
+✅ learning check passed
+✅ Loaded debug context (31 bytes)
+✅ Loaded tasks.json (1 tasks)
+⚠ OKR.md not found (skipping)
+⚠ No task*.md files found in plan directory
+✅ Found 0 act-path.md files
+✅ Loaded debug context (0 bytes)
+✅ Loaded tasks.json (1 tasks)
+⚠ OKR.md not found (skipping)
+⚠ No task*.md files found in plan directory
+✅ Found 0 act-path.md files
+Error: accepts 1 arg(s), received 0
+Usage:
+  plan_check <job_id> [flags]
+
+Flags:
+  -h, --help   help for plan_check
+
+Error: accepts 1 arg(s), received 0
+Usage:
+  doing_check <job_id> [flags]
+
+Flags:
+      --auto-fix   Attempt to auto-fix errors using Claude
+  -h, --help       help for doing_check
+
+Error: accepts 1 arg(s), received 0
+Usage:
+  learning_check <job_id> [flags]
+
+Flags:
+      --auto-fix   Attempt to auto-fix errors using Claude
+  -h, --help       help for learning_check
+
+Invalid API key · Fix external API key
+❌ plan check failed: OKR.md has no meaningful content (only stub headers): /private/var/folders/c2/9ln3nxr55z7fqd9jpxscvg9w0000gn/T/TestNewPlanCheckCmd_RunE_WithWorkspace1732783721/001/.rick/jobs/job_test/plan/OKR.md
+FAIL	github.com/sunquan/rick/internal/cmd	29.472s
+ok  	github.com/sunquan/rick/internal/config	(cached)
+ok  	github.com/sunquan/rick/internal/executor	1.362s
 ok  	github.com/sunquan/rick/internal/git	(cached)
 ok  	github.com/sunquan/rick/internal/logging	(cached)
 ok  	github.com/sunquan/rick/internal/parser	(cached)
-2026/06/11 15:48:15 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)
---- FAIL: TestIntegration_RFC001 (0.01s)
-    --- FAIL: TestIntegration_RFC001/task3/doing_prompt_no_tools_section_when_no_tools (0.00s)
-        integration_rfc001_test.go:164: GenerateDoingPromptFile: failed to write super-debugging-zh skill: embedded skill "super-debugging-zh" not found
-2026/06/11 15:48:15 warn: core skill not found: templates/skills/super-debugging-zh.md (open templates/skills/super-debugging-zh.md: file does not exist)
-2026/06/11 15:48:15 warn: core skill not found: templates/skills/nonexistent-skill-xyz.md (open templates/skills/nonexistent-skill-xyz.md: file does not exist)
---- FAIL: TestCoreSkillsEmbed (0.00s)
-    --- FAIL: TestCoreSkillsEmbed/all_eight_skill_files_non_empty (0.00s)
-        manager_test.go:203: LoadCoreSkills("super-debugging-zh") returned empty string
---- FAIL: TestGeneratePlanPrompt_NoUnreplacedVars (0.00s)
-    plan_prompt_test.go:80: Expected all template variables to be replaced
-FAIL
-FAIL	github.com/sunquan/rick/internal/prompt	0.354s
+ok  	github.com/sunquan/rick/internal/prompt	(cached)
 ok  	github.com/sunquan/rick/internal/workspace	(cached)
 FAIL
 
