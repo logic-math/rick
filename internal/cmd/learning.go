@@ -27,14 +27,15 @@ func NewLearningCmd() *cobra.Command {
 				fmt.Println("[INFO] Starting learning phase...")
 			}
 
-			if GetDryRun() {
-				return runLearningDryRun(jobID)
-			}
-
 			if len(args) > 0 {
 				jobID = args[0]
-			} else if jobID == "" {
+			}
+			if jobID == "" {
 				jobID = GetJobID()
+			}
+
+			if GetDryRun() {
+				return runLearningDryRun(jobID)
 			}
 
 			if jobID == "" {
@@ -76,6 +77,9 @@ type ExecutionData struct {
 
 // runLearningDryRun generates and prints the learning prompt without executing it.
 func runLearningDryRun(jobID string) error {
+	if jobID == "" {
+		jobID = GetJobID()
+	}
 	if jobID == "" {
 		jobID = "job_N"
 	}
