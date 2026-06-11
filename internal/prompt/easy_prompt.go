@@ -22,11 +22,15 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", "", nil, err
 	}
-	debuggingFile, err := WriteSkillFile(promptsDir, "skill_super_debugging_zh.md", "super-debugging-zh")
+	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
 	if err != nil {
 		return "", "", nil, err
 	}
-	skillFiles := []string{tddFile, debuggingFile}
+	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
+	if err != nil {
+		return "", "", nil, err
+	}
+	skillFiles := []string{tddFile, debugSkillFile, senseFile}
 
 	// Load context (embedded in main prompt, read latest at session start)
 	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
@@ -51,7 +55,8 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("requirement", requirement)
 	builder.SetVariable("doing_dir", doingDir)
 	builder.SetVariable("tdd_skill_path", tddFile)
-	builder.SetVariable("super_debugging_path", debuggingFile)
+	builder.SetVariable("debug_skill_path", debugSkillFile)
+	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("learning_prompt_path", learningPromptPath)
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)

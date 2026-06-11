@@ -56,3 +56,27 @@
   {"pass": true, "errors": []}
   ```
 - 结论：✅ 通过
+
+## task3: 更新 Go prompt 文件，将 super-debugging-zh 切换到 debug_skill
+
+**分析过程 (Analysis)**:
+- 阅读了 `doing_prompt.go`、`plan_prompt.go`、`easy_prompt.go`、`manager_test.go` 确认所有旧引用位置
+- 检查 `easy.md`、`plan.md`、`doing.md` 模板确认新变量名（`debug_skill_path`、`sense_skill_path`）
+- 确认 `templates/skills/debug_skill.md` 和 `templates/skills/sense.md` 均已存在于 embed
+
+**实现步骤 (Implementation)**:
+1. `doing_prompt.go`：WriteSkillFile `super-debugging-zh` → `debug_skill`；新增 `sense` WriteSkillFile；SetVariable `super_debugging_path` → `debug_skill_path`；新增 `sense_skill_path`
+2. `plan_prompt.go`：dry-run `super_debugging_skill_path` → `debug_skill_path`；GeneratePlanPromptFile 中变量名 `superDebuggingSkillPath` → `debugSkillPath`，路径 `skill_super_debugging_zh.md` → `skill_debug_skill.md`
+3. `easy_prompt.go`：WriteSkillFile `super-debugging-zh` → `debug_skill`；新增 `sense` WriteSkillFile；SetVariable `super_debugging_path` → `debug_skill_path`；新增 `sense_skill_path`
+4. `manager_test.go`：skills 列表 `"super-debugging-zh"` → `"debug_skill"`
+
+**遇到的问题 (Issues)**:
+- 无
+
+**验证结果 (Verification)**:
+- 测试命令：`go build ./... && go test ./internal/prompt/...`
+- 测试输出：
+  ```
+  ok  	github.com/sunquan/rick/internal/prompt	0.462s
+  ```
+- 结论：✅ 通过

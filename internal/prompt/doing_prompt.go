@@ -128,11 +128,15 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to write testing-anti-patterns-zh skill: %w", err)
 	}
-	superDebuggingFile, err := WriteSkillFile(promptsDir, "skill_super_debugging_zh.md", "super-debugging-zh")
+	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to write super-debugging-zh skill: %w", err)
+		return "", nil, fmt.Errorf("failed to write debug_skill skill: %w", err)
 	}
-	skillFiles := []string{tddZhFile, testingAntiPatternsFile, superDebuggingFile}
+	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write sense skill: %w", err)
+	}
+	skillFiles := []string{tddZhFile, testingAntiPatternsFile, debugSkillFile, senseFile}
 
 	// Load doing template
 	template, err := manager.LoadTemplate("doing")
@@ -190,7 +194,8 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	// Set skill paths for path injection
 	builder.SetVariable("tdd_skill_path", tddZhFile)
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
-	builder.SetVariable("super_debugging_path", superDebuggingFile)
+	builder.SetVariable("debug_skill_path", debugSkillFile)
+	builder.SetVariable("sense_skill_path", senseFile)
 
 	// Set rick_bin_path and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
