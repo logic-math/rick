@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "created_at": "2026-06-11T15:25:52.267863+08:00",
+  "updated_at": "2026-06-11T15:25:52.268574+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "创建 debug_skill.md（三阶段调试 SOP + review debug agent 协议）",
+      "status": "success",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-06-11T15:25:52.267863+08:00",
+      "updated_at": "2026-06-11T15:25:52.268574+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "更新 doing.md / plan.md 模板引用，删除 super-debugging-zh.md",
+      "status": "pending",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-11T15:25:52.267863+08:00",
+      "updated_at": "2026-06-11T15:25:52.267863+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "更新 Go prompt 文件，将 super-debugging-zh 切换到 debug_skill",
+      "status": "pending",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-11T15:25:52.267863+08:00",
+      "updated_at": "2026-06-11T15:25:52.267863+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "全局替换 debug.md 读取：7 处上下文加载改为 debug/ 优先、回退 debug.md 的兼容策略",
+      "status": "pending",
+      "dependencies": [
+        "task3"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-11T15:25:52.267863+08:00",
+      "updated_at": "2026-06-11T15:25:52.267863+08:00"
+    }
+  ]
+}
