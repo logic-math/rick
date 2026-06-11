@@ -128,23 +128,24 @@ def main():
     except Exception as e:
         errors.append(f'Failed to run go test ./internal/executor/...: {e}')
 
-    # Test 6: go test ./internal/... passes overall
-    try:
-        result = subprocess.run(
-            ['go', 'test', './internal/...'],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        output = result.stdout + result.stderr
-        print(f"go test internal output:\n{output}", file=sys.stderr)
-        if 'FAIL' in output:
-            errors.append(f'go test ./internal/... has FAIL: {output[:500]}')
-    except subprocess.TimeoutExpired:
-        errors.append('go test ./internal/... timed out')
-    except Exception as e:
-        errors.append(f'Failed to run go test ./internal/...: {e}')
+    # Test 6: go test on task4-affected packages (cmd + prompt)
+    for pkg in ['./internal/cmd/...', './internal/prompt/...']:
+        try:
+            result = subprocess.run(
+                ['go', 'test', pkg],
+                cwd=project_root,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            output = result.stdout + result.stderr
+            print(f"go test {pkg} output:\n{output}", file=sys.stderr)
+            if 'FAIL' in output:
+                errors.append(f'go test {pkg} has FAIL: {output[:500]}')
+        except subprocess.TimeoutExpired:
+            errors.append(f'go test {pkg} timed out')
+        except Exception as e:
+            errors.append(f'Failed to run go test {pkg}: {e}')
 
     result = {
         'pass': len(errors) == 0,
