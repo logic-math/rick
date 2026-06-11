@@ -77,7 +77,25 @@
 
 遇到任何不符合预期的行为时，必须：
 1. 声明 `"I will use skill:debug-skill."`
-2. 加载 debug-skill 文件，执行三阶段调试法：源码推理法→增量调试法→科学实验法，每阶段达上限后升级人工协作
+2. 加载 `{{debug_skill_path}}`，严格按三阶段执行：
+
+   **准备**：在 `{{doing_dir}}/debug/` 下创建 `bug{N}-{描述}.md`（含 YAML frontmatter）
+
+   **阶段一：源码推理法**（上限 3 次）
+   - 启动 review debug agent 建立假设列表
+   - 每次选优先级最高假设 → 最小改动验证 → 通过则修复提交，失败则 `git checkout .` 回滚
+   - 3 次失败 → 进入阶段二
+
+   **阶段二：增量调试法**（有基线时执行）
+   - 启动 review debug agent 产出最小复现建议
+   - 从 git 历史或最小配置找基线 → 逐步添加变量 → 定位引入 bug 的最小改动
+   - 无基线则跳过 → 进入阶段三
+
+   **阶段三：科学实验法**（上限 5 次）
+   - 启动 review debug agent 分析错误传播链
+   - 使用运行时工具（delve/pprof/pdb/strace）设计实验 → 收集数据 → 定位根因
+   - 5 次仍失败 → 写结论章节，status 标记 `❌ 无法修复`，等待人类决策
+
 3. 不得随机修改代码（no random fixes）
 
 ### 承诺（Commitment）
@@ -95,7 +113,7 @@ I will use skill:debug-skill for any unexpected behavior.
 
 **Before proceeding to next task, verify: all tests pass.**
 
-**Immediately after test failure, load skill:debug-skill and run Phase 1（源码推理法）.**
+**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `{{doing_dir}}/debug/` 创建 `bug{N}-{描述}.md`，按阶段一→阶段二→阶段三顺序调试，不可跳过。**
 
 每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
 
@@ -123,7 +141,8 @@ I will use skill:debug-skill for any unexpected behavior.
 ## 行为约束
 
 1. **测试通过**: 确保所有测试都通过后才能提交代码
-2. **生产就绪**: 代码应该能够在生产环境中正确运行
+2. **bug 强制记录**: 每次测试失败，必须在 `{{doing_dir}}/debug/bug{N}-{描述}.md` 创建调试记录，不可跳过
+3. **生产就绪**: 代码应该能够在生产环境中正确运行
 3. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
 4. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
    ```bash

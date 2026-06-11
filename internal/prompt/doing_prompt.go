@@ -203,8 +203,9 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	builder.SetVariable("debug_skill_path", debugSkillFile)
 	builder.SetVariable("sense_skill_path", senseFile)
 
-	// Set rick_bin_path and job_id for check commands in template
+	// Set rick_bin_path, doing_dir and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	builder.SetVariable("doing_dir", doingDir)
 	jobIDVal := contextMgr.GetJobID()
 	if jobIDVal == "" || jobIDVal == "doing" {
 		jobIDVal = "job_N"
