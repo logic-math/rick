@@ -85,7 +85,7 @@ func isNoDependency(s string) bool {
 		return r == '(' || r == ')' || r == '（' || r == '）'
 	})
 	lower := strings.ToLower(stripped)
-	noDeps := []string{"无", "none", "null", "nil", "n/a", "na", "-"}
+	noDeps := []string{"无", "无依赖", "none", "null", "nil", "n/a", "na", "-"}
 	for _, noDep := range noDeps {
 		if lower == noDep {
 			return true
