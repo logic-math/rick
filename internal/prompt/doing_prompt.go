@@ -131,13 +131,15 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to write testing-anti-patterns-zh skill: %w", err)
 	}
-	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write debug_skill skill: %w", err)
-	}
 	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to write sense skill: %w", err)
+	}
+	debugSkillFile, err := WriteSkillFileWithVars(promptsDir, "skill_debug_skill.md", "debug_skill", map[string]string{
+		"sense_skill_path": senseFile,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write debug_skill skill: %w", err)
 	}
 	skillFiles := []string{tddZhFile, testingAntiPatternsFile, debugSkillFile, senseFile}
 

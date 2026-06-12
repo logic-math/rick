@@ -30,11 +30,15 @@
 
 | 文件 | 说明 | 必要性 |
 |------|------|--------|
-| `jobs/{job_id}/doing/debug.md` | 调试记录 | 优先读取 |
+| `jobs/{job_id}/doing/debug/bug*.md` | 调试记录（新格式，frontmatter摘要） | 优先读取 |
+| `jobs/{job_id}/doing/debug.md` | 调试记录（旧格式，fallback） | 无 debug/ 时读取 |
 | `jobs/{job_id}/doing/tasks.json` | 任务完成情况 | 优先读取 |
 | `jobs/{job_id}/doing/tasks/*/act-path.md` | 工具调用轨迹 | 有则读取，无则跳过 |
+| `jobs/{job_id}/learning/SUMMARY.md` | learning 阶段执行摘要 | 有则读取，无则跳过 |
 
-**act-path.md 不存在时**：基于 debug.md、wiki/、tools/、SPEC.md 进行全局范围反思，不得以"缺少 act-path"为由跳过该 job。
+**数据不足时的降级策略**：
+- debug/ 和 act-path 都缺失 → 必须读取 `jobs/{job_id}/learning/SUMMARY.md` 作为主要信号源
+- 三者均缺失 → 基于 wiki/、tools/、SPEC.md 进行全局范围反思，不得以"缺少数据"为由跳过该 job
 
 ### 3. SENSE 反思 — 提取优化信号
 
@@ -42,7 +46,7 @@ YOU MUST declare: "I will use skill:sense for reflection." Before analyzing each
 
 skill:sense 内容参考：`{{sense_skill_path}}`
 
-基于步骤 2 加载的**所有可用数据**进行深度反思（无 act-path 时以 debug.md 为主要信号源）：
+基于步骤 2 加载的**所有可用数据**进行深度反思（无 act-path 时以 debug/ 或 SUMMARY.md 为主要信号源）：
 1. 识别重复出现的错误模式（debug 条目中出错次数 > 1 的情况）
 2. 发现低效的工具使用模式（有 act-path 时：冗余调用、不必要的重试）
 3. 提取成功经验（零重试任务的设计模式，或 debug 中标记"已解决"的有效手段）
@@ -53,7 +57,7 @@ skill:sense 内容参考：`{{sense_skill_path}}`
 
 ### 4. 分析 Debug 记录
 
-1. 汇总各 job 的 debug 记录，按问题类型分类
+1. 汇总各 job 的 debug/ 目录（或 debug.md）记录，按问题类型分类
 2. 识别跨 job 的共性问题（相同根因出现 ≥ 2 次）
 3. 评估现有 skills 是否能覆盖这些共性问题
 4. 列出需要新增或改进的 skill 候选项
@@ -124,7 +128,7 @@ skill:evolve-skills 内容参考：`{{evolve_skills_skill_path}}`
 #### subagent_4：路径推演（可查阅代码事实，禁止写入或执行）
 
 取本次反思中**执行最差的 1 个 task**（重试次数最多或 debug 条目最多），基于**真实代码查阅**模拟在当前改进后的上下文下重新执行：
-1. 还原该 task 的失败现场（从 debug.md / act-path.md 中读取原始错误）
+1. 还原该 task 的失败现场（从 debug/ 目录的 bug*.md 或 act-path.md 中读取原始错误）
 2. 使用 Read / Grep / Glob 主动查阅业务项目源码，获取推演所需的事实信息
 3. 对照当前改进后的 SPEC + wiki + tools，逐步推断：如果 agent 按改进后的上下文操作，每一步会做什么？原来的错误是否会被提前发现或规避？
 4. 识别推演中仍然存在的盲区

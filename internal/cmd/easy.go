@@ -104,15 +104,18 @@ func resumeEasyMode(jobID string) error {
 		fmt.Printf("[WARN] failed to write tasks.json: %v\n", err)
 	}
 
+	// Generate fresh learning prompt (doingDir now fully populated after resume)
+	learningFile, err := prompt.GenerateEasyLearningPromptFile(jobID, rickDir)
+	if err != nil {
+		fmt.Printf("[WARN] failed to generate learning prompt: %v\n", err)
+	}
+
 	// Auto-trigger learning on exit
-	learningFile := filepath.Join(doingDir, "prompts", "easy_learning_prompt.md")
-	if _, err := os.Stat(learningFile); err == nil {
-		fmt.Println("\n✅ Easy 会话结束，开始自动 learning...")
-		if err := triggerAutoLearning(cfg, learningFile); err != nil {
-			fmt.Printf("[WARN] auto learning failed: %v\n", err)
-		} else {
-			fmt.Println("✅ Learning + Merge 完成！")
-		}
+	fmt.Println("\n✅ Easy 会话结束，开始自动 learning...")
+	if err := triggerAutoLearning(cfg, learningFile); err != nil {
+		fmt.Printf("[WARN] auto learning failed: %v\n", err)
+	} else {
+		fmt.Println("✅ Learning + Merge 完成！")
 	}
 
 	return nil
@@ -139,8 +142,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 		return fmt.Errorf("failed to save session ID: %w", err)
 	}
 
-	// Generate prompts (easy_prompt.md + learning_prompt.md saved to doing/prompts/)
-	mainFile, learningFile, _, err := prompt.GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath)
+	mainFile, _, err := prompt.GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath)
 	if err != nil {
 		return fmt.Errorf("failed to generate easy prompt: %w", err)
 	}
@@ -156,6 +158,12 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 	// Write synthetic tasks.json so dream can discover this job
 	if err := writeEasyTasksJSON(doingDir); err != nil {
 		fmt.Printf("[WARN] failed to write tasks.json: %v\n", err)
+	}
+
+	// Generate learning prompt now that doingDir is fully populated
+	learningFile, err := prompt.GenerateEasyLearningPromptFile(jobID, rickDir)
+	if err != nil {
+		fmt.Printf("[WARN] failed to generate learning prompt: %v\n", err)
 	}
 
 	// Auto-trigger learning on exit

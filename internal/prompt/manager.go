@@ -263,9 +263,17 @@ func EnsurePromptsDir(baseDir string) (string, error) {
 
 // WriteSkillFile writes an embedded skill to dir/filename (persistent, no cleanup needed).
 func WriteSkillFile(dir, filename, skillName string) (string, error) {
+	return WriteSkillFileWithVars(dir, filename, skillName, nil)
+}
+
+// WriteSkillFileWithVars writes an embedded skill with {{key}} variable substitution.
+func WriteSkillFileWithVars(dir, filename, skillName string, vars map[string]string) (string, error) {
 	content := LoadCoreSkills([]string{skillName})
 	if content == "" {
 		return "", fmt.Errorf("embedded skill %q not found", skillName)
+	}
+	for k, v := range vars {
+		content = strings.ReplaceAll(content, "{{"+k+"}}", v)
 	}
 	path := filepath.Join(dir, filename)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {

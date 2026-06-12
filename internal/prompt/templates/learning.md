@@ -10,7 +10,7 @@
 
 {{okr_content}}
 
-### debug.md（执行问题记录，已内嵌）
+### .rick/jobs/{{job_id}}/doing/debug/（执行问题记录，已内嵌）
 
 {{debug_content}}
 
@@ -32,9 +32,9 @@
 
 ### Step 1：分析执行记录（必须完成，不可跳过）
 
-**1a. 分析 debug.md**（内容已内嵌在上方，硬约束，SUMMARY.md 生成前必须完成）
+**1a. 分析 debug/**（内容已内嵌在上方，硬约束，SUMMARY.md 生成前必须完成）
 
-分析上方"debug.md（执行问题记录）"内容：
+分析上方".rick/jobs/{{job_id}}/doing/debug/（执行问题记录）"内容：
 - 每个 debug 条目的根因与解决过程
 - 未解决的问题（进展状态为"未解决"的条目）
 
@@ -170,7 +170,7 @@ APPROVED: true
 
 ## ⚠️ 重要约束
 
-1. **debug.md 内容已内嵌，必须在 SUMMARY.md 之前分析**：Step 1a 是硬约束，不可跳过
+1. **debug/ 内容已内嵌，必须在 SUMMARY.md 之前分析**：Step 1a 是硬约束，不可跳过
 2. **Step 3 必须声明使用 gen-skill**：`"I will use skill:gen-skill."` 是硬约束
 3. **wiki/tools/SPEC 直接写入 `.rick/`**：不要写到 learning 子目录再合并，直接操作 `{{wiki_dir}}`、`{{tools_dir}}`、`{{spec_path}}`
 4. **SUMMARY.md 写入 learning 目录**：`{{learning_dir}}/SUMMARY.md` 作为本次执行记录

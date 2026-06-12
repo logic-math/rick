@@ -8,33 +8,33 @@ import (
 	"strings"
 )
 
-// GenerateEasyPromptFile generates the easy mode interactive prompt and learning prompt.
-// Both files are persisted to doingDir (not tmp) so they survive session exits.
+// GenerateEasyPromptFile generates the easy mode interactive prompt.
+// Persisted to doingDir/prompts/ so it survives session exits.
 // ctxPath is optional; when non-empty the prompt includes ctx-inheritance instructions.
-// Returns mainFile (easy_prompt.md), learningFile (learning_prompt.md), skill tmp files, error.
-func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string, string, []string, error) {
+// Returns mainFile (easy_prompt.md), skill tmp files, error.
+func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string, []string, error) {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 
-	// Write skill files to doing/prompts/ (persistent)
 	promptsDir, err := EnsurePromptsDir(doingDir)
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
+		return "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
 	}
 	tddFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
 	if err != nil {
-		return "", "", nil, err
-	}
-	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
-	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
 	}
 	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
 	if err != nil {
-		return "", "", nil, err
+		return "", nil, err
+	}
+	debugSkillFile, err := WriteSkillFileWithVars(promptsDir, "skill_debug_skill.md", "debug_skill", map[string]string{
+		"sense_skill_path": senseFile,
+	})
+	if err != nil {
+		return "", nil, err
 	}
 	skillFiles := []string{tddFile, debugSkillFile, senseFile}
 
-	// Load context (embedded in main prompt, read latest at session start)
 	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
 	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
 	debugContent := loadDebugContextLocal(doingDir)
@@ -42,11 +42,10 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 		debugContent = "暂无（首次会话）"
 	}
 
-	// Build main easy prompt
 	mgr := NewPromptManager()
 	tmpl, err := mgr.LoadTemplate("easy")
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to load easy template: %w", err)
+		return "", nil, fmt.Errorf("failed to load easy template: %w", err)
 	}
 
 	projectRoot, _ := os.Getwd()
@@ -69,112 +68,96 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 
 	mainContent, err := builder.Build()
 	if err != nil {
-		return "", "", nil, fmt.Errorf("failed to build easy prompt: %w", err)
+		return "", nil, fmt.Errorf("failed to build easy prompt: %w", err)
 	}
 
-	// Persist main prompt to doingDir/prompts/easy_prompt.md
 	mainFile := filepath.Join(promptsDir, "easy_prompt.md")
 	if err := os.WriteFile(mainFile, []byte(mainContent), 0644); err != nil {
-		return "", "", nil, fmt.Errorf("failed to write easy prompt: %w", err)
+		return "", nil, fmt.Errorf("failed to write easy prompt: %w", err)
 	}
 
-	// Generate and persist learning prompt
-	learningContent := buildEasyLearningPrompt(jobID, rickDir, doingDir, rickBinPath)
-	if err := os.WriteFile(learningPromptPath, []byte(learningContent), 0644); err != nil {
-		return "", "", nil, fmt.Errorf("failed to write learning prompt: %w", err)
-	}
-
-	return mainFile, learningPromptPath, skillFiles, nil
+	return mainFile, skillFiles, nil
 }
 
-// buildEasyLearningPrompt creates the learning prompt content for easy mode.
-// Uses file path references so it reads fresh data when executed.
-// Writes directly to .rick/wiki/, .rick/tools/, .rick/SPEC.md — no merge step.
-func buildEasyLearningPrompt(jobID, rickDir, doingDir, rickBinPath string) string {
-	learningDir := filepath.Join(filepath.Dir(doingDir), "learning")
-	debugPath := filepath.Join(doingDir, "debug.md")
+// GenerateEasyLearningPromptFile generates the learning prompt after a session ends.
+// Called after the easy session completes so doingDir is fully populated (debug/, tasks.json, etc.).
+// Reuses the same learning.md template as the standard learning phase.
+// Returns the path to the generated prompt file.
+func GenerateEasyLearningPromptFile(jobID, rickDir string) (string, error) {
+	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
+	learningDir := filepath.Join(rickDir, "jobs", jobID, "learning")
+	if err := os.MkdirAll(learningDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create learning dir: %w", err)
+	}
+
+	promptsDir, err := EnsurePromptsDir(doingDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to create prompts dir: %w", err)
+	}
+
+	mgr := NewPromptManager()
+	tmpl, err := mgr.LoadTemplate("learning")
+	if err != nil {
+		return "", fmt.Errorf("failed to load learning template: %w", err)
+	}
+
+	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("job_id", jobID)
+	builder.SetVariable("learning_dir", learningDir)
+
+	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "（本 job 无 OKR.md）")
+	builder.SetVariable("okr_content", okrContent)
+
 	specPath := filepath.Join(rickDir, "SPEC.md")
-	okrPath := filepath.Join(rickDir, "OKR.md")
-	wikiDir := filepath.Join(rickDir, "wiki")
-	toolsDir := filepath.Join(rickDir, "tools")
-	q := "`"
+	builder.SetVariable("spec_path", specPath)
+	builder.SetVariable("wiki_dir", filepath.Join(rickDir, "wiki"))
+	builder.SetVariable("tools_dir", filepath.Join(rickDir, "tools"))
 
-	lines := []string{
-		"# Rick Easy Mode Learning",
-		"",
-		"你是一个资深技术专家，对本次 easy 会话的执行过程进行学习和知识沉淀。",
-		"",
-		"## 执行上下文",
-		"",
-		fmt.Sprintf("**Job**: %s（easy 模式）", jobID),
-		"",
-		"### 数据来源（请读取以下文件）",
-		"",
-		fmt.Sprintf("- **debug 记录（优先读取 debug/ 下的 bug*.md 摘要，若无则读取 debug.md）**: 请读取 %sdebug/%s 目录或 %s%s%s", q, q, q, debugPath, q),
-		fmt.Sprintf("- **OKR**: %s%s%s", q, okrPath, q),
-		fmt.Sprintf("- **SPEC.md**: %s%s%s", q, specPath, q),
-		"",
-		"---",
-		"",
-		"## ⚠️ 执行 SOP",
-		"",
-		"### Step 1：读取并分析 debug 记录",
-		"",
-		"优先读取 debug/ 下的 bug*.md 摘要，若无则读取 debug.md，分析：",
-		"- 每个 debug 条目的根因与解决方案",
-		"- 跨问题的共性模式",
-		"- 未解决的问题",
-		"",
-		"### Step 2：提取可复用 Tools",
-		"",
-		"**YOU MUST declare: \"I will use skill:gen-skill.\" Before writing any tool.**",
-		"",
-		"从 debug.md 中识别可复用模式，提取为 Python 工具：",
-		"- ✅ 纯函数，确定性输入输出",
-		"- ✅ 跨场景通用",
-		"- ✅ 支持 --test 自验证",
-		"",
-		fmt.Sprintf("直接写入：%s%s/*.py%s", q, toolsDir, q),
-		"",
-		"### Step 3：沉淀 Skills（wiki 文档）",
-		"",
-		"为每个可复用模式生成 wiki 文档（触发场景/预期效果/使用方法）。",
-		"",
-		fmt.Sprintf("直接写入：%s%s/*.md%s", q, wikiDir, q),
-		"",
-		"### Step 4：更新 SPEC.md",
-		"",
-		fmt.Sprintf("直接更新 %s%s%s（in-place），将新 wiki 文档注册到技能列表，SPEC ≤ 512 行。", q, specPath, q),
-		"",
-		"### Step 5：生成 SUMMARY.md",
-		"",
-		fmt.Sprintf("在 %s%s%s 下生成 SUMMARY.md：", q, learningDir, q),
-		"",
-		"`APPROVED: true` 开头，包含执行概述、关键成就、问题教训、知识沉淀清单。",
-		"",
-		"### Step 6：运行 learning_check",
-		"",
-		"```bash",
-		fmt.Sprintf("%s tools learning_check %s", rickBinPath, jobID),
-		"```",
-		"",
-		"失败则修复后重新运行。",
-		"",
-		"---",
-		"",
-		"## ⚠️ 约束",
-		"",
-		"1. 必须先读取 debug.md 再生成 SUMMARY.md",
-		"2. Step 2 必须声明使用 gen-skill",
-		fmt.Sprintf("3. wiki/tools/SPEC 直接写入 .rick/：%s%s%s、%s%s%s、%s%s%s", q, wikiDir, q, q, toolsDir, q, q, specPath, q),
-		fmt.Sprintf("4. SUMMARY.md 写入 learning 目录：%s%s%s", q, learningDir, q),
+	debugContent := loadDebugContextLocal(doingDir)
+	if debugContent == "" {
+		debugContent = "（本次 job 无 debug 记录）"
+	}
+	builder.SetVariable("debug_content", debugContent)
+
+	// easy mode has no task*.md files
+	builder.SetVariable("task_md_files", "  （easy 模式无 task*.md 文件）")
+
+	// easy mode has no per-task act-path.md
+	builder.SetVariable("act_path_files", "  （easy 模式无 act-path.md 文件）")
+
+	// tasks.json: easy session writes a single easy_session task
+	builder.SetVariable("task_execution_results", buildEasyTaskResults(doingDir))
+
+	projectRoot, _ := os.Getwd()
+	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
+
+	genSkillFile, err := WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-skill: %w", err)
+	}
+	builder.SetVariable("gen_skill_path", genSkillFile)
+
+	promptFile := filepath.Join(promptsDir, "easy_learning_prompt.md")
+	if err := builder.SaveToFile(promptFile); err != nil {
+		return "", fmt.Errorf("failed to save easy learning prompt: %w", err)
 	}
 
-	result := ""
-	for _, l := range lines {
-		result += l + "\n"
+	return promptFile, nil
+}
+
+// buildEasyTaskResults formats the task execution table for easy mode (single easy_session task).
+func buildEasyTaskResults(doingDir string) string {
+	header := "| Task ID | 任务名称 | 状态 | Commit Hash | 重试次数 |\n|---------|---------|------|-------------|----------|\n"
+	data, err := os.ReadFile(filepath.Join(doingDir, "tasks.json"))
+	if err != nil {
+		return header + "| easy_session | Easy Mode Session | unknown | N/A | 1 |\n"
 	}
-	return result
+	// Simple extraction: tasks.json has one task with status "success"
+	status := "success"
+	if strings.Contains(string(data), `"status": "failed"`) {
+		status = "failed"
+	}
+	return header + fmt.Sprintf("| easy_session | Easy Mode Session | %s | N/A | 1 |\n", status)
 }
 
 // buildCtxSection renders the easy_ctx.md template with ctxPath and localRickDir.

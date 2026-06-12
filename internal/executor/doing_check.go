@@ -40,6 +40,12 @@ func RunDoingCheck(doingDir string) error {
 	return nil
 }
 
+// RunEasyCheck validates the doing directory for easy mode jobs.
+// Easy mode has no task breakdown, so only the debug/ directory format is checked.
+func RunEasyCheck(doingDir string) error {
+	return CheckDebugDir(doingDir)
+}
+
 // CheckDebugDir validates debug/bug*.md files inside doingDir.
 //
 // File name rule:  bug{n}-{description}.md

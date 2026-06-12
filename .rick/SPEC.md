@@ -131,3 +131,9 @@
 - 场景 B（重置 task）：将 `status` 改为 `"pending"`，清空 `error` 字段，更新 `updated_at`；若目标 task 正在运行（`running`），直接重置无效，需告知人类先 Ctrl+C 停止 doing
 - **变更约束**：只能修改 `doing/` 和 `plan/` 下的文件，不得修改 `.rick/` 其他目录
 - dry-run 输出完整 prompt（通过 `runCtrlDryRun()`），需指定 `--job` 否则报错退出
+
+## 技能列表
+
+| 名称 | 触发词 | 路径 |
+|------|--------|------|
+| tasks_json_commit_hash | doing_check 报错 commit_hash 缺失 | .rick/wiki/tasks_json_commit_hash.md |

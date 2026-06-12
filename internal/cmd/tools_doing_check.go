@@ -93,6 +93,42 @@ Exit codes:
 	return cmd
 }
 
+// NewEasyCheckCmd creates the easy_check subcommand (debug/ format only, no task checks).
+func NewEasyCheckCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "easy_check <job_id>",
+		Short: "Validate the doing directory structure for an easy mode job",
+		Long: `Check the doing directory for an easy mode job (debug/ format only, no task checks).
+
+Arguments:
+  job_id    Job identifier (e.g. job_1)
+
+Checks performed:
+  - debug/bug*.md file name format
+  - Required # sections and ## attempt blocks inside each bug file
+  - frontmatter status field present and not "🔄 进行中"
+
+Exit codes:
+  0  all checks passed
+  1  one or more checks failed`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			jobID := args[0]
+			doingDir, err := workspace.GetJobDoingDir(jobID)
+			if err != nil {
+				return fmt.Errorf("failed to resolve doing directory: %w", err)
+			}
+			if checkErr := executor.RunEasyCheck(doingDir); checkErr != nil {
+				fmt.Fprintf(os.Stderr, "❌ easy check failed: %v\n", checkErr)
+				os.Exit(1)
+			}
+			fmt.Println("✅ easy check passed")
+			return nil
+		},
+	}
+	return cmd
+}
+
 // runDoingCheck performs all structural checks on the doing directory.
 func runDoingCheck(doingDir string) error {
 	if err := executor.RunDoingCheck(doingDir); err != nil {

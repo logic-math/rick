@@ -238,10 +238,8 @@ review debug agent 是在调试特定触发点由主 Agent 启动的 subagent，
 agent 启动后**立即**读取：
 
 ```
-./skill_sense.md
+{{sense_skill_path}}
 ```
-
-（与 debug_skill.md 同目录的 sense skill 文件）
 
 按 **S → E → N** 三阶段结构化分析 bug 信息后再输出假设，保证假设有 SENSE 方法论支撑：
 - **S（Subject）**：还原问题现状、期望、差距

@@ -231,18 +231,9 @@ func TestIntegration_AllPromptGeneratorsWork(t *testing.T) {
 	// Note: Test prompt generation (GenerateTestPrompt) was removed
 	// Python test script generation is now handled by runner.go using test_python.md template
 
-	// Test learning prompt generation
+	// Note: GenerateLearningPrompt was removed - learning prompt is now built by learning.go
 	t.Run("LearningPrompt", func(t *testing.T) {
-		prompt, err := GenerateLearningPrompt("test_job_1", cm, pm)
-		if err != nil {
-			t.Fatalf("Failed to generate learning prompt: %v", err)
-		}
-
-		if prompt == "" {
-			t.Fatal("Learning prompt is empty")
-		}
-
-		t.Logf("Learning prompt generated successfully (%d chars)", len(prompt))
+		t.Skip("GenerateLearningPrompt removed; learning prompt built by cmd/learning.go")
 	})
 }
 
@@ -398,15 +389,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 		"Add tests for login",
 	})
 
-	learningPrompt, err := GenerateLearningPrompt("test_job_complete", cm, pm)
-	if err != nil {
-		t.Fatalf("Learning failed: %v", err)
-	}
-
-	if learningPrompt == "" {
-		t.Error("Learning prompt is empty")
-	}
-
+	// Note: GenerateLearningPrompt removed; learning prompt built by cmd/learning.go
 	t.Log("Complete workflow executed successfully")
 }
 
