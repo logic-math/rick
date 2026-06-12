@@ -138,6 +138,30 @@ assert result.returncode == 0, "variadic signature not found"
 
 ---
 
+### 陷阱 8：全局 ~/.rick/config.json 污染测试导致超时
+
+**现象**：`go test ./internal/cmd/...` 在 60s+ 后超时，stack trace 卡在 `retry.go time.Sleep`；本地 `~/.rick/config.json` 设置了高 `max_retries`（如 16），导致 retry sleep 累计超出 test timeout。
+
+**修复**：在每个涉及 retry/config 的 Go 测试函数开头注入临时 HOME，覆盖全局配置：
+
+```go
+func TestXxx(t *testing.T) {
+    dir := t.TempDir()
+    t.Setenv("HOME", dir)
+    // 写入低 max_retries 的本地 config
+    cfg := `{"max_retries":2}`
+    _ = os.MkdirAll(filepath.Join(dir, ".rick"), 0755)
+    _ = os.WriteFile(filepath.Join(dir, ".rick", "config.json"), []byte(cfg), 0644)
+    // ... 测试逻辑
+}
+```
+
+**因果链**：`max_retries:16` → retry sleep = 1+2+...+15 = 120s，远超 `-timeout 60s`；CI 无 `~/.rick/config.json` 故不受影响。
+
+**识别信号**：本地运行时测试挂起 > 30s，stack trace 卡在 `retry.go:xxx time.Sleep`，在 CI 中正常。
+
+---
+
 ## 执行步骤
 
 1. **确认项目根路径**：使用 6 次 dirname，或 `os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../../.."))` 等等价写法

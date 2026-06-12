@@ -1,6 +1,6 @@
 # Rick 项目执行阶段提示词
 
-**YOU MUST declare at the start: "I will use skill:tdd for implementation. I will use skill:super-debugging for any unexpected behavior."**
+**YOU MUST declare at the start: "I will use skill:tdd for implementation. I will use skill:debug-skill for any unexpected behavior."**
 
 ## 核心 Skills（必须加载）
 
@@ -8,7 +8,8 @@
 
 - skill:tdd（测试驱动开发）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_tdd_zh.md`
 - skill:testing-anti-patterns（测试反模式）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_testing_anti_patterns_zh.md`
-- skill:super-debugging（超级调试框架）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_super_debugging_zh.md`
+- skill:debug-skill（调试技能）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_debug_skill.md`
+- skill:sense（系统化思维，供 review debug agent 使用）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_sense.md`
 
 你是一个资深的软件工程师。你的任务是执行规划好的任务，完成具体的编码工作。
 
@@ -94,12 +95,65 @@ Rick 项目采用模块化架构设计：
 
 #### DEBUG 铁律
 
-**When encountering ANY bug, YOU MUST declare: "I will use skill:super-debugging." No random fixes. No exceptions.**
+**所有代码都是 debug 出来的。RED 阶段测试失败 = 遇到 bug，必须触发 debug-skill，无一例外。**
 
-遇到任何不符合预期的行为时，必须：
-1. 声明 `"I will use skill:super-debugging."`
-2. 走 super-debugging 五阶段流程：S（还原问题）→ E（视角分析）→ N（验证假设）→ 修复 → 3 次失败则找人类
-3. 不得随机修改代码（no random fixes）
+> RED 不是"预期中的失败"，而是发现了系统与预期的差距——这正是 bug 的定义。
+> 跳过 debug-skill 直接修改代码 = 随机修复 = 制造下一个 bug。
+
+**触发条件（以下任意一条即触发，不得跳过）**：
+- 运行测试出现 FAIL / 错误输出
+- 代码行为与预期不符
+- 编译报错（编译错误也是 bug）
+
+**触发后必须执行**：
+1. 声明 `"I will use skill:debug-skill."`
+2. 在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/debug/` 下创建 `bug{N}-{描述}.md`，**严格按以下格式**（doing_check 逐行校验，格式错误 = check 失败）：
+
+```markdown
+---
+summary: "一句话描述根因 + 最终状态"
+status: "✅ 已解决"
+---
+
+# 阶段一: 源码推理法
+
+## 尝试1
+- 假设：[假设内容]
+- 改动：[最小改动描述]
+- 结果：❌ 失败 / ✅ 通过
+
+## 尝试2
+- 假设：
+- 改动：
+- 结果：
+
+# 阶段二: 增量调试法
+
+（阶段一已解决，跳过）
+
+# 阶段三: 科学实验法
+
+## 实验1
+- 假设：[传播链假设]
+- 改动：[观测手段]
+- 结果：❌ 失败 / ✅ 通过
+
+# 结论
+
+根因：...  修复：...
+```
+
+**格式铁律（doing_check 严格校验）**：
+- 文件名：`bug{n}-{描述}.md`（n 为正整数，描述非空）
+- 必须包含四个 `#` 一级标题：`# 阶段一: 源码推理法`、`# 阶段二: 增量调试法`、`# 阶段三: 科学实验法`、`# 结论`
+- 每个尝试/实验用 `##` 二级标题：`## 尝试N` 或 `## 实验N`
+- 每个 `## 尝试N` / `## 实验N` 块必须包含 `- 假设`、`- 改动`、`- 结果` 三行
+- frontmatter 必须有 `status:` 字段，且最终状态不得为 `"🔄 进行中"`
+
+3. 加载 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/prompts/skill_debug_skill.md`，严格按三阶段执行（阶段一上限 3 次，阶段三上限 5 次）
+4. 不得随机修改代码（no random fixes）
+
+**doing_check 校验 debug/bug*.md 格式，格式不合规 = check 失败 = 任务未完成。**
 
 ### 承诺（Commitment）
 
@@ -107,7 +161,7 @@ Rick 项目采用模块化架构设计：
 
 ```
 I will use skill:tdd for implementation.
-I will use skill:super-debugging for any unexpected behavior.
+I will use skill:debug-skill for any unexpected behavior.
 ```
 
 明确的承诺能提升 skill 合规率，防止任务执行过程中遗忘关键工程实践。
@@ -116,7 +170,7 @@ I will use skill:super-debugging for any unexpected behavior.
 
 **Before proceeding to next task, verify: all tests pass.**
 
-**Immediately after test failure, run super-debugging Phase 1 (S：还原问题).**
+**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/debug/` 创建 `bug{N}-{描述}.md`，按阶段一：源码推理法 → 阶段二：增量调试法 → 阶段三：科学实验法 顺序调试，不可跳过。**
 
 每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
 
@@ -128,8 +182,7 @@ I will use skill:super-debugging for any unexpected behavior.
 2. **设计方案**: 根据项目架构和现有代码，设计实现方案
 3. **实现代码**: 实现所有必要的功能
 4. **测试验证**: 按照测试方法验证功能的正确性
-5. **记录工作日志**: 在 git commit 之前，**必须**更新 debug.md（强制要求，非可选）
-6. **提交代码**: 使用 git 提交代码，提交信息应该清晰明确
+5. **提交代码**: 使用 git 提交代码，提交信息应该清晰明确
 
 
 ## 具体步骤
@@ -140,121 +193,16 @@ I will use skill:super-debugging for any unexpected behavior.
 2. **设计**: 针对目标和关键结果规划实现方案
 3. **实现**: 完全具体实现工作
 4. **测试**: 根据测试方法对交付的结果进行测试,代码必须能在生产环境正确工作
-5. **记录**: **在 git commit 之前必须先更新 debug.md**（强制，详见下方"工作日志规范"）
-6. **提交**: 使用 git 将这次任务变更进行提交,务必遵循项目规范进行提交
-
-## 工作日志规范
-
-**debug.md 是强制工作日志，无论任务是否顺利，都必须在 git commit 之前记录完整的执行过程。**
-
-这是每次任务执行的硬约束，不可跳过。debug.md 是 learning 阶段提取有价值 skills 的核心数据源。
-
-### debug.md 文件位置
-- 路径：`{{doing_dir}}/debug.md`
-- 如果文件不存在，请创建它
-
-### 强制记录格式
-
-每次任务执行，使用以下格式追加记录（按顺序递增编号）：
-
-```markdown
-## task{N}: {任务名称简述}
-
-**分析过程 (Analysis)**:
-- 分析了哪些现有代码/文件
-- 发现了哪些关键约束或依赖
-- 选择了什么实现方案，为什么
-
-**实现步骤 (Implementation)**:
-1. 步骤1：做了什么
-2. 步骤2：做了什么
-3. ...
-
-**遇到的问题 (Issues)**:
-- 无（如果没有遇到任何问题，写"无"）
-- 或者列出遇到的问题及解决方法
-
-**验证结果 (Verification)**:
-- 测试命令：`{实际运行的测试命令}`
-- 测试输出：
-  ```
-  {粘贴实际测试输出}
-  ```
-- 结论：✅ 通过 / ❌ 失败
-```
-
-### 遇到问题时的详细记录
-
-如果"遇到的问题"不为空，在 debug.md 中**额外追加**以下格式的详细问题记录：
-
-```markdown
-## debug{N}: 问题简要描述
-
-**现象 (Phenomenon)**:
-- 描述观察到的问题现象
-- 包括错误信息、测试失败信息等
-
-**复现 (Reproduction)**:
-- 如何复现这个问题
-- 相关的操作步骤
-
-**猜想 (Hypothesis)**:
-- 对问题原因的分析和猜测
-- 可能的根本原因
-
-**验证 (Verification)**:
-- 如何验证猜想是否正确
-- 进行了哪些验证操作
-
-**修复 (Fix)**:
-- 采取的修复措施
-- 修改了哪些代码或配置
-
-**进展 (Progress)**:
-- 当前状态：✅ 已解决 / 🔄 进行中 / ❌ 未解决
-- 如果未解决，说明下一步计划
-```
-
-### 示例
-
-```markdown
-## task1: 实现用户认证模块
-
-**分析过程 (Analysis)**:
-- 阅读了 internal/auth/ 目录下的现有代码
-- 发现 JWT 库已在 go.mod 中声明，无需新增依赖
-- 选择在现有 middleware.go 中扩展，避免创建新文件
-
-**实现步骤 (Implementation)**:
-1. 在 middleware.go 中添加 ValidateToken 函数
-2. 修改 router.go 注册认证中间件
-3. 更新 config.go 添加 JWT secret 配置项
-
-**遇到的问题 (Issues)**:
-- 无
-
-**验证结果 (Verification)**:
-- 测试命令：`go test ./internal/auth/... -v`
-- 测试输出：
-  ```
-  --- PASS: TestValidateToken (0.00s)
-  --- PASS: TestMiddleware (0.01s)
-  PASS
-  ok  	project/internal/auth	0.023s
-  ```
-- 结论：✅ 通过
-```
+5. **提交**: 使用 git 将这次任务变更进行提交,务必遵循项目规范进行提交
 
 ## 行为约束
 
-1. **强制工作日志**: **在 git commit 之前必须先更新 debug.md**，这是硬约束，不可跳过
-2. **四个必填部分**: 分析过程、实现步骤、遇到的问题（无则写"无"）、验证结果（含测试命令和实际输出）
-3. **测试通过**: 确保所有测试都通过后才能提交代码
-4. **生产就绪**: 代码应该能够在生产环境中正确运行
-5. **明确阻碍**: 如果无法完成任务，请在 debug.md 中详细记录阻碍因素
-6. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
-7. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
+1. **测试通过**: 确保所有测试都通过后才能提交代码
+2. **bug 强制记录**: 每次测试失败，必须在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_1/doing/debug/bug{N}-{描述}.md` 创建调试记录，不可跳过
+3. **生产就绪**: 代码应该能够在生产环境中正确运行
+3. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
+4. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
    ```bash
    /Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N
    ```
-   如果 check 失败，根据错误信息修复（如补充 debug.md、解决 zombie 任务等），修复后重新运行，循环直到 check 通过。**check 通过后才算任务完成**，不可跳过。
+   如果 check 失败，根据错误信息修复（如解决 zombie 任务等），修复后重新运行，循环直到 check 通过。**check 通过后才算任务完成**，不可跳过。

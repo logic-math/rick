@@ -10,7 +10,7 @@
 
 ## 待处理 Jobs
 
-- job_15
+- job_16
 
 
 ## 已有 Run Logs
@@ -156,6 +156,55 @@
 1. act-path 机制现已稳定（task1/2/6 全部通过），建议关注后续 job 中 act-path.md 内容质量
 2. RED/GREEN TDD 验证循环（task8）是新机制，后续 job 应观察 RED 误触发率
 3. core-skills embed.FS 注入已完成，评估各 SOP 阶段 skill 注入的实际效果
+
+
+### dream_run_job_15_log.md
+
+# Dream Run: job_15
+
+## 处理概述
+
+- **处理时间**: 2026-06-06
+- **Job 状态**: 已完成反思
+- **数据来源**: debug.md（3 条目，全部已解决）+ tasks.json（1 task easy_session, success）
+
+## 反思发现
+
+1. **ctrl prompt 模板内容不足（debug2）**：初版 ctrl.md 只写了路径，未说明 NDJSON 格式、目录结构、act-path.md 内容、干预场景。根因：模板编写时未充分阅读 `executor.go` 和 `actpath/generator.go` 源码。修复：重写 ctrl.md，补全四个干预场景（A/B/C/D）和文件结构说明。
+2. **ctrl 命令实现零问题（debug1）**：`ctrl.go` + `ctrl_prompt.go` 首次实现即通过，证明"接口规范清晰 + 复用 callClaudeCodeCLI"的零重试模式有效。
+3. **super-debugging skill 合并零问题（debug3）**：合并两个旧 skill 文件为 `super-debugging-zh.md`，删除旧文件，build 和 dry-run 验证全部通过。
+4. **测试引用过时（subagent_6 发现）**：`manager_test.go:199` 仍引用 `"debug"` skill 名称，但文件已改为 `super-debugging-zh.md`，已记录为 RFC-refactor-1。
+
+## 变更记录
+
+### Skills 变更
+
+- 新增: 无（super-debugging 是同 job 的 doing 产出，非 dream 新增）
+- 修改: 无
+- 删除: 无
+
+### SPEC.md 变更
+
+- 新增 `rick ctrl` 命令规范（场景A/B/干预指令章节名称、场景B 重置约束、dry-run 要求）
+- 新增 `Cobra flag 定义规范`（全局 flag vs 命令 flag 区分规则）
+- 修复 `.rick/dream/readme.md` 断链引用（文件已被删除，改为描述 dream/ 目录用途）
+
+### Wiki 文档
+
+- 新增: `ctrl_command.md`（ctrl 命令架构、工作流程、四场景干预、NDJSON 格式、Prompt 生成机制）
+- 修改: `core_skills_injection.md`（`debug.md` → `super-debugging-zh.md`，更新注入表和示例）
+- 修改: `dream_command.md`（四维 → 六维质量验证）
+- 修改: `README.md`（添加 ctrl_command.md 条目，修正 core_skills_injection.md 摘要）
+
+### RFC
+
+- 新增: `RFC-refactor-1.md`（P0: manager_test.go 中 "debug" skill 名称过时，应改为 "super-debugging-zh"）
+
+## 下次建议关注
+
+1. RFC-refactor-1 的 manager_test.go:199 修复 — 低风险，建议下个 job 顺手修复
+2. 观察 ctrl 命令在后续 job 中的实际使用情况（汇报格式是否清晰，/loop 监控是否实用）
+3. RFC-refactor-go-codebase.md 中记录的 workspace 死代码是否已完全清理（skills.go 已删除，但 paths.go 的 SkillsDirName 常量状态待确认）
 
 
 ### dream_run_job_1_log.md
@@ -318,11 +367,15 @@
 
 | 文件 | 说明 | 必要性 |
 |------|------|--------|
-| `jobs/{job_id}/doing/debug.md` | 调试记录 | 优先读取 |
+| `jobs/{job_id}/doing/debug/bug*.md` | 调试记录（新格式，frontmatter摘要） | 优先读取 |
+| `jobs/{job_id}/doing/debug.md` | 调试记录（旧格式，fallback） | 无 debug/ 时读取 |
 | `jobs/{job_id}/doing/tasks.json` | 任务完成情况 | 优先读取 |
 | `jobs/{job_id}/doing/tasks/*/act-path.md` | 工具调用轨迹 | 有则读取，无则跳过 |
+| `jobs/{job_id}/learning/SUMMARY.md` | learning 阶段执行摘要 | 有则读取，无则跳过 |
 
-**act-path.md 不存在时**：基于 debug.md、wiki/、tools/、SPEC.md 进行全局范围反思，不得以"缺少 act-path"为由跳过该 job。
+**数据不足时的降级策略**：
+- debug/ 和 act-path 都缺失 → 必须读取 `jobs/{job_id}/learning/SUMMARY.md` 作为主要信号源
+- 三者均缺失 → 基于 wiki/、tools/、SPEC.md 进行全局范围反思，不得以"缺少数据"为由跳过该 job
 
 ### 3. SENSE 反思 — 提取优化信号
 
@@ -330,7 +383,7 @@ YOU MUST declare: "I will use skill:sense for reflection." Before analyzing each
 
 skill:sense 内容参考：`/Users/sunquan/ai_coding/CODING/rick/.rick/dream/prompts/skill_sense.md`
 
-基于步骤 2 加载的**所有可用数据**进行深度反思（无 act-path 时以 debug.md 为主要信号源）：
+基于步骤 2 加载的**所有可用数据**进行深度反思（无 act-path 时以 debug/ 或 SUMMARY.md 为主要信号源）：
 1. 识别重复出现的错误模式（debug 条目中出错次数 > 1 的情况）
 2. 发现低效的工具使用模式（有 act-path 时：冗余调用、不必要的重试）
 3. 提取成功经验（零重试任务的设计模式，或 debug 中标记"已解决"的有效手段）
@@ -341,7 +394,7 @@ skill:sense 内容参考：`/Users/sunquan/ai_coding/CODING/rick/.rick/dream/pro
 
 ### 4. 分析 Debug 记录
 
-1. 汇总各 job 的 debug 记录，按问题类型分类
+1. 汇总各 job 的 debug/ 目录（或 debug.md）记录，按问题类型分类
 2. 识别跨 job 的共性问题（相同根因出现 ≥ 2 次）
 3. 评估现有 skills 是否能覆盖这些共性问题
 4. 列出需要新增或改进的 skill 候选项
@@ -412,7 +465,7 @@ skill:evolve-skills 内容参考：`/Users/sunquan/ai_coding/CODING/rick/.rick/d
 #### subagent_4：路径推演（可查阅代码事实，禁止写入或执行）
 
 取本次反思中**执行最差的 1 个 task**（重试次数最多或 debug 条目最多），基于**真实代码查阅**模拟在当前改进后的上下文下重新执行：
-1. 还原该 task 的失败现场（从 debug.md / act-path.md 中读取原始错误）
+1. 还原该 task 的失败现场（从 debug/ 目录的 bug*.md 或 act-path.md 中读取原始错误）
 2. 使用 Read / Grep / Glob 主动查阅业务项目源码，获取推演所需的事实信息
 3. 对照当前改进后的 SPEC + wiki + tools，逐步推断：如果 agent 按改进后的上下文操作，每一步会做什么？原来的错误是否会被提前发现或规避？
 4. 识别推演中仍然存在的盲区
@@ -508,3 +561,11 @@ dream_run_{job_id}_log.md
 6. **subagent_4 只读不写**：路径推演可用 Read/Grep/Glob 查阅代码事实，但不得写入文件、执行 shell 命令（编译/测试/运行）
 7. **subagent_6 只写 RFC**：仅创建 `.rick/RFC/RFC-refactor-{n}.md` 一个文件，不得修改源代码或其他 `.rick/` 文件
 8. **不含 TDD/debug skill**：Dream 阶段不引用 tdd、debug、tc、gen-skill
+
+
+## 行为轨迹文件路径（按需读取）
+
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_16/doing/tasks/task1/act-path.md`
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_16/doing/tasks/task2/act-path.md`
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_16/doing/tasks/task3/act-path.md`
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_16/doing/tasks/task4/act-path.md`
