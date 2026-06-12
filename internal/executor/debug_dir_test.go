@@ -7,49 +7,6 @@ import (
 	"testing"
 )
 
-func TestExtractBugFrontmatter(t *testing.T) {
-	t.Run("normal frontmatter", func(t *testing.T) {
-		content := "---\nsummary: fix auth bug\nstatus: resolved\n---\n\nBody text here."
-		summary, status := extractBugFrontmatter(content)
-		if summary != "fix auth bug" {
-			t.Errorf("expected summary 'fix auth bug', got %q", summary)
-		}
-		if status != "resolved" {
-			t.Errorf("expected status 'resolved', got %q", status)
-		}
-	})
-
-	t.Run("quoted values", func(t *testing.T) {
-		content := "---\nsummary: \"nil pointer in runner\"\nstatus: 'open'\n---\n"
-		summary, status := extractBugFrontmatter(content)
-		if summary != "nil pointer in runner" {
-			t.Errorf("expected summary without quotes, got %q", summary)
-		}
-		if status != "open" {
-			t.Errorf("expected status without quotes, got %q", status)
-		}
-	})
-
-	t.Run("missing frontmatter", func(t *testing.T) {
-		content := "# Bug Report\nNo frontmatter here."
-		summary, status := extractBugFrontmatter(content)
-		if summary != "" || status != "" {
-			t.Errorf("expected empty strings for missing frontmatter, got summary=%q status=%q", summary, status)
-		}
-	})
-
-	t.Run("field absent", func(t *testing.T) {
-		content := "---\nsummary: only summary\n---\n"
-		summary, status := extractBugFrontmatter(content)
-		if summary != "only summary" {
-			t.Errorf("expected 'only summary', got %q", summary)
-		}
-		if status != "" {
-			t.Errorf("expected empty status, got %q", status)
-		}
-	})
-}
-
 func TestLoadDebugDirSummaries(t *testing.T) {
 	t.Run("bug*.md files are read", func(t *testing.T) {
 		tmpDir := t.TempDir()

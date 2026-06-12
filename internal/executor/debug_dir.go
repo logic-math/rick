@@ -6,39 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-)
 
-// extractBugFrontmatter parses YAML frontmatter (between --- markers) and extracts
-// summary and status fields. Returns empty strings when frontmatter is absent or fields missing.
-func extractBugFrontmatter(content string) (summary, status string) {
-	lines := strings.Split(content, "\n")
-	inFrontmatter := false
-	started := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			if !started {
-				inFrontmatter = true
-				started = true
-				continue
-			}
-			if inFrontmatter {
-				break
-			}
-		}
-		if !inFrontmatter {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "summary:") {
-			v := strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:"))
-			summary = strings.Trim(v, `"'`)
-		} else if strings.HasPrefix(trimmed, "status:") {
-			v := strings.TrimSpace(strings.TrimPrefix(trimmed, "status:"))
-			status = strings.Trim(v, `"'`)
-		}
-	}
-	return
-}
+	"github.com/sunquan/rick/internal/parser"
+)
 
 // LoadDebugDirSummaries scans {workspaceDir}/debug/, reads bug*.md in lexicographic order,
 // and returns a multi-line string of frontmatter summaries.
@@ -70,7 +40,7 @@ func LoadDebugDirSummaries(workspaceDir string) string {
 		if err != nil {
 			continue
 		}
-		summary, status := extractBugFrontmatter(string(data))
+		summary, status := parser.ExtractBugFrontmatter(string(data))
 		sb.WriteString(fmt.Sprintf("- [%s] summary: %s | status: %s\n", name, summary, status))
 	}
 	return sb.String()

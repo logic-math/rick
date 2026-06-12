@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sunquan/rick/internal/parser"
 )
 
 // GenerateEasyPromptFile generates the easy mode interactive prompt.
@@ -211,32 +213,7 @@ func loadDebugContextLocal(doingDir string) string {
 				if err != nil {
 					continue
 				}
-				// parse YAML frontmatter for summary and status
-				var summary, status string
-				lines := strings.Split(string(data), "\n")
-				inFM, started := false, false
-				for _, line := range lines {
-					t := strings.TrimSpace(line)
-					if t == "---" {
-						if !started {
-							inFM, started = true, true
-							continue
-						}
-						if inFM {
-							break
-						}
-					}
-					if !inFM {
-						continue
-					}
-					if strings.HasPrefix(t, "summary:") {
-						v := strings.TrimSpace(strings.TrimPrefix(t, "summary:"))
-						summary = strings.Trim(v, `"'`)
-					} else if strings.HasPrefix(t, "status:") {
-						v := strings.TrimSpace(strings.TrimPrefix(t, "status:"))
-						status = strings.Trim(v, `"'`)
-					}
-				}
+				summary, status := parser.ExtractBugFrontmatter(string(data))
 				sb.WriteString(fmt.Sprintf("- [%s] summary: %s | status: %s\n", name, summary, status))
 			}
 			if result := sb.String(); result != "" {
