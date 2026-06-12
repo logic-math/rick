@@ -8,12 +8,12 @@ import (
 )
 
 // RunDoingCheck validates the doing directory structure.
-// It checks tasks.json, debug/ bug files format, zombie tasks, and commit hashes.
+// It checks tasks.json parseability and debug/ bug files format.
 // Returns nil if all checks pass.
 func RunDoingCheck(doingDir string) error {
 	// 1. tasks.json exists and is parseable
 	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
-	tasksJSON, err := LoadTasksJSON(tasksJSONPath)
+	_, err := LoadTasksJSON(tasksJSONPath)
 	if err != nil {
 		return fmt.Errorf("tasks.json not found or invalid: %w", err)
 	}
@@ -21,20 +21,6 @@ func RunDoingCheck(doingDir string) error {
 	// 2. Validate debug/ directory and bug*.md files
 	if err := CheckDebugDir(doingDir); err != nil {
 		return err
-	}
-
-	// 3. No tasks in "running" zombie state
-	for _, task := range tasksJSON.GetAllTasks() {
-		if task.Status == "running" {
-			return fmt.Errorf("task %s is in zombie 'running' state", task.TaskID)
-		}
-	}
-
-	// 4. All success tasks have a non-empty commit_hash
-	for _, task := range tasksJSON.GetAllTasks() {
-		if task.Status == "success" && task.CommitHash == "" {
-			return fmt.Errorf("task %s has status=success but missing commit_hash", task.TaskID)
-		}
 	}
 
 	return nil

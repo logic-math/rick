@@ -139,3 +139,4 @@
 | 名称 | 触发词 | 路径 |
 |------|--------|------|
 | tasks_json_commit_hash | doing_check 报错 commit_hash 缺失 | .rick/wiki/tasks_json_commit_hash.md |
+| mark-task-success | doing_check 因 tasks.json status 非 success 失败 | .rick/wiki/mark_task_success_workflow.md |
