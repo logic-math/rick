@@ -42,7 +42,7 @@ Rick 的 learning 阶段是 plan→doing→learning 循环的最后一步，负�
 2. 审核 OKR.md 和 SPEC.md（目标和规范更新是否合理）
 3. 审核 wiki/ 和 tools/（知识提取是否准确）
 4. 将 SUMMARY.md 第一行改为 `<!-- APPROVED: true -->`
-5. 手动将各产出文件合并到 `.rick/`（`rick tools merge` 尚未实现，见 RFC-005）
+5. 手动将各产出文件合并到 `.rick/`（人工逐文件审核后，`git add .rick/ && git commit -m "learning: merge job_N knowledge"`）
 6. `git add .rick/ && git commit -m "learning: merge job_N knowledge"`
 
 ## 如何控制

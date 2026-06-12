@@ -41,13 +41,14 @@
 - **task.md 测试方法精确性**: task.md 中"测试方法"描述的命令行调用必须基于工具**实际存在的参数接口**，不得引用尚未实现的参数。plan 阶段生成测试脚本前应验证 `.rick/tools/` 下对应工具的 `--help` 输出
 - **embed.FS 目录嵌入**: `//go:embed dir`（目录）必须绑定 `embed.FS` 类型；`//go:embed file`（单文件）可绑定 `string`；两者可在同一文件共存。`_ "embed"` 改为 `"embed"` 才能使用 `embed.FS`
 - **JSON 输出编码约定**: 所有 Python 工具/测试脚本的 `json.dumps()` 调用必须加 `ensure_ascii=False`，避免中文字符被转义为 `\uXXXX` 导致字符串匹配失败
+- **go test 范围精确性**: 测试脚本中的 `go test` 命令范围必须精确匹配当前 task 的实际改动包（如 `./internal/executor/...`），禁止跑全量 `./internal/...`；全量跑会混入依赖真实环境的无关测试，导致 task 误判失败
 - **接口签名协商**: 并行 task 中若涉及接口定义和实现，接口 task 应先完成后实现 task 才开始；或在 plan 阶段明确接口签名（不含 context.Context，避免标准库强制依赖）
 - **同包测试 mock 命名**: 同一 Go 包的多个测试文件共享命名空间；mock struct 应使用区分前缀（如 `runnerMockExecutor` vs `executorMockExecutor`）避免冲突
 
 ## 工程实践
 
 - 版本控制: Git，每个任务完成后独立 commit（commit message 包含 task ID）
-- 知识合并: learning 产出经人工审核后手动 `git merge --no-ff`（`rick tools merge` 命令尚未实现，见 RFC-005）
+- 知识合并: learning 产出经人工审核后手动合并到 `.rick/`（逐文件审核，确认无误后 `git add .rick/ && git commit`）
 - 持续集成: `go test ./...` 覆盖单元测试，`bash tests/tools_integration_test.sh` 覆盖集成测试
 - 发布流程: `./scripts/build.sh` 构建，`./scripts/install.sh` 安装到 `~/.rick/bin/rick`
 
@@ -60,6 +61,7 @@
 - `.rick/dream/`: dream 目录，存放 `dream_run_*_log.md` 和 `prompts/`；待处理 jobs 由程序自动扫描 tasks.json 发现，无需手工维护索引文件
 - `.rick/dream/run_log_{n}.md`: learning 阶段 Step 6 写入的度量文件，格式 `| Job | 模型 | 错误次数 | 工具调用轮次 | 备注 |`
 - `.rick/tools/`: 确定性 Python 工具脚本（**只含 `.py` 文件**）；每个脚本首行必须有 `# Description:` 注释；调用方式 `python3 .rick/tools/<file>.py`
+- `doing/debug/bug*.md`: 调试记录文件（新格式），YAML frontmatter 含摘要信息，`LoadDebugContext()` 优先读取此目录；无此目录时回退读取 `doing/debug.md`
 - `doing/tasks/{taskID}/act-path.md`: 任务执行后自动生成的行为轨迹文件，含工具调用、报错次数、执行时长
 - `doing/tasks/{taskID}/raw_session.log`: Claude Code NDJSON 原始流式输出，每行一个 JSON 对象（非 JSON 行也写入）
 
@@ -78,7 +80,7 @@
 - 对比 `.rick/dream/dream_run_*_log.md` 排除已处理 jobs，取最多 5 个待处理 jobs
 - `--job_num <n>`：调整每次处理的 job 数量（默认 5）
 - `--background`/`-p`：背景模式，使用 `--dangerously-skip-permissions` 非交互执行
-- `--dry-run`：输出完整提示词（含 sense + evolve-skills core-skills），不调用 Claude
+- `--dry-run`：输出完整提示词（含 sense、evolve-skills、source-context-consistency、refactor-rfc），不调用 Claude
 - **变更约束**: 仅允许修改 `.rick/wiki/`、`.rick/tools/`、`.rick/SPEC.md`，严禁修改业务代码
 
 ### NDJSON 解析规范

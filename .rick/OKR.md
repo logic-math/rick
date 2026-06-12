@@ -29,7 +29,7 @@ Rick 的核心假设是：AI 的输出质量取决于上下文质量。通过结
 ### 关键结果 (Key Results)
 
 - KR2.1: learning 阶段产出四类标准化文档（SUMMARY / skills / OKR / SPEC），每类有明确格式规范
-- KR2.2: `rick tools merge` 实现 learning 产出到 `.rick/` 的安全合并，分支隔离 + 人工审核双重保障
+- KR2.2: learning 产出经人工审核后手动合并到 `.rick/`，审核 SUMMARY.md 确认质量后逐文件 `git add` 提交
 - KR2.3: `.rick/skills/index.md` 在下次 doing/plan 时自动注入提示词（优先于 .py 扫描），含触发场景描述，形成知识复用闭环
 - KR2.4: 每次 job 的 SUMMARY.md 包含可量化的执行指标（完成率、重试次数、问题数量）
 

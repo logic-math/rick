@@ -72,7 +72,7 @@ rick tools dream_check
 - `--auto-fix` 需要 Claude CLI 在 PATH 中可用
 - `doing_check` 的 `debug.md` 检查是强制的：每次任务执行必须有工作日志
 - check 命令默认 opt-in auto-fix，保持工具确定性，便于测试中验证失败场景
-- **`rick tools merge` 尚未实现**（见 RFC-005），知识合并当前需人工手动 `git merge`
+- 知识合并采用人工审核方式：learning 产出经审核后手动 `git add .rick/ && git commit`
 
 ## 相关资源
 
