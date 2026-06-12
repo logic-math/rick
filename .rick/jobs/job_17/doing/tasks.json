@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-12T23:18:14.892853+08:00",
-  "updated_at": "2026-06-12T23:28:00.084648+08:00",
+  "updated_at": "2026-06-12T23:30:48.972881+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -28,23 +28,26 @@
     {
       "task_id": "task4",
       "task_name": "更新 SPEC 和 wiki 文档，清理 rick easy 独立命令引用和 tools merge 残留引用",
+      "task_file": "task4.md",
       "status": "success",
       "dependencies": [],
       "attempts": 0,
-      "commit_hash": "458b1b7",
+      "commit_hash": "7457b053fe9c1a57c7a51d270f80e88f5f679130",
       "created_at": "2026-06-12T23:18:14.892853+08:00",
-      "updated_at": "2026-06-12T23:28:00.084648+08:00"
+      "updated_at": "2026-06-12T23:30:48.97261+08:00"
     },
     {
       "task_id": "task3",
       "task_name": "重构 easy.go 消除内部重复，复用已有 callClaudeCodeCLI",
-      "status": "pending",
+      "task_file": "task3.md",
+      "status": "success",
       "dependencies": [
         "task2"
       ],
       "attempts": 0,
+      "commit_hash": "9fc76737",
       "created_at": "2026-06-12T23:18:14.892853+08:00",
-      "updated_at": "2026-06-12T23:18:14.892853+08:00"
+      "updated_at": "2026-06-12T23:35:00.000000+08:00"
     }
   ]
 }
