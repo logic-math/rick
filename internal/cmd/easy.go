@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -95,7 +94,7 @@ func resumeEasyMode(jobID string) error {
 	fmt.Printf("Job ID: %s\n", jobID)
 	fmt.Printf("Resuming session: %s\n", sessionID)
 
-	if err := callClaudeCodeCLIResume(cfg, sessionID); err != nil {
+	if err := callClaudeCodeCLI(cfg, "", "--resume", sessionID); err != nil {
 		return fmt.Errorf("session resume failed: %w", err)
 	}
 
@@ -151,7 +150,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 	fmt.Printf("Session ID: %s\n", sessionID)
 	fmt.Println("🤖 Starting Easy interactive session...")
 
-	if err := callClaudeCodeCLIEasy(cfg, sessionID, mainFile); err != nil {
+	if err := callClaudeCodeCLI(cfg, mainFile, "--session-id", sessionID); err != nil {
 		return fmt.Errorf("easy session failed: %w", err)
 	}
 
@@ -174,38 +173,6 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 		fmt.Println("✅ Learning + Merge 完成！")
 	}
 
-	return nil
-}
-
-// callClaudeCodeCLIEasy starts an interactive session with a pre-set session ID.
-func callClaudeCodeCLIEasy(cfg *config.Config, sessionID, promptFile string) error {
-	claudePath := cfg.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-	cmd := exec.Command(claudePath, "--session-id", sessionID, promptFile)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Claude Code CLI failed: %w", err)
-	}
-	return nil
-}
-
-// callClaudeCodeCLIResume resumes an existing Claude session interactively.
-func callClaudeCodeCLIResume(cfg *config.Config, sessionID string) error {
-	claudePath := cfg.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-	cmd := exec.Command(claudePath, "--resume", sessionID)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Claude Code CLI failed: %w", err)
-	}
 	return nil
 }
 

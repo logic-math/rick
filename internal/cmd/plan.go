@@ -244,29 +244,29 @@ func generateJobID() string {
 	return fmt.Sprintf("job_%d", time.Now().Unix())
 }
 
-// callClaudeCodeCLI calls Claude Code CLI in interactive mode
-// promptFile is the path to the prompt file to be loaded by Claude
-func callClaudeCodeCLI(cfg *config.Config, promptFile string) error {
-	// Get Claude CLI path from config
+// callClaudeCodeCLI calls Claude Code CLI in interactive mode.
+// extraArgs are prepended before promptFile; promptFile is omitted when empty.
+func callClaudeCodeCLI(cfg *config.Config, promptFile string, extraArgs ...string) error {
 	claudePath := cfg.ClaudeCodePath
 	if claudePath == "" {
 		claudePath = "claude"
 	}
 
-	// Call Claude Code CLI in interactive mode with prompt file
-	// Claude will load the prompt from the file
-	cmd := exec.Command(claudePath, promptFile)
+	args := make([]string, 0, len(extraArgs)+1)
+	args = append(args, extraArgs...)
+	if promptFile != "" {
+		args = append(args, promptFile)
+	}
 
-	// Connect stdin, stdout and stderr to terminal for interactive session
+	cmd := exec.Command(claudePath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if GetVerbose() {
-		fmt.Printf("[INFO] Executing: %s %s\n", claudePath, promptFile)
+		fmt.Printf("[INFO] Executing: %s %s\n", claudePath, strings.Join(args, " "))
 	}
 
-	// Run the command
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("Claude Code CLI failed: %w", err)
 	}

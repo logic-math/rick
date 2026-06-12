@@ -93,26 +93,79 @@ func TestPlanCmdWithEmptyRequirement(t *testing.T) {
 	}
 }
 
-// TestCallClaudeCodeCLI_MockBinary tests callClaudeCodeCLI with a mock binary
+// TestCallClaudeCodeCLI_MockBinary tests callClaudeCodeCLI with a mock binary.
+// Uses a mock binary that writes os.Args to a file so we can verify argv order.
 func TestCallClaudeCodeCLI_MockBinary(t *testing.T) {
-	// Create a mock claude script that exits successfully
 	tmpDir := t.TempDir()
-	mockScript := "#!/bin/sh\nexit 0\n"
+	argsFile := filepath.Join(tmpDir, "args.txt")
+
+	// Mock binary: writes all args (excluding argv[0]) to argsFile, then exits 0.
+	mockScript := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %s\nexit 0\n", argsFile)
 	mockPath := filepath.Join(tmpDir, "mock_claude")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a dummy prompt file
-	promptFile := filepath.Join(tmpDir, "prompt.md")
-	if err := os.WriteFile(promptFile, []byte("# Test prompt"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg := &config.Config{ClaudeCodePath: mockPath}
-	if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
-		t.Errorf("expected no error with mock claude, got: %v", err)
-	}
+
+	t.Run("promptFile_nonempty", func(t *testing.T) {
+		promptFile := filepath.Join(tmpDir, "test.md")
+		if err := os.WriteFile(promptFile, []byte("# prompt"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := callClaudeCodeCLI(cfg, promptFile, "--session-id", "abc"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		data, err := os.ReadFile(argsFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.TrimSpace(string(data))
+		lines := strings.Split(got, "\n")
+		// Expected argv: --session-id, abc, test.md
+		want := []string{"--session-id", "abc", promptFile}
+		if len(lines) != len(want) {
+			t.Fatalf("argv mismatch: got %v, want %v", lines, want)
+		}
+		for i, w := range want {
+			if lines[i] != w {
+				t.Errorf("argv[%d]: got %q, want %q", i, lines[i], w)
+			}
+		}
+		// Must not contain empty string
+		for i, l := range lines {
+			if l == "" {
+				t.Errorf("argv[%d] is empty string", i)
+			}
+		}
+	})
+
+	t.Run("promptFile_empty", func(t *testing.T) {
+		if err := callClaudeCodeCLI(cfg, "", "--resume", "xyz"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		data, err := os.ReadFile(argsFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.TrimSpace(string(data))
+		lines := strings.Split(got, "\n")
+		// Expected argv: --resume, xyz  (no empty string)
+		want := []string{"--resume", "xyz"}
+		if len(lines) != len(want) {
+			t.Fatalf("argv mismatch: got %v, want %v", lines, want)
+		}
+		for i, w := range want {
+			if lines[i] != w {
+				t.Errorf("argv[%d]: got %q, want %q", i, lines[i], w)
+			}
+		}
+		for i, l := range lines {
+			if l == "" {
+				t.Errorf("argv[%d] is empty string", i)
+			}
+		}
+	})
 }
 
 // TestCallClaudeCodeCLI_FailingBinary tests callClaudeCodeCLI with a failing binary
