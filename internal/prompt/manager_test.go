@@ -196,7 +196,7 @@ func TestExtractVariables(t *testing.T) {
 
 func TestCoreSkillsEmbed(t *testing.T) {
 	t.Run("all_eight_skill_files_non_empty", func(t *testing.T) {
-		skills := []string{"sense", "tc", "tdd", "testing", "debug_skill", "gen-skill", "evolve-skills"}
+		skills := []string{"sense", "testing", "debug_skill", "gen-skill", "evolve-skills"}
 		for _, name := range skills {
 			result := LoadCoreSkills([]string{name})
 			if result == "" {
@@ -205,15 +205,8 @@ func TestCoreSkillsEmbed(t *testing.T) {
 		}
 	})
 
-	t.Run("tdd_testing_anti_patterns_slash_path", func(t *testing.T) {
-		result := LoadCoreSkills([]string{"tdd/testing-anti-patterns"})
-		if result == "" {
-			t.Error("LoadCoreSkills(\"tdd/testing-anti-patterns\") returned empty string")
-		}
-	})
-
 	t.Run("multi_skill_contains_separator", func(t *testing.T) {
-		result := LoadCoreSkills([]string{"sense", "tc"})
+		result := LoadCoreSkills([]string{"sense", "tdd-zh"})
 		if result == "" {
 			t.Fatal("LoadCoreSkills returned empty for multiple skills")
 		}
