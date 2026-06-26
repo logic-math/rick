@@ -32,6 +32,16 @@
 
 {{ctx_section}}
 
+## Grilling 追问（需求澄清）
+
+在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。
+
+**加载并执行 skill:grilling**：`{{grilling_skill_path}}`
+
+**Grilling 结束后**，将澄清结论以 Markdown 追加块追加到 `{{doing_dir}}/requirement.md`：
+- **只追加，不替换**：原始用户输入内容必须完整保留，禁止删除或修改已有内容
+- 格式：在文件末尾追加 `\n\n## Grilling 澄清结论\n\n[澄清内容]`
+
 ## 用户需求
 
 {{requirement}}

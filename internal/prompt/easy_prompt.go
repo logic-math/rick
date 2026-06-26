@@ -35,7 +35,11 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", nil, err
 	}
-	skillFiles := []string{tddFile, debugSkillFile, senseFile}
+	grillingFile, err := WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
+	if err != nil {
+		return "", nil, err
+	}
+	skillFiles := []string{tddFile, debugSkillFile, senseFile, grillingFile}
 
 	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
 	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
@@ -63,6 +67,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("tdd_skill_path", tddFile)
 	builder.SetVariable("debug_skill_path", debugSkillFile)
 	builder.SetVariable("sense_skill_path", senseFile)
+	builder.SetVariable("grilling_skill_path", grillingFile)
 	builder.SetVariable("learning_prompt_path", learningPromptPath)
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)
