@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-26T20:37:04.873777+08:00",
-  "updated_at": "2026-06-26T20:50:56.915584+08:00",
+  "updated_at": "2026-06-26T21:04:06.523218+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -30,26 +30,29 @@
     {
       "task_id": "task3",
       "task_name": "更新 easy.md 模板 + easy_prompt.go：注入 grilling skill，添加 requirement.md 追加指令",
+      "task_file": "task3.md",
       "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
-      "commit_hash": "9b32a74650f76dc74a1adc385466991e3f074eea",
+      "commit_hash": "e57a46e98b62483fba0ce04b54337baf70c9de90",
       "created_at": "2026-06-26T20:37:04.873777+08:00",
-      "updated_at": "2026-06-26T21:10:00.000000+08:00"
+      "updated_at": "2026-06-26T20:58:38.976134+08:00"
     },
     {
       "task_id": "task4",
       "task_name": "构建验证：build + dry-run 输出检查 + 回归测试",
-      "status": "pending",
+      "task_file": "task4.md",
+      "status": "success",
       "dependencies": [
         "task2",
         "task3"
       ],
       "attempts": 0,
+      "commit_hash": "e57a46e98b62483fba0ce04b54337baf70c9de90",
       "created_at": "2026-06-26T20:37:04.873777+08:00",
-      "updated_at": "2026-06-26T20:37:04.873777+08:00"
+      "updated_at": "2026-06-26T21:04:06.523199+08:00"
     }
   ]
 }
