@@ -54,7 +54,7 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	builder.SetVariable("job_id", extractJobID(jobPlanDir))
-	builder.SetVariable("sense_skill_path", "<tmp>/rick-plan-skill-sense-*.md")
+	builder.SetVariable("grilling_skill_path", "<tmp>/rick-plan-prompts/skill_grilling.md")
 	builder.SetVariable("write_spec_skill_path", "<tmp>/rick-plan-skill-write_spec-*.md")
 	builder.SetVariable("tdd_skill_path", "<tmp>/rick-plan-skill-tdd-zh-*.md")
 	builder.SetVariable("testing_anti_patterns_path", "<tmp>/rick-plan-skill-testing-anti-patterns-zh-*.md")
@@ -81,7 +81,7 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 		return "", nil, fmt.Errorf("failed to load plan template: %w", err)
 	}
 
-	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
+	grillingFile, err := WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
 	if err != nil {
 		return "", nil, err
 	}
@@ -111,7 +111,7 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	doingPromptsDir := filepath.Join(filepath.Dir(jobPlanDir), "doing", "prompts")
 	debugSkillPath := filepath.Join(doingPromptsDir, "skill_debug_skill.md")
 
-	builder.SetVariable("sense_skill_path", senseFile)
+	builder.SetVariable("grilling_skill_path", grillingFile)
 	builder.SetVariable("write_spec_skill_path", writeSpecFile)
 	builder.SetVariable("tdd_skill_path", tddZhFile)
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)

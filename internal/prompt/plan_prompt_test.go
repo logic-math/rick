@@ -144,3 +144,43 @@ func TestFormatCompletedWork_Empty(t *testing.T) {
 		t.Errorf("Expected default message, got %s", content)
 	}
 }
+
+func TestGeneratePlanPrompt_HasGrillingSkillPath(t *testing.T) {
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/plan", "")
+	if err != nil {
+		t.Fatalf("GeneratePlanPrompt failed: %v", err)
+	}
+	if !strings.Contains(prompt, "skill_grilling") {
+		t.Error("Expected prompt to contain skill_grilling reference")
+	}
+	if strings.Contains(prompt, "sense_skill_path") {
+		t.Error("Expected prompt to NOT contain sense_skill_path")
+	}
+}
+
+func TestGeneratePlanPrompt_NoUnreplacedGrillingVar(t *testing.T) {
+	prompt, err := GeneratePlanPrompt("test requirement", "/tmp/plan", "")
+	if err != nil {
+		t.Fatalf("GeneratePlanPrompt failed: %v", err)
+	}
+	if strings.Contains(prompt, "{{grilling_skill_path}}") {
+		t.Error("Expected grilling_skill_path variable to be replaced, found unreplaced {{grilling_skill_path}}")
+	}
+}
+
+func TestGeneratePlanPromptFile_WritesGrillingSkillFile(t *testing.T) {
+	planDir := t.TempDir()
+	promptFile, _, err := GeneratePlanPromptFile("test requirement", planDir, "")
+	if err != nil {
+		t.Fatalf("GeneratePlanPromptFile failed: %v", err)
+	}
+	promptsDir := filepath.Dir(promptFile)
+	grillingFile := filepath.Join(promptsDir, "skill_grilling.md")
+	if _, err := os.Stat(grillingFile); os.IsNotExist(err) {
+		t.Error("Expected skill_grilling.md to be written in prompts dir")
+	}
+	senseFile := filepath.Join(promptsDir, "skill_sense.md")
+	if _, err := os.Stat(senseFile); err == nil {
+		t.Error("Expected skill_sense.md to NOT be written in prompts dir")
+	}
+}
