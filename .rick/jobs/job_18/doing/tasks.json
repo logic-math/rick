@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-26T20:37:04.873777+08:00",
-  "updated_at": "2026-06-26T20:50:25.701621+08:00",
+  "updated_at": "2026-06-26T20:50:56.915584+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -17,25 +17,27 @@
     {
       "task_id": "task2",
       "task_name": "更新 plan.md 模板 + plan_prompt.go：移除 sense 追问，注入 grilling skill",
+      "task_file": "task2.md",
       "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
+      "commit_hash": "6c6b9377b349d9fe1640c739dc14fb6bcfc340b8",
       "created_at": "2026-06-26T20:37:04.873777+08:00",
-      "updated_at": "2026-06-26T20:50:25.701621+08:00",
-      "commit_hash": "5ed73827a161920baece6d56386ef1dfa4ef3c77"
+      "updated_at": "2026-06-26T20:50:56.91524+08:00"
     },
     {
       "task_id": "task3",
       "task_name": "更新 easy.md 模板 + easy_prompt.go：注入 grilling skill，添加 requirement.md 追加指令",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
+      "commit_hash": "9b32a74650f76dc74a1adc385466991e3f074eea",
       "created_at": "2026-06-26T20:37:04.873777+08:00",
-      "updated_at": "2026-06-26T20:37:04.873777+08:00"
+      "updated_at": "2026-06-26T21:10:00.000000+08:00"
     },
     {
       "task_id": "task4",
