@@ -222,6 +222,16 @@ func TestCoreSkillsEmbed(t *testing.T) {
 	})
 }
 
+func TestLoadCoreSkills_Grilling(t *testing.T) {
+	result := LoadCoreSkills([]string{"grilling"})
+	if !strings.Contains(result, "Interview me relentlessly") {
+		t.Errorf("grilling skill missing core instruction, got len=%d", len(result))
+	}
+	if len(result) <= 100 {
+		t.Errorf("grilling skill content too short: len=%d", len(result))
+	}
+}
+
 func TestTrimSpace(t *testing.T) {
 	tests := []struct {
 		input    string
