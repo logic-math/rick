@@ -1,105 +1,111 @@
 {
-    "version": "1.0",
-    "created_at": "2026-06-30T20:35:00.650429+08:00",
-    "updated_at": "2026-06-30T20:49:26.580415+08:00",
-    "tasks": [
-        {
-            "task_id": "task2",
-            "task_name": "将 `debug_skill.md` 三阶段结构替换为 diagnosing-bugs Phase 1-6",
-            "status": "success",
-            "dependencies": [],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:49:26.580415+08:00",
-            "commit_hash": "05fa7e86e8371d9ccc2b630d015b879658bf9653"
-        },
-        {
-            "task_id": "task3",
-            "task_name": "实现 `LoadLoopsContext()` 函数，遍历 `.rick/loops/` 提取触发点列表",
-            "status": "pending",
-            "dependencies": [],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task1",
-            "task_name": "创建 `.rick/loops/` 和 `.rick/skills/` 目录，写入固化的格式规范和示例文件",
-            "status": "pending",
-            "dependencies": [],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task4",
-            "task_name": "迁移 doing prompt builder + doing.md 模板：移除 SPEC/OKR，注入 loops_context",
-            "status": "pending",
-            "dependencies": [
-                "task3"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task5",
-            "task_name": "迁移 plan prompt builder + plan.md 模板：移除 OKR/SPEC/RFC 路径，注入 loops_context",
-            "status": "pending",
-            "dependencies": [
-                "task3"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task8",
-            "task_name": "在 learning_check 和 dream_check 中集成 loops/skills 格式校验",
-            "status": "pending",
-            "dependencies": [
-                "task1"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task6",
-            "task_name": "迁移 learning prompt builder + learning.md 模板：移除 wiki/tools 输出，改写为 loops/skills 产出",
-            "status": "pending",
-            "dependencies": [
-                "task3",
-                "task8"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task7",
-            "task_name": "迁移 easy + dream prompt builders + 模板：移除 SPEC/OKR/wiki/tools，注入 loops_context",
-            "status": "pending",
-            "dependencies": [
-                "task3",
-                "task8"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        },
-        {
-            "task_id": "task9",
-            "task_name": "新建 loop_protocol.md 模板，通过 embed.FS 内嵌并注入 doing/easy prompt",
-            "status": "pending",
-            "dependencies": [
-                "task1",
-                "task4",
-                "task7"
-            ],
-            "attempts": 0,
-            "created_at": "2026-06-30T20:35:00.650429+08:00",
-            "updated_at": "2026-06-30T20:35:00.650429+08:00"
-        }
-    ]
+  "version": "1.0",
+  "created_at": "2026-06-30T20:35:00.650429+08:00",
+  "updated_at": "2026-06-30T22:45:37.626824+08:00",
+  "tasks": [
+    {
+      "task_id": "task2",
+      "task_name": "将 `debug_skill.md` 三阶段结构替换为 diagnosing-bugs Phase 1-6",
+      "task_file": "task2.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "7cd54d45d4280471c898cd0ad1e9a1f9ac144747",
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:50:00.474951+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "实现 `LoadLoopsContext()` 函数，遍历 `.rick/loops/` 提取触发点列表",
+      "task_file": "task3.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "a2c1e89444aca76e6d3f390c9ab7d984295ad55b",
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:53:31.057238+08:00"
+    },
+    {
+      "task_id": "task1",
+      "task_name": "创建 `.rick/loops/` 和 `.rick/skills/` 目录，写入固化的格式规范和示例文件",
+      "task_file": "task1.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "4d0914254698449dcf5fa8be6565ab651e93ac7d",
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T22:45:37.626063+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "迁移 doing prompt builder + doing.md 模板：移除 SPEC/OKR，注入 loops_context",
+      "status": "pending",
+      "dependencies": [
+        "task3"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T21:06:28.743207+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "迁移 plan prompt builder + plan.md 模板：移除 OKR/SPEC/RFC 路径，注入 loops_context",
+      "status": "pending",
+      "dependencies": [
+        "task3"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:35:00.650429+08:00"
+    },
+    {
+      "task_id": "task8",
+      "task_name": "在 learning_check 和 dream_check 中集成 loops/skills 格式校验",
+      "status": "success",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "commit_hash": "4a890508714a6cfd284b6bed5fdf9fd81ea4775c",
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T22:45:37.626824+08:00"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "迁移 learning prompt builder + learning.md 模板：移除 wiki/tools 输出，改写为 loops/skills 产出",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task8"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:35:00.650429+08:00"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "迁移 easy + dream prompt builders + 模板：移除 SPEC/OKR/wiki/tools，注入 loops_context",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task8"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:35:00.650429+08:00"
+    },
+    {
+      "task_id": "task9",
+      "task_name": "新建 loop_protocol.md 模板，通过 embed.FS 内嵌并注入 doing/easy prompt",
+      "status": "pending",
+      "dependencies": [
+        "task1",
+        "task4",
+        "task7"
+      ],
+      "attempts": 0,
+      "created_at": "2026-06-30T20:35:00.650429+08:00",
+      "updated_at": "2026-06-30T20:35:00.650429+08:00"
+    }
+  ]
 }
