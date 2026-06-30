@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-30T20:35:00.650429+08:00",
-  "updated_at": "2026-06-30T22:45:37.626824+08:00",
+  "updated_at": "2026-06-30T23:50:20.284724+08:00",
   "tasks": [
     {
       "task_id": "task2",
@@ -39,13 +39,14 @@
     {
       "task_id": "task4",
       "task_name": "迁移 doing prompt builder + doing.md 模板：移除 SPEC/OKR，注入 loops_context",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task3"
       ],
       "attempts": 0,
+      "commit_hash": "7b45f8208b76b5c02de20215842e9f42eca2bdb0",
       "created_at": "2026-06-30T20:35:00.650429+08:00",
-      "updated_at": "2026-06-30T21:06:28.743207+08:00"
+      "updated_at": "2026-07-01T00:00:00.000000+08:00"
     },
     {
       "task_id": "task5",
