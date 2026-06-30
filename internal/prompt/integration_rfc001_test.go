@@ -216,17 +216,21 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task4/doing_prompt_contains_job_okr_when_exists", func(t *testing.T) {
-		cmWithOKR := NewContextManager("job_9")
-		cmWithOKR.LoadTask(task)
-		cmWithOKR.LoadOKRFromContent("# Job OKR\n## O1: 完成认证模块\n- KR1: 登录接口通过测试")
+	t.Run("task4/doing_prompt_contains_loops_context_not_okr", func(t *testing.T) {
+		// OKR injection was removed from doing prompt; loops_context is injected instead
+		cm4 := NewContextManager("job_9")
+		cm4.LoadTask(task)
+		cm4.LoadOKRFromContent("# Job OKR\n## O1: 完成认证模块\n- KR1: 登录接口通过测试")
 
-		promptContent, err := GenerateDoingPrompt(task, 0, cmWithOKR, pm)
+		promptContent, err := GenerateDoingPrompt(task, 0, cm4, pm)
 		if err != nil {
 			t.Fatalf("GenerateDoingPrompt: %v", err)
 		}
-		if !strings.Contains(promptContent, "完成认证模块") {
-			t.Error("doing prompt must contain job OKR content when job OKR exists")
+		if strings.Contains(promptContent, "{{job_okr_content}}") {
+			t.Error("doing prompt must not contain unreplaced {{job_okr_content}} variable")
+		}
+		if !strings.Contains(promptContent, "可用的项目 Loops") {
+			t.Error("doing prompt must contain '可用的项目 Loops' from loops_context injection")
 		}
 	})
 

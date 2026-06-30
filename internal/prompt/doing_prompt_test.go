@@ -39,8 +39,7 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 **项目名称**: {{project_name}}
 **项目描述**: {{project_description}}
 
-### 项目 SPEC
-{{spec_content}}
+{{loops_context}}
 
 ### 项目架构
 {{project_architecture}}
@@ -81,10 +80,6 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 
 	// Create context manager
 	contextMgr := NewContextManager("job_1")
-
-	// Load SPEC
-	specContent := "# Specifications\n- Use Go language\n- Support DAG execution"
-	contextMgr.LoadSPECFromContent(specContent)
 
 	// Load history
 	contextMgr.LoadHistory([]string{"Module 1 completed", "Module 2 completed"})
@@ -135,9 +130,12 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 		t.Error("Expected prompt to contain project name")
 	}
 
-	// Verify prompt contains SPEC information
-	if !strings.Contains(prompt, "Use Go language") {
-		t.Error("Expected prompt to contain SPEC information")
+	// Verify loops_context is injected (not left as literal)
+	if strings.Contains(prompt, "{{loops_context}}") {
+		t.Error("Expected loops_context variable to be replaced")
+	}
+	if !strings.Contains(prompt, "可用的项目 Loops") {
+		t.Error("Expected prompt to contain '可用的项目 Loops' from loops_context")
 	}
 
 	// Verify prompt contains completed tasks
@@ -409,6 +407,44 @@ func TestGenerateDoingPrompt_NoKeyResults(t *testing.T) {
 	}
 }
 
+func TestGenerateDoingPrompt_LoopsContextInjected(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	doingTemplate := `## 项目背景
+{{loops_context}}`
+
+	doingPath := filepath.Join(tmpDir, "doing.md")
+	if err := os.WriteFile(doingPath, []byte(doingTemplate), 0644); err != nil {
+		t.Fatalf("Failed to create doing template: %v", err)
+	}
+
+	manager := NewPromptManager(tmpDir)
+	contextMgr := NewContextManager("job_1")
+
+	task := &parser.Task{
+		ID:           "task1",
+		Name:         "Test Task",
+		Goal:         "Test goal",
+		KeyResults:   []string{},
+		TestMethod:   "",
+		Dependencies: []string{},
+	}
+
+	prompt, err := GenerateDoingPrompt(task, 0, contextMgr, manager)
+	if err != nil {
+		t.Fatalf("GenerateDoingPrompt failed: %v", err)
+	}
+
+	// loops_context must be replaced (not left as literal placeholder)
+	if strings.Contains(prompt, "{{loops_context}}") {
+		t.Error("Expected loops_context variable to be replaced, but literal {{loops_context}} found in output")
+	}
+	// LoadLoopsContext always returns a header, even on empty/missing dir
+	if !strings.Contains(prompt, "可用的项目 Loops") {
+		t.Error("Expected prompt to contain '可用的项目 Loops' from loops_context injection")
+	}
+}
+
 func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -434,8 +470,7 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 **项目名称**: {{project_name}}
 **项目描述**: {{project_description}}
 
-### 项目 SPEC
-{{spec_content}}
+{{loops_context}}
 
 ### 项目架构
 {{project_architecture}}
@@ -455,10 +490,6 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
-
-	// Load SPEC
-	specContent := "# Specifications\n- Use Go language\n- Support DAG execution"
-	contextMgr.LoadSPECFromContent(specContent)
 
 	// Load history
 	contextMgr.LoadHistory([]string{"Infrastructure module completed", "Parser module completed"})
@@ -490,8 +521,7 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 		"go test",
 		dynamicProjectName,
 		"Context-First AI Coding Framework",
-		"Use Go language",
-		"Support DAG execution",
+		"可用的项目 Loops",
 		"Infrastructure module completed",
 		"Parser module completed",
 		"该任务无依赖关系",
@@ -501,5 +531,12 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 		if !strings.Contains(prompt, content) {
 			t.Errorf("Expected prompt to contain: %s", content)
 		}
+	}
+	// spec/okr must NOT be literal variables in output
+	if strings.Contains(prompt, "{{spec_content}}") {
+		t.Error("prompt must not contain unreplaced {{spec_content}}")
+	}
+	if strings.Contains(prompt, "{{job_okr_content}}") {
+		t.Error("prompt must not contain unreplaced {{job_okr_content}}")
 	}
 }

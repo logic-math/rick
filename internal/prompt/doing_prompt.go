@@ -49,19 +49,10 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set job OKR content (from job_N/plan/OKR.md)
-	jobOKRContent := contextMgr.GetOKRRaw()
-	if jobOKRContent == "" {
-		jobOKRContent = "暂无 Job OKR 信息"
-	}
-	builder.SetVariable("job_okr_content", jobOKRContent)
-
-	// Set SPEC content (raw, not parsed)
-	specContent := contextMgr.GetSPECRaw()
-	if specContent == "" {
-		specContent = "暂无项目 SPEC 信息"
-	}
-	builder.SetVariable("spec_content", specContent)
+	// Set loops context from .rick/loops/
+	rickDir, _ := workspace.GetRickDir()
+	loopsDir := filepath.Join(rickDir, "loops")
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 
 	// Set project architecture
 	projectArch := formatProjectArchitecture()
@@ -166,19 +157,10 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	builder.SetVariable("project_name", projectName)
 	builder.SetVariable("project_description", "Context-First AI Coding Framework")
 
-	// Set job OKR content (from job_N/plan/OKR.md)
-	jobOKRContent2 := contextMgr.GetOKRRaw()
-	if jobOKRContent2 == "" {
-		jobOKRContent2 = "暂无 Job OKR 信息"
-	}
-	builder.SetVariable("job_okr_content", jobOKRContent2)
-
-	// Set SPEC content (raw, not parsed)
-	specContent := contextMgr.GetSPECRaw()
-	if specContent == "" {
-		specContent = "暂无项目 SPEC 信息"
-	}
-	builder.SetVariable("spec_content", specContent)
+	// Set loops context from .rick/loops/
+	rickDirVal, _ := workspace.GetRickDir()
+	loopsDirVal := filepath.Join(rickDirVal, "loops")
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDirVal))
 
 	// Set project architecture
 	projectArch := formatProjectArchitecture()
