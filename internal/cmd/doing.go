@@ -34,17 +34,19 @@ func NewDoingCmd() *cobra.Command {
 
 			// Easy mode: args[0] is requirement (not job_id); --job flag is for resume
 			if easy {
+				requirement := ""
+				if len(args) > 0 {
+					requirement = args[0]
+				}
+				if GetDryRun() {
+					return runEasyDryRun(requirement, ctxPath)
+				}
 				// --job flag explicitly set → resume existing session
 				if jobID == "" {
 					jobID = GetJobID()
 				}
 				if jobID != "" {
 					return resumeEasyMode(jobID)
-				}
-				// New easy session: args[0] is the requirement
-				requirement := ""
-				if len(args) > 0 {
-					requirement = args[0]
 				}
 				return runEasyMode(requirement, ctxPath)
 			}

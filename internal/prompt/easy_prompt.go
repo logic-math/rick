@@ -41,8 +41,6 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	}
 	skillFiles := []string{tddFile, debugSkillFile, senseFile, grillingFile}
 
-	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
-	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
 	debugContent := loadDebugContextLocal(doingDir)
 	if debugContent == "" {
 		debugContent = "暂无（首次会话）"
@@ -57,10 +55,10 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	projectRoot, _ := os.Getwd()
 	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
 	learningPromptPath := filepath.Join(promptsDir, "easy_learning_prompt.md")
+	loopsDir := filepath.Join(rickDir, "loops")
 
 	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("okr_content", okrContent)
-	builder.SetVariable("spec_content", specContent)
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("debug_content", debugContent)
 	builder.SetVariable("requirement", requirement)
 	builder.SetVariable("doing_dir", doingDir)
@@ -92,8 +90,6 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	if requirement == "" {
 		requirement = "<requirement>"
 	}
-	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
-	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
 
 	mgr := NewPromptManager()
 	tmpl, err := mgr.LoadTemplate("easy")
@@ -105,10 +101,10 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
 	doingDir := filepath.Join(rickDir, "jobs", "job_N", "doing")
 	promptsDir := filepath.Join(doingDir, "prompts")
+	loopsDir := filepath.Join(rickDir, "loops")
 
 	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("okr_content", okrContent)
-	builder.SetVariable("spec_content", specContent)
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("debug_content", "暂无（首次会话）")
 	builder.SetVariable("requirement", requirement)
 	builder.SetVariable("doing_dir", doingDir)

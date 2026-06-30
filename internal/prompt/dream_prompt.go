@@ -18,6 +18,9 @@ func GenerateDreamPrompt(jobIDs []string, rickDir string) (string, error) {
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("pending_jobs", formatPendingJobs(jobIDs))
 	builder.SetVariable("run_logs", loadRunLogs(rickDir))
+	builder.SetVariable("loops_context", LoadLoopsContext(filepath.Join(rickDir, "loops")))
+	builder.SetVariable("loops_dir", "<loops_dir>")
+	builder.SetVariable("skills_dir", "<skills_dir>")
 	builder.SetVariable("sense_skill_path", "<tmp>/rick-dream-skill-sense-*.md")
 	builder.SetVariable("evolve_skills_skill_path", "<tmp>/rick-dream-skill-evolve-*.md")
 	builder.SetVariable("source_context_consistency_skill_path", "<tmp>/rick-dream-skill-source-context-consistency-*.md")
@@ -68,9 +71,14 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 		return "", nil, err
 	}
 
+	loopsDir := filepath.Join(rickDir, "loops")
+	skillsDir := filepath.Join(rickDir, "skills")
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("pending_jobs", formatPendingJobs(jobIDs))
 	builder.SetVariable("run_logs", loadRunLogs(rickDir))
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
+	builder.SetVariable("loops_dir", loopsDir)
+	builder.SetVariable("skills_dir", skillsDir)
 	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("evolve_skills_skill_path", evolveFile)
 	builder.SetVariable("source_context_consistency_skill_path", sourceContextFile)

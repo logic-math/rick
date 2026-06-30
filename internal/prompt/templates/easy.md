@@ -18,13 +18,9 @@
 
 ## 项目上下文
 
-### OKR
+### 可用的项目 Loops
 
-{{okr_content}}
-
-### SPEC
-
-{{spec_content}}
+{{loops_context}}
 
 ### Debug 记录（历史问题）
 

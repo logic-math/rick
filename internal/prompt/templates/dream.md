@@ -4,9 +4,13 @@
 
 ## 角色定位
 
-- **范围**：仅允许修改 `wiki/`、`tools/`、`.rick/SPEC.md`
-- **禁止**：修改任何业务源代码（`internal/`、`cmd/`、`pkg/` 等）
-- **输出**：更新 `wiki/`、`tools/`、`.rick/SPEC.md`；每个处理的 job 写入 `dream_run_{job_id}_log.md`
+- **范围**：仅允许修改 `.rick/loops/`（`{{loops_dir}}`）、`.rick/skills/`（`{{skills_dir}}`）
+- **禁止**：修改任何业务源代码（`internal/`、`cmd/`、`pkg/` 等）及 `wiki/`、`tools/`、`SPEC.md`
+- **输出**：更新 `.rick/loops/` 和 `.rick/skills/`；每个处理的 job 写入 `dream_run_{job_id}_log.md`
+
+## 可用的项目 Loops
+
+{{loops_context}}
 
 ## 待处理 Jobs
 
@@ -62,32 +66,25 @@ skill:sense 内容参考：`{{sense_skill_path}}`
 3. 评估现有 skills 是否能覆盖这些共性问题
 4. 列出需要新增或改进的 skill 候选项
 
-### 5. 整理 Wiki 文档
+### 5. 整理 Loops 文档
 
-1. 检查 `.rick/wiki/` 目录，识别过期或缺失的文档
-2. 根据新的行为轨迹更新相关架构文档
-3. 补充新的流程说明（如有必要）
-4. 确保 wiki 文档与当前代码实现一致
+1. 检查 `.rick/loops/` 目录（`{{loops_dir}}`），识别过期或缺失的 loop 文档
+2. 根据新的行为轨迹更新相关 loop 文件（候选文件命名：`candidate_loop_N.md`）
+3. 补充新的 loop 流程说明（如有必要）
+4. 确保 loop 文档中的 trigger/scope 与实际使用场景一致
 
-**约束**：仅修改 `wiki/` 目录内的文件。
+**约束**：仅修改 `{{loops_dir}}` 目录内的文件。
 
-### 6. Skills 进化与 SPEC.md 精简
+### 6. Skills 进化
 
 YOU MUST declare: "I will use skill:evolve-skills." Before modifying any skill.
 
 skill:evolve-skills 内容参考：`{{evolve_skills_skill_path}}`
 
 **Skills 进化**：
-1. 根据步骤 3/4 的优化信号，更新现有 skills
-2. 如需新增 skill，先在 `.rick/skills/` 创建草稿
+1. 根据步骤 3/4 的优化信号，更新现有 skills（候选文件命名：`candidate_skill_N.md`）
+2. 如需新增 skill，先在 `{{skills_dir}}` 创建草稿
 3. 每个 skill 修改后验证其触发场景和执行步骤的准确性
-
-**SPEC.md 精简**（强制约束：SPEC.md ≤ 500 行）：
-1. 统计当前 `.rick/SPEC.md` 行数
-2. 删除已过时的条目（步骤 c 中标记的候选删除项）
-3. 删除低频触发（过去 3 个 job 均未触发）的条目
-4. 合并语义重复的条目
-5. 确保精简后行数 ≤ 500 行
 
 ### 7. 六维质量验证（subagent 串行执行，每个完成后根据结论修正再启动下一个）
 
@@ -189,16 +186,15 @@ dream_run_{job_id}_log.md
 
 ## 变更记录
 
-### Skills 变更
+### Loops 变更
 - 新增: {list or 无}
 - 修改: {list or 无}
 - 删除: {list or 无}
 
-### SPEC.md 变更
-- {变更说明，或 无变更}
-
-### Wiki 文档
-- {新增/更新的文档，或 无变更}
+### Skills 变更
+- 新增: {list or 无}
+- 修改: {list or 无}
+- 删除: {list or 无}
 
 ## 下次建议关注
 {1-3 条建议}
@@ -208,16 +204,15 @@ dream_run_{job_id}_log.md
 
 输出本次 dream run 的完整报告：
 1. 处理了哪些 jobs
-2. 更新了哪些 skills（新增/修改/删除）
-3. SPEC.md 变化（删除了哪些条目，当前行数）
-4. wiki 文档更新情况
-5. subagent 验证结果摘要（六维质量评分；subagent_6 生成的 RFC 文件路径）
-6. 下次建议关注的重点
+2. 更新了哪些 loops（新增/修改/删除，路径：`{{loops_dir}}`）
+3. 更新了哪些 skills（新增/修改/删除，路径：`{{skills_dir}}`）
+4. subagent 验证结果摘要（六维质量评分；subagent_6 生成的 RFC 文件路径）
+5. 下次建议关注的重点
 
 ## 行为约束
 
-1. **严禁修改业务代码**：仅允许修改 `wiki/`、`tools/`、`.rick/SPEC.md`、`.rick/RFC/`（RFC 文件）
-2. **SPEC.md 硬约束**：修改后必须确保 SPEC.md ≤ 500 行
+1. **严禁修改业务代码**：仅允许修改 `{{loops_dir}}`、`{{skills_dir}}`、`.rick/RFC/`（RFC 文件）
+2. **候选文件命名规范**：写 loop 候选用 `candidate_loop_N.md`，写 skill 候选用 `candidate_skill_N.md`（N 为递增数字）
 3. **强制声明**：步骤 3 必须声明 "I will use skill:sense"，步骤 6 必须声明 "I will use skill:evolve-skills"
 4. **六维验证必须执行**：步骤 7 的 6 个 subagent 串行执行，每个完成后根据结论修正再启动下一个，不可跳过
 5. **必须写 dream log**：步骤 9 是硬约束，每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
