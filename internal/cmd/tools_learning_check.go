@@ -24,6 +24,9 @@ Arguments:
 
 Checks performed:
   - learning/SUMMARY.md exists and contains a "# Job" heading
+  - .rick/loops/*.md: frontmatter (name, trigger) + 5 sections (目标/上下文管理/可调用工具/产出评估/停止标准)
+  - .rick/skills/*.md: frontmatter (name, description) + 4 sections (When to Use/Procedure/Pitfalls/Verification)
+  - README.md in each dir is skipped
 
 Output:
   ✅ learning check passed
@@ -102,6 +105,15 @@ func runLearningCheck(learningDir string) error {
 	}
 	if len(strings.TrimSpace(string(summaryContent))) == 0 || !strings.Contains(string(summaryContent), "# Job") {
 		return fmt.Errorf("SUMMARY.md exists but is empty or missing required '# Job' heading")
+	}
+
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		return fmt.Errorf("failed to resolve rick dir for loops/skills check: %w", err)
+	}
+	lsErrs := runLoopsAndSkillsCheck(rickDir)
+	if len(lsErrs) > 0 {
+		return fmt.Errorf("loops/skills check errors:\n  - %s", strings.Join(lsErrs, "\n  - "))
 	}
 
 	fmt.Printf("✅ learning check passed\n")

@@ -22,8 +22,8 @@ Available subcommands:
   plan_check      Validate the plan directory structure for a job
   doing_check     Validate the doing directory structure for a job
   easy_check      Validate the doing directory for an easy mode job (debug/ only)
-  learning_check  Validate the learning directory structure for a job
-  dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/
+  learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
+  dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()

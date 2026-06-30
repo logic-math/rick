@@ -25,6 +25,9 @@ Checks performed:
   - each dream_run_*_log.md filename contains a valid job_N job ID
   - no duplicate job IDs across log files
   - each recorded job ID has a corresponding .rick/jobs/ directory
+  - .rick/loops/*.md: frontmatter (name, trigger) + 5 sections (目标/上下文管理/可调用工具/产出评估/停止标准)
+  - .rick/skills/*.md: frontmatter (name, description) + 4 sections (When to Use/Procedure/Pitfalls/Verification)
+  - README.md in each dir is skipped
 
 Exit codes:
   0  all checks passed
@@ -62,6 +65,11 @@ func runDreamCheck(rickDir string) error {
 		if _, err := os.Stat(jobDir); os.IsNotExist(err) {
 			return fmt.Errorf("log file references job %q but directory not found: %s", id, jobDir)
 		}
+	}
+
+	lsErrs := runLoopsAndSkillsCheck(rickDir)
+	if len(lsErrs) > 0 {
+		return fmt.Errorf("loops/skills check errors:\n  - %s", strings.Join(lsErrs, "\n  - "))
 	}
 
 	fmt.Printf("✅ dream check passed: %d processed job(s) recorded\n", len(jobIDs))
