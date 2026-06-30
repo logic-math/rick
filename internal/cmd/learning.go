@@ -118,7 +118,11 @@ func runLearningDryRun(jobID string) error {
 		fmt.Printf("[DRY-RUN] failed to read prompt file: %v\n", err)
 		return nil
 	}
-	fmt.Printf("[DRY-RUN] Learning prompt (saved to: %s):\n\n", promptFile)
+	loopsDir := filepath.Join(rickDir, "loops")
+	skillsDir := filepath.Join(rickDir, "skills")
+	fmt.Printf("[DRY-RUN] Learning prompt (saved to: %s):\n", promptFile)
+	fmt.Printf("[DRY-RUN] loops_dir=%s\n", loopsDir)
+	fmt.Printf("[DRY-RUN] skills_dir=%s\n\n", skillsDir)
 	fmt.Println(string(content))
 	return nil
 }
