@@ -291,11 +291,12 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 		builder.SetVariable("okr_content", "（本 job 无 OKR.md）")
 	}
 
-	// SPEC path and .rick/ sub-directories (learning writes directly here)
-	builder.SetVariable("spec_path", data.SpecPath)
 	rickDir := filepath.Dir(data.SpecPath) // .rick/SPEC.md → .rick/
-	builder.SetVariable("wiki_dir", filepath.Join(rickDir, "wiki"))
-	builder.SetVariable("tools_dir", filepath.Join(rickDir, "tools"))
+	loopsDir := filepath.Join(rickDir, "loops")
+	skillsDir := filepath.Join(rickDir, "skills")
+	builder.SetVariable("loops_dir", loopsDir)
+	builder.SetVariable("skills_dir", skillsDir)
+	builder.SetVariable("loops_context", prompt.LoadLoopsContext(loopsDir))
 
 	// debug.md — embed content directly
 	if data.DebugContent != "" {
@@ -352,13 +353,6 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 		projectRoot = "."
 	}
 	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
-
-	// Write gen-skill to prompts/ dir, inject path
-	genSkillFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
-	if err != nil {
-		return "", fmt.Errorf("failed to write gen-skill: %w", err)
-	}
-	builder.SetVariable("gen_skill_path", genSkillFile)
 
 	promptFile := filepath.Join(promptsDir, "learning_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {

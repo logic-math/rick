@@ -49,6 +49,85 @@ func TestGenerateEasyPromptFile_GrillingSkillInjected(t *testing.T) {
 	}
 }
 
+func TestGenerateEasyPrompt_DryRun(t *testing.T) {
+	rickDir := t.TempDir()
+
+	content, err := GenerateEasyPrompt("测试需求", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPrompt failed: %v", err)
+	}
+
+	if !strings.Contains(content, "skill_grilling.md") {
+		t.Error("Expected dry-run prompt to contain skill_grilling.md reference")
+	}
+	if strings.Contains(content, "{{grilling_skill_path}}") {
+		t.Error("Expected grilling_skill_path to be replaced")
+	}
+	if strings.Contains(content, "{{") {
+		t.Errorf("Expected no unreplaced variables, found: %s",
+			content[strings.Index(content, "{{"):strings.Index(content, "}}")+2])
+	}
+	if !strings.Contains(content, "测试需求") {
+		t.Error("Expected dry-run prompt to contain the requirement")
+	}
+}
+
+func TestGenerateEasyLearningPromptFile_LearningVarsInjected(t *testing.T) {
+	rickDir := t.TempDir()
+	jobID := "job_test_learning_vars"
+
+	// create dirs that the function needs
+	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
+	if err := os.MkdirAll(doingDir, 0755); err != nil {
+		t.Fatalf("failed to create doingDir: %v", err)
+	}
+	// create loops/ and skills/ dirs so LoadLoopsContext can run
+	os.MkdirAll(filepath.Join(rickDir, "loops"), 0755)
+	os.MkdirAll(filepath.Join(rickDir, "skills"), 0755)
+
+	promptFile, err := GenerateEasyLearningPromptFile(jobID, rickDir)
+	if err != nil {
+		t.Fatalf("GenerateEasyLearningPromptFile failed: %v", err)
+	}
+
+	content, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("failed to read prompt file: %v", err)
+	}
+	p := string(content)
+
+	// old vars must not appear as unresolved literals
+	for _, old := range []string{"{{wiki_dir}}", "{{tools_dir}}", "{{spec_path}}"} {
+		if strings.Contains(p, old) {
+			t.Errorf("prompt still contains old variable literal %s", old)
+		}
+	}
+
+	// new vars must be resolved (paths present, not literal placeholders)
+	if strings.Contains(p, "{{loops_dir}}") {
+		t.Error("loops_dir not resolved — literal {{loops_dir}} found in output")
+	}
+	if strings.Contains(p, "{{skills_dir}}") {
+		t.Error("skills_dir not resolved — literal {{skills_dir}} found in output")
+	}
+	if strings.Contains(p, "{{loops_context}}") {
+		t.Error("loops_context not resolved — literal {{loops_context}} found in output")
+	}
+
+	// loops_context header must appear
+	if !strings.Contains(p, "可用的项目 Loops") {
+		t.Error("Expected prompt to contain '可用的项目 Loops' from loops_context injection")
+	}
+
+	// resolved paths must reference rickDir
+	if !strings.Contains(p, filepath.Join(rickDir, "loops")) {
+		t.Errorf("Expected prompt to contain loops_dir path %s", filepath.Join(rickDir, "loops"))
+	}
+	if !strings.Contains(p, filepath.Join(rickDir, "skills")) {
+		t.Errorf("Expected prompt to contain skills_dir path %s", filepath.Join(rickDir, "skills"))
+	}
+}
+
 func TestGenerateEasyPromptFile_RequirementAppendInstruction(t *testing.T) {
 	rickDir := t.TempDir()
 

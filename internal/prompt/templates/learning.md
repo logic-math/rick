@@ -1,6 +1,6 @@
 # Rick Learning 阶段
 
-你是一个资深的技术文档专家和知识管理专家。根据本次 job 执行过程，总结知识、经验和教训，沉淀可复用 skills。
+你是一个资深的技术文档专家和知识管理专家。根据本次 job 执行过程，总结知识、经验和教训，沉淀可复用 loops 和 skills。
 
 ## 执行上下文
 
@@ -16,11 +16,14 @@
 
 ### 参考资料路径（按需读取）
 
-- **SPEC.md**: `{{spec_path}}`
 - **任务详情**（task*.md）:
 {{task_md_files}}
 - **执行轨迹**（act-path.md）:
 {{act_path_files}}
+
+### 可用的项目 Loops
+
+{{loops_context}}
 
 ### 任务执行结果
 
@@ -28,7 +31,7 @@
 
 ---
 
-## ⚠️ 必须严格按以下 7 步 SOP 执行
+## ⚠️ 必须严格按以下 6 步 SOP 执行
 
 ### Step 1：分析执行记录（必须完成，不可跳过）
 
@@ -60,68 +63,55 @@
 
 ---
 
-### Step 3：提取 Tools
+### Step 3：提取可复用 Skill（candidate_skill）
 
-**YOU MUST declare: "I will use skill:gen-skill." Before writing any skill proposal.**
+从 act-path 和 debug 中识别可复用模式，提取为独立 skill 文件：
+- ✅ 跨 task / 跨 job 通用的方法论或流程
+- ✅ 有明确触发场景和预期效果
+- ✅ 人类可读、agent 可执行的操作手册
 
-技能文件：`{{gen_skill_path}}`
+直接写入：`{{skills_dir}}/candidate_skill_{n}.md`
 
-从 act-path 和 debug 中识别可复用模式，**优先判断**哪些逻辑值得提取为独立 Python 工具：
-- ✅ 纯函数：确定性输入输出，无副作用
-- ✅ 跨 task / 跨 job 通用
-- ✅ 支持 `--test` 自验证
-
-直接写入：`{{tools_dir}}/*.py`
-
----
-
-### Step 4：沉淀 Skills（wiki 文档）
-
-基于 Step 3 识别出的 tools，为每个可复用模式生成 wiki 文档：
-
-**wiki 文档格式**：触发场景 / 预期效果 / 使用方法
-
-- **触发场景**：何时使用（具体信号词）
-- **预期效果**：可量化的结果
-- **使用方法**：
-  - 有对应 tool → 只写工具路径 + 调用示例，**禁止内联实现代码**
-  - 无对应 tool → 可写简短伪代码说明思路
-
-直接写入：`{{wiki_dir}}/*.md`
-
-**原则：tools 承载 how，wiki 描述 what/when/why，不重复实现。**
-
----
-
-### Step 5：更新 SPEC.md
-
-直接更新 `{{spec_path}}`（in-place，无需生成副本）。
-
-#### 5a. 将 Step 4 所有 wiki 文档注册到技能列表
-
-**每一个 wiki 文档都必须在 `## 技能列表` 中有对应条目**，格式：
-
+**格式**：
 ```markdown
-| 名称 | 触发词 | 路径 |
-|------|--------|------|
-| rick-test-isolation | plan_check 错误被自动修复 | .rick/wiki/rick_test_isolation.md |
+---
+name: skill 名称
+trigger: 触发词或触发场景
+scope: 适用范围（如 doing/learning/all）
+---
+
+# 使用方法
+
+...
 ```
 
-#### 5b. SPEC 内容瘦身（渐进式披露）
+---
 
-若 SPEC.md 某节内容过长（详细步骤、示例、背景说明），将其迁移到 wiki，SPEC 只保留一行摘要 + 链接：
+### Step 4：识别 Loop 模式（candidate_loop）
 
+基于本次 job 识别出的工作流模式，若发现可固化为 loop 的流程，写候选文件：
+- ✅ 有明确的触发条件（trigger）
+- ✅ 有可重复执行的步骤
+- ✅ 解决了特定类型的重复性问题
+
+直接写入：`{{loops_dir}}/candidate_loop_{n}.md`
+
+**格式**：
 ```markdown
-## 编译与运行方法
+---
+name: loop 名称
+trigger: 触发条件
+scope: 适用范围
+---
 
-详见 → [编译与运行指南](wiki/build_and_run.md)
+# Loop 步骤
+
+...
 ```
-
-**原则：SPEC ≤ 512 行；超出部分卸载到 wiki，SPEC 保留入口链接。**
 
 ---
 
-### Step 6：生成 SUMMARY.md
+### Step 5：生成 SUMMARY.md
 
 **⚠️ 前置检查**：确认已完成 Step 1a（分析 debug.md 内容）。未完成 Step 1a 禁止生成 SUMMARY.md。
 
@@ -152,13 +142,13 @@ APPROVED: true
 
 ## 知识沉淀清单
 
-- [ ] skills/xxx.md - 技能描述
-- [ ] SPEC.md - 变更说明（如有）
+- [ ] skills/candidate_skill_1.md - 技能描述
+- [ ] loops/candidate_loop_1.md - loop 描述（如有）
 ```
 
 ---
 
-### Step 7：运行 learning_check 验证 SUMMARY.md
+### Step 6：运行 learning_check 验证 SUMMARY.md
 
 ```bash
 {{rick_bin_path}} tools learning_check {{job_id}}
@@ -171,6 +161,5 @@ APPROVED: true
 ## ⚠️ 重要约束
 
 1. **debug/ 内容已内嵌，必须在 SUMMARY.md 之前分析**：Step 1a 是硬约束，不可跳过
-2. **Step 3 必须声明使用 gen-skill**：`"I will use skill:gen-skill."` 是硬约束
-3. **wiki/tools/SPEC 直接写入 `.rick/`**：不要写到 learning 子目录再合并，直接操作 `{{wiki_dir}}`、`{{tools_dir}}`、`{{spec_path}}`
-4. **SUMMARY.md 写入 learning 目录**：`{{learning_dir}}/SUMMARY.md` 作为本次执行记录
+2. **candidate 文件写入对应目录**：skill 写 `{{skills_dir}}`，loop 写 `{{loops_dir}}`，不写到 learning 子目录
+3. **SUMMARY.md 写入 learning 目录**：`{{learning_dir}}/SUMMARY.md` 作为本次执行记录

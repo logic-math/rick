@@ -86,6 +86,44 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	return mainFile, skillFiles, nil
 }
 
+// GenerateEasyPrompt generates the easy prompt content with placeholder paths (for dry-run).
+// Does not create any directories or write any files.
+func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
+	if requirement == "" {
+		requirement = "<requirement>"
+	}
+	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "暂无 OKR")
+	specContent := readFileOrDefault(filepath.Join(rickDir, "SPEC.md"), "暂无 SPEC")
+
+	mgr := NewPromptManager()
+	tmpl, err := mgr.LoadTemplate("easy")
+	if err != nil {
+		return "", fmt.Errorf("failed to load easy template: %w", err)
+	}
+
+	projectRoot, _ := os.Getwd()
+	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
+	doingDir := filepath.Join(rickDir, "jobs", "job_N", "doing")
+	promptsDir := filepath.Join(doingDir, "prompts")
+
+	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("okr_content", okrContent)
+	builder.SetVariable("spec_content", specContent)
+	builder.SetVariable("debug_content", "暂无（首次会话）")
+	builder.SetVariable("requirement", requirement)
+	builder.SetVariable("doing_dir", doingDir)
+	builder.SetVariable("tdd_skill_path", filepath.Join(promptsDir, "skill_tdd_zh.md"))
+	builder.SetVariable("debug_skill_path", filepath.Join(promptsDir, "skill_debug_skill.md"))
+	builder.SetVariable("sense_skill_path", filepath.Join(promptsDir, "skill_sense.md"))
+	builder.SetVariable("grilling_skill_path", filepath.Join(promptsDir, "skill_grilling.md"))
+	builder.SetVariable("learning_prompt_path", filepath.Join(promptsDir, "easy_learning_prompt.md"))
+	builder.SetVariable("rick_bin_path", rickBinPath)
+	builder.SetVariable("job_id", "job_N")
+	builder.SetVariable("ctx_section", buildCtxSection(ctxPath, rickDir))
+
+	return builder.Build()
+}
+
 // GenerateEasyLearningPromptFile generates the learning prompt after a session ends.
 // Called after the easy session completes so doingDir is fully populated (debug/, tasks.json, etc.).
 // Reuses the same learning.md template as the standard learning phase.
@@ -115,10 +153,11 @@ func GenerateEasyLearningPromptFile(jobID, rickDir string) (string, error) {
 	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "（本 job 无 OKR.md）")
 	builder.SetVariable("okr_content", okrContent)
 
-	specPath := filepath.Join(rickDir, "SPEC.md")
-	builder.SetVariable("spec_path", specPath)
-	builder.SetVariable("wiki_dir", filepath.Join(rickDir, "wiki"))
-	builder.SetVariable("tools_dir", filepath.Join(rickDir, "tools"))
+	loopsDir := filepath.Join(rickDir, "loops")
+	skillsDir := filepath.Join(rickDir, "skills")
+	builder.SetVariable("loops_dir", loopsDir)
+	builder.SetVariable("skills_dir", skillsDir)
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 
 	debugContent := loadDebugContextLocal(doingDir)
 	if debugContent == "" {
@@ -137,12 +176,6 @@ func GenerateEasyLearningPromptFile(jobID, rickDir string) (string, error) {
 
 	projectRoot, _ := os.Getwd()
 	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
-
-	genSkillFile, err := WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
-	if err != nil {
-		return "", fmt.Errorf("failed to write gen-skill: %w", err)
-	}
-	builder.SetVariable("gen_skill_path", genSkillFile)
 
 	promptFile := filepath.Join(promptsDir, "easy_learning_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {
