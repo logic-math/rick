@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // resolveRickBinPath returns the path to the rick binary.
@@ -45,11 +43,10 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (
 		return "", fmt.Errorf("failed to load plan template: %w", err)
 	}
 
+	loopsDir := filepath.Join(rickDir, "loops")
+
 	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("okr_path", loadOKRPath(rickDir))
-	builder.SetVariable("spec_path", loadSpecPath(rickDir))
-	builder.SetVariable("rfc_dir", loadRFCDir(rickDir))
-	builder.SetVariable("rfc_paths", loadRFCPaths(rickDir))
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("user_requirement", requirement)
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
@@ -98,11 +95,10 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 		return "", nil, err
 	}
 
+	loopsDir := filepath.Join(rickDir, "loops")
+
 	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("okr_path", loadOKRPath(rickDir))
-	builder.SetVariable("spec_path", loadSpecPath(rickDir))
-	builder.SetVariable("rfc_dir", loadRFCDir(rickDir))
-	builder.SetVariable("rfc_paths", loadRFCPaths(rickDir))
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("user_requirement", requirement)
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
@@ -125,59 +121,5 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	return promptFile, nil, nil
 }
 
-// loadOKRPath returns the path to .rick/OKR.md, or "暂无" if missing.
-func loadOKRPath(rickDir string) string {
-	if rickDir == "" {
-		return "暂无"
-	}
-	p := filepath.Join(rickDir, "OKR.md")
-	if _, err := os.Stat(p); err != nil {
-		return "暂无"
-	}
-	return p
-}
 
-// loadSpecPath returns the path to .rick/SPEC.md, or "暂无" if missing.
-func loadSpecPath(rickDir string) string {
-	if rickDir == "" {
-		return "暂无"
-	}
-	p := filepath.Join(rickDir, workspace.SpecFileName)
-	if _, err := os.Stat(p); err != nil {
-		return "暂无"
-	}
-	return p
-}
-
-// loadRFCDir returns the path to .rick/RFC/ directory, or "暂无" if rickDir is empty.
-func loadRFCDir(rickDir string) string {
-	if rickDir == "" {
-		return "暂无"
-	}
-	return filepath.Join(rickDir, "RFC")
-}
-
-// loadRFCPaths returns a bullet list of paths to .md files under .rick/RFC/, or "暂无".
-func loadRFCPaths(rickDir string) string {
-	if rickDir == "" {
-		return "暂无"
-	}
-	rfcDir := filepath.Join(rickDir, "RFC")
-	entries, err := os.ReadDir(rfcDir)
-	if err != nil || len(entries) == 0 {
-		return "暂无"
-	}
-
-	var sb strings.Builder
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		sb.WriteString("- `" + filepath.Join(rfcDir, e.Name()) + "`\n")
-	}
-	if sb.Len() == 0 {
-		return "暂无"
-	}
-	return sb.String()
-}
 

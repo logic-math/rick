@@ -205,14 +205,14 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task4/plan_prompt_instructs_generate_job_okr", func(t *testing.T) {
-		// plan template should instruct Claude to generate job_N/plan/OKR.md
+	t.Run("task5/plan_prompt_no_okr_md_generation", func(t *testing.T) {
+		// task5: plan template must not instruct Claude to generate OKR.md
 		tmpl, err := pm.LoadTemplate("plan")
 		if err != nil {
 			t.Fatalf("load plan template: %v", err)
 		}
-		if !strings.Contains(tmpl.Content, "OKR.md") {
-			t.Error("plan template must contain instruction to generate OKR.md")
+		if strings.Contains(tmpl.Content, "必须生成") && strings.Contains(tmpl.Content, "OKR.md") {
+			t.Error("plan template must not contain instruction to generate OKR.md (removed in task5)")
 		}
 	})
 

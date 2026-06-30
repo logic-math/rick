@@ -26,48 +26,45 @@ func TestGeneratePlanPrompt_ContainsRequirement(t *testing.T) {
 	}
 }
 
-func TestGeneratePlanPrompt_NoSpecFile(t *testing.T) {
-	rickDir := t.TempDir() // empty dir, no SPEC.md
+func TestGeneratePlanPrompt_HasLoopsContext(t *testing.T) {
+	rickDir := t.TempDir() // empty loops dir → placeholder
 	prompt, err := GeneratePlanPrompt("test req", "/tmp/plan", rickDir)
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
 	}
-	if !strings.Contains(prompt, "暂无") {
-		t.Error("Expected prompt to contain 暂无 when no SPEC.md exists")
+	if !strings.Contains(prompt, "可用的项目 Loops") {
+		t.Error("Expected prompt to contain loops_context header '可用的项目 Loops'")
 	}
 }
 
-func TestGeneratePlanPrompt_WithSpecFile(t *testing.T) {
-	rickDir := t.TempDir()
-	specPath := filepath.Join(rickDir, "SPEC.md")
-	if err := os.WriteFile(specPath, []byte("# SPEC\n## 技术栈\n- 语言: Go"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	prompt, err := GeneratePlanPrompt("test req", "/tmp/plan", rickDir)
+func TestGeneratePlanPrompt_NoOKRSpecRFCVars(t *testing.T) {
+	prompt, err := GeneratePlanPrompt("test req", "/tmp/plan", "")
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
 	}
-	if !strings.Contains(prompt, specPath) {
-		t.Error("Expected prompt to contain SPEC.md path")
+	for _, banned := range []string{"okr_path", "spec_path", "rfc_paths", "rfc_dir"} {
+		if strings.Contains(prompt, banned) {
+			t.Errorf("Expected prompt to NOT contain %q", banned)
+		}
 	}
 }
 
-func TestGeneratePlanPrompt_WithRFC(t *testing.T) {
+func TestGeneratePlanPrompt_WithLoops(t *testing.T) {
 	rickDir := t.TempDir()
-	rfcDir := filepath.Join(rickDir, "RFC")
-	if err := os.MkdirAll(rfcDir, 0755); err != nil {
+	loopsDir := filepath.Join(rickDir, "loops")
+	if err := os.MkdirAll(loopsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	rfcPath := filepath.Join(rfcDir, "rfc001.md")
-	if err := os.WriteFile(rfcPath, []byte("# RFC001\nDecision: use DIP"), 0644); err != nil {
+	loopContent := "---\nname: test-loop\ntrigger: when test happens\nscope: project\n---\n# Test Loop\n"
+	if err := os.WriteFile(filepath.Join(loopsDir, "loop1.md"), []byte(loopContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	prompt, err := GeneratePlanPrompt("test req", "/tmp/plan", rickDir)
 	if err != nil {
 		t.Fatalf("GeneratePlanPrompt failed: %v", err)
 	}
-	if !strings.Contains(prompt, rfcPath) {
-		t.Error("Expected prompt to contain RFC file path")
+	if !strings.Contains(prompt, "test-loop") {
+		t.Error("Expected prompt to contain loop name from loops dir")
 	}
 }
 

@@ -6,25 +6,17 @@
 
 ## 一、项目上下文
 
-### 项目 OKR
+### 项目 Loops（已有工作流模式）
 
-路径：`{{okr_path}}`（如存在，读取了解项目目标与关键结果）
-
-### 项目 SPEC（技术规范）
-
-路径：`{{spec_path}}`（如存在，读取了解技术规范）
+{{loops_context}}
 
 如需创建或更新 SPEC，参考 skill:write_spec：`{{write_spec_skill_path}}`
-
-### 设计决策（RFC）
-
-{{rfc_paths}}
 
 ---
 
 ## 二、项目探索
 
-如果 OKR / SPEC 不存在，或需要理解当前代码状态，请自行探索项目。使用 Read / Grep / Glob / Bash 等工具，理解：
+如果需要理解当前代码状态，请自行探索项目。使用 Read / Grep / Glob / Bash 等工具，理解：
 - 项目目标（从 README、代码注释、测试用例推断）
 - 技术栈与架构（从依赖文件、目录结构推断）
 - 当前状态与待解决的问题
@@ -95,19 +87,6 @@ task1, task2  （无依赖则留空）
 ```
 
 - 任务文件：`{{job_plan_dir}}/task1.md`、`task2.md` 等
-- **必须生成** `{{job_plan_dir}}/OKR.md`（本 job 聚焦目标，非全局项目目标）：
-
-```markdown
-# Job OKR: [本 job 核心目标]
-
-## 目标 (Objective)
-[1-2 句话]
-
-## 关键结果 (Key Results)
-- KR1: [可衡量的结果]
-- KR2: ...
-```
-
 - **不需要生成 tasks.json**（由 `rick doing` 自动解析生成）
 - 禁止在工作目录之外创建任何文件
 
@@ -126,22 +105,18 @@ task1, task2  （无依赖则留空）
 
 ## ⚠️ 必须严格按以下 8 步 SOP 执行，不可跳过任何一步
 
-1. **OKR 与 SPEC 初始化检查**：读取 `.rick/OKR.md` 和 `.rick/SPEC.md`，判断是否有实质内容（非空白存根）：
-   - **已有内容**：直接进入下一步
-   - **老项目（存在代码/文档但缺少 OKR/SPEC）**：通过 Read / Grep / Bash 探索项目事实，自主起草 OKR 与 SPEC 初稿，写入 `.rick/OKR.md` 和 `.rick/SPEC.md`，向用户展示草稿并确认后继续
-   - **新项目（空白项目）**：向用户提问（项目目标是什么？技术栈？交付标准？），通过问答确认后写入 `.rick/OKR.md` 和 `.rick/SPEC.md`，再继续
-   - **⚠️ 未完成 OKR/SPEC 确认前，禁止进行任务分解**
+1. **Loops 上下文初始化**：读取上方 `{{loops_context}}` 中列出的项目已有 loop 模式，了解项目积累的工作流经验；如有相关 loop 文件，读取触发条件与范围，判断本次需求是否匹配某个已有 loop
 
-2. **探索项目**：读取 `{{okr_path}}` / `{{spec_path}}` / `{{rfc_dir}}` 目录；探索业务项目的源码，了解足够的事实信息
+2. **探索项目**：探索业务项目的源码，了解足够的事实信息；读取 `.rick/SPEC.md`（如存在）了解技术规范
 
 3. **grilling 追问**：加载 skill:grilling（路径：`{{grilling_skill_path}}`），对用户需求逐问追问，给出推荐答案，将需求澄清到具体可落实的代码路径或工具调用级别，达到终止条件后再继续
 
-4. **方案设计**：在 OKR + SPEC 约束下给出技术方案，说明主要决策点
+4. **方案设计**：在 SPEC 约束下给出技术方案，说明主要决策点
 
 5. **任务分解**：模块化分解，验证无循环依赖，确认可拓扑排序
 
 6. **六维评审**（每个 subagent 独立启动，**串行执行**，上一个完成后再启动下一个）：
-   - subagent_1：一致性检查 —— RFC 设计决策、OKR 目标与每个 task{n}.md 的任务目标三者对齐，确认每个 task 的交付物都能推进对应的 KR
+   - subagent_1：一致性检查 —— 任务目标与每个 task{n}.md 的任务目标对齐，确认每个 task 的交付物都能推进对应的 KR
    - subagent_2：SPEC 合规检查 —— 逐条比对 SPEC 规范，确认 task 描述不违反任何约束
    - subagent_3：skills 利用检查 —— 检查 SPEC 技能列表中的 skills 是否在合适的 task 中被引用和使用
    - subagent_4：执行风险推演 —— 阅读项目源码，逐 task 模拟真实执行过程：AI agent 会读哪些文件、调哪些接口、遇到哪些编译错误或运行时异常？暴露可能导致任务失败的风险点与卡点，在 task.md 中提前补充约束说明或修正任务描述
@@ -151,4 +126,4 @@ task1, task2  （无依赖则留空）
 
 7. **格式检查**：运行 `{{rick_bin_path}} tools plan_check {{job_id}}`；失败则修复后重新运行，直至通过
 
-8. **输出**：按 task.md 格式保存到 `{{job_plan_dir}}/task{N}.md`，生成 `{{job_plan_dir}}/OKR.md`
+8. **输出**：按 task.md 格式保存到 `{{job_plan_dir}}/task{N}.md`
