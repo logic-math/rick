@@ -13,6 +13,24 @@ import (
 	"github.com/sunquan/rick/internal/workspace"
 )
 
+// runEasyDryRun prints the easy prompt without creating any job or calling Claude.
+func runEasyDryRun(requirement, ctxPath string) error {
+	rickDir, err := workspace.GetRickDir()
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
+		return nil
+	}
+	content, err := prompt.GenerateEasyPrompt(requirement, rickDir, ctxPath)
+	if err != nil {
+		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
+		return nil
+	}
+	fmt.Println("[DRY-RUN] Easy prompt:")
+	fmt.Println()
+	fmt.Println(content)
+	return nil
+}
+
 // runEasyMode creates a new job and starts an easy interactive session.
 func runEasyMode(requirement, ctxPath string) error {
 	if requirement == "" {

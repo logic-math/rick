@@ -93,42 +93,41 @@ summary: "一句话描述根因 + 最终状态"
 status: "✅ 已解决"
 ---
 
-# 阶段一: 源码推理法
+## Phase 1: 构建反馈回路
 
-## 尝试1
-- 假设：[假设内容]
-- 改动：[最小改动描述]
-- 结果：❌ 失败 / ✅ 通过
+（复现步骤 + 最小化路径，获得秒级可重复运行的测试）
 
-## 尝试2
-- 假设：
-- 改动：
-- 结果：
+## Phase 2: 复现最小化
 
-# 阶段二: 增量调试法
+（进一步裁剪到最小可复现单元）
 
-（阶段一已解决，跳过）
+## Phase 3: 可证伪假设
 
-# 阶段三: 科学实验法
+（3-5 个有优先级排序的假设列表）
 
-## 实验1
-- 假设：[传播链假设]
-- 改动：[观测手段]
-- 结果：❌ 失败 / ✅ 通过
+## Phase 4: 插桩观察
 
-# 结论
+（log/gdb/delve/pprof 等插桩，选最合适的插入关键路径）
+
+## Phase 5: 修复回归
+
+（基于确认根因的最小改动修复 + 全量测试通过）
+
+## Phase 6: 清理事后分析
+
+（移除临时桩，提炼防范模式）
+
+## 结论
 
 根因：...  修复：...
 ```
 
 **格式铁律（doing_check 严格校验）**：
 - 文件名：`bug{n}-{描述}.md`（n 为正整数，描述非空）
-- 必须包含四个 `#` 一级标题：`# 阶段一: 源码推理法`、`# 阶段二: 增量调试法`、`# 阶段三: 科学实验法`、`# 结论`
-- 每个尝试/实验用 `##` 二级标题：`## 尝试N` 或 `## 实验N`
-- 每个 `## 尝试N` / `## 实验N` 块必须包含 `- 假设`、`- 改动`、`- 结果` 三行
+- 必须包含七个 `##` 二级标题：`## Phase 1: 构建反馈回路`、`## Phase 2: 复现最小化`、`## Phase 3: 可证伪假设`、`## Phase 4: 插桩观察`、`## Phase 5: 修复回归`、`## Phase 6: 清理事后分析`、`## 结论`
 - frontmatter 必须有 `status:` 字段，且最终状态不得为 `"🔄 进行中"`
 
-3. 加载 `{{debug_skill_path}}`，严格按三阶段执行（阶段一上限 3 次，阶段三上限 5 次）
+3. 加载 `{{debug_skill_path}}`，严格按 Phase 1-6 执行（Phase 4 上限 3 次）
 4. 不得随机修改代码（no random fixes）
 
 **doing_check 校验 debug/bug*.md 格式，格式不合规 = check 失败 = 任务未完成。**
@@ -148,7 +147,7 @@ I will use skill:debug-skill for any unexpected behavior.
 
 **Before proceeding to next task, verify: all tests pass.**
 
-**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `{{doing_dir}}/debug/` 创建 `bug{N}-{描述}.md`，按阶段一：源码推理法 → 阶段二：增量调试法 → 阶段三：科学实验法 顺序调试，不可跳过。**
+**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `{{doing_dir}}/debug/` 创建 `bug{N}-{描述}.md`，按 Phase 1: 构建反馈回路 → Phase 2: 复现最小化 → Phase 3: 可证伪假设 → Phase 4: 插桩观察 → Phase 5: 修复回归 → Phase 6: 清理事后分析 顺序调试，不可跳过。**
 
 每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
 

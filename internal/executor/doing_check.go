@@ -35,7 +35,7 @@ func RunEasyCheck(doingDir string) error {
 // CheckDebugDir validates debug/bug*.md files inside doingDir.
 //
 // File name rule:  bug{n}-{description}.md
-// Required # sections: 阶段一: 源码推理法, 阶段二: 增量调试法, 阶段三: 科学实验法, 结论
+// Required ## sections: Phase 1-6 (构建反馈回路/复现最小化/可证伪假设/插桩观察/修复回归/清理事后分析) + 结论
 // Each ## 尝试N / ## 实验N block must contain: - 假设, - 改动, - 结果
 // Frontmatter must have status: and must not be "🔄 进行中".
 func CheckDebugDir(doingDir string) error {
@@ -80,10 +80,13 @@ func CheckDebugDir(doingDir string) error {
 		}
 
 		for _, sec := range []string{
-			"# 阶段一: 源码推理法",
-			"# 阶段二: 增量调试法",
-			"# 阶段三: 科学实验法",
-			"# 结论",
+			"## Phase 1: 构建反馈回路",
+			"## Phase 2: 复现最小化",
+			"## Phase 3: 可证伪假设",
+			"## Phase 4: 插桩观察",
+			"## Phase 5: 修复回归",
+			"## Phase 6: 清理事后分析",
+			"## 结论",
 		} {
 			if !containsHeading(text, sec) {
 				return fmt.Errorf("debug/%s: missing required section '%s'", name, sec)

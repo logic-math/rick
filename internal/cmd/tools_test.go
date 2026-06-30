@@ -249,7 +249,7 @@ func TestRunDoingCheck_DebugBugResolved(t *testing.T) {
 	if err := os.MkdirAll(debugDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	content := "---\nsummary: \"fixed\"\nstatus: \"✅ 已解决\"\n---\n\n# 阶段一: 源码推理法\n\n## 尝试1\n- 假设：nil pointer\n- 改动：add nil check\n- 结果：✅ 通过\n\n# 阶段二: 增量调试法\n\n（跳过）\n\n# 阶段三: 科学实验法\n\n（跳过）\n\n# 结论\n\n修复完成。\n"
+	content := "---\nsummary: \"fixed\"\nstatus: \"✅ 已解决\"\n---\n\n## Phase 1: 构建反馈回路\n\n（复现步骤）\n\n## Phase 2: 复现最小化\n\n（最小单元）\n\n## Phase 3: 可证伪假设\n\n（假设列表）\n\n## Phase 4: 插桩观察\n\n（观测结果）\n\n## Phase 5: 修复回归\n\n（修复完成）\n\n## Phase 6: 清理事后分析\n\n（清理完成）\n\n## 结论\n\n修复完成。\n"
 	if err := os.WriteFile(filepath.Join(debugDir, "bug1-fixed.md"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
