@@ -43,6 +43,7 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.AddCommand(NewToolsCmd())
 	rootCmd.AddCommand(NewHumanLoopCmd())
 	rootCmd.AddCommand(NewCtrlCmd())
+	rootCmd.AddCommand(NewEasyCmd())
 
 	return rootCmd
 }

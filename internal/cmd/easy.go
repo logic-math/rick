@@ -8,10 +8,41 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
 )
+
+// NewEasyCmd creates the `rick easy` command for interactive AI coding sessions.
+func NewEasyCmd() *cobra.Command {
+	var requirement string
+	var ctxPath string
+	var resumeJobID string
+
+	easyCmd := &cobra.Command{
+		Use:   "easy",
+		Short: "Start an interactive easy AI coding session",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if GetDryRun() {
+				return runEasyDryRun(requirement, ctxPath)
+			}
+			if resumeJobID != "" {
+				return resumeEasyMode(resumeJobID)
+			}
+			if len(args) > 0 && requirement == "" {
+				requirement = args[0]
+			}
+			return runEasyMode(requirement, ctxPath)
+		},
+	}
+
+	easyCmd.Flags().StringVarP(&requirement, "requirement", "r", "", "Requirement for the easy session")
+	easyCmd.Flags().StringVar(&ctxPath, "ctx", "", "Path to a .rick directory to inherit context from")
+	easyCmd.Flags().StringVar(&resumeJobID, "resume", "", "Resume an existing easy session by job ID")
+
+	return easyCmd
+}
 
 // runEasyDryRun prints the easy prompt without creating any job or calling Claude.
 func runEasyDryRun(requirement, ctxPath string) error {
