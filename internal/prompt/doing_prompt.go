@@ -132,7 +132,11 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to write debug_skill skill: %w", err)
 	}
-	skillFiles := []string{tddZhFile, testingAntiPatternsFile, debugSkillFile, senseFile}
+	loopProtocolFile, err := WriteSkillFile(promptsDir, "loop_protocol.md", "loop_protocol")
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to write loop_protocol skill: %w", err)
+	}
+	skillFiles := []string{tddZhFile, testingAntiPatternsFile, debugSkillFile, senseFile, loopProtocolFile}
 
 	// Load doing template
 	template, err := manager.LoadTemplate("doing")
@@ -186,6 +190,7 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
 	builder.SetVariable("debug_skill_path", debugSkillFile)
 	builder.SetVariable("sense_skill_path", senseFile)
+	builder.SetVariable("loop_protocol_path", loopProtocolFile)
 
 	// Set rick_bin_path, doing_dir and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())

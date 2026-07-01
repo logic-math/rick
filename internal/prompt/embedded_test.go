@@ -59,6 +59,14 @@ func TestLoadEmbeddedTemplateCaching(t *testing.T) {
 	}
 }
 
+func TestEmbeddedLoopProtocol(t *testing.T) {
+	content := LoadCoreSkills([]string{"loop_protocol"})
+	if content == "" {
+		t.Fatal("loop_protocol skill not found in embed.FS (templates/skills/loop_protocol.md)")
+	}
+	t.Logf("loop_protocol loaded: %d bytes", len(content))
+}
+
 func TestGetEmbeddedTemplate(t *testing.T) {
 	pm := NewPromptManager("")
 

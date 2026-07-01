@@ -72,6 +72,47 @@ func TestGenerateEasyPrompt_DryRun(t *testing.T) {
 	}
 }
 
+func TestGenerateEasyPromptFile_LoopProtocolInjected(t *testing.T) {
+	rickDir := t.TempDir()
+	jobID := "job_test_easy_loop_protocol"
+
+	mainFile, skillFiles, err := GenerateEasyPromptFile(jobID, "test requirement", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPromptFile failed: %v", err)
+	}
+
+	content, err := os.ReadFile(mainFile)
+	if err != nil {
+		t.Fatalf("failed to read main file: %v", err)
+	}
+	prompt := string(content)
+
+	if !strings.Contains(prompt, "loop_protocol.md") {
+		t.Error("Expected prompt to contain loop_protocol.md reference")
+	}
+	if strings.Contains(prompt, "{{loop_protocol_path}}") {
+		t.Error("Expected loop_protocol_path variable to be replaced, found unreplaced {{loop_protocol_path}}")
+	}
+
+	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
+	promptsDir := filepath.Join(doingDir, "prompts")
+	loopProtocolFile := filepath.Join(promptsDir, "loop_protocol.md")
+	if _, err := os.Stat(loopProtocolFile); os.IsNotExist(err) {
+		t.Error("Expected loop_protocol.md to be written in prompts dir")
+	}
+
+	found := false
+	for _, f := range skillFiles {
+		if strings.Contains(f, "loop_protocol") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected skillFiles to include loop_protocol.md path")
+	}
+}
+
 func TestGenerateEasyLearningPromptFile_LearningVarsInjected(t *testing.T) {
 	rickDir := t.TempDir()
 	jobID := "job_test_learning_vars"

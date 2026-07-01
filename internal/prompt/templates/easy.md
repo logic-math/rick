@@ -16,6 +16,8 @@
    - **触发条件**：遇到任何不符合预期的行为，立即声明 `"I will use skill:debug-skill."` 并严格执行六阶段调试法
    - **禁止**：随机修改代码、叠加修复、跳过根因调查
 
+3. **skill:loop-protocol**（Loop 执行协议）：`{{loop_protocol_path}}`
+
 ## 项目上下文
 
 ### 可用的项目 Loops

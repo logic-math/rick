@@ -10,6 +10,7 @@
 - skill:testing-anti-patterns（测试反模式）：`{{testing_anti_patterns_path}}`
 - skill:debug-skill（调试技能）：`{{debug_skill_path}}`
 - skill:sense（系统化思维，供 review debug agent 使用）：`{{sense_skill_path}}`
+- skill:loop-protocol（Loop 执行协议）：`{{loop_protocol_path}}`
 
 你是一个资深的软件工程师。你的任务是执行规划好的任务，完成具体的编码工作。
 

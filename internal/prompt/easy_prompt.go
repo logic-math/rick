@@ -39,7 +39,11 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", nil, err
 	}
-	skillFiles := []string{tddFile, debugSkillFile, senseFile, grillingFile}
+	loopProtocolFile, err := WriteSkillFile(promptsDir, "loop_protocol.md", "loop_protocol")
+	if err != nil {
+		return "", nil, err
+	}
+	skillFiles := []string{tddFile, debugSkillFile, senseFile, grillingFile, loopProtocolFile}
 
 	debugContent := loadDebugContextLocal(doingDir)
 	if debugContent == "" {
@@ -66,6 +70,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("debug_skill_path", debugSkillFile)
 	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("grilling_skill_path", grillingFile)
+	builder.SetVariable("loop_protocol_path", loopProtocolFile)
 	builder.SetVariable("learning_prompt_path", learningPromptPath)
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)
@@ -112,6 +117,7 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	builder.SetVariable("debug_skill_path", filepath.Join(promptsDir, "skill_debug_skill.md"))
 	builder.SetVariable("sense_skill_path", filepath.Join(promptsDir, "skill_sense.md"))
 	builder.SetVariable("grilling_skill_path", filepath.Join(promptsDir, "skill_grilling.md"))
+	builder.SetVariable("loop_protocol_path", filepath.Join(promptsDir, "loop_protocol.md"))
 	builder.SetVariable("learning_prompt_path", filepath.Join(promptsDir, "easy_learning_prompt.md"))
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", "job_N")
