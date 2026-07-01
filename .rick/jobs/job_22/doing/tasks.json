@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-06-30T20:35:00.650429+08:00",
-  "updated_at": "2026-07-01T00:42:23.02569+08:00",
+  "updated_at": "2026-07-01T10:53:46.134415+08:00",
   "tasks": [
     {
       "task_id": "task2",
@@ -91,29 +91,28 @@
     {
       "task_id": "task7",
       "task_name": "迁移 easy + dream prompt builders + 模板：移除 SPEC/OKR/wiki/tools，注入 loops_context",
-      "status": "failed",
+      "status": "success",
       "dependencies": [
         "task3",
         "task8"
       ],
       "attempts": 0,
-      "error": "task failed after 16 attempts: test did not pass: easy --dry-run output missing '可用的项目 Loops' section\n\nFull test output:\n{\"pass\": false, \"errors\": [\"easy --dry-run output missing '可用的项目 Loops' section\"]}\n",
       "created_at": "2026-06-30T20:35:00.650429+08:00",
-      "updated_at": "2026-07-01T00:39:02.192061+08:00"
+      "updated_at": "2026-07-01T10:58:59.099299+08:00",
+      "commit_hash": "1fc0ff996a3db78a9c3e94566cfc6e0d6c7f6cb4"
     },
     {
       "task_id": "task9",
       "task_name": "新建 loop_protocol.md 模板，通过 embed.FS 内嵌并注入 doing/easy prompt",
-      "status": "failed",
+      "status": "pending",
       "dependencies": [
         "task1",
         "task4",
         "task7"
       ],
       "attempts": 0,
-      "error": "task failed after 16 attempts: failed to generate test script: test script was not created at /Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tests/task9.py",
       "created_at": "2026-06-30T20:35:00.650429+08:00",
-      "updated_at": "2026-07-01T00:42:23.025689+08:00"
+      "updated_at": "2026-07-01T08:52:03.137192+08:00"
     }
   ]
 }
