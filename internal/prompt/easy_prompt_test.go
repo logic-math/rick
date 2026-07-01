@@ -128,6 +128,55 @@ func TestGenerateEasyLearningPromptFile_LearningVarsInjected(t *testing.T) {
 	}
 }
 
+// TestEasy* tests verify task7 key results: no OKR/SPEC injection, loops_context present.
+
+func TestEasyPrompt_ContainsLoopsContext(t *testing.T) {
+	rickDir := t.TempDir()
+	os.MkdirAll(filepath.Join(rickDir, "loops"), 0755)
+
+	content, err := GenerateEasyPrompt("需求", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPrompt failed: %v", err)
+	}
+	if !strings.Contains(content, "可用的项目 Loops") {
+		t.Error("easy prompt must contain '可用的项目 Loops' from loops_context")
+	}
+	if strings.Contains(content, "{{loops_context}}") {
+		t.Error("loops_context must be resolved, found unresolved {{loops_context}}")
+	}
+}
+
+func TestEasyPrompt_NoOKRorSPECInjection(t *testing.T) {
+	rickDir := t.TempDir()
+
+	content, err := GenerateEasyPrompt("需求", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPrompt failed: %v", err)
+	}
+	for _, forbidden := range []string{"okr_content", "spec_content", "{{spec_path}}", "{{wiki_dir}}"} {
+		if strings.Contains(content, forbidden) {
+			t.Errorf("easy prompt must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestEasyPrompt_DebugContentPreserved(t *testing.T) {
+	rickDir := t.TempDir()
+
+	content, err := GenerateEasyPrompt("需求", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPrompt failed: %v", err)
+	}
+	// debug_content must be resolved (not a literal placeholder)
+	if strings.Contains(content, "{{debug_content}}") {
+		t.Error("debug_content must be resolved, found unresolved {{debug_content}}")
+	}
+	// debug section must still be present
+	if !strings.Contains(content, "Debug") {
+		t.Error("easy prompt must retain debug section")
+	}
+}
+
 func TestGenerateEasyPromptFile_RequirementAppendInstruction(t *testing.T) {
 	rickDir := t.TempDir()
 
