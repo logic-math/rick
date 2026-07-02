@@ -102,17 +102,20 @@ func runEasyMode(requirement, ctxPath string) error {
 
 // validateCtxInheritance checks that:
 // 1. The target ctxPath exists and looks like a .rick directory.
-// 2. The local .rick does NOT already have OKR.md or SPEC.md (to prevent accidental overwrite).
+// 2. The local .rick does NOT already have loops/ or skills/ (to prevent accidental overwrite).
 func validateCtxInheritance(localRickDir, ctxPath string) error {
 	// Verify the source ctx path exists
 	if _, err := os.Stat(ctxPath); os.IsNotExist(err) {
 		return fmt.Errorf("--ctx path does not exist: %s", ctxPath)
 	}
-	// Verify local .rick has no existing OKR.md / SPEC.md
-	for _, name := range []string{"OKR.md", "SPEC.md"} {
+	// Verify local .rick has no existing loops/ or skills/
+	for _, name := range []string{"loops", "skills"} {
 		p := filepath.Join(localRickDir, name)
-		if _, err := os.Stat(p); err == nil {
-			return fmt.Errorf("local context already exists (%s). Remove it first or omit --ctx", p)
+		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			entries, _ := os.ReadDir(p)
+			if len(entries) > 0 {
+				return fmt.Errorf("local context already exists (%s). Remove it first or omit --ctx", p)
+			}
 		}
 	}
 	return nil

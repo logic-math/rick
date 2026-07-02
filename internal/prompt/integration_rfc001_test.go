@@ -35,8 +35,8 @@ func TestIntegration_RFC001(t *testing.T) {
 		if !strings.Contains(tmpl.Content, "{{task_md_files}}") {
 			t.Error("learning template must contain {{task_md_files}} variable")
 		}
-		if !strings.Contains(tmpl.Content, "{{okr_content}}") {
-			t.Error("learning template must contain {{okr_content}} variable")
+		if !strings.Contains(tmpl.Content, "{{loops_context}}") {
+			t.Error("learning template must contain {{loops_context}} variable")
 		}
 	})
 
@@ -81,7 +81,7 @@ func TestIntegration_RFC001(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		prompt, err := buildLearningPromptForTest(t, "job_test", taskFile, "", tmpDir)
+		prompt, err := buildLearningPromptForTest(t, "job_test", taskFile, tmpDir)
 		if err != nil {
 			t.Fatalf("buildLearningPromptForTest: %v", err)
 		}
@@ -90,24 +90,17 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	t.Run("task1/buildLearningPrompt_contains_okr_content", func(t *testing.T) {
-		okrContent := "# Job OKR\n## O1: 实现用户认证\n- KR1: 完成登录接口"
-		prompt, err := buildLearningPromptForTest(t, "job_test", "", okrContent, t.TempDir())
-		if err != nil {
-			t.Fatalf("buildLearningPromptForTest: %v", err)
-		}
-		if !strings.Contains(prompt, "实现用户认证") {
-			t.Error("learning prompt must contain OKR content when OKR.md exists")
-		}
-	})
-
 	// ─── task2: skills index ──────────────────────────────────────────────────
 
-	t.Run("task2/plan_prompt_skills_from_spec_not_index", func(t *testing.T) {
-		// skills are now expected in SPEC.md (via spec_content), not injected from index.md
+	t.Run("task2/plan_prompt_contains_loops_context", func(t *testing.T) {
+		// loops_context is now injected from .rick/loops/ instead of SPEC.md skills
 		tmpDir := t.TempDir()
-		specContent := "# SPEC\n## 技能列表\n| 名称 | 触发词 | 路径 |\n|------|--------|------|\n| my_skill | debug | .rick/wiki/my_skill.md |\n"
-		if err := os.WriteFile(filepath.Join(tmpDir, "SPEC.md"), []byte(specContent), 0644); err != nil {
+		loopsDir := filepath.Join(tmpDir, "loops")
+		if err := os.MkdirAll(loopsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		loopContent := "---\nname: test-loop\ntrigger: \"当需要测试时触发\"\n---\n# Loop: Test\n"
+		if err := os.WriteFile(filepath.Join(loopsDir, "test_loop.md"), []byte(loopContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -115,8 +108,8 @@ func TestIntegration_RFC001(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
-		if !strings.Contains(promptContent, "技能列表") {
-			t.Error("plan prompt must contain skills from SPEC.md spec_content")
+		if !strings.Contains(promptContent, "test-loop") {
+			t.Error("plan prompt must contain loops_context from .rick/loops/")
 		}
 	})
 
@@ -247,8 +240,7 @@ func TestIntegration_RFC001(t *testing.T) {
 }
 
 // buildLearningPromptForTest is a helper that constructs a learning prompt via the template system.
-// taskMDPath is a file path (or empty), okrContent is inline OKR text.
-func buildLearningPromptForTest(t *testing.T, jobID, taskMDPath, okrContent, tmpDir string) (string, error) {
+func buildLearningPromptForTest(t *testing.T, jobID, taskMDPath, tmpDir string) (string, error) {
 	t.Helper()
 	pm := NewPromptManager("")
 	tmpl, err := pm.LoadTemplate("learning")
@@ -260,16 +252,11 @@ func buildLearningPromptForTest(t *testing.T, jobID, taskMDPath, okrContent, tmp
 	builder.SetVariable("learning_dir", filepath.Join(tmpDir, "learning"))
 	builder.SetVariable("rick_bin_path", "./bin/rick")
 	builder.SetVariable("task_execution_results", "| task1 | Test | success | abc12345 | 1 |")
-	builder.SetVariable("debug_path", "/tmp/debug.md")
-	builder.SetVariable("spec_path", "/tmp/SPEC.md")
+	builder.SetVariable("debug_content", "（本次 job 无 debug 记录）")
 	builder.SetVariable("act_path_files", "  （无 act-path.md 文件）")
-	builder.SetVariable("gen_skill_path", "/tmp/gen-skill.md")
-
-	if okrContent != "" {
-		builder.SetVariable("okr_content", okrContent)
-	} else {
-		builder.SetVariable("okr_content", "（本 job 无 OKR.md）")
-	}
+	builder.SetVariable("loops_context", "暂无可用的项目 Loops")
+	builder.SetVariable("loops_dir", filepath.Join(tmpDir, "loops"))
+	builder.SetVariable("skills_dir", filepath.Join(tmpDir, "skills"))
 
 	if taskMDPath != "" {
 		builder.SetVariable("task_md_files", "  - `"+taskMDPath+"`")

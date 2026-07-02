@@ -1,5 +1,5 @@
 ---
-name: loop-protocol
+name: doing-loop
 description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop，否则执行内置 Doing Loop
 ---
 
@@ -38,12 +38,21 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 ## 子 Agent 工作流
 
-每轮迭代启动一个子 Agent，按以下状态机执行：
+**每轮迭代由父 Agent 启动一个独立子 Agent 执行，子 Agent 完成 ANALYZE→COMMIT 全流程后，父 Agent 执行产出评估，决定继续迭代或退出。**
 
 ```
-[ANALYZE] → [RED] → [GREEN] → [REFACTOR] → [COMMIT]
-               ↑        │
-               └──[DEBUG]┘  （任何 FAIL / 报错时触发）
+[父 Agent]
+   │
+   ├─ SPAWN 子 Agent（携带：任务目标 + debug/摘要 + 迭代编号 N）
+   │     │
+   │     │  子 Agent 执行：
+   │     │  [ANALYZE] → [RED] → [GREEN] → [REFACTOR] → [COMMIT]
+   │     │                 ↑        │
+   │     │                 └──[DEBUG]┘
+   │     │
+   │     └─ 子 Agent 完成，输出产出摘要
+   │
+   └─ 父 Agent 产出评估 → 成功退出 / 继续迭代 / 优雅退出
 ```
 
 **ANALYZE（理解需求）**
@@ -76,6 +85,7 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
    - doing 阶段：`<rick_bin_path> tools doing_check <job_id>`
    - easy 阶段：`<rick_bin_path> tools easy_check <job_id>`
 3. check 失败 → 修复后重新运行，循环直到 pass
+4. **子 Agent 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知父 Agent 执行评估
 
 ---
 
@@ -104,26 +114,3 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 **退出时**：父 Agent 输出 Loop 执行摘要（完成了哪些 KR、遗留了哪些问题），等待人类决策。
 
----
-
-## Loop 状态机（父 Agent 视角）
-
-```
-[INIT]
-  │
-  ▼
-[SPAWN_SUBAGENT] ← 携带：任务目标 + debug/摘要 + 迭代编号 N
-  │
-  │  子 Agent 执行：ANALYZE → RED → GREEN/DEBUG → REFACTOR → COMMIT
-  │
-  ▼
-[EVALUATE] ← check 输出 + 测试状态 + KR 达成检查
-  │
-  ├── 成功 ──────────────── [DONE] ✅
-  │
-  └── 失败 → [STOP_CHECK]
-                │
-                ├── 达到上限 / 无法收敛 ── [GRACEFUL_EXIT] ⚠️
-                │
-                └── 未达上限 → 压缩上下文 → [SPAWN_SUBAGENT] N+1
-```

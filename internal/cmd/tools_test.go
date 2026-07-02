@@ -103,22 +103,6 @@ func TestRunPlanCheck_Valid(t *testing.T) {
 	}
 }
 
-func TestRunPlanCheck_MissingOKR(t *testing.T) {
-	dir := t.TempDir()
-	task1 := "# 依赖关系\n无\n# 任务名称\nTask1\n# 任务目标\nGoal\n# 关键结果\n1. KR1\n# 测试方法\nTest\n"
-	if err := os.WriteFile(filepath.Join(dir, "task1.md"), []byte(task1), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// No OKR.md
-	err := runPlanCheck(dir)
-	if err == nil {
-		t.Fatal("expected error for missing OKR.md")
-	}
-	if !containsStr(err.Error(), "OKR.md") {
-		t.Errorf("expected OKR.md in error, got: %v", err)
-	}
-}
-
 // ─── Doing Check Tests ───────────────────────────────────────────────────────
 
 func makeTasksJSON(t *testing.T, dir string, tasks []executor.TaskState) {

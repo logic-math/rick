@@ -1,18 +1,10 @@
-# Rick 项目执行阶段提示词
+# Rick 项目执行阶段
 
-**YOU MUST declare at the start: "I will use skill:tdd for implementation. I will use skill:debug-skill for any unexpected behavior."**
-
-## 核心 Skills（必须加载）
-
-在开始任何工作之前，必须读取以下 skill 文件：
-
-- skill:tdd（测试驱动开发）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/skill_tdd_zh.md`
-- skill:testing-anti-patterns（测试反模式）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/skill_testing_anti_patterns_zh.md`
-- skill:debug-skill（调试技能）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/skill_debug_skill.md`
-- skill:sense（系统化思维，供 review debug agent 使用）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/skill_sense.md`
-- skill:loop-protocol（Loop 执行协议）：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/loop_protocol.md`
+## 角色定义
 
 你是一个资深的软件工程师。你的任务是执行规划好的任务，完成具体的编码工作。
+
+---
 
 ## 任务信息
 
@@ -66,10 +58,12 @@
 操作：重新写入相同内容后再次运行测试 1-4
 预期输出：所有结果不变
 
-## 项目背景
 
-**项目名称**: rick
-**项目描述**: Context-First AI Coding Framework
+
+
+
+
+## Loop 列表
 
 ## 可用的项目 Loops
 
@@ -77,161 +71,139 @@
 - **go-tdd-loop**："当需要对 Go 代码进行 TDD 迭代直到测试通过时触发"
 
 
-### 项目架构
-Rick 项目采用模块化架构设计：
+---
 
-**核心模块**:
-- infrastructure: 基础设施模块（Go 项目初始化、CLI、工作空间、配置、日志）
-- parser: 内容解析模块（Markdown、task.md、debug.md、OKR/SPEC 解析）
-- dag_executor: DAG 执行模块（DAG 构建、拓扑排序、任务执行、重试机制）
-- prompt_manager: 提示词管理模块（模板、构建、上下文、各阶段提示词生成）
-- cli_commands: 命令处理模块（init、plan、doing、learning 命令）
-
-**关键设计**:
-- 使用 Go 标准库为主，最小化外部依赖
-- 提示词管理是核心创新，支持多阶段提示词生成
-- 任务执行采用 DAG 拓扑排序，支持并行和串行执行
-- 失败重试机制，超过限制后需人工干预
-
-## 执行上下文
-
-### 已完成的任务
-暂无已完成的任务
-
-### 任务依赖
-该任务无依赖关系
-
-### 问题记录
-
-以下是执行过程中遇到的问题记录，请重点关注避免重复错误：
+## Job 上下文
 
 暂无问题记录
 
-## Cialdini 合规原则
-
-### 权威（Authority）
-
-**YOU MUST follow TDD. No exceptions.**
-
-在开始任何实现之前，必须先编写失败的测试（RED phase）。这是不可协商的工程规范。
-
-#### TDD 铁律（Three Laws）
-
-1. **RED（先红）**: 先运行测试，确认测试失败（证明测试有效）
-2. **GREEN（再绿）**: 编写最少代码让测试通过
-3. **REFACTOR（再重构）**: 在测试通过的前提下改善代码质量
-
-**不得跳过任何阶段。** 未经 RED 验证直接写实现，视为违反 TDD 铁律。
-
-#### DEBUG 铁律
-
-**所有代码都是 debug 出来的。RED 阶段测试失败 = 遇到 bug，必须触发 debug-skill，无一例外。**
-
-> RED 不是"预期中的失败"，而是发现了系统与预期的差距——这正是 bug 的定义。
-> 跳过 debug-skill 直接修改代码 = 随机修复 = 制造下一个 bug。
-
-**触发条件（以下任意一条即触发，不得跳过）**：
-- 运行测试出现 FAIL / 错误输出
-- 代码行为与预期不符
-- 编译报错（编译错误也是 bug）
-
-**触发后必须执行**：
-1. 声明 `"I will use skill:debug-skill."`
-2. 在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/debug/` 下创建 `bug{N}-{描述}.md`，**严格按以下格式**（doing_check 逐行校验，格式错误 = check 失败）：
-
-```markdown
----
-summary: "一句话描述根因 + 最终状态"
-status: "✅ 已解决"
 ---
 
-## Phase 1: 构建反馈回路
+## ⚠️ 执行 Loop（强制，不可跳过）
 
-（复现步骤 + 最小化路径，获得秒级可重复运行的测试）
+**YOU MUST execute the following loop. No exceptions. Skipping this loop means the task is NOT complete.**
 
-## Phase 2: 复现最小化
+# Doing Loop
 
-（进一步裁剪到最小可复现单元）
+## Step 0：匹配决策
 
-## Phase 3: 可证伪假设
+读取 `loops_context`，按 trigger 字段匹配当前任务/需求：
 
-（3-5 个有优先级排序的假设列表）
-
-## Phase 4: 插桩观察
-
-（log/gdb/delve/pprof 等插桩，选最合适的插入关键路径）
-
-## Phase 5: 修复回归
-
-（基于确认根因的最小改动修复 + 全量测试通过）
-
-## Phase 6: 清理事后分析
-
-（移除临时桩，提炼防范模式）
-
-## 结论
-
-根因：...  修复：...
-```
-
-**格式铁律（doing_check 严格校验）**：
-- 文件名：`bug{n}-{描述}.md`（n 为正整数，描述非空）
-- 必须包含七个 `##` 二级标题：`## Phase 1: 构建反馈回路`、`## Phase 2: 复现最小化`、`## Phase 3: 可证伪假设`、`## Phase 4: 插桩观察`、`## Phase 5: 修复回归`、`## Phase 6: 清理事后分析`、`## 结论`
-- frontmatter 必须有 `status:` 字段，且最终状态不得为 `"🔄 进行中"`
-
-3. 加载 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/prompts/skill_debug_skill.md`，严格按 Phase 1-6 执行（Phase 4 上限 3 次）
-4. 不得随机修改代码（no random fixes）
-
-**doing_check 校验 debug/bug*.md 格式，格式不合规 = check 失败 = 任务未完成。**
-
-### 承诺（Commitment）
-
-在开始实现前，声明你将使用的 skills：
-
-```
-I will use skill:tdd for implementation.
-I will use skill:debug-skill for any unexpected behavior.
-```
-
-明确的承诺能提升 skill 合规率，防止任务执行过程中遗忘关键工程实践。
-
-### 稀缺（Scarcity）
-
-**Before proceeding to next task, verify: all tests pass.**
-
-**Immediately after test failure: 声明 "I will use skill:debug-skill."，在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/debug/` 创建 `bug{N}-{描述}.md`，按 Phase 1: 构建反馈回路 → Phase 2: 复现最小化 → Phase 3: 可证伪假设 → Phase 4: 插桩观察 → Phase 5: 修复回归 → Phase 6: 清理事后分析 顺序调试，不可跳过。**
-
-每次推进都有且仅有一次机会通过检查。未通过则必须先修复，不可跳过。
+- **有匹配** → 读取匹配的项目 Loop 文件，按其定义执行
+- **无匹配** → 按以下 Doing Loop 执行
 
 ---
 
-## 做事方法
+## 全局目标
 
-1. **理解需求**: 仔细阅读任务目标和关键结果
-2. **设计方案**: 根据项目架构和现有代码，设计实现方案
-3. **实现代码**: 实现所有必要的功能
-4. **测试验证**: 按照测试方法验证功能的正确性
-5. **提交代码**: 使用 git 提交代码，提交信息应该清晰明确
+实现 task.md（`# 任务目标` + `# 关键结果`）或需求文档中的全部交付物。
+
+**成功标准**（全部满足时退出）：
+- 测试脚本全部通过（无 FAIL 输出）
+- doing_check / easy_check pass
+- 所有 Key Results 均已达成（逐条可验证）
+
+---
+
+## 上下文管理（压缩策略）
+
+每轮迭代的中间信息写入 `doing/debug/` 目录，遵循 debug_skill 写入规范：
+
+- **遇到 bug** → 写 `bug{N}-{描述}.md`（frontmatter + Phase 1-6 + 结论）
+- **跨轮传递的核心事实** → 从各 bug 文件的 frontmatter `summary` 字段提取（已压缩）
+
+**父 Agent 启动下一轮子 Agent 时传递**：任务目标 + Key Results 达成状态 + debug/ 摘要 + 迭代编号 N
+
+---
+
+## 子 Agent 工作流
+
+**每轮迭代由父 Agent 启动一个独立子 Agent 执行，子 Agent 完成 ANALYZE→COMMIT 全流程后，父 Agent 执行产出评估，决定继续迭代或退出。**
+
+```
+[父 Agent]
+   │
+   ├─ SPAWN 子 Agent（携带：任务目标 + debug/摘要 + 迭代编号 N）
+   │     │
+   │     │  子 Agent 执行：
+   │     │  [ANALYZE] → [RED] → [GREEN] → [REFACTOR] → [COMMIT]
+   │     │                 ↑        │
+   │     │                 └──[DEBUG]┘
+   │     │
+   │     └─ 子 Agent 完成，输出产出摘要
+   │
+   └─ 父 Agent 产出评估 → 成功退出 / 继续迭代 / 优雅退出
+```
+
+**ANALYZE（理解需求）**
+1. 声明：`"I will use skill:sense."`，按 S→E→N 分析（Symptoms / Evidence / Next）
+2. 读取 debug/ 摘要，避免重复踩坑
+
+**RED（先写失败测试）**
+1. 声明：`"I will use skill:tdd for implementation."`
+2. 针对 `# 测试方法` 中每个场景编写测试
+3. 运行测试，**必须确认 FAIL**（证明测试有效，进入 GREEN 的前提）
+
+**GREEN（最小实现）**
+1. 编写让测试通过的最小实现代码（不超出 task scope）
+2. 通过 → REFACTOR；失败 → DEBUG
+
+**DEBUG（遇红强制触发）**
+触发条件（任意一条）：测试 FAIL / 编译报错 / 行为与预期不符
+1. 声明：`"I will use skill:debug-skill."`
+2. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
+3. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
+4. 修复后回到 GREEN
+
+**REFACTOR（代码改善）**
+1. 测试全绿后改善代码质量（命名、结构、去重）
+2. 运行全量测试确认无回归；回归失败 → DEBUG
+
+**COMMIT（收尾提交）**
+1. `git add` + `git commit`（commit message 含 task ID）
+2. 运行 check 命令（使用 prompt 上下文中的 rick_bin_path 和 job_id）：
+   - doing 阶段：`<rick_bin_path> tools doing_check <job_id>`
+   - easy 阶段：`<rick_bin_path> tools easy_check <job_id>`
+3. check 失败 → 修复后重新运行，循环直到 pass
+4. **子 Agent 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知父 Agent 执行评估
+
+---
+
+## 产出评估（父 Agent 执行）
+
+子 Agent 完成后，父 Agent 逐项检查：
+
+| 检查项 | 判断方法 |
+|--------|----------|
+| check pass | 读取 doing_check / easy_check 输出，确认 ✅ |
+| 测试全通过 | 确认测试脚本无 FAIL 输出 |
+| Key Results 达成 | 逐条比对 task.md `# 关键结果` |
+
+评估结论：**成功**（全部通过）或 **失败**（附具体原因，传递给下一轮）
+
+---
+
+## 停止标准
+
+**成功退出**：check pass + 测试全通过 + 所有 Key Results 达成
+
+**优雅退出**（任意一条触发）：
+- 迭代次数达上限（默认 **3 轮**）
+- 连续 2 轮产出相同错误（判断无法自动收敛）
+- 人类明确要求停止
+
+**退出时**：父 Agent 输出 Loop 执行摘要（完成了哪些 KR、遗留了哪些问题），等待人类决策。
 
 
-## 具体步骤
 
-请按照以下步骤执行任务：
 
-1. **分析**: 基于目标和关键结果彻底分析既有事实现状
-2. **设计**: 针对目标和关键结果规划实现方案
-3. **实现**: 完全具体实现工作
-4. **测试**: 根据测试方法对交付的结果进行测试,代码必须能在生产环境正确工作
-5. **提交**: 使用 git 将这次任务变更进行提交,务必遵循项目规范进行提交
 
-## 行为约束
+---
 
-1. **测试通过**: 确保所有测试都通过后才能提交代码
-2. **bug 强制记录**: 每次测试失败，必须在 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/debug/bug{N}-{描述}.md` 创建调试记录，不可跳过
-3. **生产就绪**: 代码应该能够在生产环境中正确运行
-3. **优先使用 tools**: 如果项目根目录存在 `tools/` 目录，优先使用其中的 Python 工具脚本完成任务（tools 列表会在 prompt 末尾动态注入）
-4. **强制 doing check**: 在 git commit 之后，**必须**运行以下命令验证产出：
-   ```bash
-   /Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N
-   ```
-   如果 check 失败，根据错误信息修复（如解决 zombie 任务等），修复后重新运行，循环直到 check 通过。**check 通过后才算任务完成**，不可跳过。
+## 完成要求
+
+`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N`
+
+check pass 后才算完成。
+
+

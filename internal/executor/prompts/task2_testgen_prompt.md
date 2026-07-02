@@ -17,12 +17,6 @@
 **Task Name**: Task 2
 **Task Goal**: G2
 
-### Job OKR
-暂无
-
-### 项目 SPEC
-暂无
-
 ### 问题记录
 
 

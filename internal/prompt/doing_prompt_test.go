@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sunquan/rick/internal/parser"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 func TestGenerateDoingPrompt_Success(t *testing.T) {
@@ -17,58 +16,11 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 	// Create doing.md template
 	doingTemplate := `# Rick 项目执行阶段提示词
 
-你是一个资深的软件工程师。你的任务是执行规划好的任务，完成具体的编码工作。
-
-## 任务信息
-
-**任务 ID**: {{task_id}}
-**任务名称**: {{task_name}}
-**重试次数**: {{retry_count}}
-
-### 任务目标
-{{task_objective}}
-
-### 关键结果
-{{key_results}}
-
-### 测试方法
-{{test_methods}}
-
-## 项目背景
-
-**项目名称**: {{project_name}}
-**项目描述**: {{project_description}}
+{{task_info_section}}
 
 {{loops_context}}
 
-### 项目架构
-{{project_architecture}}
-
-## 执行上下文
-
-### 已完成的任务
-{{completed_tasks}}
-
-### 任务依赖
-{{task_dependencies}}
-
-{{#if retry_count > 0}}
-### 前次执行的问题记录
-
-根据前次执行遇到的问题，请重点关注以下内容：
-
-{{debug_context}}
-
-请确保这次执行能够解决之前遇到的问题。
-{{/if}}
-
-## 执行要求
-
-1. **理解需求**: 仔细阅读任务目标和关键结果
-2. **设计方案**: 根据项目架构和现有代码，设计实现方案
-3. **编写代码**: 实现所有必要的功能
-4. **测试验证**: 按照测试方法验证功能的正确性
-5. **提交代码**: 使用 git 提交代码，提交信息应该清晰明确`
+{{debug_context}}`
 
 	doingPath := filepath.Join(tmpDir, "doing.md")
 	if err := os.WriteFile(doingPath, []byte(doingTemplate), 0644); err != nil {
@@ -124,12 +76,6 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 		t.Error("Expected prompt to contain test method")
 	}
 
-	// Verify prompt contains project information
-	projectName, _ := workspace.GetProjectName()
-	if !strings.Contains(prompt, projectName) {
-		t.Error("Expected prompt to contain project name")
-	}
-
 	// Verify loops_context is injected (not left as literal)
 	if strings.Contains(prompt, "{{loops_context}}") {
 		t.Error("Expected loops_context variable to be replaced")
@@ -138,10 +84,6 @@ func TestGenerateDoingPrompt_Success(t *testing.T) {
 		t.Error("Expected prompt to contain '可用的项目 Loops' from loops_context")
 	}
 
-	// Verify prompt contains completed tasks
-	if !strings.Contains(prompt, "Module 1 completed") {
-		t.Error("Expected prompt to contain completed tasks")
-	}
 }
 
 func TestGenerateDoingPrompt_WithRetry(t *testing.T) {
@@ -151,43 +93,9 @@ func TestGenerateDoingPrompt_WithRetry(t *testing.T) {
 	// Create doing.md template
 	doingTemplate := `# Rick 项目执行阶段提示词
 
-## 任务信息
+{{task_info_section}}
 
-**任务 ID**: {{task_id}}
-**任务名称**: {{task_name}}
-**重试次数**: {{retry_count}}
-
-### 任务目标
-{{task_objective}}
-
-### 关键结果
-{{key_results}}
-
-### 测试方法
-{{test_methods}}
-
-## 项目背景
-
-**项目名称**: {{project_name}}
-**项目描述**: {{project_description}}
-
-### 项目 SPEC
-{{spec_content}}
-
-### 项目架构
-{{project_architecture}}
-
-## 执行上下文
-
-### 已完成的任务
-{{completed_tasks}}
-
-### 任务依赖
-{{task_dependencies}}
-
-### 前次执行的问题记录
-
-根据前次执行遇到的问题，请重点关注以下内容：
+## Job 上下文
 
 {{debug_context}}`
 
@@ -238,10 +146,6 @@ func TestGenerateDoingPrompt_WithRetry(t *testing.T) {
 		t.Error("Expected prompt to contain debug information")
 	}
 
-	// Verify task dependency is included
-	if !strings.Contains(prompt, "task1") {
-		t.Error("Expected prompt to contain task dependency")
-	}
 }
 
 func TestGenerateDoingPrompt_NilTask(t *testing.T) {
@@ -322,21 +226,11 @@ func TestGenerateDoingPrompt_MissingTemplate(t *testing.T) {
 	}
 }
 
-func TestGenerateDoingPrompt_WithDependencies(t *testing.T) {
+func TestGenerateDoingPrompt_LoopsContextInLoopList(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	doingTemplate := `# Rick 项目执行阶段提示词
-
-## 任务信息
-
-**任务 ID**: {{task_id}}
-**任务名称**: {{task_name}}
-
-### 任务目标
-{{task_objective}}
-
-### 任务依赖
-{{task_dependencies}}`
+	doingTemplate := `## Loop 列表
+{{loops_context}}`
 
 	doingPath := filepath.Join(tmpDir, "doing.md")
 	if err := os.WriteFile(doingPath, []byte(doingTemplate), 0644); err != nil {
@@ -345,29 +239,18 @@ func TestGenerateDoingPrompt_WithDependencies(t *testing.T) {
 
 	manager := NewPromptManager(tmpDir)
 	contextMgr := NewContextManager("job_1")
-
-	task := &parser.Task{
-		ID:             "task3",
-		Name:           "Test Task",
-		Goal:           "Test goal",
-		Dependencies:   []string{"task1", "task2"},
-		KeyResults:     []string{},
-		TestMethod:     "",
-	}
+	task := &parser.Task{ID: "task1", Name: "Test", Goal: "Test goal"}
 
 	prompt, err := GenerateDoingPrompt(task, 0, contextMgr, manager)
-
 	if err != nil {
 		t.Fatalf("GenerateDoingPrompt failed: %v", err)
 	}
 
-	// Verify task dependencies are included
-	if !strings.Contains(prompt, "task1") || !strings.Contains(prompt, "task2") {
-		t.Error("Expected prompt to contain all task dependencies")
+	if strings.Contains(prompt, "{{loops_context}}") {
+		t.Error("loops_context must be replaced (not left as literal)")
 	}
-
-	if !strings.Contains(prompt, "该任务依赖以下任务的完成") {
-		t.Error("Expected prompt to contain dependency header")
+	if !strings.Contains(prompt, "可用的项目 Loops") {
+		t.Error("Expected prompt to contain loops_context output")
 	}
 }
 
@@ -376,8 +259,7 @@ func TestGenerateDoingPrompt_NoKeyResults(t *testing.T) {
 
 	doingTemplate := `# Rick 项目执行阶段提示词
 
-### 关键结果
-{{key_results}}`
+{{task_info_section}}`
 
 	doingPath := filepath.Join(tmpDir, "doing.md")
 	if err := os.WriteFile(doingPath, []byte(doingTemplate), 0644); err != nil {
@@ -450,38 +332,15 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 
 	doingTemplate := `# Rick 项目执行阶段提示词
 
-## 任务信息
+{{task_info_section}}
 
-**任务 ID**: {{task_id}}
-**任务名称**: {{task_name}}
-**重试次数**: {{retry_count}}
-
-### 任务目标
-{{task_objective}}
-
-### 关键结果
-{{key_results}}
-
-### 测试方法
-{{test_methods}}
-
-## 项目背景
-
-**项目名称**: {{project_name}}
-**项目描述**: {{project_description}}
+## Loop 列表
 
 {{loops_context}}
 
-### 项目架构
-{{project_architecture}}
+## Job 上下文
 
-## 执行上下文
-
-### 已完成的任务
-{{completed_tasks}}
-
-### 任务依赖
-{{task_dependencies}}`
+{{debug_context}}`
 
 	doingPath := filepath.Join(tmpDir, "doing.md")
 	if err := os.WriteFile(doingPath, []byte(doingTemplate), 0644); err != nil {
@@ -510,7 +369,6 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 	}
 
 	// Comprehensive verification
-	dynamicProjectName, _ := workspace.GetProjectName()
 	requiredContent := []string{
 		"task1",
 		"实现提示词构建器",
@@ -519,24 +377,12 @@ func TestGenerateDoingPrompt_CompleteFlow(t *testing.T) {
 		"实现 Build() 方法",
 		"编写单元测试",
 		"go test",
-		dynamicProjectName,
-		"Context-First AI Coding Framework",
 		"可用的项目 Loops",
-		"Infrastructure module completed",
-		"Parser module completed",
-		"该任务无依赖关系",
 	}
 
 	for _, content := range requiredContent {
 		if !strings.Contains(prompt, content) {
 			t.Errorf("Expected prompt to contain: %s", content)
 		}
-	}
-	// spec/okr must NOT be literal variables in output
-	if strings.Contains(prompt, "{{spec_content}}") {
-		t.Error("prompt must not contain unreplaced {{spec_content}}")
-	}
-	if strings.Contains(prompt, "{{job_okr_content}}") {
-		t.Error("prompt must not contain unreplaced {{job_okr_content}}")
 	}
 }

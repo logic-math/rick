@@ -22,9 +22,9 @@ func GenerateDreamPrompt(jobIDs []string, rickDir string) (string, error) {
 	builder.SetVariable("loops_dir", "<loops_dir>")
 	builder.SetVariable("skills_dir", "<skills_dir>")
 	builder.SetVariable("sense_skill_path", "<tmp>/rick-dream-skill-sense-*.md")
-	builder.SetVariable("evolve_skills_skill_path", "<tmp>/rick-dream-skill-evolve-*.md")
-	builder.SetVariable("source_context_consistency_skill_path", "<tmp>/rick-dream-skill-source-context-consistency-*.md")
-	builder.SetVariable("refactor_rfc_skill_path", "<tmp>/rick-dream-skill-refactor-rfc-*.md")
+	builder.SetVariable("evolve_skills_skill_path", "<tmp>/rick-dream-skill-evolve-skills-*.md")
+	builder.SetVariable("gen_skill_path", "<tmp>/rick-dream-skill-gen-skill-*.md")
+	builder.SetVariable("gen_loop_path", "<tmp>/rick-dream-skill-gen-loop-*.md")
 	builder.SetVariable("rick_bin_path", "<rick>")
 	content, err := builder.Build()
 	if err != nil {
@@ -62,11 +62,11 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 	if err != nil {
 		return "", nil, err
 	}
-	sourceContextFile, err := WriteSkillFile(promptsDir, "skill_source_context_consistency.md", "source-context-consistency")
+	genSkillFile, err := WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
 	if err != nil {
 		return "", nil, err
 	}
-	refactorRFCFile, err := WriteSkillFile(promptsDir, "skill_refactor_rfc.md", "refactor-rfc")
+	genLoopFile, err := WriteSkillFile(promptsDir, "skill_gen_loop.md", "gen-loop")
 	if err != nil {
 		return "", nil, err
 	}
@@ -81,8 +81,8 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 	builder.SetVariable("skills_dir", skillsDir)
 	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("evolve_skills_skill_path", evolveFile)
-	builder.SetVariable("source_context_consistency_skill_path", sourceContextFile)
-	builder.SetVariable("refactor_rfc_skill_path", refactorRFCFile)
+	builder.SetVariable("gen_skill_path", genSkillFile)
+	builder.SetVariable("gen_loop_path", genLoopFile)
 	projectRoot, _ := os.Getwd()
 	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
 

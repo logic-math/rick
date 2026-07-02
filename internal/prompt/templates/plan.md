@@ -10,8 +10,6 @@
 
 {{loops_context}}
 
-如需创建或更新 SPEC，参考 skill:write_spec：`{{write_spec_skill_path}}`
-
 ---
 
 ## 二、项目探索
@@ -107,18 +105,18 @@ task1, task2  （无依赖则留空）
 
 1. **Loops 上下文初始化**：读取上方 `{{loops_context}}` 中列出的项目已有 loop 模式，了解项目积累的工作流经验；如有相关 loop 文件，读取触发条件与范围，判断本次需求是否匹配某个已有 loop
 
-2. **探索项目**：探索业务项目的源码，了解足够的事实信息；读取 `.rick/SPEC.md`（如存在）了解技术规范
+2. **探索项目**：探索业务项目的源码，了解足够的事实信息；读取 `.rick/loops/` 和 `.rick/skills/` 了解项目已有工作流和技能
 
 3. **grilling 追问**：加载 skill:grilling（路径：`{{grilling_skill_path}}`），对用户需求逐问追问，给出推荐答案，将需求澄清到具体可落实的代码路径或工具调用级别，达到终止条件后再继续
 
-4. **方案设计**：在 SPEC 约束下给出技术方案，说明主要决策点
+4. **方案设计**：在已有 loops/skills 约束下给出技术方案，说明主要决策点
 
 5. **任务分解**：模块化分解，验证无循环依赖，确认可拓扑排序
 
 6. **六维评审**（每个 subagent 独立启动，**串行执行**，上一个完成后再启动下一个）：
    - subagent_1：一致性检查 —— 任务目标与每个 task{n}.md 的任务目标对齐，确认每个 task 的交付物都能推进对应的 KR
-   - subagent_2：SPEC 合规检查 —— 逐条比对 SPEC 规范，确认 task 描述不违反任何约束
-   - subagent_3：skills 利用检查 —— 检查 SPEC 技能列表中的 skills 是否在合适的 task 中被引用和使用
+   - subagent_2：loops/skills 利用检查 —— 检查 `.rick/loops/` 和 `.rick/skills/` 中已有的工作流与技能是否在合适的 task 中被引用和使用
+   - subagent_3：依赖关系完整性 —— 确认所有 task 依赖的库、接口、数据结构在项目中已存在或在前置 task 中会被创建
    - subagent_4：执行风险推演 —— 阅读项目源码，逐 task 模拟真实执行过程：AI agent 会读哪些文件、调哪些接口、遇到哪些编译错误或运行时异常？暴露可能导致任务失败的风险点与卡点，在 task.md 中提前补充约束说明或修正任务描述
    - subagent_5：测试用例完整性 —— 参考 skill:tdd（`{{tdd_skill_path}}`）和 skill:testing-anti-patterns（`{{testing_anti_patterns_path}}`），检查每个 task 的测试方法是否覆盖四要素（前置条件/输入参数/操作序列/预期输出），同时验证无测试反模式（如测试 mock 行为、仅用于测试的生产方法等）
    - subagent_6：端到端验证设计 —— 以用户视角设计可复用的验收测试方法：明确用户操作入口、预期的可观测输出、异常路径的兜底验证，确保交付产物质量可被客观检验

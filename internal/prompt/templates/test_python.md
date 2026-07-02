@@ -17,12 +17,6 @@
 **Task Name**: {{task_name}}
 **Task Goal**: {{task_goal}}
 
-### Job OKR
-{{okr_content}}
-
-### 项目 SPEC
-{{spec_content}}
-
 ### 问题记录
 {{debug_content}}
 

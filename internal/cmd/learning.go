@@ -20,7 +20,7 @@ func NewLearningCmd() *cobra.Command {
 	learningCmd := &cobra.Command{
 		Use:   "learning [job_id]",
 		Short: "Analyze and document learnings from job execution",
-		Long:  `Analyze execution results and update documentation (OKR, SPEC, wiki, skills).`,
+		Long:  `Analyze execution results and update loops, skills, and SUMMARY.md.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if GetVerbose() {
@@ -69,9 +69,8 @@ type ExecutionData struct {
 	JobID        string
 	DebugContent string // raw content of debug.md, embedded directly in prompt
 	TasksJSON    *executor.TasksJSON
-	OKRContent   string
 	TaskMDPaths  []string
-	SpecPath     string
+	RickDir      string
 	ActPathFiles []string
 }
 
@@ -95,14 +94,11 @@ func runLearningDryRun(jobID string) error {
 
 	data := &ExecutionData{
 		JobID:        jobID,
-		SpecPath:     filepath.Join(rickDir, "SPEC.md"),
+		RickDir:      rickDir,
 		TaskMDPaths:  []string{},
 		ActPathFiles: []string{},
 	}
 
-	if content, err := os.ReadFile(filepath.Join(jobDir, "plan", "OKR.md")); err == nil {
-		data.OKRContent = string(content)
-	}
 	doingDir := filepath.Join(jobDir, "doing")
 	data.DebugContent = executor.LoadDebugContext(doingDir)
 
@@ -164,8 +160,8 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 	}
 
 	data := &ExecutionData{
-		JobID:    jobID,
-		SpecPath: filepath.Join(rickDir, "SPEC.md"),
+		JobID:   jobID,
+		RickDir: rickDir,
 	}
 
 	// Load debug context: prefers debug/ summaries, falls back to debug.md
@@ -185,16 +181,8 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 		return nil, fmt.Errorf("tasks.json not found: %s", tasksJSONPath)
 	}
 
-	// OKR.md — full content load
-	planDir := filepath.Join(jobDir, "plan")
-	if content, err := os.ReadFile(filepath.Join(planDir, "OKR.md")); err == nil {
-		data.OKRContent = string(content)
-		fmt.Printf("✅ Read OKR.md (%d bytes)\n", len(content))
-	} else {
-		fmt.Println("⚠ OKR.md not found (skipping)")
-	}
-
 	// task*.md paths
+	planDir := filepath.Join(jobDir, "plan")
 	taskFiles, err := filepath.Glob(filepath.Join(planDir, "task*.md"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to glob task files: %w", err)
@@ -283,24 +271,39 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 		return "", fmt.Errorf("failed to load learning template: %w", err)
 	}
 
+	// Resolve paths for skill variable substitution
+	loopsDir := filepath.Join(data.RickDir, "loops")
+	skillsDir := filepath.Join(data.RickDir, "skills")
+	projectRoot, _ := os.Getwd()
+	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
+
+	genSkillFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-skill: %w", err)
+	}
+	genLoopFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_loop.md", "gen-loop")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-loop: %w", err)
+	}
+
+	learningLoopFile, err := prompt.WriteSkillFileWithVars(promptsDir, "learning_loop.md", "learning_loop", map[string]string{
+		"job_id":         data.JobID,
+		"learning_dir":   learningDir,
+		"loops_dir":      loopsDir,
+		"skills_dir":     skillsDir,
+		"rick_bin_path":  rickBinPath,
+		"gen_skill_path": genSkillFile,
+		"gen_loop_path":  genLoopFile,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to write learning_loop skill: %w", err)
+	}
+
 	builder := prompt.NewPromptBuilder(template)
 
 	builder.SetVariable("job_id", data.JobID)
-	builder.SetVariable("learning_dir", learningDir)
-
-	// OKR — full content
-	if data.OKRContent != "" {
-		builder.SetVariable("okr_content", data.OKRContent)
-	} else {
-		builder.SetVariable("okr_content", "（本 job 无 OKR.md）")
-	}
-
-	rickDir := filepath.Dir(data.SpecPath) // .rick/SPEC.md → .rick/
-	loopsDir := filepath.Join(rickDir, "loops")
-	skillsDir := filepath.Join(rickDir, "skills")
-	builder.SetVariable("loops_dir", loopsDir)
-	builder.SetVariable("skills_dir", skillsDir)
 	builder.SetVariable("loops_context", prompt.LoadLoopsContext(loopsDir))
+	builder.SetVariable("learning_loop_path", learningLoopFile)
 
 	// debug.md — embed content directly
 	if data.DebugContent != "" {
@@ -351,12 +354,7 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 	}
 	builder.SetVariable("task_execution_results", taskResults.String())
 
-	// rick_bin_path
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		projectRoot = "."
-	}
-	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
+	builder.SetVariable("rick_bin_path", rickBinPath)
 
 	promptFile := filepath.Join(promptsDir, "learning_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {

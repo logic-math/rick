@@ -10,10 +10,8 @@ import (
 	"github.com/sunquan/rick/internal/parser"
 )
 
-// GenerateEasyPromptFile generates the easy mode interactive prompt.
-// Persisted to doingDir/prompts/ so it survives session exits.
+// GenerateEasyPromptFile generates the easy mode interactive prompt using the shared doing.md template.
 // ctxPath is optional; when non-empty the prompt includes ctx-inheritance instructions.
-// Returns mainFile (easy_prompt.md), skill tmp files, error.
 func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string, []string, error) {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 
@@ -21,60 +19,64 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
 	}
-	tddFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
-	if err != nil {
-		return "", nil, err
-	}
-	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
-	if err != nil {
-		return "", nil, err
-	}
-	debugSkillFile, err := WriteSkillFileWithVars(promptsDir, "skill_debug_skill.md", "debug_skill", map[string]string{
-		"sense_skill_path": senseFile,
-	})
-	if err != nil {
-		return "", nil, err
-	}
 	grillingFile, err := WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
 	if err != nil {
 		return "", nil, err
 	}
-	loopProtocolFile, err := WriteSkillFile(promptsDir, "loop_protocol.md", "loop_protocol")
+	// Write learning loop and its dependencies upfront so the agent can trigger
+	// learning at any point during the session.
+	projectRoot, _ := os.Getwd()
+	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
+	learningDir := filepath.Join(rickDir, "jobs", jobID, "learning")
+	loopsDir := filepath.Join(rickDir, "loops")
+	skillsDir := filepath.Join(rickDir, "skills")
+
+	genSkillFile, err := WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
 	if err != nil {
 		return "", nil, err
 	}
-	skillFiles := []string{tddFile, debugSkillFile, senseFile, grillingFile, loopProtocolFile}
+	genLoopFile, err := WriteSkillFile(promptsDir, "skill_gen_loop.md", "gen-loop")
+	if err != nil {
+		return "", nil, err
+	}
+	learningLoopFile, err := WriteSkillFileWithVars(promptsDir, "learning_loop.md", "learning_loop", map[string]string{
+		"job_id":         jobID,
+		"learning_dir":   learningDir,
+		"loops_dir":      loopsDir,
+		"skills_dir":     skillsDir,
+		"rick_bin_path":  rickBinPath,
+		"gen_skill_path": genSkillFile,
+		"gen_loop_path":  genLoopFile,
+	})
+	if err != nil {
+		return "", nil, err
+	}
 
-	debugContent := loadDebugContextLocal(doingDir)
-	if debugContent == "" {
-		debugContent = "暂无（首次会话）"
+	skillFiles := []string{grillingFile, genSkillFile, genLoopFile, learningLoopFile}
+
+	debugContext := loadDebugContextLocal(doingDir)
+	if debugContext == "" {
+		debugContext = "暂无（首次会话）"
 	}
 
 	mgr := NewPromptManager()
-	tmpl, err := mgr.LoadTemplate("easy")
+	tmpl, err := mgr.LoadTemplate("doing")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to load easy template: %w", err)
+		return "", nil, fmt.Errorf("failed to load doing template: %w", err)
 	}
 
-	projectRoot, _ := os.Getwd()
-	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
-	learningPromptPath := filepath.Join(promptsDir, "easy_learning_prompt.md")
-	loopsDir := filepath.Join(rickDir, "loops")
-
 	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("task_info_section", "")
+	builder.SetVariable("requirement", buildRequirementSection(requirement))
+	builder.SetVariable("grilling_section", buildGrillingSection(grillingFile, doingDir))
+	builder.SetVariable("import_ctx_content", buildCtxSection(ctxPath, rickDir))
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
-	builder.SetVariable("debug_content", debugContent)
-	builder.SetVariable("requirement", requirement)
-	builder.SetVariable("doing_dir", doingDir)
-	builder.SetVariable("tdd_skill_path", tddFile)
-	builder.SetVariable("debug_skill_path", debugSkillFile)
-	builder.SetVariable("sense_skill_path", senseFile)
-	builder.SetVariable("grilling_skill_path", grillingFile)
-	builder.SetVariable("loop_protocol_path", loopProtocolFile)
-	builder.SetVariable("learning_prompt_path", learningPromptPath)
+	builder.SetVariable("debug_context", debugContext)
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
+	builder.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
 	builder.SetVariable("rick_bin_path", rickBinPath)
+	builder.SetVariable("check_command", "easy_check")
 	builder.SetVariable("job_id", jobID)
-	builder.SetVariable("ctx_section", buildCtxSection(ctxPath, rickDir))
 
 	mainContent, err := builder.Build()
 	if err != nil {
@@ -97,31 +99,28 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	}
 
 	mgr := NewPromptManager()
-	tmpl, err := mgr.LoadTemplate("easy")
+	tmpl, err := mgr.LoadTemplate("doing")
 	if err != nil {
-		return "", fmt.Errorf("failed to load easy template: %w", err)
+		return "", fmt.Errorf("failed to load doing template: %w", err)
 	}
 
 	projectRoot, _ := os.Getwd()
 	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
-	doingDir := filepath.Join(rickDir, "jobs", "job_N", "doing")
-	promptsDir := filepath.Join(doingDir, "prompts")
+	promptsDir := filepath.Join(rickDir, "jobs", "job_N", "doing", "prompts")
 	loopsDir := filepath.Join(rickDir, "loops")
 
 	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("task_info_section", "")
+	builder.SetVariable("requirement", buildRequirementSection(requirement))
+	builder.SetVariable("grilling_section", buildGrillingSection(filepath.Join(promptsDir, "skill_grilling.md"), ""))
+	builder.SetVariable("import_ctx_content", buildCtxSection(ctxPath, rickDir))
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
-	builder.SetVariable("debug_content", "暂无（首次会话）")
-	builder.SetVariable("requirement", requirement)
-	builder.SetVariable("doing_dir", doingDir)
-	builder.SetVariable("tdd_skill_path", filepath.Join(promptsDir, "skill_tdd_zh.md"))
-	builder.SetVariable("debug_skill_path", filepath.Join(promptsDir, "skill_debug_skill.md"))
-	builder.SetVariable("sense_skill_path", filepath.Join(promptsDir, "skill_sense.md"))
-	builder.SetVariable("grilling_skill_path", filepath.Join(promptsDir, "skill_grilling.md"))
-	builder.SetVariable("loop_protocol_path", filepath.Join(promptsDir, "loop_protocol.md"))
-	builder.SetVariable("learning_prompt_path", filepath.Join(promptsDir, "easy_learning_prompt.md"))
+	builder.SetVariable("debug_context", "暂无（首次会话）")
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
+	builder.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
 	builder.SetVariable("rick_bin_path", rickBinPath)
+	builder.SetVariable("check_command", "easy_check")
 	builder.SetVariable("job_id", "job_N")
-	builder.SetVariable("ctx_section", buildCtxSection(ctxPath, rickDir))
 
 	return builder.Build()
 }
@@ -148,36 +147,48 @@ func GenerateEasyLearningPromptFile(jobID, rickDir string) (string, error) {
 		return "", fmt.Errorf("failed to load learning template: %w", err)
 	}
 
-	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("job_id", jobID)
-	builder.SetVariable("learning_dir", learningDir)
-
-	okrContent := readFileOrDefault(filepath.Join(rickDir, "OKR.md"), "（本 job 无 OKR.md）")
-	builder.SetVariable("okr_content", okrContent)
-
 	loopsDir := filepath.Join(rickDir, "loops")
 	skillsDir := filepath.Join(rickDir, "skills")
-	builder.SetVariable("loops_dir", loopsDir)
-	builder.SetVariable("skills_dir", skillsDir)
-	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
-
-	debugContent := loadDebugContextLocal(doingDir)
-	if debugContent == "" {
-		debugContent = "（本次 job 无 debug 记录）"
-	}
-	builder.SetVariable("debug_content", debugContent)
-
-	// easy mode has no task*.md files
-	builder.SetVariable("task_md_files", "  （easy 模式无 task*.md 文件）")
-
-	// easy mode has no per-task act-path.md
-	builder.SetVariable("act_path_files", "  （easy 模式无 act-path.md 文件）")
-
-	// tasks.json: easy session writes a single easy_session task
-	builder.SetVariable("task_execution_results", buildEasyTaskResults(doingDir))
-
 	projectRoot, _ := os.Getwd()
-	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
+	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
+
+	genSkillFile, err := WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-skill: %w", err)
+	}
+	genLoopFile, err := WriteSkillFile(promptsDir, "skill_gen_loop.md", "gen-loop")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-loop: %w", err)
+	}
+
+	learningLoopFile, err := WriteSkillFileWithVars(promptsDir, "learning_loop.md", "learning_loop", map[string]string{
+		"job_id":         jobID,
+		"learning_dir":   learningDir,
+		"loops_dir":      loopsDir,
+		"skills_dir":     skillsDir,
+		"rick_bin_path":  rickBinPath,
+		"gen_skill_path": genSkillFile,
+		"gen_loop_path":  genLoopFile,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to write learning_loop skill: %w", err)
+	}
+
+	builder := NewPromptBuilder(tmpl)
+	builder.SetVariable("job_id", jobID)
+	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
+	builder.SetVariable("learning_loop_path", learningLoopFile)
+
+	debugContext := loadDebugContextLocal(doingDir)
+	if debugContext == "" {
+		debugContext = "（本次 job 无 debug 记录）"
+	}
+	builder.SetVariable("debug_content", debugContext)
+
+	builder.SetVariable("task_md_files", "  （easy 模式无 task*.md 文件）")
+	builder.SetVariable("act_path_files", "  （easy 模式无 act-path.md 文件）")
+	builder.SetVariable("task_execution_results", buildEasyTaskResults(doingDir))
+	builder.SetVariable("rick_bin_path", rickBinPath)
 
 	promptFile := filepath.Join(promptsDir, "easy_learning_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {
@@ -202,25 +213,63 @@ func buildEasyTaskResults(doingDir string) string {
 	return header + fmt.Sprintf("| easy_session | Easy Mode Session | %s | N/A | 1 |\n", status)
 }
 
-// buildCtxSection renders the easy_ctx.md template with ctxPath and localRickDir.
+// buildRequirementSection wraps the user requirement in a prompt section.
+func buildRequirementSection(requirement string) string {
+	if requirement == "" {
+		return ""
+	}
+	return fmt.Sprintf("## 用户需求\n\n%s\n", requirement)
+}
+
+// buildGrillingSection builds the grilling prompt block with the actual skill file path.
+// doingDir is used for the requirement.md write-back path; pass "" in dry-run.
+func buildGrillingSection(grillingFilePath, doingDir string) string {
+	writeBack := ""
+	if doingDir != "" {
+		writeBack = fmt.Sprintf("\n**Grilling 结束后**，将澄清结论追加到 `%s/requirement.md`（只追加，不替换）。\n", doingDir)
+	}
+	return fmt.Sprintf("## Grilling 追问（需求澄清）\n\n在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。\n\n**加载并执行 skill:grilling**：`%s`%s\n", grillingFilePath, writeBack)
+}
+
+// buildSessionWrapSection returns the learning trigger section injected at the end of easy prompts.
+func buildSessionWrapSection(learningLoopPath string) string {
+	return fmt.Sprintf(`---
+
+## Learning 触发
+
+编码工作完成后，**启动子 Agent 执行 Learning Loop**，沉淀本次会话的 loops 和 skills：
+
+`+"`%s`", learningLoopPath)
+}
+
+// buildCtxSection renders skills/import_ctx.md with ctxPath and localRickDir substituted.
 // Returns empty string when ctxPath is empty (no inheritance).
 func buildCtxSection(ctxPath, localRickDir string) string {
 	if ctxPath == "" {
 		return ""
 	}
-	mgr := NewPromptManager()
-	tmpl, err := mgr.LoadTemplate("easy_ctx")
-	if err != nil {
+	raw := LoadCoreSkills([]string{"import_ctx"})
+	if raw == "" {
 		return ""
 	}
-	builder := NewPromptBuilder(tmpl)
-	builder.SetVariable("ctx_path", ctxPath)
-	builder.SetVariable("local_rick_dir", localRickDir)
-	content, err := builder.Build()
-	if err != nil {
-		return ""
-	}
+	// Strip YAML frontmatter (---\n...\n---\n)
+	content := stripYAMLFrontmatter(raw)
+	content = strings.ReplaceAll(content, "{{ctx_path}}", ctxPath)
+	content = strings.ReplaceAll(content, "{{local_rick_dir}}", localRickDir)
 	return content
+}
+
+// stripYAMLFrontmatter removes the leading ---...--- YAML block if present.
+func stripYAMLFrontmatter(s string) string {
+	if !strings.HasPrefix(s, "---\n") {
+		return s
+	}
+	rest := s[4:]
+	idx := strings.Index(rest, "\n---\n")
+	if idx < 0 {
+		return s
+	}
+	return strings.TrimLeft(rest[idx+5:], "\n")
 }
 
 // loadDebugContextLocal mirrors executor.LoadDebugContext without creating a circular import.

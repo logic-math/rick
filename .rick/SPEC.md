@@ -141,3 +141,5 @@
 | tasks_json_commit_hash | doing_check 报错 commit_hash 缺失 | .rick/wiki/tasks_json_commit_hash.md |
 | mark-task-success | doing_check 因 tasks.json status 非 success 失败 | .rick/wiki/mark_task_success_workflow.md |
 | adding-new-skill-to-templates | 向 plan/easy 模板注入新 skill（WriteSkillFile 模式） | .rick/wiki/adding_new_skill_to_templates.md |
+| global-ref-sync-before-rename | 修改核心名称/变量前先全局 grep 找出所有引用再批量更新 | .rick/wiki/global_ref_sync_before_rename.md |
+| check-cobra-registration | 验证 internal/cmd/*.go 中所有 NewXxxCmd() 都在 root.go 注册 | .rick/tools/check_cobra_registration.py |

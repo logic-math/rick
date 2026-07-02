@@ -10,16 +10,18 @@ import (
 
 // Path constants for the Rick workspace structure
 const (
-	RickDirName    = ".rick"
-	RickDevDirName = ".rick_dev"
-	OKRFileName    = "OKR.md"
-	SpecFileName   = "SPEC.md"
-	WikiDirName    = "wiki"
-	JobsDirName    = "jobs"
-	PlanDirName    = "plan"
-	DoingDirName   = "doing"
+	RickDirName     = ".rick"
+	RickDevDirName  = ".rick_dev"
+	OKRFileName     = "OKR.md"  // deprecated: kept for migration compatibility
+	SpecFileName    = "SPEC.md" // deprecated: kept for migration compatibility
+	WikiDirName     = "wiki"    // deprecated: kept for migration compatibility
+	LoopsDirName    = "loops"
+	SkillsDirName   = "skills"
+	JobsDirName     = "jobs"
+	PlanDirName     = "plan"
+	DoingDirName    = "doing"
 	LearningDirName = "learning"
-	DreamDirName   = "dream"
+	DreamDirName    = "dream"
 )
 
 // GetHomeDir returns the user's home directory

@@ -47,8 +47,6 @@ type TestResult struct {
 
 // TestGenContext provides optional additional context for test generation prompts.
 type TestGenContext struct {
-	OKRContent   string
-	SPECContent  string
 	DebugContent string
 }
 
@@ -156,12 +154,7 @@ func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 		return testScriptPath, nil
 	}
 
-	// Load OKR / SPEC / debug content from workspace files
-	jobDir := filepath.Dir(tr.config.WorkspaceDir)
-	rickDir := filepath.Dir(filepath.Dir(jobDir))
 	genCtx := TestGenContext{
-		OKRContent:   loadFileContent(filepath.Join(jobDir, "plan", "OKR.md")),
-		SPECContent:  loadFileContent(filepath.Join(rickDir, "SPEC.md")),
 		DebugContent: LoadDebugContext(tr.config.WorkspaceDir),
 	}
 
@@ -210,8 +203,6 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 	builder.SetVariable("task_goal", task.Goal)
 	builder.SetVariable("test_method", task.TestMethod)
 	builder.SetVariable("test_script_path", testScriptPath)
-	builder.SetVariable("okr_content", genCtx.OKRContent)
-	builder.SetVariable("spec_content", genCtx.SPECContent)
 	builder.SetVariable("debug_content", genCtx.DebugContent)
 	builder.SetVariable("tdd_skill_path", tddZhFile)
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
@@ -242,18 +233,6 @@ func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext st
 	if tr.config.WorkspaceDir != "" {
 		jobDir := filepath.Dir(tr.config.WorkspaceDir) // .rick/jobs/job_X
 		rickDir = filepath.Dir(filepath.Dir(jobDir))   // .rick
-
-		// OKR: from job_N/plan/OKR.md
-		jobOKRPath := filepath.Join(jobDir, "plan", "OKR.md")
-		if _, err := os.Stat(jobOKRPath); err == nil {
-			contextMgr.LoadOKRFromFile(jobOKRPath)
-		}
-
-		// SPEC: from .rick/SPEC.md
-		specPath := filepath.Join(rickDir, "SPEC.md")
-		if _, err := os.Stat(specPath); err == nil {
-			contextMgr.LoadSPECFromFile(specPath)
-		}
 
 		// Debug: prefer debug/ summaries, fall back to debug.md
 		contextMgr.SetDebugRaw(LoadDebugContext(tr.config.WorkspaceDir))

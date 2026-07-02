@@ -76,7 +76,7 @@ func TestGenerateEasyPromptFile_LoopProtocolInjected(t *testing.T) {
 	rickDir := t.TempDir()
 	jobID := "job_test_easy_loop_protocol"
 
-	mainFile, skillFiles, err := GenerateEasyPromptFile(jobID, "test requirement", rickDir, "")
+	mainFile, _, err := GenerateEasyPromptFile(jobID, "test requirement", rickDir, "")
 	if err != nil {
 		t.Fatalf("GenerateEasyPromptFile failed: %v", err)
 	}
@@ -87,30 +87,17 @@ func TestGenerateEasyPromptFile_LoopProtocolInjected(t *testing.T) {
 	}
 	prompt := string(content)
 
-	if !strings.Contains(prompt, "loop_protocol.md") {
-		t.Error("Expected prompt to contain loop_protocol.md reference")
+	// doing_loop content must be embedded (not a file reference)
+	if strings.Contains(prompt, "{{doing_loop_content}}") {
+		t.Error("doing_loop_content must be replaced, found unreplaced {{doing_loop_content}}")
 	}
-	if strings.Contains(prompt, "{{loop_protocol_path}}") {
-		t.Error("Expected loop_protocol_path variable to be replaced, found unreplaced {{loop_protocol_path}}")
+	if strings.Contains(prompt, "{{doing_loop_path}}") {
+		t.Error("doing_loop_path must not appear — content is now embedded")
 	}
-
-	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
-	promptsDir := filepath.Join(doingDir, "prompts")
-	loopProtocolFile := filepath.Join(promptsDir, "loop_protocol.md")
-	if _, err := os.Stat(loopProtocolFile); os.IsNotExist(err) {
-		t.Error("Expected loop_protocol.md to be written in prompts dir")
+	if !strings.Contains(prompt, "Doing Loop") {
+		t.Error("Expected prompt to contain embedded doing_loop content ('Doing Loop')")
 	}
 
-	found := false
-	for _, f := range skillFiles {
-		if strings.Contains(f, "loop_protocol") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("Expected skillFiles to include loop_protocol.md path")
-	}
 }
 
 func TestGenerateEasyLearningPromptFile_LearningVarsInjected(t *testing.T) {
@@ -160,12 +147,12 @@ func TestGenerateEasyLearningPromptFile_LearningVarsInjected(t *testing.T) {
 		t.Error("Expected prompt to contain '可用的项目 Loops' from loops_context injection")
 	}
 
-	// resolved paths must reference rickDir
-	if !strings.Contains(p, filepath.Join(rickDir, "loops")) {
-		t.Errorf("Expected prompt to contain loops_dir path %s", filepath.Join(rickDir, "loops"))
+	// learning_loop_path must be resolved (not literal)
+	if strings.Contains(p, "{{learning_loop_path}}") {
+		t.Error("learning_loop_path not resolved — literal {{learning_loop_path}} found in output")
 	}
-	if !strings.Contains(p, filepath.Join(rickDir, "skills")) {
-		t.Errorf("Expected prompt to contain skills_dir path %s", filepath.Join(rickDir, "skills"))
+	if !strings.Contains(p, "learning_loop.md") {
+		t.Error("Expected prompt to reference learning_loop.md path")
 	}
 }
 

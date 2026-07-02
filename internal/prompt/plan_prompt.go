@@ -52,7 +52,6 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	builder.SetVariable("job_id", extractJobID(jobPlanDir))
 	builder.SetVariable("grilling_skill_path", "<tmp>/rick-plan-prompts/skill_grilling.md")
-	builder.SetVariable("write_spec_skill_path", "<tmp>/rick-plan-skill-write_spec-*.md")
 	builder.SetVariable("tdd_skill_path", "<tmp>/rick-plan-skill-tdd-zh-*.md")
 	builder.SetVariable("testing_anti_patterns_path", "<tmp>/rick-plan-skill-testing-anti-patterns-zh-*.md")
 	builder.SetVariable("debug_skill_path", "<doing-prompts>/skill_debug_skill.md")
@@ -82,10 +81,6 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	if err != nil {
 		return "", nil, err
 	}
-	writeSpecFile, err := WriteSkillFile(promptsDir, "skill_write_spec.md", "write_spec")
-	if err != nil {
-		return "", nil, err
-	}
 	tddZhFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
 	if err != nil {
 		return "", nil, err
@@ -108,7 +103,6 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	debugSkillPath := filepath.Join(doingPromptsDir, "skill_debug_skill.md")
 
 	builder.SetVariable("grilling_skill_path", grillingFile)
-	builder.SetVariable("write_spec_skill_path", writeSpecFile)
 	builder.SetVariable("tdd_skill_path", tddZhFile)
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
 	builder.SetVariable("debug_skill_path", debugSkillPath)

@@ -178,25 +178,6 @@ func runPlanCheck(planDir string) error {
 		return fmt.Errorf("dependency check failed: %w", err)
 	}
 
-	// 6. OKR.md exists in plan directory and has meaningful content
-	okrPath := filepath.Join(planDir, "OKR.md")
-	if _, err := os.Stat(okrPath); os.IsNotExist(err) {
-		return fmt.Errorf("OKR.md not found in plan directory: %s", planDir)
-	}
-	if !fileHasMeaningfulContent(okrPath) {
-		return fmt.Errorf("OKR.md has no meaningful content (only stub headers): %s", okrPath)
-	}
-
-	// 7. Project-level .rick/SPEC.md has meaningful content
-	// planDir is .rick/jobs/job_N/plan — go up 3 levels to reach .rick
-	rickDir := filepath.Dir(filepath.Dir(filepath.Dir(planDir)))
-	specPath := filepath.Join(rickDir, "SPEC.md")
-	if _, err := os.Stat(specPath); err == nil {
-		if !fileHasMeaningfulContent(specPath) {
-			return fmt.Errorf("SPEC.md has no meaningful content (only stub headers): %s\nPlease fill in architecture, build instructions, and skill list", specPath)
-		}
-	}
-
 	fmt.Printf("✅ plan check passed: %d tasks, dependencies valid\n", len(tasks))
 	return nil
 }
@@ -262,8 +243,6 @@ Please fix the above errors in the plan directory. Make sure:
 2. Each task*.md contains the required sections: # 依赖关系, # 任务名称, # 任务目标, # 关键结果, # 测试方法
 3. All dependency references point to existing task files
 4. There are no circular dependencies between tasks
-5. OKR.md exists in the plan directory with the job's objectives and key results
-
 Fix the files in place without changing the task content, only adding missing sections or correcting dependency references.
 `, planDir, checkErr)
 

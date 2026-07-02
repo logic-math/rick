@@ -559,12 +559,6 @@ func runDoingDryRun(jobID string) error {
 
 	contextMgr := prompt.NewContextManager("doing")
 
-	// Load job-level OKR from job_N/plan/OKR.md
-	jobOKRPath := filepath.Join(planDir, "OKR.md")
-	if _, err := os.Stat(jobOKRPath); err == nil {
-		contextMgr.LoadOKRFromFile(jobOKRPath)
-	}
-
 	promptMgr := prompt.NewPromptManager("")
 
 	promptFile, _, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, doingDir, rickDir)

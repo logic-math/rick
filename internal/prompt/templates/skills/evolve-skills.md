@@ -31,12 +31,12 @@
 ## 审计流程
 
 ```
-1. 列出 .rick/skills/ 技能列表（从 SPEC.md 技能列表章节读取）
+1. 扫描 .rick/skills/ 目录，列出所有 {name}_skill/ 目录
 2. 读取 `.rick/dream/dream_run_*_log.md`，从"Skills 变更"章节统计每个技能的使用与出错次数
 3. 应用上述决策逻辑
-4. 对"升级"技能：原地重写，添加版本注释
-5. 对"淘汰"技能：删除文件，更新 SPEC.md 技能列表
-6. 运行测试确保没有断开的引用
+4. 对"升级"技能：原地修改 {name}_skill/skill.md（及同目录 .py 文件）
+5. 对"淘汰"技能：移至 .rick/skills/deprecated/ 目录
+6. 确保淘汰的 skill 在 loops 中的引用同步更新
 ```
 
 ## 边界情况

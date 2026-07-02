@@ -46,12 +46,6 @@ var (
 	//go:embed templates/dream.md
 	dreamTemplate string
 
-	//go:embed templates/easy.md
-	easyTemplate string
-
-	//go:embed templates/easy_ctx.md
-	easyCtxTemplate string
-
 	//go:embed templates/ctrl.md
 	ctrlTemplate string
 
@@ -148,9 +142,7 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 	case "dream":
 		return dreamTemplate
 	case "easy":
-		return easyTemplate
-	case "easy_ctx":
-		return easyCtxTemplate
+		return doingTemplate
 	case "ctrl":
 		return ctrlTemplate
 	default:

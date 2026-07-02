@@ -77,26 +77,14 @@ func (w *Workspace) CreateJobStructure(jobID string) error {
 func (w *Workspace) EnsureDirectories() error {
 	dirs := []string{
 		w.rickDir,
-		filepath.Join(w.rickDir, WikiDirName),
+		filepath.Join(w.rickDir, LoopsDirName),
+		filepath.Join(w.rickDir, SkillsDirName),
 		filepath.Join(w.rickDir, JobsDirName),
 		filepath.Join(w.rickDir, DreamDirName),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to ensure directory %s: %w", dir, err)
-		}
-	}
-
-	// Create stub files only if they don't exist yet
-	stubs := map[string]string{
-		filepath.Join(w.rickDir, OKRFileName):  "# OKR\n\n",
-		filepath.Join(w.rickDir, SpecFileName): "# SPEC\n\n## 调试环境\n\n## 架构设计\n\n## 编译与运行方法\n\n## 观测方法\n\n## 控制方法\n\n## 技能列表\n\n| 名称 | 触发词 | 路径 |\n|------|--------|------|\n",
-	}
-	for path, content := range stubs {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-				return fmt.Errorf("failed to create %s: %w", path, err)
-			}
 		}
 	}
 

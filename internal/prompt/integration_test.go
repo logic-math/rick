@@ -274,10 +274,8 @@ func TestIntegration_PromptsIncludeContextInfo(t *testing.T) {
 	}{
 		{"task name", "Complex Task", true},
 		{"task description", "This is a complex task", true},
-		{"dependencies", "task0", true},
 		{"key results", "KR1", true},
 		{"test methods", "Test method 1", true},
-		{"retry indication", "retry", false}, // May or may not be included
 	}
 
 	for _, check := range contextChecks {

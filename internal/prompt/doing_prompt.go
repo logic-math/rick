@@ -35,46 +35,27 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	// Create prompt builder
 	builder := NewPromptBuilder(template)
 
-	// Set task information
-	builder.SetVariable("task_id", task.ID)
-	builder.SetVariable("task_name", task.Name)
-
-	// Set task details
-	builder.SetVariable("task_objective", task.Goal)
-	builder.SetVariable("key_results", formatKeyResults(task.KeyResults))
-	builder.SetVariable("test_methods", task.TestMethod)
-
-	// Set project information
-	projectName, _ := workspace.GetProjectName()
-	builder.SetVariable("project_name", projectName)
-	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+	builder.SetVariable("task_info_section", formatTaskInfoSection(task))
+	builder.SetVariable("requirement", "")
+	builder.SetVariable("grilling_section", "")
+	builder.SetVariable("import_ctx_content", "")
+	builder.SetVariable("session_wrap_section", "")
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
 
 	// Set loops context from .rick/loops/
 	rickDir, _ := workspace.GetRickDir()
 	loopsDir := filepath.Join(rickDir, "loops")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 
-	// Set project architecture
-	projectArch := formatProjectArchitecture()
-	builder.SetVariable("project_architecture", projectArch)
-
-	// Set completed tasks
-	completedTasks := formatCompletedTasks(contextMgr.GetHistory())
-	builder.SetVariable("completed_tasks", completedTasks)
-
-	// Set task dependencies
-	taskDeps := formatTaskDependencies(task.Dependencies)
-	builder.SetVariable("task_dependencies", taskDeps)
-
-	// Always include debug context: prefer raw (from LoadDebugContext), fall back to parsed entries
+	// Debug context
 	debugContext := contextMgr.GetDebugRaw()
 	if debugContext == "" {
 		debugContext = formatDebugContext(contextMgr.GetDebug())
 	}
 	builder.SetVariable("debug_context", debugContext)
 
-	// Set rick_bin_path and job_id for check commands in template
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
+	builder.SetVariable("check_command", "doing_check")
 	jobID := contextMgr.GetJobID()
 	if jobID == "" || jobID == "doing" {
 		jobID = "job_N"
@@ -113,30 +94,7 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 		return "", nil, fmt.Errorf("failed to resolve prompts dir: %w", err)
 	}
 
-	// Write core skill files to prompts/
-	tddZhFile, err := WriteSkillFile(promptsDir, "skill_tdd_zh.md", "tdd-zh")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write tdd-zh skill: %w", err)
-	}
-	testingAntiPatternsFile, err := WriteSkillFile(promptsDir, "skill_testing_anti_patterns_zh.md", "testing-anti-patterns-zh")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write testing-anti-patterns-zh skill: %w", err)
-	}
-	senseFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write sense skill: %w", err)
-	}
-	debugSkillFile, err := WriteSkillFileWithVars(promptsDir, "skill_debug_skill.md", "debug_skill", map[string]string{
-		"sense_skill_path": senseFile,
-	})
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write debug_skill skill: %w", err)
-	}
-	loopProtocolFile, err := WriteSkillFile(promptsDir, "loop_protocol.md", "loop_protocol")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to write loop_protocol skill: %w", err)
-	}
-	skillFiles := []string{tddZhFile, testingAntiPatternsFile, debugSkillFile, senseFile, loopProtocolFile}
+	skillFiles := []string{}
 
 	// Load doing template
 	template, err := manager.LoadTemplate("doing")
@@ -147,54 +105,27 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	// Create prompt builder
 	builder := NewPromptBuilder(template)
 
-	// Set task information
-	builder.SetVariable("task_id", task.ID)
-	builder.SetVariable("task_name", task.Name)
-
-	// Set task details
-	builder.SetVariable("task_objective", task.Goal)
-	builder.SetVariable("key_results", formatKeyResults(task.KeyResults))
-	builder.SetVariable("test_methods", task.TestMethod)
-
-	// Set project information
-	projectName, _ := workspace.GetProjectName()
-	builder.SetVariable("project_name", projectName)
-	builder.SetVariable("project_description", "Context-First AI Coding Framework")
+	builder.SetVariable("task_info_section", formatTaskInfoSection(task))
+	builder.SetVariable("requirement", "")
+	builder.SetVariable("grilling_section", "")
+	builder.SetVariable("import_ctx_content", "")
+	builder.SetVariable("session_wrap_section", "")
 
 	// Set loops context from .rick/loops/
 	rickDirVal, _ := workspace.GetRickDir()
 	loopsDirVal := filepath.Join(rickDirVal, "loops")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDirVal))
 
-	// Set project architecture
-	projectArch := formatProjectArchitecture()
-	builder.SetVariable("project_architecture", projectArch)
-
-	// Set completed tasks
-	completedTasks := formatCompletedTasks(contextMgr.GetHistory())
-	builder.SetVariable("completed_tasks", completedTasks)
-
-	// Set task dependencies
-	taskDeps := formatTaskDependencies(task.Dependencies)
-	builder.SetVariable("task_dependencies", taskDeps)
-
-	// Always include debug context: prefer raw (from LoadDebugContext), fall back to parsed entries
+	// Debug context
 	debugContext := contextMgr.GetDebugRaw()
 	if debugContext == "" {
 		debugContext = formatDebugContext(contextMgr.GetDebug())
 	}
 	builder.SetVariable("debug_context", debugContext)
 
-	// Set skill paths for path injection
-	builder.SetVariable("tdd_skill_path", tddZhFile)
-	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
-	builder.SetVariable("debug_skill_path", debugSkillFile)
-	builder.SetVariable("sense_skill_path", senseFile)
-	builder.SetVariable("loop_protocol_path", loopProtocolFile)
-
-	// Set rick_bin_path, doing_dir and job_id for check commands in template
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
-	builder.SetVariable("doing_dir", doingDir)
+	builder.SetVariable("check_command", "doing_check")
 	jobIDVal := contextMgr.GetJobID()
 	if jobIDVal == "" || jobIDVal == "doing" {
 		jobIDVal = "job_N"
@@ -229,6 +160,28 @@ func readAndAppend(filePath, text string) ([]byte, error) {
 	return nil, err
 }
 
+// loadDoingLoopContent reads the doing_loop skill and strips its YAML frontmatter,
+// returning clean content ready for inline embedding in the doing template.
+func loadDoingLoopContent() string {
+	raw := LoadCoreSkills([]string{"doing_loop"})
+	return stripYAMLFrontmatter(raw)
+}
+
+// formatTaskInfoSection builds the ## 任务信息 block for injection into the doing template.
+func formatTaskInfoSection(task *parser.Task) string {
+	var sb strings.Builder
+	sb.WriteString("## 任务信息\n\n")
+	sb.WriteString(fmt.Sprintf("**任务 ID**: %s\n", task.ID))
+	sb.WriteString(fmt.Sprintf("**任务名称**: %s\n", task.Name))
+	sb.WriteString("\n### 任务目标\n")
+	sb.WriteString(task.Goal + "\n")
+	sb.WriteString("\n### 关键结果\n")
+	sb.WriteString(formatKeyResults(task.KeyResults) + "\n")
+	sb.WriteString("\n### 测试方法\n")
+	sb.WriteString(task.TestMethod + "\n")
+	return sb.String()
+}
+
 // formatKeyResults formats key results for the prompt
 func formatKeyResults(keyResults []string) string {
 	if len(keyResults) == 0 {
@@ -238,53 +191,6 @@ func formatKeyResults(keyResults []string) string {
 	var content strings.Builder
 	for i, kr := range keyResults {
 		content.WriteString(fmt.Sprintf("%d. %s\n", i+1, kr))
-	}
-
-	return content.String()
-}
-
-// formatProjectArchitecture formats project architecture information
-func formatProjectArchitecture() string {
-	return `Rick 项目采用模块化架构设计：
-
-**核心模块**:
-- infrastructure: 基础设施模块（Go 项目初始化、CLI、工作空间、配置、日志）
-- parser: 内容解析模块（Markdown、task.md、debug.md、OKR/SPEC 解析）
-- dag_executor: DAG 执行模块（DAG 构建、拓扑排序、任务执行、重试机制）
-- prompt_manager: 提示词管理模块（模板、构建、上下文、各阶段提示词生成）
-- cli_commands: 命令处理模块（init、plan、doing、learning 命令）
-
-**关键设计**:
-- 使用 Go 标准库为主，最小化外部依赖
-- 提示词管理是核心创新，支持多阶段提示词生成
-- 任务执行采用 DAG 拓扑排序，支持并行和串行执行
-- 失败重试机制，超过限制后需人工干预`
-}
-
-// formatCompletedTasks formats completed tasks for the prompt
-func formatCompletedTasks(history []string) string {
-	if len(history) == 0 {
-		return "暂无已完成的任务"
-	}
-
-	var content strings.Builder
-	for _, item := range history {
-		content.WriteString(fmt.Sprintf("- %s\n", item))
-	}
-
-	return content.String()
-}
-
-// formatTaskDependencies formats task dependencies for the prompt
-func formatTaskDependencies(dependencies []string) string {
-	if len(dependencies) == 0 {
-		return "该任务无依赖关系"
-	}
-
-	var content strings.Builder
-	content.WriteString("该任务依赖以下任务的完成：\n")
-	for _, dep := range dependencies {
-		content.WriteString(fmt.Sprintf("- %s\n", dep))
 	}
 
 	return content.String()

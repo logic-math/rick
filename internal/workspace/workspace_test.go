@@ -40,7 +40,8 @@ func TestInitWorkspace(t *testing.T) {
 
 	// Verify directories were created
 	requiredDirs := []string{
-		WikiDirName,
+		LoopsDirName,
+		SkillsDirName,
 		JobsDirName,
 	}
 
@@ -49,17 +50,6 @@ func TestInitWorkspace(t *testing.T) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("Directory %s was not created", dir)
 		}
-	}
-
-	// Verify files were created
-	okriPath := filepath.Join(ws.rickDir, OKRFileName)
-	if _, err := os.Stat(okriPath); os.IsNotExist(err) {
-		t.Error("OKR.md was not created")
-	}
-
-	specPath := filepath.Join(ws.rickDir, SpecFileName)
-	if _, err := os.Stat(specPath); os.IsNotExist(err) {
-		t.Error("SPEC.md was not created")
 	}
 }
 
@@ -178,7 +168,8 @@ func TestEnsureDirectories(t *testing.T) {
 
 	// Verify directories exist
 	requiredDirs := []string{
-		WikiDirName,
+		LoopsDirName,
+		SkillsDirName,
 		JobsDirName,
 	}
 
@@ -251,9 +242,8 @@ func TestPathConstants(t *testing.T) {
 	// Verify path constants are not empty
 	constants := map[string]string{
 		"RickDirName":     RickDirName,
-		"OKRFileName":     OKRFileName,
-		"SpecFileName":    SpecFileName,
-		"WikiDirName":     WikiDirName,
+		"LoopsDirName":    LoopsDirName,
+		"SkillsDirName":   SkillsDirName,
 		"JobsDirName":     JobsDirName,
 		"PlanDirName":     PlanDirName,
 		"DoingDirName":    DoingDirName,
@@ -356,10 +346,12 @@ func TestInitWorkspaceIdempotent(t *testing.T) {
 		t.Fatalf("Second InitWorkspace() failed: %v", err)
 	}
 
-	// Verify files still exist
-	okriPath := filepath.Join(ws.rickDir, OKRFileName)
-	if _, err := os.Stat(okriPath); os.IsNotExist(err) {
-		t.Error("OKR.md was removed")
+	// Verify loops/skills dirs still exist after second init
+	for _, dir := range []string{LoopsDirName, SkillsDirName} {
+		path := filepath.Join(ws.rickDir, dir)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Directory %s was removed by second init", dir)
+		}
 	}
 }
 
@@ -410,24 +402,12 @@ func TestInitWorkspaceFileContent(t *testing.T) {
 		t.Fatalf("InitWorkspace() failed: %v", err)
 	}
 
-	// Verify OKR.md content
-	okriPath := filepath.Join(ws.rickDir, OKRFileName)
-	content, err := os.ReadFile(okriPath)
-	if err != nil {
-		t.Fatalf("Failed to read OKR.md: %v", err)
-	}
-	if len(content) == 0 {
-		t.Error("OKR.md is empty")
-	}
-
-	// Verify SPEC.md content
-	specPath := filepath.Join(ws.rickDir, SpecFileName)
-	content, err = os.ReadFile(specPath)
-	if err != nil {
-		t.Fatalf("Failed to read SPEC.md: %v", err)
-	}
-	if len(content) == 0 {
-		t.Error("SPEC.md is empty")
+	// Verify loops/ and skills/ directories exist
+	for _, dir := range []string{LoopsDirName, SkillsDirName} {
+		path := filepath.Join(ws.rickDir, dir)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Directory %s was not created by InitWorkspace", dir)
+		}
 	}
 }
 
