@@ -129,7 +129,14 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 检查本次新增或修改的所有文件：
 
-1. **Loop 文件**：frontmatter 含 name/trigger/scope；有依赖准备节；每 Step 引用了 `.rick/{name}_skill/skill.md`；有产出评估节
+1. **Loop 文件**（Step 0-5 结构）：
+   - frontmatter 含 name / trigger / scope
+   - 有 Step 0（环境确认 + domain 搜索）
+   - 有 Step 1（Main Agent 确认全局目标）
+   - 有 Step 2（Main Agent 读取上下文）
+   - 有 Step 3（Sub Agent 工作流，且每个子步骤写明精确命令 + skill 引用）
+   - 有 Step 4（Main Agent 产出评估，含验证表格）
+   - 有 Step 5（停止标准，成功退出 + 优雅退出条件）
 2. **Skill 目录**：`{name}_skill/` 目录存在；`skill.md` 含触发场景 / 预期效果 / 核心内容三节
 
 **输出**：格式问题列表；全部合规则输出 ✅

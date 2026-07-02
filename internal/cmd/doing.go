@@ -534,6 +534,20 @@ func runDoingDryRun(jobID string) error {
 
 	planDir := filepath.Join(rickDir, "jobs", jobID, "plan")
 	if _, err := os.Stat(planDir); os.IsNotExist(err) {
+		// Fallback: easy mode job has doing/requirement.md but no plan/
+		doingDirFallback := filepath.Join(rickDir, "jobs", jobID, "doing")
+		requirementPath := filepath.Join(doingDirFallback, "requirement.md")
+		if data, err := os.ReadFile(requirementPath); err == nil {
+			requirement := strings.TrimSpace(string(data))
+			content, err := prompt.GenerateEasyPrompt(requirement, rickDir, "")
+			if err != nil {
+				fmt.Printf("[DRY-RUN] failed to generate easy prompt: %v\n", err)
+				return nil
+			}
+			fmt.Printf("[DRY-RUN] Easy mode job detected (no plan/). Easy prompt:\n\n")
+			fmt.Println(content)
+			return nil
+		}
 		fmt.Printf("[DRY-RUN] plan directory not found: %s\n", planDir)
 		return nil
 	}
