@@ -59,6 +59,8 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 		debugContext = "暂无（首次会话）"
 	}
 
+	domainDir := filepath.Join(rickDir, "domain")
+
 	mgr := NewPromptManager()
 	tmpl, err := mgr.LoadTemplate("doing")
 	if err != nil {
@@ -73,7 +75,9 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(skillsDir))
 	builder.SetVariable("debug_context", debugContext)
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
+	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("check_command", "easy_check")
@@ -109,6 +113,7 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
 	promptsDir := filepath.Join(rickDir, "jobs", "job_N", "doing", "prompts")
 	loopsDir := filepath.Join(rickDir, "loops")
+	domainDir := filepath.Join(rickDir, "domain")
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("task_info_section", "")
@@ -118,7 +123,9 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	builder.SetVariable("debug_context", "暂无（首次会话）")
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
+	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("check_command", "easy_check")
@@ -237,14 +244,14 @@ func buildGrillingSection(grillingFilePath, doingDir string) string {
 	if doingDir != "" {
 		writeBack = fmt.Sprintf("\n**Grilling 结束后**，将澄清结论追加到 `%s/requirement.md`（只追加，不替换）。\n", doingDir)
 	}
-	return fmt.Sprintf("## Grilling 追问（需求澄清）\n\n在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。\n\n**加载并执行 skill:grilling**：`%s`%s\n", grillingFilePath, writeBack)
+	return fmt.Sprintf("## 第一步：Grilling 追问（需求澄清）\n\n在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。\n\n**加载并执行 skill:grilling**：`%s`%s\n", grillingFilePath, writeBack)
 }
 
 // buildSessionWrapSection returns the learning trigger section injected at the end of easy prompts.
 func buildSessionWrapSection(learningLoopPath string) string {
 	return fmt.Sprintf(`---
 
-## Learning 触发
+## 第四步：执行 Learning Loop
 
 编码工作完成后，**启动子 Agent 执行 Learning Loop**，沉淀本次会话的 loops 和 skills：
 

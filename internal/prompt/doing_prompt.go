@@ -40,13 +40,16 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	builder.SetVariable("grilling_section", "")
 	builder.SetVariable("import_ctx_content", "")
 	builder.SetVariable("session_wrap_section", "")
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
 
 	// Set loops context from .rick/loops/
 	rickDir, _ := workspace.GetRickDir()
 	loopsDir := filepath.Join(rickDir, "loops")
+	domainDir := filepath.Join(rickDir, "domain")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
+	builder.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 
 	// Debug context
 	debugContext := contextMgr.GetDebugRaw()
@@ -115,8 +118,12 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	// Set loops context from .rick/loops/
 	rickDirVal, _ := workspace.GetRickDir()
 	loopsDirVal := filepath.Join(rickDirVal, "loops")
+	domainDirVal := filepath.Join(rickDirVal, "domain")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDirVal))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDirVal, "skills")))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDirVal))
+	builder.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
+	builder.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 
 	// Debug context
 	debugContext := contextMgr.GetDebugRaw()
@@ -125,7 +132,6 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	}
 	builder.SetVariable("debug_context", debugContext)
 
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent())
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
 	builder.SetVariable("check_command", "doing_check")
 	jobIDVal := contextMgr.GetJobID()
@@ -162,11 +168,12 @@ func readAndAppend(filePath, text string) ([]byte, error) {
 	return nil, err
 }
 
-// loadDoingLoopContent reads the doing_loop skill and strips its YAML frontmatter,
-// returning clean content ready for inline embedding in the doing template.
-func loadDoingLoopContent() string {
+// loadDoingLoopContent reads the doing_loop skill, strips YAML frontmatter, and
+// substitutes {{domain_dir}} with the actual domain directory path.
+func loadDoingLoopContent(domainDir string) string {
 	raw := LoadCoreSkills([]string{"doing_loop"})
-	return stripYAMLFrontmatter(raw)
+	content := stripYAMLFrontmatter(raw)
+	return strings.ReplaceAll(content, "{{domain_dir}}", domainDir)
 }
 
 // formatTaskInfoSection builds the ## 任务信息 block for injection into the doing template.

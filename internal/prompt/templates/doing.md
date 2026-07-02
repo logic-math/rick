@@ -6,13 +6,7 @@
 
 ---
 
-{{task_info_section}}
-
-{{requirement}}
-
-{{grilling_section}}
-
-## Loop 列表
+## 先验知识（执行前必读）
 
 {{loops_context}}
 
@@ -26,17 +20,23 @@
 
 ---
 
-## ⚠️ 执行 Loop（强制，不可跳过）
+{{task_info_section}}
 
-**YOU MUST execute the following loop. No exceptions. Skipping this loop means the task is NOT complete.**
+{{requirement}}
+
+---
+
+**你需要一步步执行以下操作，不可跳过任何步骤。**
+
+{{grilling_section}}
+
+{{loop_step_header}}
 
 {{doing_loop_content}}
 
 {{import_ctx_content}}
 
----
-
-## 完成要求
+{{check_step_header}}
 
 `{{rick_bin_path}} tools {{check_command}} {{job_id}}`
 
