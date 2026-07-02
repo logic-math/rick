@@ -29,6 +29,17 @@ grep -rn "旧名称" internal/ .rick/ --include="*.go" --include="*.md" --includ
 
 将 grep 结果按文件分组，确认每个文件的修改类型：Replace / Delete / Add
 
+### 第 1.5 步（Edit 前）：精确定位目标行
+
+Edit 工具要求 old_string 与文件内容完全匹配。直接构造 old_string 容易因行序/缩进不符导致失败。
+
+**正确流程**：
+1. `Read` 目标文件的精确行范围（用 offset/limit 缩窄）
+2. 从 Read 输出中复制目标行，粘贴为 old_string
+3. 再调用 Edit
+
+**反模式**：凭记忆拼 old_string → Edit 报错 → 再 Read → 重试（浪费一轮）
+
 ### 第 2 步：按依赖顺序修改
 
 推荐顺序（避免编译中断）：

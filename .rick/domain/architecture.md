@@ -24,6 +24,19 @@ internal/
   actpath/                    # act-path 生成
 ```
 
+## Prompt Context 注入体系
+
+`internal/prompt/context_helpers.go` 提供两个并行的 context loader，均在 doing/easy/plan/dream 启动时注入：
+
+| 函数 | 读取源 | 注入变量 | 提取字段 |
+|------|--------|---------|---------|
+| `LoadLoopsContext` | `.rick/loops/*.md` | `{{loops_context}}` | frontmatter `name` + `trigger` |
+| `LoadSkillsContext` | `.rick/skills/*_skill/skill.md` | `{{skills_context}}` | `# skill:` 标题 + `## 触发场景` 首行 |
+
+两者格式对称：`- **{name}**：{trigger/触发场景首行}`。新增同类 context loader 时，遵循相同模式。
+
+**来源 Job**: job_23
+
 ## DIP 组合根模式
 
 **核心约束**：`doing.go` 是唯一 import `internal/agent/claudecode` 的地方。

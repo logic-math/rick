@@ -60,6 +60,16 @@ bash tests/tools_integration_test.sh  # 集成测试
 - 默认只**报告**问题，不自动修复（保持确定性）
 - `--auto-fix` 标志才触发 Claude 修复（opt-in）
 
+## 已知 Template 注入遗漏（job_23 发现）
+
+`GenerateEasyPromptFile`（easy 会话启动时）**不写入** `skill_gen_domain.md`，也**不注入** `domain_dir`/`gen_domain_path` 到 `learning_loop.md`。
+
+- 影响：easy 模式的 learning_loop.md 中 `{{gen_domain_path}}` 和 `{{domain_dir}}` 保持为字面量，Step 5 子 Agent 无法读取 gen-domain skill 路径
+- 绕过方式：手动使用 `internal/prompt/templates/skills/gen-domain.md` 原始模板，domain 路径用 `.rick/domain/`
+- 对比：`GenerateEasyLearningPromptFile`（会话结束后）已正确注入上述变量
+
+**来源 Job**: job_23
+
 ## 新架构上下文结构（v2.9.0+）
 
 ```
