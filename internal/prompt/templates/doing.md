@@ -16,6 +16,8 @@
 
 {{loops_context}}
 
+{{skills_context}}
+
 ---
 
 ## Job 上下文

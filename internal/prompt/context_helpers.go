@@ -45,6 +45,70 @@ func LoadLoopsContext(loopsDir string) string {
 	return header + strings.Join(items, "\n") + "\n"
 }
 
+// LoadSkillsContext reads all *_skill/ directories in skillsDir, extracts name and trigger
+// from each skill.md, and returns a formatted skills list for prompt injection.
+func LoadSkillsContext(skillsDir string) string {
+	header := "## 可用的项目 Skills\n\n"
+	placeholder := header + "（暂无项目 Skill 记录）\n"
+
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return placeholder
+	}
+
+	var items []string
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasSuffix(e.Name(), "_skill") {
+			continue
+		}
+		skillFile := filepath.Join(skillsDir, e.Name(), "skill.md")
+		data, err := os.ReadFile(skillFile)
+		if err != nil {
+			log.Printf("warn: LoadSkillsContext: failed to read %s: %v", skillFile, err)
+			continue
+		}
+		name, trigger := parseSkillNameTrigger(string(data))
+		if trigger == "" {
+			log.Printf("warn: LoadSkillsContext: no trigger section in %s, skipping", skillFile)
+			continue
+		}
+		items = append(items, fmt.Sprintf("- **%s**：%s", name, trigger))
+	}
+
+	if len(items) == 0 {
+		return placeholder
+	}
+	return header + strings.Join(items, "\n") + "\n"
+}
+
+// parseSkillNameTrigger extracts skill name from the # heading and the first line of ## 触发场景.
+func parseSkillNameTrigger(content string) (name, trigger string) {
+	lines := strings.Split(content, "\n")
+	var inTrigger bool
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# skill:") && name == "" {
+			rest := strings.TrimPrefix(trimmed, "# skill:")
+			if idx := strings.Index(rest, "（"); idx >= 0 {
+				name = rest[:idx]
+			} else if fields := strings.Fields(rest); len(fields) > 0 {
+				name = fields[0]
+			}
+		}
+		if trimmed == "## 触发场景" {
+			inTrigger = true
+			continue
+		}
+		if inTrigger && strings.HasPrefix(trimmed, "## ") {
+			break
+		}
+		if inTrigger && trimmed != "" && trigger == "" {
+			trigger = strings.TrimRight(trimmed, "：:")
+		}
+	}
+	return name, trigger
+}
+
 // parseFrontmatterNameTrigger extracts name and trigger from YAML frontmatter.
 func parseFrontmatterNameTrigger(content string) (name, trigger string) {
 	if !strings.HasPrefix(content, "---") {

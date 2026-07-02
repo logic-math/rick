@@ -1,6 +1,6 @@
 ---
 name: tdd-red-green-refactor-loop
-trigger: "当需要对 Go 代码进行 TDD 迭代直到测试通过时触发"
+trigger: "当测试已存在且处于 FAIL 状态，需要通过迭代实现让其变绿时触发（前提：先写测试、当前测试 FAIL、目标是收敛到绿）"
 ---
 
 # Loop: Go TDD 迭代循环

@@ -46,6 +46,7 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	rickDir, _ := workspace.GetRickDir()
 	loopsDir := filepath.Join(rickDir, "loops")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
+	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
 
 	// Debug context
 	debugContext := contextMgr.GetDebugRaw()
@@ -115,6 +116,7 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	rickDirVal, _ := workspace.GetRickDir()
 	loopsDirVal := filepath.Join(rickDirVal, "loops")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDirVal))
+	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDirVal, "skills")))
 
 	// Debug context
 	debugContext := contextMgr.GetDebugRaw()

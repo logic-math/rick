@@ -58,6 +58,7 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 **ANALYZE（理解需求）**
 1. 声明：`"I will use skill:sense."`，按 S→E→N 分析（Symptoms / Evidence / Next）
 2. 读取 debug/ 摘要，避免重复踩坑
+3. 按需读取 `.rick/domain/` 下所有文件，提取与本任务相关的已知约束和事实
 
 **RED（先写失败测试）**
 1. 声明：`"I will use skill:tdd for implementation."`
