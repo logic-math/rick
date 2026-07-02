@@ -253,7 +253,10 @@ func buildSessionWrapSection(learningLoopPath string) string {
 
 ## 第四步：执行 Learning Loop
 
-编码工作完成后，**启动子 Agent 执行 Learning Loop**，沉淀本次会话的 loops 和 skills：
+⚠️ **必须等待人类明确说"执行 learning"后，才能启动 Learning Loop。禁止自动触发。**
+
+格式检查通过后，向人类汇报完成情况并停止，等待人类指令。
+人类确认后，启动子 Agent 执行 Learning Loop：
 
 `+"`%s`", learningLoopPath)
 }
