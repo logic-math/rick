@@ -1,5 +1,5 @@
 ---
-name: go-tdd-loop
+name: tdd-red-green-refactor-loop
 trigger: "当需要对 Go 代码进行 TDD 迭代直到测试通过时触发"
 ---
 

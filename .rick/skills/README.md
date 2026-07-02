@@ -1,35 +1,51 @@
-# Skill 格式规范
+# Skills 目录规范
 
-skill.md 描述一个原子级能力单元，agent 在遇到触发条件时按需加载并执行一次。
-格式参考 agentskills.io 标准（When to Use / Procedure / Pitfalls / Verification），
-内容面向 agent 而非人类（步骤可直接执行，命令可直接复制）。
+Skill 是一个原子级能力单元（静态上下文），agent 在遇到触发条件时按需加载并执行一次。
 
-由 learning/dream 阶段产出候选（命名为 `candidate_skill_N.md`），人工审核后移入 `.rick/skills/`。
+## 目录结构
 
-## Frontmatter 字段规范
+每个 skill 必须以**目录**形式存在：
 
-```yaml
----
-name: skill-name               # 必须：小写字母+数字+连字符，最长 64 字符
-description: "触发场景：能做什么"  # 必须：供 skills_context 索引检索
----
+```
+.rick/skills/
+├── {name}_skill/
+│   ├── skill.md        # 必须：触发场景 / 预期效果 / 核心内容
+│   ├── helper.py       # 可选：Python 辅助脚本
+│   └── ...             # 可选：其他支撑文件
+└── deprecated/         # 已淘汰（连续3次dream未被引用）
 ```
 
-## 正文四要素
+**命名规则**：目录名以 `_skill` 结尾，如 `mark_task_success_skill/`。
 
-### When to Use
-遇到什么情况时加载本 skill（触发词或触发场景，要具体）。
+## 当前 Skills 索引
 
-### Procedure
-分步骤的执行方法，每步包含：
-- 具体命令（可直接执行）
-- 预期输出（可量化断言）
+| Skill | 触发场景 |
+|-------|---------|
+| test_script_practices_skill | 编写/调试 .rick/jobs/job_N/doing/tests/taskN.py |
+| zero_retry_task_design_skill | plan 阶段分解任务，降低 doing 重试率 |
+| dag_task_decomposition_skill | 设计复杂 task DAG，识别并行化机会 |
+| check_mechanism_skill | plan/doing/learning_check 失败，理解修复方法 |
+| failure_feedback_skill | 理解/调整 doing 重试时失败信息传递机制 |
+| mark_task_success_skill | doing_check 报 status != success 时修复 |
+| global_ref_sync_skill | 修改核心名称/变量前先全局 grep 找引用 |
+| verify_go_changes_skill | 修改 Go 源文件后验证编译+测试通过 |
+| template_injection_skill | 向 plan/easy 模板注入新 skill 或修改变量 |
 
-### Pitfalls
-已知坑点，含具体反例：
-- ❌ 不要……（原因）
-- ✅ 应该……
+## skill.md 格式（三段式）
 
-### Verification
-如何确认 skill 执行成功：
-- `[命令]` 输出 `[预期内容]` 即为成功
+```markdown
+# skill:{name}（描述）
+
+## 触发场景
+什么情况下使用，要具体（"当X时" 不是 "调试时"）
+
+## 预期效果
+可量化的结果（"减少重试次数" 不够，要 "一次运行通过"）
+
+## 核心内容
+可直接执行的步骤/命令/决策树，含具体示例
+```
+
+## 淘汰标准
+
+连续 3 次 dream 未被引用的 skill → 移至 `deprecated/`。
