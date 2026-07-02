@@ -70,10 +70,13 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 **DEBUG（遇红强制触发）**
 触发条件（任意一条）：测试 FAIL / 编译报错 / 行为与预期不符
-1. 声明：`"I will use skill:debug-skill."`
-2. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
-3. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
-4. 修复后回到 GREEN
+1. **优先搜索 `.rick/domain/bugs.md` 和 `.rick/domain/`**，查看是否有已知的相同问题与精确解决方案
+   - 有匹配 → 直接应用，记录引用来源
+   - 无匹配 → 继续下方流程
+2. 声明：`"I will use skill:debug-skill."`
+3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
+4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
+5. 修复后回到 GREEN
 
 **REFACTOR（代码改善）**
 1. 测试全绿后改善代码质量（命名、结构、去重）

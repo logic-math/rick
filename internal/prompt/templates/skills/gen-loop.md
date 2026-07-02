@@ -75,12 +75,19 @@ go install {tool}@latest
 
 **Step 1：{步骤名}**
 - 加载 skill：`.rick/{skill_name}_skill/skill.md`
-- 操作：...
+- **精确命令**（必须写到具体命令，不得模糊描述）：
+  ```bash
+  {exact_command_1}
+  {exact_command_2}
+  ```
 - 产出：...
 
 **Step 2：{步骤名}**
 - 加载 skill：`.rick/{skill_name}_skill/skill.md`
-- 操作：...
+- **精确命令**：
+  ```bash
+  {exact_command}
+  ```
 - 产出：...
 
 **COMMIT**：
@@ -147,6 +154,7 @@ go install {tool}@latest
 
 - trigger 足够具体，能判断何时激活
 - 依赖准备完整，新环境可直接运行
-- 每个 Step 明确引用对应 skill
-- 产出评估有具体验证 skill（不只是人工判断）
+- **每个 Step 必须写明精确的 shell 命令**（`go test ./internal/...` 而非"运行测试"）
+- 每个 Step 明确引用对应 skill（`.rick/{name}_skill/skill.md`）
+- 产出评估有具体验证 skill 和精确验证命令
 - 停止标准可量化，不依赖主观判断

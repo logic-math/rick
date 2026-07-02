@@ -285,15 +285,22 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 	if err != nil {
 		return "", fmt.Errorf("failed to write gen-loop: %w", err)
 	}
+	genDomainFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_domain.md", "gen-domain")
+	if err != nil {
+		return "", fmt.Errorf("failed to write gen-domain: %w", err)
+	}
 
+	domainDir := filepath.Join(data.RickDir, "domain")
 	learningLoopFile, err := prompt.WriteSkillFileWithVars(promptsDir, "learning_loop.md", "learning_loop", map[string]string{
-		"job_id":         data.JobID,
-		"learning_dir":   learningDir,
-		"loops_dir":      loopsDir,
-		"skills_dir":     skillsDir,
-		"rick_bin_path":  rickBinPath,
-		"gen_skill_path": genSkillFile,
-		"gen_loop_path":  genLoopFile,
+		"job_id":          data.JobID,
+		"learning_dir":    learningDir,
+		"loops_dir":       loopsDir,
+		"skills_dir":      skillsDir,
+		"domain_dir":      domainDir,
+		"rick_bin_path":   rickBinPath,
+		"gen_skill_path":  genSkillFile,
+		"gen_loop_path":   genLoopFile,
+		"gen_domain_path": genDomainFile,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to write learning_loop skill: %w", err)

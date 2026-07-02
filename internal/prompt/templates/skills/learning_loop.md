@@ -48,11 +48,13 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
    │     │                                                  │
    │     ├─ 审核通过 → 继续 Step 5                          │
    │     │                                                  │
-   │     └─ 需修改 → 父 Agent 根据人类反馈重启 Step 3/4 ───┘
+   │     └─ 需修改 → 重启 Step 3/4 ────────────────────────────┘
    │
-   ├─ SPAWN Step 5 子 Agent → 生成 SUMMARY.md → 父 Agent 验收
+   ├─ SPAWN Step 5 子 Agent → 整理 Domain 事实 → 父 Agent 验收
    │
-   └─ SPAWN Step 6 子 Agent → 运行 learning_check → [DONE] ✅
+   ├─ SPAWN Step 6 子 Agent → 生成 SUMMARY.md → 父 Agent 验收
+   │
+   └─ SPAWN Step 7 子 Agent → 运行 learning_check → [DONE] ✅
 ```
 
 ---
@@ -138,7 +140,22 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 ---
 
-### Step 5 子 Agent：生成 SUMMARY.md
+### Step 5 子 Agent：整理 Domain 事实知识
+
+声明：`"I will use skill:gen-domain."`
+
+读取 `{{gen_domain_path}}`，从本次 job 的执行记录中提取事实性知识，写入 `{{domain_dir}}/`：
+
+- 已知问题与**精确解决命令** → `{{domain_dir}}/bugs.md`（追加，不重复）
+- 环境配置、版本事实 → `{{domain_dir}}/env.md`（追加）
+- 构建/测试命令事实 → `{{domain_dir}}/build.md`（追加）
+- 其他主题事实 → `{{domain_dir}}/{topic}.md`
+
+**父 Agent 验收**：`ls {{domain_dir}}/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
+
+---
+
+### Step 6 子 Agent：生成 SUMMARY.md
 
 ⚠️ **前置检查**：Step 1a 必须已完成，且人类已审核通过 Skills & Loops。
 
@@ -177,7 +194,7 @@ APPROVED: true
 
 ---
 
-### Step 6 子 Agent：运行 learning_check
+### Step 7 子 Agent：运行 learning_check
 
 ```bash
 {{rick_bin_path}} tools learning_check {{job_id}}
@@ -202,7 +219,7 @@ APPROVED: true
 
 ## 停止标准
 
-**完成退出**：Step 6 子 Agent 的 learning_check pass，且人类已审核确认。
+**完成退出**：Step 7 子 Agent 的 learning_check pass，且人类已审核确认。
 
 **优雅退出**：人类明确要求停止。
 
@@ -210,8 +227,8 @@ APPROVED: true
 
 ## ⚠️ 约束
 
-1. **Step 1a 是硬约束**：未完成 Step 1a 禁止启动 Step 5 子 Agent
-2. **人类审核是必经环节**：Step 3-4 产出未经人类确认，不得进入 Step 5
+1. **Step 1a 是硬约束**：未完成 Step 1a 禁止启动 Step 6 子 Agent（SUMMARY）
+2. **人类审核是必经环节**：Step 3-4 产出未经人类确认，不得进入 Step 5（Domain）
 3. **skill 目录结构**：`{{skills_dir}}/{name}_skill/skill.md`
 4. **loop 文件**：`{{loops_dir}}/{name}-loop.md`
 5. **SUMMARY.md 写入 learning 目录**：`{{learning_dir}}/SUMMARY.md`

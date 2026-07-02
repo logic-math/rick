@@ -21,10 +21,12 @@ func GenerateDreamPrompt(jobIDs []string, rickDir string) (string, error) {
 	builder.SetVariable("loops_context", LoadLoopsContext(filepath.Join(rickDir, "loops")))
 	builder.SetVariable("loops_dir", "<loops_dir>")
 	builder.SetVariable("skills_dir", "<skills_dir>")
+	builder.SetVariable("domain_dir", "<domain_dir>")
 	builder.SetVariable("sense_skill_path", "<tmp>/rick-dream-skill-sense-*.md")
 	builder.SetVariable("evolve_skills_skill_path", "<tmp>/rick-dream-skill-evolve-skills-*.md")
 	builder.SetVariable("gen_skill_path", "<tmp>/rick-dream-skill-gen-skill-*.md")
 	builder.SetVariable("gen_loop_path", "<tmp>/rick-dream-skill-gen-loop-*.md")
+	builder.SetVariable("gen_domain_path", "<tmp>/rick-dream-skill-gen-domain-*.md")
 	builder.SetVariable("rick_bin_path", "<rick>")
 	content, err := builder.Build()
 	if err != nil {
@@ -70,19 +72,26 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 	if err != nil {
 		return "", nil, err
 	}
+	genDomainFile, err := WriteSkillFile(promptsDir, "skill_gen_domain.md", "gen-domain")
+	if err != nil {
+		return "", nil, err
+	}
 
 	loopsDir := filepath.Join(rickDir, "loops")
 	skillsDir := filepath.Join(rickDir, "skills")
+	domainDir := filepath.Join(rickDir, "domain")
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("pending_jobs", formatPendingJobs(jobIDs))
 	builder.SetVariable("run_logs", loadRunLogs(rickDir))
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("loops_dir", loopsDir)
 	builder.SetVariable("skills_dir", skillsDir)
+	builder.SetVariable("domain_dir", domainDir)
 	builder.SetVariable("sense_skill_path", senseFile)
 	builder.SetVariable("evolve_skills_skill_path", evolveFile)
 	builder.SetVariable("gen_skill_path", genSkillFile)
 	builder.SetVariable("gen_loop_path", genLoopFile)
+	builder.SetVariable("gen_domain_path", genDomainFile)
 	projectRoot, _ := os.Getwd()
 	builder.SetVariable("rick_bin_path", filepath.Join(projectRoot, "bin", "rick"))
 

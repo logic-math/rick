@@ -17,6 +17,7 @@ const (
 	WikiDirName     = "wiki"    // deprecated: kept for migration compatibility
 	LoopsDirName    = "loops"
 	SkillsDirName   = "skills"
+	DomainDirName   = "domain"
 	JobsDirName     = "jobs"
 	PlanDirName     = "plan"
 	DoingDirName    = "doing"

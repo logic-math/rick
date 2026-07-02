@@ -4,9 +4,9 @@
 
 ## 角色定位
 
-- **范围**：仅允许修改 `.rick/loops/`（`{{loops_dir}}`）和 `.rick/skills/`（`{{skills_dir}}`）
+- **范围**：仅允许修改 `.rick/loops/`（`{{loops_dir}}`）、`.rick/skills/`（`{{skills_dir}}`）和 `.rick/domain/`（`{{domain_dir}}`）
 - **禁止**：修改任何业务源代码及其他 `.rick/` 目录
-- **输出**：更新 loops/skills；每个处理的 job 写入 `dream_run_{job_id}_log.md`
+- **输出**：更新 loops/skills/domain；每个处理的 job 写入 `dream_run_{job_id}_log.md`
 
 ---
 
@@ -24,7 +24,7 @@
 
 ---
 
-## Dream SOP（8 步）
+## Dream SOP（9 步）
 
 ### Step 1：初始化 — 确认待处理范围
 
@@ -83,7 +83,22 @@ YOU MUST declare: `"I will use skill:gen-loop."`
 
 ---
 
-### Step 5：Skills 进化
+### Step 5：Domain 进化
+
+YOU MUST declare: `"I will use skill:gen-domain."`
+
+读取 `{{gen_domain_path}}`，基于所有 job 的执行记录提炼跨 job 的事实性知识：
+
+1. 读取各 job 的 `debug/bug*.md` 和 `learning/SUMMARY.md`，提取已确认的事实
+2. 将**跨 job 共性的已知问题与解法**追加到 `{{domain_dir}}/bugs.md`
+3. 更新环境配置、构建命令等事实到对应文件
+4. 淘汰已不再适用的过时事实（注明淘汰原因）
+
+**父 Agent 验收**：`ls {{domain_dir}}/` 确认文件已更新。
+
+---
+
+### Step 6：Skills 进化
 
 YOU MUST declare: `"I will use skill:evolve-skills."`
 
@@ -106,7 +121,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ---
 
-### Step 6：质量验证（3 个子 Agent 串行）
+### Step 7：质量验证（4 个子 Agent 串行）
 
 **每个子 Agent 完成后，父 Agent 根据结论修正，再启动下一个。**
 
@@ -138,9 +153,27 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：仿真结果（✅/❌）+ 盲区列表；若有盲区则补充对应 loop/skill 条目
 
+#### subagent_4：Code ↔ Domain 一致性检查（持续轮询）
+
+检查业务代码与 `{{domain_dir}}/` 中记录的事实是否一致：
+
+1. 读取 `{{domain_dir}}/` 所有文件，提取所有事实条目（命令、路径、版本、API）
+2. 用 Read/Grep/Glob **主动查阅源码**，逐条验证事实是否仍然成立：
+   - 命令是否仍然有效（与源码/Makefile/scripts 一致）
+   - 路径是否仍然存在
+   - 版本要求是否与 go.mod/requirements.txt 一致
+   - API 参数是否与代码实现匹配
+3. **发现不一致** → 更新 domain 文件（不修改源码）
+4. **发现 domain 缺失但代码已有事实** → 补充到 domain
+
+**输出**：一致性报告（✅ 一致 / ⚠️ 已更新的条目列表）
+
+⚠️ **允许**：Read/Grep/Glob 查阅源码，写入 `{{domain_dir}}/`  
+⚠️ **禁止**：修改业务源代码
+
 ---
 
-### Step 7：运行 dream_check
+### Step 8：运行 dream_check
 
 ```bash
 {{rick_bin_path}} tools dream_check
@@ -151,7 +184,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ---
 
-### Step 8：写入 Dream Log + 汇总
+### Step 9：写入 Dream Log + 汇总
 
 对本次处理的**每个** job，写入 `.rick/dream/dream_run_{job_id}_log.md`：
 
@@ -176,6 +209,11 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 - 升级: {list or 无}
 - 淘汰: {list or 无}
 
+### Domain 变更
+- 新增事实: {list or 无}
+- 更新事实: {list or 无}
+- 淘汰事实: {list or 无}
+
 ## 下次建议关注
 {1-3 条建议}
 ```
@@ -186,10 +224,11 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ## 行为约束
 
-1. **严禁修改业务代码**：仅允许修改 `{{loops_dir}}` 和 `{{skills_dir}}`
+1. **严禁修改业务代码**：仅允许修改 `{{loops_dir}}`、`{{skills_dir}}` 和 `{{domain_dir}}`
 2. **升级优先于新建**：有相似 loop/skill 时，优先升级，不重复创建
 3. **直接命名，无 candidate 前缀**：dream 产出经人类审核后直接生效
 4. **skill 目录结构**：`{{skills_dir}}/{name}_skill/skill.md`
 5. **loop 文件**：`{{loops_dir}}/{name}-loop.md`
-6. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
-7. **三个子 Agent 串行**：Step 6 的三个子 Agent 串行执行，每个完成后修正再启动下一个
+6. **domain 追加不覆盖**：domain 文件只追加新事实，不删除已确认的历史事实
+7. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
+8. **四个子 Agent 串行**：Step 7 的四个子 Agent 串行执行，每个完成后修正再启动下一个

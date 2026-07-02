@@ -44,9 +44,11 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (
 	}
 
 	loopsDir := filepath.Join(rickDir, "loops")
+	domainDir := filepath.Join(rickDir, "domain")
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
+	builder.SetVariable("domain_dir", domainDir)
 	builder.SetVariable("user_requirement", requirement)
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
@@ -91,9 +93,11 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	}
 
 	loopsDir := filepath.Join(rickDir, "loops")
+	domainDir := filepath.Join(rickDir, "domain")
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
+	builder.SetVariable("domain_dir", domainDir)
 	builder.SetVariable("user_requirement", requirement)
 	builder.SetVariable("job_plan_dir", jobPlanDir)
 	builder.SetVariable("rick_bin_path", resolveRickBinPath())
