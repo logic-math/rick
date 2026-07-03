@@ -155,20 +155,6 @@ func resumeEasyMode(jobID string) error {
 		fmt.Printf("[WARN] failed to write tasks.json: %v\n", err)
 	}
 
-	// Generate fresh learning prompt (doingDir now fully populated after resume)
-	learningFile, err := prompt.GenerateEasyLearningPromptFile(jobID, rickDir)
-	if err != nil {
-		fmt.Printf("[WARN] failed to generate learning prompt: %v\n", err)
-	}
-
-	// Auto-trigger learning on exit
-	fmt.Println("\n✅ Easy 会话结束，开始自动 learning...")
-	if err := triggerAutoLearning(cfg, learningFile); err != nil {
-		fmt.Printf("[WARN] auto learning failed: %v\n", err)
-	} else {
-		fmt.Println("✅ Learning + Merge 完成！")
-	}
-
 	return nil
 }
 
@@ -211,26 +197,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 		fmt.Printf("[WARN] failed to write tasks.json: %v\n", err)
 	}
 
-	// Generate learning prompt now that doingDir is fully populated
-	learningFile, err := prompt.GenerateEasyLearningPromptFile(jobID, rickDir)
-	if err != nil {
-		fmt.Printf("[WARN] failed to generate learning prompt: %v\n", err)
-	}
-
-	// Auto-trigger learning on exit
-	fmt.Println("\n✅ Easy 会话结束，开始自动 learning...")
-	if err := triggerAutoLearning(cfg, learningFile); err != nil {
-		fmt.Printf("[WARN] auto learning failed: %v\n", err)
-	} else {
-		fmt.Println("✅ Learning + Merge 完成！")
-	}
-
 	return nil
-}
-
-// triggerAutoLearning runs the learning prompt in background (non-interactive) mode.
-func triggerAutoLearning(cfg *config.Config, learningPromptFile string) error {
-	return callClaudeCodeCLIBackground(cfg, learningPromptFile)
 }
 
 // saveSessionID persists the session UUID to doingDir/session_id.
