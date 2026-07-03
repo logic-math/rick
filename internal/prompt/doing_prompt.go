@@ -47,7 +47,7 @@ func GenerateDoingPrompt(task *parser.Task, retryCount int, contextMgr *ContextM
 	domainDir := filepath.Join(rickDir, "domain")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, "<doing-prompts>/skill_debug_skill.md"))
 	builder.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
 	builder.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 
@@ -98,7 +98,11 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 		return "", nil, fmt.Errorf("failed to resolve prompts dir: %w", err)
 	}
 
-	skillFiles := []string{}
+	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
+	if err != nil {
+		return "", nil, err
+	}
+	skillFiles := []string{debugSkillFile}
 
 	// Load doing template
 	template, err := manager.LoadTemplate("doing")
@@ -121,7 +125,7 @@ func GenerateDoingPromptFile(task *parser.Task, retryCount int, contextMgr *Cont
 	domainDirVal := filepath.Join(rickDirVal, "domain")
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDirVal))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDirVal, "skills")))
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDirVal))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDirVal, debugSkillFile))
 	builder.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
 	builder.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 
@@ -169,11 +173,12 @@ func readAndAppend(filePath, text string) ([]byte, error) {
 }
 
 // loadDoingLoopContent reads the doing_loop skill, strips YAML frontmatter, and
-// substitutes {{domain_dir}} with the actual domain directory path.
-func loadDoingLoopContent(domainDir string) string {
+// substitutes {{domain_dir}} and {{debug_skill_path}} with actual paths.
+func loadDoingLoopContent(domainDir, debugSkillPath string) string {
 	raw := LoadCoreSkills([]string{"doing_loop"})
 	content := stripYAMLFrontmatter(raw)
-	return strings.ReplaceAll(content, "{{domain_dir}}", domainDir)
+	content = strings.ReplaceAll(content, "{{domain_dir}}", domainDir)
+	return strings.ReplaceAll(content, "{{debug_skill_path}}", debugSkillPath)
 }
 
 // formatTaskInfoSection builds the ## 任务信息 block for injection into the doing template.

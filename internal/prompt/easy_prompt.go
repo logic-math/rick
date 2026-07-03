@@ -52,7 +52,12 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 		return "", nil, err
 	}
 
-	skillFiles := []string{grillingFile, genSkillFile, genLoopFile, learningLoopFile}
+	debugSkillFile, err := WriteSkillFile(promptsDir, "skill_debug_skill.md", "debug_skill")
+	if err != nil {
+		return "", nil, err
+	}
+
+	skillFiles := []string{grillingFile, genSkillFile, genLoopFile, learningLoopFile, debugSkillFile}
 
 	debugContext := loadDebugContextLocal(doingDir)
 	if debugContext == "" {
@@ -75,7 +80,7 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(skillsDir))
 	builder.SetVariable("debug_context", debugContext)
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, debugSkillFile))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
 	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
@@ -123,7 +128,7 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	builder.SetVariable("debug_context", "暂无（首次会话）")
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir))
+	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
 	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))

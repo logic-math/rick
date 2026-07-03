@@ -86,7 +86,7 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 1. **优先搜索 `{{domain_dir}}/bugs.md` 和 `{{domain_dir}}/`**，查看是否有精确解决方案
    - 有匹配 → 直接应用，记录引用来源
    - 无匹配 → 继续下方流程
-2. 声明：`"I will use skill:debug-skill."`
+2. 声明：`"I will use skill:debug-skill."`，加载 skill 文件：`{{debug_skill_path}}`
 3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
