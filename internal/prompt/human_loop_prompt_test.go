@@ -64,3 +64,31 @@ func TestGenerateHumanLoopPromptInjectsDraftDir(t *testing.T) {
 		t.Errorf("dry-run output does not contain draftDir %q", draftDir)
 	}
 }
+
+func TestHumanLoopThinkTemplateHasJudgmentProtocol(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop_think")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop_think) error: %v", err)
+	}
+
+	for _, keyword := range []string{"判断记录协议", "judgment.md", "{{draft_dir}}"} {
+		if !strings.Contains(tpl.Content, keyword) {
+			t.Errorf("human_loop_think.md missing keyword %q", keyword)
+		}
+	}
+}
+
+func TestHumanLoopThinkTemplateHasLoopsMdFormat(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop_think")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop_think) error: %v", err)
+	}
+
+	for _, keyword := range []string{"loops.md", "做什么", "难度感受", "前置依赖", "掌握程度"} {
+		if !strings.Contains(tpl.Content, keyword) {
+			t.Errorf("human_loop_think.md missing keyword %q", keyword)
+		}
+	}
+}
