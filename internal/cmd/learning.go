@@ -363,6 +363,12 @@ func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (s
 
 	builder.SetVariable("rick_bin_path", rickBinPath)
 
+	draftDir, err := workspace.GetDraftDir()
+	if err != nil {
+		draftDir = ""
+	}
+	builder.SetVariable("draft_dir", draftDir)
+
 	promptFile := filepath.Join(promptsDir, "learning_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {
 		return "", fmt.Errorf("failed to save learning prompt: %w", err)

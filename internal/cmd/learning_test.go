@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/sunquan/rick/internal/executor"
+	"github.com/sunquan/rick/internal/prompt"
 )
 
 func TestBuildLearningPrompt(t *testing.T) {
@@ -91,6 +92,70 @@ func TestExecuteLearningWorkflow_NoDoingDir(t *testing.T) {
 	err = executeLearningWorkflow("job_test")
 	if err == nil {
 		t.Fatal("expected error for missing doing dir")
+	}
+}
+
+// TestLearningTemplateHasDraftDir verifies the embedded learning template declares {{draft_dir}}.
+func TestLearningTemplateHasDraftDir(t *testing.T) {
+	pm := prompt.NewPromptManager("")
+	tmpl, err := pm.LoadTemplate("learning")
+	if err != nil {
+		t.Fatalf("failed to load learning template: %v", err)
+	}
+	if !strings.Contains(tmpl.Content, "{{draft_dir}}") {
+		t.Errorf("learning.md template does not contain '{{draft_dir}}'")
+	}
+}
+
+// TestBuildLearningPromptInjectsDraftDir verifies draft_dir is fully resolved in the output prompt.
+func TestBuildLearningPromptInjectsDraftDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	rickDir := filepath.Join(tmpDir, ".rick")
+	doingDir := filepath.Join(rickDir, "jobs", "job_test", "doing")
+	if err := os.MkdirAll(doingDir, 0755); err != nil {
+		t.Fatalf("MkdirAll doingDir: %v", err)
+	}
+
+	oldDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+
+	data := &ExecutionData{
+		JobID:        "job_test",
+		RickDir:      rickDir,
+		TaskMDPaths:  []string{},
+		ActPathFiles: []string{},
+	}
+
+	learningDir := filepath.Join(rickDir, "jobs", "job_test", "learning")
+	promptsDir := filepath.Join(learningDir, "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll promptsDir: %v", err)
+	}
+
+	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
+	if err != nil {
+		t.Fatalf("buildLearningPrompt error: %v", err)
+	}
+
+	content, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("read prompt file: %v", err)
+	}
+
+	s := string(content)
+	if strings.Contains(s, "{{draft_dir}}") {
+		t.Errorf("prompt still contains unreplaced {{draft_dir}}")
+	}
+	expectedDraftPath := filepath.Join(rickDir, "draft")
+	if !strings.Contains(s, expectedDraftPath) {
+		snippet := s
+		if len(snippet) > 300 {
+			snippet = snippet[:300]
+		}
+		t.Errorf("prompt does not contain draft path %q; snippet:\n%s", expectedDraftPath, snippet)
 	}
 }
 

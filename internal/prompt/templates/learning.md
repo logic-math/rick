@@ -42,3 +42,19 @@
 `{{rick_bin_path}} tools learning_check {{job_id}}`
 
 learning_check pass 后才算完成。
+
+---
+
+## Draft 同步（可选）
+
+如果目录 `{{draft_dir}}` 存在，在所有 loop 步骤完成后，将本次 job 产出的关键 domain 事实追加到 `{{draft_dir}}/progress.md`：
+
+```
+## [{{job_id}}] 学习记录
+
+- <本次新增知识点1>
+- <本次新增知识点2>
+...
+```
+
+如目录不存在，则跳过此步骤。
