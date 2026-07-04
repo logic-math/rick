@@ -144,14 +144,14 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-domain."`
 
-读取 `{{gen_domain_path}}`，从本次 job 的执行记录中提取事实性知识，写入 `{{domain_dir}}/`：
+读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_24/doing/prompts/skill_gen_domain.md`，从本次 job 的执行记录中提取事实性知识，写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`：
 
-- 已知问题与**精确解决命令** → `{{domain_dir}}/bugs.md`（追加，不重复）
-- 环境配置、版本事实 → `{{domain_dir}}/env.md`（追加）
-- 构建/测试命令事实 → `{{domain_dir}}/build.md`（追加）
-- 其他主题事实 → `{{domain_dir}}/{topic}.md`
+- 已知问题与**精确解决命令** → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md`（追加，不重复）
+- 环境配置、版本事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/env.md`（追加）
+- 构建/测试命令事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/build.md`（追加）
+- 其他主题事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/{topic}.md`
 
-**父 Agent 验收**：`ls {{domain_dir}}/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
+**父 Agent 验收**：`ls /Users/sunquan/ai_coding/CODING/rick/.rick/domain/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
 
 ---
 

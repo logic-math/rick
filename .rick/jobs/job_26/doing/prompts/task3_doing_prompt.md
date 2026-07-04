@@ -37,26 +37,34 @@
 
 ## 任务信息
 
-**任务 ID**: task1
-**任务名称**: 创建 Wiki 目录结构和索引文件
+**任务 ID**: task3
+**任务名称**: 升级 express agent 模板：添加 judgment.md review 清洗步骤和 ZPD 显式评价引导
 
 ### 任务目标
-在项目根目录创建 `wiki/` 目录，并创建索引文件 `wiki/README.md`。索引文件需要包含 Wiki 的整体结构、导航链接和使用说明。这是后续所有 Wiki 文档的入口点，为开发者提供清晰的文档导航。
+修改 `internal/prompt/templates/human_loop_express.md`，在现有 Step 1 之前增加"第零步：judgment.md review"（读取并清洗 judgment.md，删除无效/混乱条目），在现有 Step 4（文档审核）之后增加"第五步：ZPD 显式评价"（引导 human 显式评价本次 loop 的难度/收获，将结果写入 `{{draft_dir}}/progress.md`，并将下次建议写入 `{{draft_dir}}/loops.md`）。
 
 ### 关键结果
-1. 完成 `wiki/` 目录的创建
-2. 完成 `wiki/README.md` 索引文件，包含完整的文档导航结构
-3. 在索引中列出所有计划创建的文档及其简要说明
-4. 添加文档使用指南和阅读建议
-5. 确保索引文件格式清晰、易于导航
+1. `human_loop_express.md` 在"第一步：快速确认"之前新增"第零步"：读取 `{{draft_dir}}/human-learning/judgment.md`，删除逻辑混乱/自相矛盾/无实质内容的条目，保留经 human 明确确认的判断（原话），不补充新内容
+2. `human_loop_express.md` 在"第四步：保存说明"之后新增"第五步：ZPD 显式评价"：向 human 提问三个方向（① 难度感受——作为迭代方向信号；② 核心收获——作为原创性思考信号，直接推进 ZPD；③ 还缺什么——作为能力边界识别信号，用于下次 loop 重新评估 ZPD），将回答结构化写入 `{{draft_dir}}/progress.md`（追加本次 loop 评价记录），并将下次建议条目追加到 `{{draft_dir}}/loops.md`（遵循 task2 定义的四字段格式）
+3. `progress.md` 追加格式（固定）：
+4. 第零步判断文件存在性：`{{draft_dir}}/human-learning/judgment.md` 不存在时直接跳过，不报错
+5. 两个新步骤均引用 `{{draft_dir}}` 变量（由 task1 注入真实路径）
+6. 新增单元测试验证模板内容
 
 
 ### 测试方法
-验证 `wiki/` 目录已创建：`test -d wiki && echo "PASS" || echo "FAIL"`
-验证 `wiki/README.md` 文件存在：`test -f wiki/README.md && echo "PASS" || echo "FAIL"`
-检查 README.md 包含必要章节（目录结构、导航链接、使用说明）：`grep -q "## 目录结构\|## 文档导航\|## 使用指南" wiki/README.md && echo "PASS" || echo "FAIL"`
-验证文件内容不为空且至少包含 50 行：`wc -l wiki/README.md | awk '{if($1>=50) print "PASS"; else print "FAIL"}'`
-检查 Markdown 语法正确性：`python3 -c "import re; content=open('wiki/README.md').read(); print('PASS' if re.search(r'^#\s+', content, re.M) and re.search(r'\[.*\]\(.*\)', content) else 'FAIL')"`
+前置条件：内嵌模板已加载
+输入：`pm.LoadTemplate("human_loop_express")`
+操作序列：检查返回内容
+预期输出：包含 `judgment.md`、`清洗` 或 `review`、`{{draft_dir}}`
+前置条件：内嵌模板已加载
+输入：`pm.LoadTemplate("human_loop_express")`
+操作序列：检查返回内容
+预期输出：包含 `progress.md`、`ZPD`（或 `难度感受`）、`loops.md`
+前置条件：`draftDir = "/tmp/test-draft"`
+输入：调用 `GenerateHumanLoopPromptFile("topic", rfcDir, "/tmp/test-draft", pm)`
+操作序列：读取生成的 express 文件内容
+预期输出：文件内容包含 `/tmp/test-draft`，不包含 `{{draft_dir}}`
 
 
 
@@ -152,7 +160,7 @@
 1. **优先搜索 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md` 和 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`**，查看是否有精确解决方案
    - 有匹配 → 直接应用，记录引用来源
    - 无匹配 → 继续下方流程
-2. 声明：`"I will use skill:debug-skill."`
+2. 声明：`"I will use skill:debug-skill."`，加载 skill 文件：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_26/doing/prompts/skill_debug_skill.md`
 3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
@@ -205,7 +213,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ## 第二步：格式检查
 
-`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N`
+`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_26`
 
 check pass 后才算完成。
 

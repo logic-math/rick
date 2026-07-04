@@ -38,25 +38,36 @@
 ## 任务信息
 
 **任务 ID**: task1
-**任务名称**: 创建 Wiki 目录结构和索引文件
+**任务名称**: 添加 `.rick/draft/` 目录基础设施并注入 draft_dir 变量
 
 ### 任务目标
-在项目根目录创建 `wiki/` 目录，并创建索引文件 `wiki/README.md`。索引文件需要包含 Wiki 的整体结构、导航链接和使用说明。这是后续所有 Wiki 文档的入口点，为开发者提供清晰的文档导航。
+在 `workspace/paths.go` 中添加 `GetDraftDir()` 函数，在 `human_loop.go` 中创建 draft 目录结构，在 `human_loop_prompt.go` 中将 `{{draft_dir}}` 注入主模板和三个子 agent 模板，使 draft/ 目录可寻址并被所有 human-loop 模板引用。
 
 ### 关键结果
-1. 完成 `wiki/` 目录的创建
-2. 完成 `wiki/README.md` 索引文件，包含完整的文档导航结构
-3. 在索引中列出所有计划创建的文档及其简要说明
-4. 添加文档使用指南和阅读建议
-5. 确保索引文件格式清晰、易于导航
+1. `workspace/paths.go` 新增 `DraftDirName = "draft"` 常量和 `GetDraftDir() (string, error)` 函数，返回 `{rickDir}/draft`
+2. `internal/cmd/human_loop.go` 在 RFC dir 创建后创建三个目录：`draft/`、`draft/concepts/`、`draft/human-learning/`，幂等（MkdirAll）
+3. `internal/prompt/human_loop_prompt.go` 中 `GenerateHumanLoopPromptFile` 和 `GenerateHumanLoopPrompt` 签名增加 `draftDir string` 参数，并将 `{{draft_dir}}` 注入主模板和 think/learn/express 三个子模板
+4. `internal/cmd/human_loop.go` 正确传入 draftDir（dry-run 模式用占位符 `<draft>/`）
+5. 所有现有测试继续通过，新增单元测试覆盖以下场景
 
 
 ### 测试方法
-验证 `wiki/` 目录已创建：`test -d wiki && echo "PASS" || echo "FAIL"`
-验证 `wiki/README.md` 文件存在：`test -f wiki/README.md && echo "PASS" || echo "FAIL"`
-检查 README.md 包含必要章节（目录结构、导航链接、使用说明）：`grep -q "## 目录结构\|## 文档导航\|## 使用指南" wiki/README.md && echo "PASS" || echo "FAIL"`
-验证文件内容不为空且至少包含 50 行：`wc -l wiki/README.md | awk '{if($1>=50) print "PASS"; else print "FAIL"}'`
-检查 Markdown 语法正确性：`python3 -c "import re; content=open('wiki/README.md').read(); print('PASS' if re.search(r'^#\s+', content, re.M) and re.search(r'\[.*\]\(.*\)', content) else 'FAIL')"`
+前置条件：`os.Chdir` 到 tmpDir，tmpDir 下有 `.rick/` 目录
+输入：无参数
+操作序列：调用 `workspace.GetDraftDir()`
+预期输出：返回 `{tmpDir}/.rick/draft`，error 为 nil
+前置条件：workDir 下有 `.rick/` 和 `.rick/config.json`（mock claude），dry-run=false；使用 mock claude（exit 0）
+输入：`rick human-loop "测试主题"`（mock claude）
+操作序列：执行命令，检查目录存在性
+预期输出：`{workDir}/.rick/draft/`、`draft/concepts/`、`draft/human-learning/` 均已创建（Stat 不返回 IsNotExist）
+前置条件：workDir 下有 `.rick/` 目录，dry-run=true
+输入：`rick human-loop --dry-run "测试主题"`
+操作序列：捕获 stdout
+预期输出：输出中包含 `draft` 路径字符串，不含未替换变量 `{{draft_dir}}`
+前置条件：mock promptManager，tmpDir 作为 rfcDir 和 draftDir
+输入：`draftDir = "/tmp/test-draft"`
+操作序列：调用 `GenerateHumanLoopPromptFile("topic", rfcDir, "/tmp/test-draft", pm)`，读取 think/express 子模板文件内容
+预期输出：think 和 express 文件内容包含 `/tmp/test-draft`，不含 `{{draft_dir}}`
 
 
 
@@ -152,7 +163,7 @@
 1. **优先搜索 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md` 和 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`**，查看是否有精确解决方案
    - 有匹配 → 直接应用，记录引用来源
    - 无匹配 → 继续下方流程
-2. 声明：`"I will use skill:debug-skill."`
+2. 声明：`"I will use skill:debug-skill."`，加载 skill 文件：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_26/doing/prompts/skill_debug_skill.md`
 3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
@@ -205,8 +216,23 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ## 第二步：格式检查
 
-`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N`
+`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_26`
 
 check pass 后才算完成。
 
 
+
+
+## Test Execution Feedback
+
+**Previous test execution encountered errors. You may need to fix the test script.**
+
+```
+=== Attempt 1 ===
+test did not pass: Test2: rick human-loop exit -1: command timed out
+
+Full test output:
+{"pass": false, "errors": ["Test2: rick human-loop exit -1: command timed out"]}
+
+
+```

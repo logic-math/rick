@@ -37,26 +37,32 @@
 
 ## 任务信息
 
-**任务 ID**: task1
-**任务名称**: 创建 Wiki 目录结构和索引文件
+**任务 ID**: task4
+**任务名称**: 升级 learning 阶段：注入 draft_dir 变量并添加 domain 事实同步到 draft/progress.md 步骤
 
 ### 任务目标
-在项目根目录创建 `wiki/` 目录，并创建索引文件 `wiki/README.md`。索引文件需要包含 Wiki 的整体结构、导航链接和使用说明。这是后续所有 Wiki 文档的入口点，为开发者提供清晰的文档导航。
+在 `internal/prompt/templates/learning.md` 中添加 `{{draft_dir}}` 变量和"Draft 同步"可选步骤（如 draft/ 存在，将本次 job 产出的关键 domain 事实追加到 `draft/progress.md`）；在 `internal/cmd/learning.go` 的 `buildLearningPrompt()` 中注入 `draft_dir`（通过 `workspace.GetDraftDir()`），同时在 `runLearningDryRun()` 中注入占位路径。
 
 ### 关键结果
-1. 完成 `wiki/` 目录的创建
-2. 完成 `wiki/README.md` 索引文件，包含完整的文档导航结构
-3. 在索引中列出所有计划创建的文档及其简要说明
-4. 添加文档使用指南和阅读建议
-5. 确保索引文件格式清晰、易于导航
+1. `learning.md` 末尾新增"## Draft 同步（可选）"章节：如 `{{draft_dir}}` 目录存在，在所有 loop 步骤完成后将本次 job 关键 domain 事实追加到 `{{draft_dir}}/progress.md`（格式：`## [job_id] 学习记录` + 本次新增知识点列表）；如目录不存在则跳过
+2. `internal/cmd/learning.go` 的 `buildLearningPrompt()` 函数调用 `workspace.GetDraftDir()`，将结果通过 `builder.SetVariable("draft_dir", draftDir)` 注入
+3. `runLearningDryRun()` 同样注入 draft_dir（如 GetDraftDir 失败则用空字符串，不中断 dry-run）
+4. 新增单元测试验证以上行为
 
 
 ### 测试方法
-验证 `wiki/` 目录已创建：`test -d wiki && echo "PASS" || echo "FAIL"`
-验证 `wiki/README.md` 文件存在：`test -f wiki/README.md && echo "PASS" || echo "FAIL"`
-检查 README.md 包含必要章节（目录结构、导航链接、使用说明）：`grep -q "## 目录结构\|## 文档导航\|## 使用指南" wiki/README.md && echo "PASS" || echo "FAIL"`
-验证文件内容不为空且至少包含 50 行：`wc -l wiki/README.md | awk '{if($1>=50) print "PASS"; else print "FAIL"}'`
-检查 Markdown 语法正确性：`python3 -c "import re; content=open('wiki/README.md').read(); print('PASS' if re.search(r'^#\s+', content, re.M) and re.search(r'\[.*\]\(.*\)', content) else 'FAIL')"`
+前置条件：内嵌模板已加载
+输入：`pm.LoadTemplate("learning")`
+操作序列：检查模板 Content 字段
+预期输出：包含 `{{draft_dir}}`
+前置条件：tmpDir 结构（rickDir + doingDir + tasks.json），os.Chdir 到 tmpDir
+输入：构造 `&ExecutionData{JobID: "job_test", RickDir: rickDir}`，调用 `buildLearningPrompt`
+操作序列：读取输出 promptFile 内容
+预期输出：内容包含 `draft` 路径字符串，不含未替换的 `{{draft_dir}}`
+前置条件：workDir 下有 `.rick/` 目录
+输入：`./bin/rick learning job_N --dry-run`（job_N 不存在也输出 prompt）
+操作序列：捕获 stdout
+预期输出：stdout 不含 `{{draft_dir}}`
 
 
 
@@ -152,7 +158,7 @@
 1. **优先搜索 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md` 和 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`**，查看是否有精确解决方案
    - 有匹配 → 直接应用，记录引用来源
    - 无匹配 → 继续下方流程
-2. 声明：`"I will use skill:debug-skill."`
+2. 声明：`"I will use skill:debug-skill."`，加载 skill 文件：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_26/doing/prompts/skill_debug_skill.md`
 3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
@@ -205,7 +211,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ## 第二步：格式检查
 
-`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N`
+`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_26`
 
 check pass 后才算完成。
 

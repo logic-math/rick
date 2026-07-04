@@ -37,26 +37,37 @@
 
 ## 任务信息
 
-**任务 ID**: task1
-**任务名称**: 创建 Wiki 目录结构和索引文件
+**任务 ID**: task2
+**任务名称**: 升级 think agent 模板：每个 SENSE 阶段结束时捕获关键判断到 judgment.md，Perspective 阶段写入 draft/loops.md
 
 ### 任务目标
-在项目根目录创建 `wiki/` 目录，并创建索引文件 `wiki/README.md`。索引文件需要包含 Wiki 的整体结构、导航链接和使用说明。这是后续所有 Wiki 文档的入口点，为开发者提供清晰的文档导航。
+修改 `internal/prompt/templates/human_loop_think.md`，增加"判断记录协议"章节：在每个 SENSE 阶段的推进条件满足后，提取 1-3 条关键判断（保留原话）写入 `{{draft_dir}}/human-learning/judgment.md`；在 Perspective 阶段识别出值得展开的概念节点时，将建议写入 `{{draft_dir}}/loops.md`（四字段结构）。
 
 ### 关键结果
-1. 完成 `wiki/` 目录的创建
-2. 完成 `wiki/README.md` 索引文件，包含完整的文档导航结构
-3. 在索引中列出所有计划创建的文档及其简要说明
-4. 添加文档使用指南和阅读建议
-5. 确保索引文件格式清晰、易于导航
+1. `human_loop_think.md` 新增"## 判断记录协议"章节，明确：触发时机（每个阶段推进条件满足后）、捕获数量（1-3 条）、格式（## [阶段名] 关键判断 + 原话）、写入路径（`{{draft_dir}}/human-learning/judgment.md`）
+2. `human_loop_think.md` 在 Perspective 阶段执行步骤后新增"概念展开标记"说明：当识别到值得深挖的概念节点时，将该建议追加到 `{{draft_dir}}/loops.md`，使用以下固定 Markdown 格式：
+3. 做什么: [具体要探索的内容]
+4. 难度感受: [预估：容易/中等/困难]
+5. 前置依赖: [需要先掌握的概念，无则填"无"]
+6. 掌握程度: [当前状态：未接触/了解/熟悉/掌握]
+7. `draft/loops.md` 格式规范在 task2 中统一定义，task3（express）写入 loops.md 时必须遵循同一格式
+8. `{{draft_dir}}` 在模板中被正确引用（由 task1 的 Go 代码注入真实路径）
+9. 新增单元测试验证模板内容
 
 
 ### 测试方法
-验证 `wiki/` 目录已创建：`test -d wiki && echo "PASS" || echo "FAIL"`
-验证 `wiki/README.md` 文件存在：`test -f wiki/README.md && echo "PASS" || echo "FAIL"`
-检查 README.md 包含必要章节（目录结构、导航链接、使用说明）：`grep -q "## 目录结构\|## 文档导航\|## 使用指南" wiki/README.md && echo "PASS" || echo "FAIL"`
-验证文件内容不为空且至少包含 50 行：`wc -l wiki/README.md | awk '{if($1>=50) print "PASS"; else print "FAIL"}'`
-检查 Markdown 语法正确性：`python3 -c "import re; content=open('wiki/README.md').read(); print('PASS' if re.search(r'^#\s+', content, re.M) and re.search(r'\[.*\]\(.*\)', content) else 'FAIL')"`
+前置条件：内嵌模板已加载
+输入：`pm.LoadTemplate("human_loop_think")`
+操作序列：检查返回内容
+预期输出：内容包含 `judgment.md`、`{{draft_dir}}`、`判断记录协议` 等关键字
+前置条件：内嵌模板已加载
+输入：`pm.LoadTemplate("human_loop_think")`
+操作序列：检查返回内容
+预期输出：内容包含 `loops.md`、`做什么`（或 `难度感受`）、`前置依赖`、`掌握程度`
+前置条件：`draftDir = "/tmp/test-draft"`，通过 task1 实现的注入机制
+输入：调用 `GenerateHumanLoopPromptFile("topic", rfcDir, "/tmp/test-draft", pm)`
+操作序列：读取生成的 think 文件内容
+预期输出：文件内容包含 `/tmp/test-draft`，不包含字符串 `{{draft_dir}}`
 
 
 
@@ -152,7 +163,7 @@
 1. **优先搜索 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md` 和 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`**，查看是否有精确解决方案
    - 有匹配 → 直接应用，记录引用来源
    - 无匹配 → 继续下方流程
-2. 声明：`"I will use skill:debug-skill."`
+2. 声明：`"I will use skill:debug-skill."`，加载 skill 文件：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_26/doing/prompts/skill_debug_skill.md`
 3. 在 `doing/debug/` 下创建 `bug{N}-{描述}.md`，按 Phase 1-6 执行
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
@@ -205,7 +216,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ## 第二步：格式检查
 
-`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_N`
+`/Users/sunquan/ai_coding/CODING/rick/bin/rick tools doing_check job_26`
 
 check pass 后才算完成。
 

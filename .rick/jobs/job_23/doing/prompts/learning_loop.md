@@ -8,8 +8,8 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 分析本次 job 的执行记录，沉淀可复用的 skills 和 loops，生成 SUMMARY.md 总结报告。
 
 **成功标准**（全部满足时退出）：
-- `/Users/sunquan/ai_coding/CODING/rick/bin/rick tools learning_check job_25` pass
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md` 已写入，首行 `APPROVED: true`
+- `/Users/sunquan/ai_coding/CODING/rick/bin/rick tools learning_check job_23` pass
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md` 已写入，首行 `APPROVED: true`
 - 人类已审核并确认 skills 和 loops 产出
 
 ---
@@ -25,7 +25,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 **输出**：
 - `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/skill.md` — 新 skill 目录
 - `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md` — 新 loop 文件
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md` — 执行总结
+- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md` — 执行总结
 
 ---
 
@@ -95,7 +95,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-skill."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/doing/prompts/skill_gen_skill.md`，按其定义的格式（触发场景 / 预期效果 / 核心内容）从 act-path 和 debug 中提取可复用技能：
+读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/doing/prompts/skill_gen_skill.md`，按其定义的格式（触发场景 / 预期效果 / 核心内容）从 act-path 和 debug 中提取可复用技能：
 
 - 每个 skill 创建目录 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/`
 - 主文件写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/skill.md`
@@ -109,7 +109,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-loop."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/doing/prompts/skill_gen_loop.md`，从 act-path 和 debug 中识别 job 内反复出现的循环模式，按其定义的完整格式写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md`：
+读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/doing/prompts/skill_gen_loop.md`，从 act-path 和 debug 中识别 job 内反复出现的循环模式，按其定义的完整格式写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md`：
 
 - ✅ 有明确触发条件（trigger）
 - ✅ 包含依赖准备（软件版本、工具、环境安装）
@@ -144,14 +144,14 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-domain."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/doing/prompts/skill_gen_domain.md`，从本次 job 的执行记录中提取事实性知识，写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/`：
+读取 `{{gen_domain_path}}`，从本次 job 的执行记录中提取事实性知识，写入 `{{domain_dir}}/`：
 
-- 已知问题与**精确解决命令** → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/bugs.md`（追加，不重复）
-- 环境配置、版本事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/env.md`（追加）
-- 构建/测试命令事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/build.md`（追加）
-- 其他主题事实 → `/Users/sunquan/ai_coding/CODING/rick/.rick/domain/{topic}.md`
+- 已知问题与**精确解决命令** → `{{domain_dir}}/bugs.md`（追加，不重复）
+- 环境配置、版本事实 → `{{domain_dir}}/env.md`（追加）
+- 构建/测试命令事实 → `{{domain_dir}}/build.md`（追加）
+- 其他主题事实 → `{{domain_dir}}/{topic}.md`
 
-**父 Agent 验收**：`ls /Users/sunquan/ai_coding/CODING/rick/.rick/domain/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
+**父 Agent 验收**：`ls {{domain_dir}}/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
 
 ---
 
@@ -159,12 +159,12 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 ⚠️ **前置检查**：Step 1a 必须已完成，且人类已审核通过 Skills & Loops。
 
-写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md`：
+写入 `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md`：
 
 ```markdown
 APPROVED: true
 
-# Job job_25 执行总结
+# Job job_23 执行总结
 
 ## 执行概述
 
@@ -190,14 +190,14 @@ APPROVED: true
 - [ ] loops/{name}-loop.md - loop 描述（如有）
 ```
 
-**父 Agent 验收**：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md` 存在，首行为 `APPROVED: true`。
+**父 Agent 验收**：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md` 存在，首行为 `APPROVED: true`。
 
 ---
 
 ### Step 7 子 Agent：运行 learning_check
 
 ```bash
-/Users/sunquan/ai_coding/CODING/rick/bin/rick tools learning_check job_25
+/Users/sunquan/ai_coding/CODING/rick/bin/rick tools learning_check job_23
 ```
 
 失败则修复后重新运行，直至通过。
@@ -211,7 +211,7 @@ APPROVED: true
 | 检查项 | 判断方法 |
 |--------|----------|
 | learning_check pass | 命令输出 ✅ |
-| SUMMARY.md 存在 | `ls /Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md` |
+| SUMMARY.md 存在 | `ls /Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md` |
 | APPROVED: true | SUMMARY.md 首行包含 `APPROVED: true` |
 | 人类审核通过 | 人类输入 "approved" 确认 |
 
@@ -231,4 +231,4 @@ APPROVED: true
 2. **人类审核是必经环节**：Step 3-4 产出未经人类确认，不得进入 Step 5（Domain）
 3. **skill 目录结构**：`/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/skill.md`
 4. **loop 文件**：`/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md`
-5. **SUMMARY.md 写入 learning 目录**：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_25/learning/SUMMARY.md`
+5. **SUMMARY.md 写入 learning 目录**：`/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_23/learning/SUMMARY.md`

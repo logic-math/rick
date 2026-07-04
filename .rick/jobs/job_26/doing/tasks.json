@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-07-05T00:59:27.839307+08:00",
-  "updated_at": "2026-07-05T01:31:26.417877+08:00",
+  "updated_at": "2026-07-05T01:41:58.754649+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -48,10 +48,10 @@
       "dependencies": [
         "task1"
       ],
-      "attempts": 1,
-      "commit_hash": "bd5c17db6142797cf98d4f5e50b94ffeeb435b09",
+      "attempts": 0,
+      "commit_hash": "92b0e3e4532f494a4025a8afb492ca78ccea9781",
       "created_at": "2026-07-05T00:59:27.839307+08:00",
-      "updated_at": "2026-07-05T02:00:00.000000+08:00"
+      "updated_at": "2026-07-05T01:41:58.754627+08:00"
     }
   ]
 }
