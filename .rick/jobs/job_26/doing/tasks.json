@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-07-05T00:59:27.839307+08:00",
-  "updated_at": "2026-07-05T01:20:01.595947+08:00",
+  "updated_at": "2026-07-05T02:10:00.000000+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -17,25 +17,28 @@
     {
       "task_id": "task2",
       "task_name": "升级 think agent 模板：每个 SENSE 阶段结束时捕获关键判断到 judgment.md，Perspective 阶段写入 draft/loops.md",
+      "task_file": "task2.md",
       "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
-      "commit_hash": "4224108ebb0c992426b46cd7242d9749203116fe",
+      "commit_hash": "46ba642fbebee0cb3633e34ade2f42c80da9e4b7",
       "created_at": "2026-07-05T00:59:27.839307+08:00",
-      "updated_at": "2026-07-05T01:25:00.000000+08:00"
+      "updated_at": "2026-07-05T01:25:51.089728+08:00"
     },
     {
       "task_id": "task3",
       "task_name": "升级 express agent 模板：添加 judgment.md review 清洗步骤和 ZPD 显式评价引导",
-      "status": "pending",
+      "task_file": "task3.md",
+      "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
+      "commit_hash": "704723bbe9b26d9d74e9cd7c7b68673a4c65b3fc",
       "created_at": "2026-07-05T00:59:27.839307+08:00",
-      "updated_at": "2026-07-05T00:59:27.839307+08:00"
+      "updated_at": "2026-07-05T02:10:00.000000+08:00"
     },
     {
       "task_id": "task4",
