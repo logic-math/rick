@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-07-05T00:59:27.839307+08:00",
-  "updated_at": "2026-07-05T02:10:00.000000+08:00",
+  "updated_at": "2026-07-05T01:31:26.417877+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -36,20 +36,22 @@
         "task1"
       ],
       "attempts": 0,
-      "commit_hash": "704723bbe9b26d9d74e9cd7c7b68673a4c65b3fc",
+      "commit_hash": "6f73d17b0973007ba063adb454f8bb2e58a8860f",
       "created_at": "2026-07-05T00:59:27.839307+08:00",
-      "updated_at": "2026-07-05T02:10:00.000000+08:00"
+      "updated_at": "2026-07-05T01:31:26.417642+08:00"
     },
     {
       "task_id": "task4",
       "task_name": "升级 learning 阶段：注入 draft_dir 变量并添加 domain 事实同步到 draft/progress.md 步骤",
-      "status": "pending",
+      "task_file": "task4.md",
+      "status": "success",
       "dependencies": [
         "task1"
       ],
-      "attempts": 0,
+      "attempts": 1,
+      "commit_hash": "bd5c17db6142797cf98d4f5e50b94ffeeb435b09",
       "created_at": "2026-07-05T00:59:27.839307+08:00",
-      "updated_at": "2026-07-05T00:59:27.839307+08:00"
+      "updated_at": "2026-07-05T02:00:00.000000+08:00"
     }
   ]
 }
