@@ -92,3 +92,39 @@ func TestHumanLoopThinkTemplateHasLoopsMdFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestHumanLoopExpressTemplateHasJudgmentReview(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop_express")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop_express) error: %v", err)
+	}
+
+	if !strings.Contains(tpl.Content, "judgment.md") {
+		t.Error("human_loop_express.md missing keyword \"judgment.md\"")
+	}
+	if !strings.Contains(tpl.Content, "清洗") && !strings.Contains(tpl.Content, "review") {
+		t.Error("human_loop_express.md missing '清洗' or 'review'")
+	}
+	if !strings.Contains(tpl.Content, "{{draft_dir}}") {
+		t.Error("human_loop_express.md missing keyword \"{{draft_dir}}\"")
+	}
+}
+
+func TestHumanLoopExpressTemplateHasZPDEvaluation(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop_express")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop_express) error: %v", err)
+	}
+
+	if !strings.Contains(tpl.Content, "progress.md") {
+		t.Error("human_loop_express.md missing keyword \"progress.md\"")
+	}
+	if !strings.Contains(tpl.Content, "ZPD") && !strings.Contains(tpl.Content, "难度感受") {
+		t.Error("human_loop_express.md missing 'ZPD' or '难度感受'")
+	}
+	if !strings.Contains(tpl.Content, "loops.md") {
+		t.Error("human_loop_express.md missing keyword \"loops.md\"")
+	}
+}
