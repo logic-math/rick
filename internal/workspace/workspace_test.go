@@ -546,6 +546,30 @@ func TestDreamDir(t *testing.T) {
 	}
 }
 
+func TestGetDraftDir(t *testing.T) {
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	got, err := GetDraftDir()
+	if err != nil {
+		t.Fatalf("GetDraftDir() error: %v", err)
+	}
+	if got == "" {
+		t.Fatal("GetDraftDir() returned empty string")
+	}
+	if !strings.HasSuffix(got, filepath.Join(".rick", "draft")) {
+		t.Errorf("GetDraftDir() = %q, expected to end with '.rick/draft'", got)
+	}
+}
+
 func TestGetRFCDir(t *testing.T) {
 	originalDir, err := os.Getwd()
 	if err != nil {

@@ -31,14 +31,25 @@ func NewHumanLoopCmd() *cobra.Command {
 				return fmt.Errorf("failed to create RFC directory: %w", err)
 			}
 
+			// Get and create draft directory structure
+			draftDir, err := workspace.GetDraftDir()
+			if err != nil {
+				return fmt.Errorf("failed to get draft directory: %w", err)
+			}
+			for _, sub := range []string{draftDir, draftDir + "/concepts", draftDir + "/human-learning"} {
+				if err := os.MkdirAll(sub, 0755); err != nil {
+					return fmt.Errorf("failed to create draft directory %s: %w", sub, err)
+				}
+			}
+
 			promptMgr := prompt.NewPromptManager()
 
 			if GetDryRun() {
-				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, promptMgr)
+				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, "<draft>/", promptMgr)
 				if err != nil {
 					return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 				}
-				fmt.Print(content)
+				fmt.Fprint(cmd.OutOrStdout(), content)
 				return nil
 			}
 
@@ -49,7 +60,7 @@ func NewHumanLoopCmd() *cobra.Command {
 			}
 
 			// Generate human_loop prompt file and sub-agent files
-			mainFile, subAgentFiles, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, promptMgr)
+			mainFile, subAgentFiles, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, promptMgr)
 			if err != nil {
 				return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 			}

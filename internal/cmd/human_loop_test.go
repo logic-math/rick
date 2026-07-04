@@ -9,6 +9,95 @@ import (
 	"github.com/sunquan/rick/internal/config"
 )
 
+// TestHumanLoopCreatesDraftDirs tests that running human-loop creates draft directories
+func TestHumanLoopCreatesDraftDirs(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockScript := "#!/bin/sh\nexit 0\n"
+	mockPath := filepath.Join(tmpDir, "mock_claude")
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := t.TempDir()
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	// Set HOME so config.LoadConfig reads from workDir
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", workDir)
+	defer os.Setenv("HOME", origHome)
+
+	rickDir := filepath.Join(workDir, ".rick")
+	if err := os.MkdirAll(rickDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfgContent := `{"claude_code_path": "` + mockPath + `", "max_retries": 1}`
+	if err := os.WriteFile(filepath.Join(rickDir, "config.json"), []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	origDryRun := dryRun
+	defer func() { dryRun = origDryRun }()
+	dryRun = false
+
+	cmd := NewHumanLoopCmd()
+	cmd.SetArgs([]string{"测试主题"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("human-loop failed: %v", err)
+	}
+
+	for _, sub := range []string{"draft", filepath.Join("draft", "concepts"), filepath.Join("draft", "human-learning")} {
+		p := filepath.Join(workDir, ".rick", sub)
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			t.Errorf("expected directory %s to exist", p)
+		}
+	}
+}
+
+// TestHumanLoopDryRunContainsDraftDir tests dry-run output has draft path, no unreplaced {{draft_dir}}
+func TestHumanLoopDryRunContainsDraftDir(t *testing.T) {
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workDir := t.TempDir()
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(orig) }()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".rick"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origDryRun := dryRun
+	defer func() { dryRun = origDryRun }()
+	dryRun = true
+
+	var buf strings.Builder
+	cmd := NewHumanLoopCmd()
+	cmd.SetArgs([]string{"测试主题"})
+	cmd.SetOut(&buf)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("human-loop dry-run failed: %v", err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "{{draft_dir}}") {
+		t.Error("dry-run output contains unreplaced {{draft_dir}}")
+	}
+	if !strings.Contains(output, "draft") {
+		t.Error("dry-run output does not contain 'draft'")
+	}
+}
+
 // TestHumanLoopCmdCreation tests that NewHumanLoopCmd creates a valid command
 func TestHumanLoopCmdCreation(t *testing.T) {
 	cmd := NewHumanLoopCmd()

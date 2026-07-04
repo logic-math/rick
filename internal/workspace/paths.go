@@ -23,6 +23,7 @@ const (
 	DoingDirName    = "doing"
 	LearningDirName = "learning"
 	DreamDirName    = "dream"
+	DraftDirName    = "draft"
 )
 
 // GetHomeDir returns the user's home directory
@@ -147,6 +148,15 @@ func GetRFCDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(rickDir, "RFC"), nil
+}
+
+// GetDraftDir returns the path to the draft directory under .rick
+func GetDraftDir() (string, error) {
+	rickDir, err := GetRickDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(rickDir, DraftDirName), nil
 }
 
 // NextJobID scans the jobs directory and returns the next job_N id.

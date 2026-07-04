@@ -7,7 +7,7 @@ import (
 
 // GenerateHumanLoopPrompt generates the human-loop prompt string (for dry-run).
 // Sub-agent paths are replaced with placeholder descriptions.
-func GenerateHumanLoopPrompt(topic string, rfcDir string, manager *PromptManager) (string, error) {
+func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manager *PromptManager) (string, error) {
 	if manager == nil {
 		return "", fmt.Errorf("prompt manager cannot be nil")
 	}
@@ -37,6 +37,7 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, manager *PromptManager
 	builder := NewPromptBuilder(mainTmpl)
 	builder.SetVariable("topic", topic)
 	builder.SetVariable("rfc_dir", rfcDir)
+	builder.SetVariable("draft_dir", draftDir)
 	builder.SetVariable("think_agent_path", "<tmp>/human_loop_think_*.md")
 	builder.SetVariable("learn_agent_path", "<tmp>/human_loop_learn_*.md")
 	builder.SetVariable("express_agent_path", "<tmp>/human_loop_express_*.md")
@@ -53,7 +54,7 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, manager *PromptManager
 // It also writes the three sub-agent templates to tmp files and injects their paths.
 // Returns mainFile, subAgentFiles (think, learn, express), and any error.
 // The caller is responsible for cleaning up all returned files.
-func GenerateHumanLoopPromptFile(topic string, rfcDir string, manager *PromptManager) (string, []string, error) {
+func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, manager *PromptManager) (string, []string, error) {
 	if manager == nil {
 		return "", nil, fmt.Errorf("prompt manager cannot be nil")
 	}
@@ -64,6 +65,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, manager *PromptMan
 		return "", nil, fmt.Errorf("failed to load human_loop_think template: %w", err)
 	}
 	thinkBuilder := NewPromptBuilder(thinkTmpl)
+	thinkBuilder.SetVariable("draft_dir", draftDir)
 	thinkFile, err := thinkBuilder.BuildAndSave("human_loop_think")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to save human_loop_think: %w", err)
@@ -75,6 +77,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, manager *PromptMan
 		return "", nil, fmt.Errorf("failed to load human_loop_learn template: %w", err)
 	}
 	learnBuilder := NewPromptBuilder(learnTmpl)
+	learnBuilder.SetVariable("draft_dir", draftDir)
 	learnFile, err := learnBuilder.BuildAndSave("human_loop_learn")
 	if err != nil {
 		cleanupFiles([]string{thinkFile})
@@ -87,6 +90,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, manager *PromptMan
 		return "", nil, fmt.Errorf("failed to load human_loop_express template: %w", err)
 	}
 	expressBuilder := NewPromptBuilder(expressTmpl)
+	expressBuilder.SetVariable("draft_dir", draftDir)
 	expressFile, err := expressBuilder.BuildAndSave("human_loop_express")
 	if err != nil {
 		cleanupFiles([]string{thinkFile, learnFile})
@@ -105,6 +109,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, manager *PromptMan
 	builder := NewPromptBuilder(mainTmpl)
 	builder.SetVariable("topic", topic)
 	builder.SetVariable("rfc_dir", rfcDir)
+	builder.SetVariable("draft_dir", draftDir)
 	builder.SetVariable("think_agent_path", thinkFile)
 	builder.SetVariable("learn_agent_path", learnFile)
 	builder.SetVariable("express_agent_path", expressFile)
