@@ -589,10 +589,10 @@ func TestGetRFCDir(t *testing.T) {
 	if rfcDir == "" {
 		t.Error("GetRFCDir() returned empty string")
 	}
-	if !strings.Contains(rfcDir, ".rick") {
-		t.Errorf("GetRFCDir() = %s, expected to contain '.rick'", rfcDir)
+	if !strings.Contains(rfcDir, "draft") {
+		t.Errorf("GetRFCDir() = %s, expected to contain 'draft'", rfcDir)
 	}
-	if !strings.Contains(rfcDir, "RFC") {
-		t.Errorf("GetRFCDir() = %s, expected to contain 'RFC'", rfcDir)
+	if !strings.Contains(rfcDir, "rfc") {
+		t.Errorf("GetRFCDir() = %s, expected to contain 'rfc'", rfcDir)
 	}
 }

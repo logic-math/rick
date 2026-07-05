@@ -49,11 +49,11 @@
 
 ### 3. 确定 RFC 序号
 
-扫描 `.rick/RFC/RFC-refactor-*.md`，提取所有已有数字序号，取最大值 +1；若无则从 1 开始。
+扫描 `.rick/draft/RFC/RFC-refactor-*.md`，提取所有已有数字序号，取最大值 +1；若无则从 1 开始。
 
 ### 4. 创建 RFC 文件
 
-在 `.rick/RFC/RFC-refactor-{n}.md` 写入以下结构：
+在 `.rick/draft/RFC/RFC-refactor-{n}.md` 写入以下结构：
 
 ```markdown
 # RFC-refactor-{n}: 代码简洁性重构建议
@@ -92,5 +92,5 @@
 
 ## 约束
 
-⚠️ **允许**：Read、Grep、Glob 查阅任意源码；写入 `.rick/RFC/RFC-refactor-{n}.md`（仅此一个文件）
+⚠️ **允许**：Read、Grep、Glob 查阅任意源码；写入 `.rick/draft/RFC/RFC-refactor-{n}.md`（仅此一个文件）
 ⚠️ **禁止**：修改任何源代码或其他 `.rick/` 文件

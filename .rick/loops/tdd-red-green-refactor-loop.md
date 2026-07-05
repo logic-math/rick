@@ -26,6 +26,15 @@ trigger: "当测试已存在且处于 FAIL 状态，需要通过迭代实现让�
 - `git diff`：确认工作区状态 —— 约束：每轮修改前必须工作区干净
 - 权限边界：禁止在迭代过程中 `git commit` 或修改测试文件本身（测试是 spec，不是实现）
 
+## embed.FS 模板变更（附加步骤）
+
+当修改的文件位于 `internal/prompt/templates/` 时（embed.FS），测试通过后还需重新构建才能验证实际效果：
+
+```bash
+./scripts/build.sh
+./bin/rick doing job_N --dry-run | grep "关键词"  # 验证模板内容已注入
+```
+
 ## 产出评估（Output Evaluation）
 
 - 评估类型：客观（运行目标测试，结果确定性）

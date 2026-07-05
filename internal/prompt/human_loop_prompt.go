@@ -6,28 +6,10 @@ import (
 )
 
 // GenerateHumanLoopPrompt generates the human-loop prompt string (for dry-run).
-// Sub-agent paths are replaced with placeholder descriptions.
 func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manager *PromptManager) (string, error) {
 	if manager == nil {
 		return "", fmt.Errorf("prompt manager cannot be nil")
 	}
-
-	thinkTmpl, err := manager.LoadTemplate("human_loop_think")
-	if err != nil {
-		return "", fmt.Errorf("failed to load human_loop_think template: %w", err)
-	}
-	learnTmpl, err := manager.LoadTemplate("human_loop_learn")
-	if err != nil {
-		return "", fmt.Errorf("failed to load human_loop_learn template: %w", err)
-	}
-	expressTmpl, err := manager.LoadTemplate("human_loop_express")
-	if err != nil {
-		return "", fmt.Errorf("failed to load human_loop_express template: %w", err)
-	}
-
-	_ = thinkTmpl
-	_ = learnTmpl
-	_ = expressTmpl
 
 	mainTmpl, err := manager.LoadTemplate("human_loop")
 	if err != nil {
@@ -38,9 +20,8 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	builder.SetVariable("topic", topic)
 	builder.SetVariable("rfc_dir", rfcDir)
 	builder.SetVariable("draft_dir", draftDir)
-	builder.SetVariable("think_agent_path", "<tmp>/human_loop_think_*.md")
-	builder.SetVariable("learn_agent_path", "<tmp>/human_loop_learn_*.md")
-	builder.SetVariable("express_agent_path", "<tmp>/human_loop_express_*.md")
+	builder.SetVariable("loop_dir", "<draft>/loops/loop_N")
+	builder.SetVariable("sense_agent_path", "<draft>/loops/loop_N/prompts/sense_subagent.md")
 
 	content, err := builder.Build()
 	if err != nil {
@@ -50,83 +31,58 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	return content, nil
 }
 
-// GenerateHumanLoopPromptFile generates the human-loop prompt and saves it to a temporary file.
-// It also writes the three sub-agent templates to tmp files and injects their paths.
-// Returns mainFile, subAgentFiles (think, learn, express), and any error.
-// The caller is responsible for cleaning up all returned files.
-func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, manager *PromptManager) (string, []string, error) {
+// GenerateHumanLoopPromptFile generates the human-loop prompt and saves all files to
+// loopDir/prompts/ for persistence across sessions.
+// Returns mainFile, senseAgentFile, and any error.
+func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, loopDir string, manager *PromptManager) (string, string, error) {
 	if manager == nil {
-		return "", nil, fmt.Errorf("prompt manager cannot be nil")
+		return "", "", fmt.Errorf("prompt manager cannot be nil")
 	}
 
-	// Build and save each sub-agent template
-	thinkTmpl, err := manager.LoadTemplate("human_loop_think")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to load human_loop_think template: %w", err)
-	}
-	thinkBuilder := NewPromptBuilder(thinkTmpl)
-	thinkBuilder.SetVariable("draft_dir", draftDir)
-	thinkFile, err := thinkBuilder.BuildAndSave("human_loop_think")
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to save human_loop_think: %w", err)
+	promptsDir := loopDir + "/prompts"
+	briefsDir := loopDir + "/briefs"
+
+	for _, d := range []string{promptsDir, briefsDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return "", "", fmt.Errorf("failed to create directory %s: %w", d, err)
+		}
 	}
 
-	learnTmpl, err := manager.LoadTemplate("human_loop_learn")
+	senseSkillFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
 	if err != nil {
-		cleanupFiles([]string{thinkFile})
-		return "", nil, fmt.Errorf("failed to load human_loop_learn template: %w", err)
-	}
-	learnBuilder := NewPromptBuilder(learnTmpl)
-	learnBuilder.SetVariable("draft_dir", draftDir)
-	learnFile, err := learnBuilder.BuildAndSave("human_loop_learn")
-	if err != nil {
-		cleanupFiles([]string{thinkFile})
-		return "", nil, fmt.Errorf("failed to save human_loop_learn: %w", err)
+		return "", "", fmt.Errorf("failed to write sense skill: %w", err)
 	}
 
-	expressTmpl, err := manager.LoadTemplate("human_loop_express")
+	senseTmpl, err := manager.LoadTemplate("sense_subagent")
 	if err != nil {
-		cleanupFiles([]string{thinkFile, learnFile})
-		return "", nil, fmt.Errorf("failed to load human_loop_express template: %w", err)
+		return "", "", fmt.Errorf("failed to load sense_subagent template: %w", err)
 	}
-	expressBuilder := NewPromptBuilder(expressTmpl)
-	expressBuilder.SetVariable("draft_dir", draftDir)
-	expressFile, err := expressBuilder.BuildAndSave("human_loop_express")
+	senseBuilder := NewPromptBuilder(senseTmpl)
+	senseBuilder.SetVariable("draft_dir", draftDir)
+	senseBuilder.SetVariable("rfc_dir", rfcDir)
+	senseBuilder.SetVariable("loop_dir", loopDir)
+	senseBuilder.SetVariable("sense_skill_path", senseSkillFile)
+	senseFile, err := senseBuilder.BuildAndSaveToDir("sense_subagent", promptsDir)
 	if err != nil {
-		cleanupFiles([]string{thinkFile, learnFile})
-		return "", nil, fmt.Errorf("failed to save human_loop_express: %w", err)
+		return "", "", fmt.Errorf("failed to save sense_subagent: %w", err)
 	}
 
-	subAgentFiles := []string{thinkFile, learnFile, expressFile}
-
-	// Build main prompt with sub-agent paths injected
 	mainTmpl, err := manager.LoadTemplate("human_loop")
 	if err != nil {
-		cleanupFiles(subAgentFiles)
-		return "", nil, fmt.Errorf("failed to load human_loop template: %w", err)
+		return "", "", fmt.Errorf("failed to load human_loop template: %w", err)
 	}
 
 	builder := NewPromptBuilder(mainTmpl)
 	builder.SetVariable("topic", topic)
 	builder.SetVariable("rfc_dir", rfcDir)
 	builder.SetVariable("draft_dir", draftDir)
-	builder.SetVariable("think_agent_path", thinkFile)
-	builder.SetVariable("learn_agent_path", learnFile)
-	builder.SetVariable("express_agent_path", expressFile)
+	builder.SetVariable("loop_dir", loopDir)
+	builder.SetVariable("sense_agent_path", senseFile)
 
-	mainFile, err := builder.BuildAndSave("human_loop")
+	mainFile, err := builder.BuildAndSaveToDir("human_loop", promptsDir)
 	if err != nil {
-		cleanupFiles(subAgentFiles)
-		return "", nil, fmt.Errorf("failed to build and save human_loop prompt: %w", err)
+		return "", "", fmt.Errorf("failed to build and save human_loop prompt: %w", err)
 	}
 
-	return mainFile, subAgentFiles, nil
-}
-
-func cleanupFiles(files []string) {
-	for _, f := range files {
-		if f != "" {
-			_ = os.Remove(f)
-		}
-	}
+	return mainFile, senseFile, nil
 }

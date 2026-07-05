@@ -141,13 +141,13 @@ func GetProjectName() (string, error) {
 	return filepath.Base(cwd), nil
 }
 
-// GetRFCDir returns the path to the RFC directory under .rick
+// GetRFCDir returns the path to the rfc directory under .rick/draft.
 func GetRFCDir() (string, error) {
-	rickDir, err := GetRickDir()
+	draftDir, err := GetDraftDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(rickDir, "RFC"), nil
+	return filepath.Join(draftDir, "rfc"), nil
 }
 
 // GetDraftDir returns the path to the draft directory under .rick
@@ -157,6 +157,30 @@ func GetDraftDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(rickDir, DraftDirName), nil
+}
+
+// NextLoopID scans the draft/loops directory and returns the next loop_N id.
+func NextLoopID(draftDir string) (string, error) {
+	loopsDir := filepath.Join(draftDir, "loops")
+	entries, err := os.ReadDir(loopsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "loop_1", nil
+		}
+		return "", fmt.Errorf("failed to read loops directory: %w", err)
+	}
+
+	maxN := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "loop_%d", &n); err == nil && n > 0 && n <= 9999 && n > maxN {
+			maxN = n
+		}
+	}
+	return fmt.Sprintf("loop_%d", maxN+1), nil
 }
 
 // NextJobID scans the jobs directory and returns the next job_N id.

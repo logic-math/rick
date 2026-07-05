@@ -34,14 +34,8 @@ var (
 	//go:embed templates/human_loop.md
 	humanLoopTemplate string
 
-	//go:embed templates/human_loop_think.md
-	humanLoopThinkTemplate string
-
-	//go:embed templates/human_loop_learn.md
-	humanLoopLearnTemplate string
-
-	//go:embed templates/human_loop_express.md
-	humanLoopExpressTemplate string
+	//go:embed templates/sense_subagent.md
+	senseSubagentTemplate string
 
 	//go:embed templates/dream.md
 	dreamTemplate string
@@ -133,12 +127,8 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return testPythonTemplate
 	case "human_loop":
 		return humanLoopTemplate
-	case "human_loop_think":
-		return humanLoopThinkTemplate
-	case "human_loop_learn":
-		return humanLoopLearnTemplate
-	case "human_loop_express":
-		return humanLoopExpressTemplate
+	case "sense_subagent":
+		return senseSubagentTemplate
 	case "dream":
 		return dreamTemplate
 	case "easy":

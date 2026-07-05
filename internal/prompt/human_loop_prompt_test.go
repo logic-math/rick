@@ -8,51 +8,64 @@ import (
 
 func TestGenerateHumanLoopPromptFileInjectsDraftDir(t *testing.T) {
 	tmpDir := t.TempDir()
-	draftDir := "/tmp/test-draft"
+	draftDir := tmpDir + "/draft"
+	rfcDir := draftDir + "/rfc"
+	loopDir := draftDir + "/loops/loop_1"
+	promptsDir := loopDir + "/prompts"
 
 	pm := NewPromptManager()
 
-	mainFile, subAgentFiles, err := GenerateHumanLoopPromptFile("test topic", tmpDir, draftDir, pm)
+	mainFile, senseFile, err := GenerateHumanLoopPromptFile("test topic", rfcDir, draftDir, loopDir, pm)
 	if err != nil {
 		t.Fatalf("GenerateHumanLoopPromptFile() error: %v", err)
 	}
-	defer func() {
-		os.Remove(mainFile)
-		for _, f := range subAgentFiles {
-			os.Remove(f)
-		}
-	}()
 
-	// think and express files should contain draftDir, not {{draft_dir}}
-	for _, f := range subAgentFiles {
-		content, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("failed to read sub-agent file %s: %v", f, err)
-		}
-		s := string(content)
-		if strings.Contains(s, "{{draft_dir}}") {
-			t.Errorf("file %s still contains unreplaced {{draft_dir}}", f)
-		}
-		if !strings.Contains(s, draftDir) {
-			t.Errorf("file %s does not contain draftDir %q", f, draftDir)
+	for _, f := range []string{mainFile, senseFile} {
+		if !strings.HasPrefix(f, promptsDir) {
+			t.Errorf("file %s is not under promptsDir %s", f, promptsDir)
 		}
 	}
 
-	// main file should also not have {{draft_dir}}
+	content, err := os.ReadFile(senseFile)
+	if err != nil {
+		t.Fatalf("failed to read sense file: %v", err)
+	}
+	s := string(content)
+	for _, v := range []string{"{{draft_dir}}", "{{rfc_dir}}", "{{sense_skill_path}}", "{{loop_dir}}"} {
+		if strings.Contains(s, v) {
+			t.Errorf("sense file still contains unreplaced %s", v)
+		}
+	}
+	if !strings.Contains(s, draftDir) {
+		t.Errorf("sense file does not contain draftDir %q", draftDir)
+	}
+	// sense skill file and briefs dir must exist
+	senseSkillFile := promptsDir + "/skill_sense.md"
+	if _, err := os.Stat(senseSkillFile); os.IsNotExist(err) {
+		t.Errorf("skill_sense.md not written to prompts dir: %s", senseSkillFile)
+	}
+	briefsDir := loopDir + "/briefs"
+	if _, err := os.Stat(briefsDir); os.IsNotExist(err) {
+		t.Errorf("briefs dir not created: %s", briefsDir)
+	}
+
 	mainContent, err := os.ReadFile(mainFile)
 	if err != nil {
 		t.Fatalf("failed to read main file: %v", err)
 	}
-	if strings.Contains(string(mainContent), "{{draft_dir}}") {
-		t.Error("main file still contains unreplaced {{draft_dir}}")
+	for _, v := range []string{"{{draft_dir}}", "{{rfc_dir}}", "{{sense_agent_path}}"} {
+		if strings.Contains(string(mainContent), v) {
+			t.Errorf("main file still contains unreplaced %s", v)
+		}
 	}
 }
 
 func TestGenerateHumanLoopPromptInjectsDraftDir(t *testing.T) {
 	draftDir := "/tmp/test-draft"
+	rfcDir := draftDir + "/rfc"
 	pm := NewPromptManager()
 
-	content, err := GenerateHumanLoopPrompt("test topic", "/tmp/rfc", draftDir, pm)
+	content, err := GenerateHumanLoopPrompt("test topic", rfcDir, draftDir, pm)
 	if err != nil {
 		t.Fatalf("GenerateHumanLoopPrompt() error: %v", err)
 	}
@@ -60,71 +73,102 @@ func TestGenerateHumanLoopPromptInjectsDraftDir(t *testing.T) {
 	if strings.Contains(content, "{{draft_dir}}") {
 		t.Error("dry-run output contains unreplaced {{draft_dir}}")
 	}
-	if !strings.Contains(content, draftDir) {
-		t.Errorf("dry-run output does not contain draftDir %q", draftDir)
+	if strings.Contains(content, "{{sense_agent_path}}") {
+		t.Error("dry-run output contains unreplaced {{sense_agent_path}}")
 	}
 }
 
-func TestHumanLoopThinkTemplateHasJudgmentProtocol(t *testing.T) {
+func TestSenseSubagentTemplateHasThreePhases(t *testing.T) {
 	pm := NewPromptManager()
-	tpl, err := pm.LoadTemplate("human_loop_think")
+	tpl, err := pm.LoadTemplate("sense_subagent")
 	if err != nil {
-		t.Fatalf("LoadTemplate(human_loop_think) error: %v", err)
+		t.Fatalf("LoadTemplate(sense_subagent) error: %v", err)
 	}
-
-	for _, keyword := range []string{"判断记录协议", "judgment.md", "{{draft_dir}}"} {
-		if !strings.Contains(tpl.Content, keyword) {
-			t.Errorf("human_loop_think.md missing keyword %q", keyword)
+	for _, kw := range []string{"调研", "简报", "选项", "S1", "E1", "E2"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_subagent.md missing keyword %q", kw)
 		}
 	}
 }
 
-func TestHumanLoopThinkTemplateHasLoopsMdFormat(t *testing.T) {
+func TestSenseSubagentTemplateHasSENSESteps(t *testing.T) {
 	pm := NewPromptManager()
-	tpl, err := pm.LoadTemplate("human_loop_think")
+	tpl, err := pm.LoadTemplate("sense_subagent")
 	if err != nil {
-		t.Fatalf("LoadTemplate(human_loop_think) error: %v", err)
+		t.Fatalf("LoadTemplate(sense_subagent) error: %v", err)
 	}
-
-	for _, keyword := range []string{"loops.md", "做什么", "难度感受", "前置依赖", "掌握程度"} {
-		if !strings.Contains(tpl.Content, keyword) {
-			t.Errorf("human_loop_think.md missing keyword %q", keyword)
+	for _, kw := range []string{"Subject", "Perspective", "Judgment", "Reverse", "Critique"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_subagent.md missing SENSE step %q", kw)
 		}
 	}
 }
 
-func TestHumanLoopExpressTemplateHasJudgmentReview(t *testing.T) {
+func TestSenseSubagentTemplateHasOutputFiles(t *testing.T) {
 	pm := NewPromptManager()
-	tpl, err := pm.LoadTemplate("human_loop_express")
+	tpl, err := pm.LoadTemplate("sense_subagent")
 	if err != nil {
-		t.Fatalf("LoadTemplate(human_loop_express) error: %v", err)
+		t.Fatalf("LoadTemplate(sense_subagent) error: %v", err)
 	}
-
-	if !strings.Contains(tpl.Content, "judgment.md") {
-		t.Error("human_loop_express.md missing keyword \"judgment.md\"")
-	}
-	if !strings.Contains(tpl.Content, "清洗") && !strings.Contains(tpl.Content, "review") {
-		t.Error("human_loop_express.md missing '清洗' or 'review'")
-	}
-	if !strings.Contains(tpl.Content, "{{draft_dir}}") {
-		t.Error("human_loop_express.md missing keyword \"{{draft_dir}}\"")
+	for _, kw := range []string{"judgment.md", "loops.md", "progress.md", "{{rfc_dir}}", "{{draft_dir}}"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_subagent.md missing keyword %q", kw)
+		}
 	}
 }
 
-func TestHumanLoopExpressTemplateHasZPDEvaluation(t *testing.T) {
+func TestSenseSubagentJudgmentIsHumanOnly(t *testing.T) {
 	pm := NewPromptManager()
-	tpl, err := pm.LoadTemplate("human_loop_express")
+	tpl, err := pm.LoadTemplate("sense_subagent")
 	if err != nil {
-		t.Fatalf("LoadTemplate(human_loop_express) error: %v", err)
+		t.Fatalf("LoadTemplate(sense_subagent) error: %v", err)
 	}
+	// judgment.md must emphasize human-only
+	if !strings.Contains(tpl.Content, "human 原话") && !strings.Contains(tpl.Content, "human 判断") {
+		t.Error("sense_subagent.md missing human-only constraint for judgment.md")
+	}
+	// must forbid AI reasoning in judgment.md
+	if !strings.Contains(tpl.Content, "AI 推理") {
+		t.Error("sense_subagent.md missing prohibition of AI reasoning in judgment.md")
+	}
+}
 
-	if !strings.Contains(tpl.Content, "progress.md") {
-		t.Error("human_loop_express.md missing keyword \"progress.md\"")
+func TestSenseSubagentLoopsIsConceptMap(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("sense_subagent")
+	if err != nil {
+		t.Fatalf("LoadTemplate(sense_subagent) error: %v", err)
 	}
-	if !strings.Contains(tpl.Content, "ZPD") && !strings.Contains(tpl.Content, "难度感受") {
-		t.Error("human_loop_express.md missing 'ZPD' or '难度感受'")
+	for _, kw := range []string{"概念地图", "掌握程度"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_subagent.md missing concept-map keyword %q in loops.md section", kw)
+		}
 	}
-	if !strings.Contains(tpl.Content, "loops.md") {
-		t.Error("human_loop_express.md missing keyword \"loops.md\"")
+}
+
+func TestHumanLoopMainTemplateHasSenseAgentPath(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop) error: %v", err)
+	}
+	for _, kw := range []string{"{{sense_agent_path}}", "批判门禁", "假设"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("human_loop.md missing keyword %q", kw)
+		}
+	}
+}
+
+func TestHumanLoopMainTemplateForcesHumanAtEveryStep(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("human_loop")
+	if err != nil {
+		t.Fatalf("LoadTemplate(human_loop) error: %v", err)
+	}
+	// must enforce human judgment at every step
+	for _, kw := range []string{"不可跳过", "S1", "E1", "E2"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("human_loop.md missing enforcement keyword %q", kw)
+		}
 	}
 }

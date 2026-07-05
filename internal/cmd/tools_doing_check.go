@@ -139,6 +139,16 @@ func runDoingCheck(doingDir string) error {
 	if err != nil {
 		return err
 	}
+
+	for _, task := range tasksJSON.GetAllTasks() {
+		if task.Status == "running" {
+			return fmt.Errorf("task %s is in zombie 'running' state — change to 'failed' if stuck", task.TaskID)
+		}
+		if task.Status == "success" && task.CommitHash == "" {
+			return fmt.Errorf("task %s has status=success but missing commit_hash", task.TaskID)
+		}
+	}
+
 	successCount := tasksJSON.GetCompletedCount()
 	totalCount := tasksJSON.GetTaskCount()
 	fmt.Printf("✅ doing check passed: %d/%d tasks succeeded\n", successCount, totalCount)

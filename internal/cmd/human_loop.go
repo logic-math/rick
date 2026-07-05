@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/config"
@@ -22,30 +23,35 @@ func NewHumanLoopCmd() *cobra.Command {
 			}
 			topic := args[0]
 
-			// Get RFC directory and auto-create it
-			rfcDir, err := workspace.GetRFCDir()
-			if err != nil {
-				return fmt.Errorf("failed to get RFC directory: %w", err)
-			}
-			if err := os.MkdirAll(rfcDir, 0755); err != nil {
-				return fmt.Errorf("failed to create RFC directory: %w", err)
-			}
-
-			// Get and create draft directory structure
 			draftDir, err := workspace.GetDraftDir()
 			if err != nil {
 				return fmt.Errorf("failed to get draft directory: %w", err)
 			}
-			for _, sub := range []string{draftDir, draftDir + "/concepts", draftDir + "/human-learning"} {
+			rfcDir := draftDir + "/rfc"
+
+			// Allocate next loop_N directory
+			loopID, err := workspace.NextLoopID(draftDir)
+			if err != nil {
+				return fmt.Errorf("failed to allocate loop id: %w", err)
+			}
+			loopDir := filepath.Join(draftDir, "loops", loopID)
+
+			for _, sub := range []string{
+				draftDir,
+				rfcDir,
+				draftDir + "/concepts",
+				draftDir + "/human-learning",
+				filepath.Join(draftDir, "loops"),
+			} {
 				if err := os.MkdirAll(sub, 0755); err != nil {
-					return fmt.Errorf("failed to create draft directory %s: %w", sub, err)
+					return fmt.Errorf("failed to create directory %s: %w", sub, err)
 				}
 			}
 
 			promptMgr := prompt.NewPromptManager()
 
 			if GetDryRun() {
-				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, "<draft>/", promptMgr)
+				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, draftDir, promptMgr)
 				if err != nil {
 					return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 				}
@@ -53,35 +59,27 @@ func NewHumanLoopCmd() *cobra.Command {
 				return nil
 			}
 
-			// Load config
 			cfg, err := config.LoadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Generate human_loop prompt file and sub-agent files
-			mainFile, subAgentFiles, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, promptMgr)
+			mainFile, _, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, promptMgr)
 			if err != nil {
 				return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 			}
-			defer func() {
-				os.Remove(mainFile)
-				for _, f := range subAgentFiles {
-					os.Remove(f)
-				}
-			}()
 
 			if GetVerbose() {
+				fmt.Printf("[INFO] Loop directory: %s\n", loopDir)
 				fmt.Printf("[INFO] Human-loop prompt saved to: %s\n", mainFile)
-				fmt.Printf("[INFO] RFC directory: %s\n", rfcDir)
+				fmt.Printf("[INFO] rfc directory: %s\n", rfcDir)
 			}
 
-			// Start Claude Code CLI interactive session
 			if err := callClaudeCodeCLI(cfg, mainFile); err != nil {
 				return fmt.Errorf("failed to start Claude Code CLI: %w", err)
 			}
 
-			fmt.Println("思考记录已保存到 .rick/RFC/ 目录（如果 AI 已执行 sense-express）")
+			fmt.Printf("思考记录已保存到 %s\n", loopDir)
 			return nil
 		},
 	}

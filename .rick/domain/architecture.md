@@ -85,6 +85,20 @@ func Generate(session AgentSession, outputFile string) error
 - 三个 sub agent 模板（think/learn/express）通过 Go embed 编译进二进制
 - 运行时写出到系统 tmp，路径注入主控 prompt
 
+### human_loop_think.md 扩展（job_26）
+
+- **判断记录协议**：每个 SENSE 阶段推进条件满足后，提取 1-3 条关键判断追加到 `{{draft_dir}}/human-learning/judgment.md`
+- **概念展开标记**：Perspective 阶段识别到值得深入的概念时，写入 `{{draft_dir}}/human-learning/loops.md`
+
+### human_loop_express.md 扩展（job_26）
+
+- **第零步：judgment.md review**：读取 `{{draft_dir}}/human-learning/judgment.md`，文件不存在时直接跳过（不报错）
+- **第五步：ZPD 显式评价**：会话结束后引导用户回答 3 个问题，追加写入 `{{draft_dir}}/progress.md` 和 `{{draft_dir}}/loops.md`
+
+### draft_dir 变量注入（job_26）
+
+learning 阶段现在注入 `{{draft_dir}}` 变量，路径为 `.rick/jobs/{job_id}/draft/`，由 `internal/cmd/learning.go` 的 `buildLearningPrompt` 函数注入。
+
 ## dream 模块（internal/cmd/dream.go）
 
 - 不生成 act-path

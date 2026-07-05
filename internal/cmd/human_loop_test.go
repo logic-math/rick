@@ -52,7 +52,13 @@ func TestHumanLoopCreatesDraftDirs(t *testing.T) {
 		t.Fatalf("human-loop failed: %v", err)
 	}
 
-	for _, sub := range []string{"draft", filepath.Join("draft", "concepts"), filepath.Join("draft", "human-learning")} {
+	for _, sub := range []string{
+		"draft",
+		filepath.Join("draft", "rfc"),
+		filepath.Join("draft", "concepts"),
+		filepath.Join("draft", "human-learning"),
+		filepath.Join("draft", "loops"),
+	} {
 		p := filepath.Join(workDir, ".rick", sub)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Errorf("expected directory %s to exist", p)
@@ -152,7 +158,7 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Switch to a temp working dir so .rick/RFC is created there
+	// Switch to a temp working dir so .rick/draft/RFC is created there
 	orig, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -178,14 +184,14 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 	cfg := &config.Config{ClaudeCodePath: mockPath}
 
 	// Create prompt manager and generate prompt file manually to test the flow
-	rfcDir := filepath.Join(workDir, ".rick", "RFC")
+	rfcDir := filepath.Join(workDir, ".rick", "draft", "rfc")
 	if err := os.MkdirAll(rfcDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify RFC dir was created
+	// Verify rfc dir is under draft
 	if _, err := os.Stat(rfcDir); os.IsNotExist(err) {
-		t.Error("RFC directory was not created")
+		t.Error("rfc directory was not created under draft")
 	}
 
 	// Test callClaudeCodeCLI with mock
