@@ -17,7 +17,7 @@
 ## 工作流
 
 ```
-1. 读 exporter_skill_path 方法论
+1. 读「先读」行指定的 skill 方法论
 2. 读前序上下文：
    - {{loop_dir}}/briefs/*.md（所有步骤简报）
    - {{loop_dir}}/judgment.md（human 全部判断原话）
