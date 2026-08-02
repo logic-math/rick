@@ -64,7 +64,7 @@ func NewHumanLoopCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			mainFile, _, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, promptMgr)
+			mainFile, _, _, _, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, promptMgr)
 			if err != nil {
 				return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 			}

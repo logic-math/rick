@@ -51,6 +51,9 @@ func GetDefaultConfig() *Config {
 			UserName:  "Rick",
 			UserEmail: "rick@localhost",
 		},
+		HumanLoop: HumanLoopConfig{
+			MaxRetries: 5,
+		},
 	}
 }
 

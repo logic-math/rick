@@ -288,3 +288,32 @@ func TestLoadConfigReadError(t *testing.T) {
 		t.Error("expected error when reading directory as file")
 	}
 }
+
+func TestDefaultHumanLoopMaxRetries(t *testing.T) {
+	cfg := GetDefaultConfig()
+	if cfg.HumanLoop.MaxRetries != 5 {
+		t.Errorf("expected default HumanLoop.MaxRetries=5, got %d", cfg.HumanLoop.MaxRetries)
+	}
+}
+
+func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
+	cfg := &Config{
+		MaxRetries:       3,
+		ClaudeCodePath:   "/path/to/claude",
+		DefaultWorkspace: "/home/user/.rick",
+		HumanLoop: HumanLoopConfig{
+			MaxRetries: 7,
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("failed to unmarshal config: %v", err)
+	}
+	if loaded.HumanLoop.MaxRetries != 7 {
+		t.Errorf("expected HumanLoop.MaxRetries=7, got %d", loaded.HumanLoop.MaxRetries)
+	}
+}

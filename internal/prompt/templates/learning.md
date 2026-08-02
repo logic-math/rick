@@ -51,9 +51,9 @@ learning_check pass 后才算完成。
 
 **前置检查**：如果 `{{draft_dir}}` 目录不存在，跳过全部同步步骤（不报错）。
 
-### 步骤一：domain 事实同步到 draft/progress.md
+### 步骤一：domain 事实同步到 briefs/
 
-读取本次 job 新增或更新的 `.rick/domain/` 文件（bugs.md / build.md / architecture.md 等），提取**本次 job 产出的新事实**，追加到 `{{draft_dir}}/progress.md`：
+读取本次 job 新增或更新的 `.rick/domain/` 文件（bugs.md / build.md / architecture.md 等），提取**本次 job 产出的新事实**，追加到 `{{draft_dir}}/loops/loop_*/briefs/domain-sync.md`：
 
 ```markdown
 ## [{{job_id}}] Domain 事实同步 - [日期]
@@ -72,11 +72,13 @@ learning_check pass 后才算完成。
 - 只追加本次 job 新增的事实，不重复已有内容
 - 每条事实必须标注来源文件
 - 如本次 job 无新 domain 事实，写"无新事实"并说明原因
+- 如 `{{draft_dir}}/loops/` 目录不存在，跳过此步骤
 
-### 步骤二：draft/loops.md 孤儿检查
+### 步骤二：briefs 概念地图复查
 
-读取 `{{draft_dir}}/loops.md`，检查其中"掌握程度: 未接触"的条目：
+读取 `{{draft_dir}}/loops/loop_*/briefs/E1.md`（若存在），检查其中"掌握程度: 未接触"的条目：
 - 如果某条目在本次 job 中已有实践，将掌握程度更新为"了解"或"熟悉"
 - 如果某条目已在本次 job 产出的 skills/ 或 loops/ 中被覆盖，标注"已沉淀"
 
 如文件不存在，跳过此步骤。
+
