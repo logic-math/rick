@@ -87,9 +87,14 @@ func TestSenseLoopTemplateHasThreePhases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
 	}
-	for _, kw := range []string{"调研", "简报", "选项", "S1", "E1", "E2"} {
+	for _, kw := range []string{"调研", "简报", "选项", "问题确认", "视角生成", "矛盾判断", "辩证逆转", "良知批判"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing keyword %q", kw)
+		}
+	}
+	for _, obsolete := range []string{"S1 还原", "E1 概念地图", "E2 视角选择"} {
+		if strings.Contains(tpl.Content, obsolete) {
+			t.Errorf("sense_loop.md should not contain obsolete v2 step %q", obsolete)
 		}
 	}
 }
@@ -100,10 +105,10 @@ func TestSenseLoopTemplateHasSENSESteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
 	}
-	for _, kw := range []string{"Subject", "Perspective", "Judgment", "Reverse", "Critique"} {
-		if !strings.Contains(tpl.Content, kw) {
-			t.Errorf("sense_loop.md missing SENSE step %q", kw)
-		}
+	// v3: 5 阶段中文名(问题确认/视角生成/矛盾判断/辩证逆转/良知批判)
+	// 已在 TestSenseLoopTemplateHasThreePhases 断言,此处改为断言阶段表格存在
+	if !strings.Contains(tpl.Content, "| 阶段 |") {
+		t.Error("sense_loop.md missing phase table header")
 	}
 }
 
@@ -158,7 +163,7 @@ func TestSenseLoopTemplateForcesHumanAtEveryStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
 	}
-	for _, kw := range []string{"不可跳过", "S1", "E1", "E2"} {
+	for _, kw := range []string{"不可省略", "S", "E", "N", "S-R", "EC"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing enforcement keyword %q", kw)
 		}
@@ -171,14 +176,27 @@ func TestSenseLoopTemplateEnforcesControlMeansAndSRTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
 	}
-	for _, kw := range []string{"主要矛盾", "控制手段", "双追问", "辩证逆转", "N 无控制手段"} {
+	for _, kw := range []string{"主要矛盾", "控制手段", "双追问", "辩证逆转", "N2 无主要矛盾"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing N/S-R enforcement keyword %q", kw)
 		}
 	}
 	for _, forbidden := range []string{"非必要不触发"} {
 		if strings.Contains(tpl.Content, forbidden) {
-			t.Errorf("sense_loop.md should not contain obsolete S-R trigger %q (must be mandatory when no control means)", forbidden)
+			t.Errorf("sense_loop.md should not contain obsolete S-R trigger %q", forbidden)
+		}
+	}
+}
+
+func TestSenseLoopTemplateHasBackflowAndSystemDescriptor(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("sense_loop")
+	if err != nil {
+		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
+	}
+	for _, kw := range []string{"反向回流", "{{max_backflows}}", "node", "input", "output", "inner", "edge"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_loop.md missing v3 keyword %q", kw)
 		}
 	}
 }

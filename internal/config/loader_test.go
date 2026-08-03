@@ -323,6 +323,13 @@ func TestDefaultThinkTopN(t *testing.T) {
 	}
 }
 
+func TestDefaultSenseMaxBackflows(t *testing.T) {
+	cfg := GetDefaultConfig()
+	if cfg.HumanLoop.SenseMaxBackflows != 3 {
+		t.Errorf("expected default SenseMaxBackflows=3, got %d", cfg.HumanLoop.SenseMaxBackflows)
+	}
+}
+
 func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       3,

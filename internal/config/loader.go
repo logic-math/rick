@@ -60,6 +60,7 @@ func GetDefaultConfig() *Config {
 				"反事实":    0.1,
 			},
 			ThinkTopN: 3,
+			SenseMaxBackflows: 3,
 		},
 	}
 }
