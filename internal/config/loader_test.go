@@ -316,6 +316,13 @@ func TestDefaultResearchSourceWeights(t *testing.T) {
 	}
 }
 
+func TestDefaultThinkTopN(t *testing.T) {
+	cfg := GetDefaultConfig()
+	if cfg.HumanLoop.ThinkTopN != 3 {
+		t.Errorf("expected default ThinkTopN=3, got %d", cfg.HumanLoop.ThinkTopN)
+	}
+}
+
 func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       3,

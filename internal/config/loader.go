@@ -59,6 +59,7 @@ func GetDefaultConfig() *Config {
 				"文档":     0.2,
 				"反事实":    0.1,
 			},
+			ThinkTopN: 3,
 		},
 	}
 }

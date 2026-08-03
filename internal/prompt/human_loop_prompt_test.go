@@ -213,9 +213,14 @@ func TestThinkTemplateHasPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(think) error: %v", err)
 	}
-	for _, kw := range []string{"打分", "最高风险"} {
+	for _, kw := range []string{"演绎", "归纳", "溯因", "形式化", "判断目标", "4 维", "期望分", "top-N"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("think.md missing pipeline keyword %q", kw)
+		}
+	}
+	for _, obsolete := range []string{"打分(高/中/低)", "选最高风险", "失败风险"} {
+		if strings.Contains(tpl.Content, obsolete) {
+			t.Errorf("think.md should not contain obsolete concept %q", obsolete)
 		}
 	}
 }
