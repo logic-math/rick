@@ -53,6 +53,12 @@ func GetDefaultConfig() *Config {
 		},
 		HumanLoop: HumanLoopConfig{
 			MaxRetries: 5,
+			ResearchSourceWeights: map[string]float64{
+				"代码原文":   0.4,
+				"运行时行为": 0.3,
+				"文档":     0.2,
+				"反事实":    0.1,
+			},
 		},
 	}
 }

@@ -233,15 +233,20 @@ func TestThinkTemplateDeletesExplicitAssumptionDuty(t *testing.T) {
 	}
 }
 
-func TestResearchTemplateHasBFS(t *testing.T) {
+func TestResearchTemplateHasDiligenceTree(t *testing.T) {
 	pm := NewPromptManager()
 	tpl, err := pm.LoadTemplate("research")
 	if err != nil {
 		t.Fatalf("LoadTemplate(research) error: %v", err)
 	}
-	for _, kw := range []string{"BFS", "事实性假设"} {
+	for _, kw := range []string{"尽调树", "MECE", "下钻", "信源", "权重", "置信度", "subagent"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("research.md missing keyword %q", kw)
+		}
+	}
+	for _, obsolete := range []string{"BFS", "全量收集", "QUEUE"} {
+		if strings.Contains(tpl.Content, obsolete) {
+			t.Errorf("research.md should not contain obsolete concept %q", obsolete)
 		}
 	}
 }
@@ -252,8 +257,8 @@ func TestResearchTemplateHasR7Rule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(research) error: %v", err)
 	}
-	if !strings.Contains(tpl.Content, "上报列表") {
-		t.Error("research.md missing R7 rule: 上报列表 for unresearchable facts")
+	if !strings.Contains(tpl.Content, "R7 上报") {
+		t.Error("research.md missing R7 上报 rule for unresearchable facts")
 	}
 }
 

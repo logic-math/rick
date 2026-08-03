@@ -296,6 +296,26 @@ func TestDefaultHumanLoopMaxRetries(t *testing.T) {
 	}
 }
 
+func TestDefaultResearchSourceWeights(t *testing.T) {
+	cfg := GetDefaultConfig()
+	expected := map[string]float64{
+		"代码原文":   0.4,
+		"运行时行为": 0.3,
+		"文档":     0.2,
+		"反事实":    0.1,
+	}
+	for source, want := range expected {
+		got, ok := cfg.HumanLoop.ResearchSourceWeights[source]
+		if !ok {
+			t.Errorf("expected default ResearchSourceWeights to contain %q", source)
+			continue
+		}
+		if got != want {
+			t.Errorf("ResearchSourceWeights[%q]=%v, want %v", source, got, want)
+		}
+	}
+}
+
 func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       3,

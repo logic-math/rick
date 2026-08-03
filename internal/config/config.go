@@ -17,5 +17,6 @@ type GitConfig struct {
 
 // HumanLoopConfig represents human-loop specific configuration
 type HumanLoopConfig struct {
-	MaxRetries int `json:"max_retries"`
+	MaxRetries           int                `json:"max_retries"`
+	ResearchSourceWeights map[string]float64 `json:"research_source_weights,omitempty"`
 }
