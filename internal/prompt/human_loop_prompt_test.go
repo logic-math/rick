@@ -165,6 +165,24 @@ func TestSenseLoopTemplateForcesHumanAtEveryStep(t *testing.T) {
 	}
 }
 
+func TestSenseLoopTemplateEnforcesControlMeansAndSRTrigger(t *testing.T) {
+	pm := NewPromptManager()
+	tpl, err := pm.LoadTemplate("sense_loop")
+	if err != nil {
+		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
+	}
+	for _, kw := range []string{"主要矛盾", "控制手段", "双追问", "辩证逆转", "N 无控制手段"} {
+		if !strings.Contains(tpl.Content, kw) {
+			t.Errorf("sense_loop.md missing N/S-R enforcement keyword %q", kw)
+		}
+	}
+	for _, forbidden := range []string{"非必要不触发"} {
+		if strings.Contains(tpl.Content, forbidden) {
+			t.Errorf("sense_loop.md should not contain obsolete S-R trigger %q (must be mandatory when no control means)", forbidden)
+		}
+	}
+}
+
 func TestSenseLoopTemplateHasFiveDispatchElements(t *testing.T) {
 	pm := NewPromptManager()
 	tpl, err := pm.LoadTemplate("sense_loop")
