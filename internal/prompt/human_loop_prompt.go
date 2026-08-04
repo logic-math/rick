@@ -130,6 +130,8 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, l
 	builder.SetVariable("research_agent_path", researchFile)
 	builder.SetVariable("exporter_agent_path", exporterFile)
 	builder.SetVariable("max_retries", "5")
+	builder.SetVariable("max_backflows", "3")
+	builder.SetVariable("min_assumptions", "5")
 
 	mainFile, err := builder.BuildAndSaveToDir("sense_loop", promptsDir)
 	if err != nil {

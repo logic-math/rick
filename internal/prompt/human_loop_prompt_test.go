@@ -231,7 +231,7 @@ func TestThinkTemplateHasPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(think) error: %v", err)
 	}
-	for _, kw := range []string{"演绎", "归纳", "溯因", "形式化", "判断目标", "4 维", "期望分", "top-N"} {
+	for _, kw := range []string{"演绎", "归纳", "溯因", "形式化", "4 维", "期望分", "top-N", "{{min_assumptions}}", "信念追问", "前提追问", "反例追问", "启发性 3 问"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("think.md missing pipeline keyword %q", kw)
 		}

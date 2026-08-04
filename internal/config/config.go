@@ -21,4 +21,5 @@ type HumanLoopConfig struct {
 	ResearchSourceWeights map[string]float64 `json:"research_source_weights,omitempty"`
 	ThinkTopN            int                `json:"think_top_n,omitempty"`
 	SenseMaxBackflows    int                `json:"sense_max_backflows,omitempty"`
+	ThinkMinAssumptions  int                `json:"think_min_assumptions,omitempty"`
 }

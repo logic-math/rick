@@ -61,6 +61,7 @@ func GetDefaultConfig() *Config {
 			},
 			ThinkTopN: 3,
 			SenseMaxBackflows: 3,
+			ThinkMinAssumptions: 5,
 		},
 	}
 }

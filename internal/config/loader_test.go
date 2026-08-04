@@ -330,6 +330,13 @@ func TestDefaultSenseMaxBackflows(t *testing.T) {
 	}
 }
 
+func TestDefaultThinkMinAssumptions(t *testing.T) {
+	cfg := GetDefaultConfig()
+	if cfg.HumanLoop.ThinkMinAssumptions != 5 {
+		t.Errorf("expected default ThinkMinAssumptions=5, got %d", cfg.HumanLoop.ThinkMinAssumptions)
+	}
+}
+
 func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       3,
