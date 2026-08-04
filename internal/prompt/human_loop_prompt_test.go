@@ -194,7 +194,7 @@ func TestSenseLoopTemplateHasBackflowAndSystemDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(sense_loop) error: %v", err)
 	}
-	for _, kw := range []string{"反向回流", "{{max_backflows}}", "node", "input", "output", "inner", "edge", "ASCII 文本绘图"} {
+	for _, kw := range []string{"反向回流", "{{max_backflows}}", "node", "input", "output", "inner", "edge"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing v3 keyword %q", kw)
 		}

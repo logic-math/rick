@@ -144,7 +144,7 @@ subagent 报告写入 `{{loop_dir}}/briefs/research-{N}-{节点路径}.md`,含:�
 |---|---|
 | S(问题确认) | R7 上报项 + ① 现状补充? ② 期望? ③ 差距? |
 | E(视角生成) | 多视角候选列表(来源理论+融贯性)+ human 请给出原创视角? |
-| N1(矛盾生成) | 系统论描述符(node/input/output/inner/edge)**用 ASCII 文本绘图**(不可纯文字)+ 矛盾状态列表 + human 请描述理解? |
+| N1(矛盾生成) | 系统论描述符(node/input/output/inner/edge)+ 矛盾状态列表 + human 请描述理解? |
 | N2(主要矛盾判断) | 矛盾状态三维打分表(根本性/全局性/决定性)+ top-N + human 请选定主要矛盾? |
 | S-R(辩证逆转) | 阻碍 + 逆转逻辑 + 替代路径(均基于系统描述符)+ human 请判断? |
 | EC(良知批判) | research 不参与(human 自判,sense_loop 呈现回顾) |
