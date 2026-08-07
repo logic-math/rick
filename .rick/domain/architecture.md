@@ -78,28 +78,66 @@ func Generate(session AgentSession, outputFile string) error
 - 输出三节：执行摘要 / 行为轨迹 / Agent 最终输出
 - 每个 task 的 `agentExecutor.Execute` 完成后调用
 
-## human-loop 模块
+## human-loop 模块(v3.1, job_28 重构)
 
-- 命令：`rick human-loop <topic>`
-- 通过 SENSE 方法论模板引导深度分析，产出存入 `.rick/RFC/` 目录
-- 三个 sub agent 模板（think/learn/express）通过 Go embed 编译进二进制
-- 运行时写出到系统 tmp，路径注入主控 prompt
+- 命令:`rick human-loop <topic>`
+- 通过 SENSE 方法论引导 5 阶段深度思考,产出存入 `.rick/draft/rfc/` 目录
+- **四文件架构**(go embed 内嵌模板):
+  - `templates/sense_loop.md` — main agent 协议(5 阶段调度+批判门禁嵌入+反向回流)
+  - `templates/think.md` — subagent(推理识别+假设提取+4维打分+3启发性问题)
+  - `templates/research.md` — subagent(尽调树+信源加权+subagent 上下文隔离)
+  - `templates/exporter.md` — subagent(RFC 输出,大纲+内容两阶段)
+- 对应 skill 文件:`templates/skills/{sense,think,research,exporter}.md`
+- 运行时写到 `{{loop_dir}}/prompts/`,路径注入主控 prompt
 
-### human_loop_think.md 扩展（job_26）
+### 5 阶段流程(v3,替代 v2 7 步线性)
 
-- **判断记录协议**：每个 SENSE 阶段推进条件满足后，提取 1-3 条关键判断追加到 `{{draft_dir}}/human-learning/judgment.md`
-- **概念展开标记**：Perspective 阶段识别到值得深入的概念时，写入 `{{draft_dir}}/human-learning/loops.md`
+```
+S ⇄ E ⇄ N ⇄ S-R ⇄ EC
+↑                    ↑
+└── 跃迁/反向回流 ──┘
+```
 
-### human_loop_express.md 扩展（job_26）
+| 阶段 | 名称 | 核心动作 |
+|---|---|---|
+| S | 问题确认 | research 调研现状+对 human 假设追问,完成现状/期望/差距 |
+| E | 视角生成 | research 跨领域调研→多视角候选→human 给原创视角 |
+| N1 | 矛盾生成 | 用系统论描述符(node/input/output/inner/edge)描述系统 |
+| N2 | 主要矛盾判断 | think 三维打分(根本性/全局性/决定性)+ human 选定 |
+| S-R | 辩证逆转 | "若 X 必然,实现 Y 应当如何?" |
+| EC | 良知批判 | sense_loop 呈现回顾,**human 自判**(无 subagent) |
 
-- **第零步：judgment.md review**：读取 `{{draft_dir}}/human-learning/judgment.md`，文件不存在时直接跳过（不报错）
-- **第五步：ZPD 显式评价**：会话结束后引导用户回答 3 个问题，追加写入 `{{draft_dir}}/progress.md` 和 `{{draft_dir}}/loops.md`
+### 关键设计决策
 
-### draft_dir 变量注入（job_26）
+1. **5 阶段非线性**:替代 v2 7 步线性,允许反向回流(后续可重启前序,上限 `sense_max_backflows` 默认 3)
+2. **批判门禁嵌入**:think 不再独立步骤,嵌入各阶段(human 实质性回答后触发)
+3. **EC human 自判**:不替 human 提议跃迁方向,AI 只呈现回顾
+4. **系统论描述符**(N1 阶段):5 要素 node/input/output/inner/edge,替代模糊概念地图
+5. **简化产物**:2 产物(briefs+judgment.md),删除 loops.md/progress.md(v2 4 产物)
+6. **配置化所有阈值**:`max_retries`/`sense_max_backflows`/`think_top_n`/`think_min_assumptions`/`research_source_weights`
 
-learning 阶段现在注入 `{{draft_dir}}` 变量，路径为 `.rick/jobs/{job_id}/draft/`，由 `internal/cmd/learning.go` 的 `buildLearningPrompt` 函数注入。
+### 假设数量保障 + 3 启发性问题(think v3.1)
 
-## dream 模块（internal/cmd/dream.go）
+- **最低假设数**:`think_min_assumptions` 默认 5,多视角强制(演绎+归纳+溯因+交叉)
+- **补强流程**:低于 min 则反事实/边缘/隐含假设迭代 2 轮
+- **每假设 3 启发性问题**:
+  - Q1 信念:关于 [Y],你内心最确信的是什么?最不确定的是什么?
+  - Q2 前提:[Y] 成立需要什么前提?这些前提你确认过吗?
+  - Q3 反例:什么证据会让你改变对 [Y] 的判断?
+- 总提问数 ≥ 5 × 3 = 15 问题(默认配置)
+
+### 尽调树 + 信源加权(research v2)
+
+- **尽调树**:MECE 划分,深度 ≤5,每层 ≤7,总节点 ≤30
+- **信源加权**:代码原文 0.4 / 运行时 0.3 / 文档 0.2 / 反事实 0.1(可配置)
+- **置信度** = Σ(信源验证结果 × 权重),高 ≥ 0.8(终止)/ 中 0.5-0.8 / 低 < 0.5(R7 上报)
+- **subagent 上下文隔离**:主 research 维护树+主报告,具体调研派给 subagent 落盘
+
+### draft_dir 变量注入(job_26 保留)
+
+learning 阶段注入 `{{draft_dir}}` 变量,路径为 `.rick/jobs/{job_id}/draft/`,由 `internal/cmd/learning.go` 的 `buildLearningPrompt` 函数注入。
+
+## dream 模块(internal/cmd/dream.go)
 
 - 不生成 act-path
 - 自动扫描 `.rick/jobs/*/doing/tasks.json` 发现已完成 jobs
