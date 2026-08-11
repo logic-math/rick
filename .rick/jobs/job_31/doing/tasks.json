@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "created_at": "2026-08-11T21:39:24.75976719+08:00",
+  "updated_at": "2026-08-11T21:39:24.759904923+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "端到端验证任务",
+      "status": "running",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-08-11T21:39:24.75976719+08:00",
+      "updated_at": "2026-08-11T21:39:24.75990485+08:00"
+    }
+  ]
+}
