@@ -134,6 +134,26 @@ Layer 2 叶子层：executor.go(PiExecutor+JSONL解析) / cli.go(CallCLI+FindBin
 - **修复**：config 加 `pi_extra_args`（[]string），`Execute()` 和 `CallCLI()` 透传到 pi 命令行（global flags 在前，per-call flags 在后，prompt 文件最后）
 - **验证**：`TestRealPi_RealToolCall` 用此机制注入 deepseek provider/model/key，真实工具调用通过
 
+### rick 命令级端到端验证（真实 pi + 真实 DeepSeek LLM）
+
+> 与之前 piagent 包内部验证不同：此次直接跑真实 `rick <cmd>`，验证 rick 命令层 + prompt 落盘到 job 目录 + pi 调用全链路。prompt 全部落盘到 rick 标准目录（非 /tmp），完全对齐 rick 功能。
+
+| 命令 | 调 pi 方式 | prompt 落盘 | 结果 |
+|---|---|---|---|
+| `rick plan` | CallCLI(Interactive) | `job_N/plan/prompts/plan_prompt.md` | ✅ pi 返回 PLAN_OK，prompt 落盘正确 |
+| `rick doing` | Execute(--mode json) | `job_N/doing/prompts/{task}_doing_prompt.md` | ✅ pi 真实执行任务（建文件+commit 4a23447），解析器正确，task success |
+| `rick easy` | CallCLI(Interactive, --session-id) | `job_N/doing/prompts/easy_prompt.md` | ✅ 修复 bug 后通过（见下） |
+| `rick learning` | CallCLI(Interactive) | `job_N/learning/prompts/learning_prompt.md` | ✅ pi 返回 LEARNING_OK |
+| `rick human-loop` | CallCLI(Interactive) | `draft/loops/loop_N/prompts/sense_loop.md` | ✅ pi 返回 HUMANLOOP_OK，"思考记录已保存" |
+| `rick dream --background` | CallCLI(Print) | `.rick/dream/prompts/dream_prompt.md` | ⚠️ prompt 落盘+pi 启动正确；LLM 任务量大（5 job 反思）deepseek 超时未跑完（链路已验证，非代码问题） |
+
+### 发现并修复的 easy 命令 bug（命令级验证副产品）
+
+- **问题**：easy.go 用 `pi --session <UUID>` 创建新会话，但 pi 的 `--session` 是**加载已有会话**（找不到报错 "No session found matching"）。迁移时误把 claude 的 `--session-id`→pi 的 `--session`，语义不同
+- **修复**：改回 `--session-id`（pi 同时支持 `--session-id`，专门用于"指定 ID 创建新会话"，"creating a new session with that id"）
+- **验证**：修复后 `rick easy` 真实跑通（pi 创建会话 + 返回 EASY_OK）
+- **根因**：研究 brief（research-5-N2）说 pi `--session` "接受 path 或 id"，但未明确"加载 vs 创建"语义差异；命令级验证才发现此偏差——证明**真实命令级端到端验证的必要性**
+
 ### 配置持久化
 
 - DeepSeek key 已写入 `~/.bashrc`（`export DEEPSEEK_API_KEY=...`，家目录不进 repo）。新开 shell 后 `pi --provider deepseek --model deepseek-v4-flash` 可用

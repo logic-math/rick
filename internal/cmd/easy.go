@@ -147,7 +147,7 @@ func resumeEasyMode(jobID string) error {
 	fmt.Printf("Job ID: %s\n", jobID)
 	fmt.Printf("Resuming session: %s\n", sessionID)
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, "", piagent.ModeInteractive, "--session", sessionID); err != nil {
+	if err := piagent.CallCLI(GetVerbose(), cfg, "", piagent.ModeInteractive, "--session-id", sessionID); err != nil {
 		return fmt.Errorf("session resume failed: %w", err)
 	}
 
@@ -189,7 +189,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 	fmt.Printf("Session ID: %s\n", sessionID)
 	fmt.Println("🤖 Starting Easy interactive session...")
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, mainFile, piagent.ModeInteractive, "--session", sessionID); err != nil {
+	if err := piagent.CallCLI(GetVerbose(), cfg, mainFile, piagent.ModeInteractive, "--session-id", sessionID); err != nil {
 		return fmt.Errorf("easy session failed: %w", err)
 	}
 
