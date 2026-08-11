@@ -18,11 +18,11 @@ import (
 
 // ExecutionConfig holds the configuration for task execution
 type ExecutionConfig struct {
-	MaxRetries      int
-	TimeoutSeconds  int
-	LogFile         string
-	ClaudeCodePath  string
-	WorkspaceDir    string
+	MaxRetries     int
+	TimeoutSeconds int
+	LogFile        string
+	PiPath         string
+	WorkspaceDir   string
 }
 
 // TaskRunner manages the execution of individual tasks
@@ -55,7 +55,7 @@ type TestGenContext struct {
 // 2. Execute task -> run test
 // Parameters:
 //   - task: The task to execute
-//   - debugContext: Content from debug.md (managed by Claude)
+//   - debugContext: Content from debug.md (managed by the agent)
 //   - testErrorFeedback: Previous test execution errors (for test script correction)
 func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorFeedback string) (*TaskExecutionResult, error) {
 	if task == nil {
@@ -111,7 +111,7 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("test execution failed: %v\n\nFull test output:\n%s", err, testOutput)
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+		result.Output = fmt.Sprintf("Agent output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 		result.EndTime = time.Now()
 		return result, nil
 	}
@@ -122,22 +122,22 @@ func (tr *TaskRunner) RunTask(task *parser.Task, debugContext string, testErrorF
 		if checkErr := RunDoingCheck(tr.config.WorkspaceDir); checkErr != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("doing_check failed: %v", checkErr)
-			result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+			result.Output = fmt.Sprintf("Agent output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 		} else {
 			result.Status = "success"
-			result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+			result.Output = fmt.Sprintf("Agent output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 		}
 	} else {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("test did not pass: %s\n\nFull test output:\n%s", strings.Join(testResult.Errors, "; "), testOutput)
-		result.Output = fmt.Sprintf("Claude output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
+		result.Output = fmt.Sprintf("Agent output:\n%s\n\nTest output:\n%s", lastOutput, testOutput)
 	}
 
 	result.EndTime = time.Now()
 	return result, nil
 }
 
-// GenerateTestWithAgent generates a Python test script using Claude Agent.
+// GenerateTestWithAgent generates a Python test script using the pi agent.
 func (tr *TaskRunner) GenerateTestWithAgent(task *parser.Task) (string, error) {
 	if task == nil {
 		return "", fmt.Errorf("task cannot be nil")
@@ -215,7 +215,7 @@ func (tr *TaskRunner) buildTestGenerationPromptFile(task *parser.Task, testScrip
 	return promptFile, []string{tddZhFile, testingAntiPatternsFile}, nil
 }
 
-// GenerateDoingPromptFile generates the doing prompt file for Claude Code CLI.
+// GenerateDoingPromptFile generates the doing prompt file for the pi CLI.
 // Returns the prompt file path, skill tmp files (caller must remove all), and any error.
 func (tr *TaskRunner) GenerateDoingPromptFile(task *parser.Task, debugContext string, testErrorFeedback string) (string, []string, error) {
 	if task == nil {
@@ -286,54 +286,6 @@ func extractJobIDFromPath(dirPath string) string {
 		}
 	}
 	return "job_N"
-}
-
-// CallClaudeCodeCLI calls Claude Code CLI in non-interactive mode
-// promptFile is the path to the prompt file to be loaded by Claude
-func (tr *TaskRunner) CallClaudeCodeCLI(promptFile string) (string, error) {
-	if promptFile == "" {
-		return "", fmt.Errorf("prompt file cannot be empty")
-	}
-
-	// Get Claude CLI path
-	claudePath := tr.config.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-
-	// Create command: claude --dangerously-skip-permissions <promptFile>
-	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", promptFile)
-
-	// Capture output
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Wait for completion with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Run()
-	}()
-
-	timeout := time.Duration(tr.config.TimeoutSeconds) * time.Second
-	if tr.config.TimeoutSeconds == 0 {
-		timeout = 600 * time.Second // Default 10 minutes for Claude
-	}
-
-	select {
-	case err := <-done:
-		output := stdout.String()
-		if stderr.String() != "" {
-			output += "\n\nSTDERR:\n" + stderr.String()
-		}
-		if err != nil {
-			return output, fmt.Errorf("Claude Code CLI execution failed: %w", err)
-		}
-		return output, nil
-	case <-time.After(timeout):
-		cmd.Process.Kill()
-		return stdout.String(), fmt.Errorf("Claude Code CLI timeout after %d seconds", tr.config.TimeoutSeconds)
-	}
 }
 
 // ExecuteTestScript executes a Python test script and parses JSON result
@@ -416,12 +368,11 @@ func (tr *TaskRunner) parseTestResult(output string) (*TestResult, error) {
 	return nil, fmt.Errorf("no valid JSON result found in output")
 }
 
-
 // TaskExecutionResult represents the result of a task execution
 type TaskExecutionResult struct {
 	TaskID    string
 	TaskName  string
-	Status    string    // running, success, failed
+	Status    string // running, success, failed
 	Error     string
 	Output    string
 	StartTime time.Time

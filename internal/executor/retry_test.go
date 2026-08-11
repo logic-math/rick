@@ -151,7 +151,7 @@ func TestRetryTaskSimple_NilTask(t *testing.T) {
 	}
 }
 
-// TestRetryTaskSimple_Valid tests RetryTaskSimple with a valid task (requires claude)
+// TestRetryTaskSimple_Valid tests RetryTaskSimple with a valid task (requires pi)
 func TestRetryTaskSimple_Valid(t *testing.T) {
 	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
 		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
@@ -173,14 +173,14 @@ func TestRetryTaskSimple_Valid(t *testing.T) {
 	}
 }
 
-// TestRetryTask_WithMockClaude tests RetryTask with a mock claude binary
-func TestRetryTask_WithMockClaude(t *testing.T) {
-	// Create a mock claude script that exits with 0 but creates no test script
+// TestRetryTask_WithMockPi tests RetryTask with a mock pi binary
+func TestRetryTask_WithMockPi(t *testing.T) {
+	// Create a mock pi script that exits with 0 but creates no test script
 	mockScript := `#!/bin/sh
 exit 0
 `
 	tmpDir := t.TempDir()
-	mockPath := filepath.Join(tmpDir, "claude")
+	mockPath := filepath.Join(tmpDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ exit 0
 	config := &ExecutionConfig{
 		MaxRetries:     1,
 		TimeoutSeconds: 10,
-		ClaudeCodePath: mockPath,
+		PiPath:         mockPath,
 	}
 	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	manager := NewTaskRetryManager(runner, config, "")
@@ -214,16 +214,16 @@ exit 0
 	}
 }
 
-// TestRetryTaskSimple_WithMockClaude tests the convenience wrapper
-func TestRetryTaskSimple_WithMockClaude(t *testing.T) {
+// TestRetryTaskSimple_WithMockPi tests the convenience wrapper
+func TestRetryTaskSimple_WithMockPi(t *testing.T) {
 	mockScript := "#!/bin/sh\nexit 0\n"
 	tmpDir := t.TempDir()
-	mockPath := filepath.Join(tmpDir, "claude")
+	mockPath := filepath.Join(tmpDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 10, ClaudeCodePath: mockPath}
+	config := &ExecutionConfig{MaxRetries: 1, TimeoutSeconds: 10, PiPath: mockPath}
 	runner := NewTaskRunner(config, &mockAgentExecutor{})
 	task := &parser.Task{ID: "t1", Name: "T", Goal: "G", TestMethod: "echo"}
 

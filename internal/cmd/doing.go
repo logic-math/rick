@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/claudecode"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/git"
@@ -86,7 +86,7 @@ func NewDoingCmd() *cobra.Command {
 	}
 
 	doingCmd.Flags().StringVar(&jobID, "job", "", "Job ID to execute")
-	doingCmd.Flags().BoolVar(&easy, "easy", false, "Easy mode: skip plan, start interactive Claude session")
+	doingCmd.Flags().BoolVar(&easy, "easy", false, "Easy mode: skip plan, start interactive pi session")
 	doingCmd.Flags().StringVar(&ctxPath, "ctx", "", "Inherit context from specified .rick directory (easy mode only)")
 
 	return doingCmd
@@ -192,7 +192,7 @@ func executeDoingWorkflow(jobID string) error {
 		MaxRetries:     cfg.MaxRetries,
 		TimeoutSeconds: 3600,
 		LogFile:        filepath.Join(doingDir, "execution.log"),
-		ClaudeCodePath: cfg.ClaudeCodePath,
+		PiPath:         cfg.PiPath,
 		WorkspaceDir:   doingDir,
 	}
 
@@ -201,8 +201,8 @@ func executeDoingWorkflow(jobID string) error {
 			execConfig.MaxRetries, execConfig.TimeoutSeconds)
 	}
 
-	claudeExec := claudecode.NewExecutor(cfg.ClaudeCodePath)
-	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, claudeExec, existingTasksJSON)
+	piExec := piagent.NewExecutor(cfg.PiPath, cfg.PiExtraArgs...)
+	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, piExec, existingTasksJSON)
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)
 	}
@@ -382,13 +382,13 @@ func commitDoingResults(jobID string, result *executor.ExecutionJobResult) error
 	// Generate commit message based on execution result
 	var commitMsg string
 	if result.Status == "completed" {
-		commitMsg = fmt.Sprintf("morty: doing %s - COMPLETED\n\nAll %d tasks executed successfully.\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>",
+		commitMsg = fmt.Sprintf("morty: doing %s - COMPLETED\n\nAll %d tasks executed successfully.\n\nCo-Authored-By: pi <noreply@pi.dev>",
 			jobID, result.TotalTasks)
 	} else if result.Status == "partial" {
-		commitMsg = fmt.Sprintf("morty: doing %s - PARTIAL\n\n%d/%d tasks completed successfully.\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>",
+		commitMsg = fmt.Sprintf("morty: doing %s - PARTIAL\n\n%d/%d tasks completed successfully.\n\nCo-Authored-By: pi <noreply@pi.dev>",
 			jobID, result.SuccessfulTasks, result.TotalTasks)
 	} else {
-		commitMsg = fmt.Sprintf("morty: doing %s - FAILED\n\n%d/%d tasks failed.\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>",
+		commitMsg = fmt.Sprintf("morty: doing %s - FAILED\n\n%d/%d tasks failed.\n\nCo-Authored-By: pi <noreply@pi.dev>",
 			jobID, result.FailedTasks, result.TotalTasks)
 	}
 

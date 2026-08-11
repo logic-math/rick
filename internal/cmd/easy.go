@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
@@ -44,7 +45,7 @@ func NewEasyCmd() *cobra.Command {
 	return easyCmd
 }
 
-// runEasyDryRun prints the easy prompt without creating any job or calling Claude.
+// runEasyDryRun prints the easy prompt without creating any job or calling pi.
 func runEasyDryRun(requirement, ctxPath string) error {
 	rickDir, err := workspace.GetRickDir()
 	if err != nil {
@@ -146,7 +147,7 @@ func resumeEasyMode(jobID string) error {
 	fmt.Printf("Job ID: %s\n", jobID)
 	fmt.Printf("Resuming session: %s\n", sessionID)
 
-	if err := callClaudeCodeCLI(cfg, "", "--resume", sessionID); err != nil {
+	if err := piagent.CallCLI(GetVerbose(), cfg, "", piagent.ModeInteractive, "--session", sessionID); err != nil {
 		return fmt.Errorf("session resume failed: %w", err)
 	}
 
@@ -188,7 +189,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 	fmt.Printf("Session ID: %s\n", sessionID)
 	fmt.Println("🤖 Starting Easy interactive session...")
 
-	if err := callClaudeCodeCLI(cfg, mainFile, "--session-id", sessionID); err != nil {
+	if err := piagent.CallCLI(GetVerbose(), cfg, mainFile, piagent.ModeInteractive, "--session", sessionID); err != nil {
 		return fmt.Errorf("easy session failed: %w", err)
 	}
 

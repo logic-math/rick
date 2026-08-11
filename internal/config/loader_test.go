@@ -56,7 +56,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	// Create a test config
 	testCfg := &Config{
 		MaxRetries:       10,
-		ClaudeCodePath:   "/usr/local/bin/claude",
+		PiPath:           "/usr/local/bin/pi",
 		DefaultWorkspace: filepath.Join(tmpDir, ".rick"),
 	}
 
@@ -82,8 +82,8 @@ func TestSaveAndLoadConfig(t *testing.T) {
 		t.Errorf("expected MaxRetries=%d, got %d", testCfg.MaxRetries, loadedCfg.MaxRetries)
 	}
 
-	if loadedCfg.ClaudeCodePath != testCfg.ClaudeCodePath {
-		t.Errorf("expected ClaudeCodePath=%s, got %s", testCfg.ClaudeCodePath, loadedCfg.ClaudeCodePath)
+	if loadedCfg.PiPath != testCfg.PiPath {
+		t.Errorf("expected PiPath=%s, got %s", testCfg.PiPath, loadedCfg.PiPath)
 	}
 
 	if loadedCfg.DefaultWorkspace != testCfg.DefaultWorkspace {
@@ -94,7 +94,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 func TestValidateConfigMaxRetriesNegative(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       -1,
-		ClaudeCodePath:   "",
+		PiPath:           "",
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
@@ -104,21 +104,21 @@ func TestValidateConfigMaxRetriesNegative(t *testing.T) {
 	}
 }
 
-func TestValidateConfigClaudeCodePathNotExists(t *testing.T) {
+func TestValidateConfigPiPathNotExists(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       5,
-		ClaudeCodePath:   "/nonexistent/path/to/claude",
+		PiPath:           "/nonexistent/path/to/pi",
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
 	err := ValidateConfig(cfg)
 	if err == nil {
-		t.Error("expected validation error for non-existent ClaudeCodePath")
+		t.Error("expected validation error for non-existent PiPath")
 	}
 }
 
 func TestValidateConfigValid(t *testing.T) {
-	// Create a temporary file to use as ClaudeCodePath
+	// Create a temporary file to use as PiPath
 	tmpFile, err := os.CreateTemp("", "claude")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
@@ -127,7 +127,7 @@ func TestValidateConfigValid(t *testing.T) {
 
 	cfg := &Config{
 		MaxRetries:       5,
-		ClaudeCodePath:   tmpFile.Name(),
+		PiPath:           tmpFile.Name(),
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
@@ -137,23 +137,23 @@ func TestValidateConfigValid(t *testing.T) {
 	}
 }
 
-func TestValidateConfigEmptyClaudeCodePath(t *testing.T) {
+func TestValidateConfigEmptyPiPath(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       5,
-		ClaudeCodePath:   "",
+		PiPath:           "",
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
 	err := ValidateConfig(cfg)
 	if err != nil {
-		t.Fatalf("expected no validation error for empty ClaudeCodePath, got %v", err)
+		t.Fatalf("expected no validation error for empty PiPath, got %v", err)
 	}
 }
 
 func TestConfigJSONMarshaling(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       7,
-		ClaudeCodePath:   "/path/to/claude",
+		PiPath:           "/path/to/claude",
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
@@ -175,8 +175,8 @@ func TestConfigJSONMarshaling(t *testing.T) {
 		t.Errorf("expected MaxRetries=%d, got %d", cfg.MaxRetries, loadedCfg.MaxRetries)
 	}
 
-	if loadedCfg.ClaudeCodePath != cfg.ClaudeCodePath {
-		t.Errorf("expected ClaudeCodePath=%s, got %s", cfg.ClaudeCodePath, loadedCfg.ClaudeCodePath)
+	if loadedCfg.PiPath != cfg.PiPath {
+		t.Errorf("expected PiPath=%s, got %s", cfg.PiPath, loadedCfg.PiPath)
 	}
 
 	if loadedCfg.DefaultWorkspace != cfg.DefaultWorkspace {
@@ -214,7 +214,7 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 
 	cfg := &Config{
 		MaxRetries:       5,
-		ClaudeCodePath:   "",
+		PiPath:           "",
 		DefaultWorkspace: tmpDir,
 	}
 
@@ -257,7 +257,7 @@ func TestLoadConfigWithInvalidJSON(t *testing.T) {
 func TestValidateConfigZeroMaxRetries(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       0,
-		ClaudeCodePath:   "",
+		PiPath:           "",
 		DefaultWorkspace: "/home/user/.rick",
 	}
 
@@ -299,10 +299,10 @@ func TestDefaultHumanLoopMaxRetries(t *testing.T) {
 func TestDefaultResearchSourceWeights(t *testing.T) {
 	cfg := GetDefaultConfig()
 	expected := map[string]float64{
-		"代码原文":   0.4,
+		"代码原文":  0.4,
 		"运行时行为": 0.3,
-		"文档":     0.2,
-		"反事实":    0.1,
+		"文档":    0.2,
+		"反事实":   0.1,
 	}
 	for source, want := range expected {
 		got, ok := cfg.HumanLoop.ResearchSourceWeights[source]
@@ -340,7 +340,7 @@ func TestDefaultThinkMinAssumptions(t *testing.T) {
 func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	cfg := &Config{
 		MaxRetries:       3,
-		ClaudeCodePath:   "/path/to/claude",
+		PiPath:           "/path/to/claude",
 		DefaultWorkspace: "/home/user/.rick",
 		HumanLoop: HumanLoopConfig{
 			MaxRetries: 7,

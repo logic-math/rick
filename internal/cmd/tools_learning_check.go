@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -67,8 +68,7 @@ Exit codes:
 					break
 				}
 
-				claudePath, findErr := findClaudeBinary()
-				if findErr != nil {
+				if _, findErr := piagent.FindBinary(nil); findErr != nil {
 					break
 				}
 
@@ -78,7 +78,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := runAutoFix(claudePath, promptFile); fixErr != nil {
+				if fixErr := piagent.CallCLI(GetVerbose(), nil, promptFile, piagent.ModePrint); fixErr != nil {
 					break
 				}
 			}
@@ -89,7 +89,7 @@ Exit codes:
 		},
 	}
 
-	cmd.Flags().BoolVar(&autoFix, "auto-fix", false, "Attempt to auto-fix errors using Claude")
+	cmd.Flags().BoolVar(&autoFix, "auto-fix", false, "Attempt to auto-fix errors using pi")
 	return cmd
 }
 
@@ -120,7 +120,7 @@ func runLearningCheck(learningDir string) error {
 	return nil
 }
 
-// writeLearningCheckFixPrompt writes a prompt file asking claude to fix SUMMARY.md.
+// writeLearningCheckFixPrompt writes a prompt file asking pi to fix SUMMARY.md.
 func writeLearningCheckFixPrompt(learningDir string, checkErr error) (string, error) {
 	tmpFile, err := os.CreateTemp("", "rick-learning-check-fix-*.md")
 	if err != nil {

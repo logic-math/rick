@@ -89,7 +89,7 @@ rick easy --resume job_5
 ```
 
 **工作流**：
-1. 人类提出需求 → 进入交互式 Claude 会话
+1. 人类提出需求 → 进入交互式 pi 会话
 2. Agent 执行，每个问题自动记录到 `doing/debug/`
 3. 退出后人类显式触发 `rick learning job_N`（不自动触发）
 
@@ -137,7 +137,7 @@ rick plan --job job_5 [requirement]   # 复用已有 job 的 plan 目录
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | 空 | 复用已有 job 目录，跳过 NextJobID() |
-| `--dry-run` | false | 输出完整 plan prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 plan prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -170,7 +170,7 @@ rick doing --job job_5            # 等价于 rick doing job_5
 | `--job <id>` | 空 | 指定 job ID |
 | `--easy` | false | 进入 easy 模式（见下方 rick easy） |
 | `--ctx <path>` | 空 | 从指定 `.rick` 目录继承上下文（easy 模式专用） |
-| `--dry-run` | false | 输出完整 doing prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 doing prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -206,7 +206,7 @@ rick easy --resume job_5     # 恢复会话
 | `-r, --requirement <text>` | 空 | 会话需求 |
 | `--ctx <path>` | 空 | 从指定 `.rick` 目录继承上下文 |
 | `--resume <job_id>` | 空 | 恢复已存在的 easy 会话 |
-| `--dry-run` | false | 输出完整 easy prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 easy prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -216,7 +216,7 @@ rick easy --resume job_3
 
 **产出**：
 - `.rick/jobs/job_N/doing/requirement.md`
-- `.rick/jobs/job_N/doing/session_id`（Claude 会话 UUID）
+- `.rick/jobs/job_N/doing/session_id`（pi 会话 UUID）
 - `.rick/jobs/job_N/doing/prompts/`（持久化的 prompt 文件）
 - `.rick/jobs/job_N/doing/tasks.json`（合成 `easy_session` 任务，供 dream 发现）
 
@@ -237,7 +237,7 @@ rick learning --job job_5
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | 空 | 指定 job ID |
-| `--dry-run` | false | 输出完整 learning prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 learning prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -269,7 +269,7 @@ rick dream --job_num 3    # 每次处理 3 个 job
 |------|------|------|
 | `--job_num <n>` | 5 | 每次处理的 job 数量 |
 | `-p, --background` | false | 后台模式（非交互，skip-permissions） |
-| `--dry-run` | false | 输出完整 dream prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 dream prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -300,7 +300,7 @@ rick ctrl --job job_5
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | （必传） | 指定 job ID |
-| `--dry-run` | false | 输出完整 ctrl prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 ctrl prompt 到 stdout，不调用 pi |
 
 **四种干预场景**：
 
@@ -329,7 +329,7 @@ rick human-loop "如何降低 doing 重试率"
 | flag | 默认 | 说明 |
 |------|------|------|
 | `<topic>` | （必传） | 思考主题 |
-| `--dry-run` | false | 输出完整 human-loop prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 human-loop prompt 到 stdout，不调用 pi |
 
 ---
 
@@ -445,7 +445,8 @@ sequenceDiagram
 ```json
 {
   "max_retries": 5,
-  "claude_code_path": "",
+  "pi_path": "",
+  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--api-key", "sk-..."],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",
@@ -457,7 +458,8 @@ sequenceDiagram
 | 配置项 | 说明 |
 |--------|------|
 | `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
-| `claude_code_path` | Claude CLI 路径（空则使用 PATH 中的 `claude`） |
+| `pi_path` | pi CLI 路径（空则使用 PATH 中的 `pi`） |
+| `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-flash","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
 | `default_workspace` | 默认工作区路径 |
 | `git.user_name` | 自动 commit 时使用的 Git 用户名 |
 | `git.user_email` | 自动 commit 时使用的 Git 邮箱 |

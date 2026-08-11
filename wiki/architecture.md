@@ -156,7 +156,7 @@ graph TB
         MOD_PROMPT[prompt<br/>提示词管理]
         MOD_EXEC[executor<br/>任务执行]
         MOD_GIT[git<br/>版本控制]
-        MOD_CLI[callcli<br/>Claude Code 集成]
+        MOD_CLI[callcli<br/>pi 集成]
     end
 
     subgraph "基础设施层 Infrastructure Layer"
@@ -166,7 +166,7 @@ graph TB
     end
 
     subgraph "外部依赖 External Dependencies"
-        EXT_CLAUDE[Claude Code CLI]
+        EXT_PI[pi CLI]
         EXT_GIT[Git]
     end
 
@@ -193,7 +193,7 @@ graph TB
     MOD_EXEC --> MOD_PARSER
     MOD_EXEC --> MOD_GIT
     MOD_EXEC --> MOD_CLI
-    MOD_CLI --> EXT_CLAUDE
+    MOD_CLI --> EXT_PI
     MOD_GIT --> EXT_GIT
 
     MOD_WS --> INF_CONFIG
@@ -214,7 +214,7 @@ graph TB
 **职责**：处理用户命令，协调各模块完成任务
 
 - **plan**：任务规划
-  - 调用 Claude Code 生成任务分解
+  - 调用 pi 生成任务分解
   - 创建工作空间和任务文件
   - 初始化 Git 仓库（首次）
 
@@ -259,8 +259,8 @@ graph TB
 - 自动提交（任务完成后）
 - 分支管理
 
-**callcli（Claude Code 集成）**：
-- 调用 Claude Code CLI
+**callcli（pi 集成）**：
+- 调用 pi CLI
 - 提示词传递
 - 输出解析
 
@@ -289,7 +289,7 @@ sequenceDiagram
     participant P as Plan
     participant D as Doing
     participant E as Executor
-    participant C as Claude Code
+    participant C as pi
     participant G as Git
     participant L as Learning
 
@@ -459,7 +459,7 @@ Rick CLI 在设计时，相比前身 Morty，遵循了极简主义原则：
 
 4. **单一配置文件**：
    - 全局配置：`~/.rick/config.json`
-   - 包含 Claude Code CLI 路径、最大重试次数等
+   - 包含 pi CLI 路径、最大重试次数等
    - 无项目级配置，避免配置冲突
 
 5. **人类完全控制**：
@@ -660,18 +660,18 @@ rick doing job_2
 - 累积错误信息，帮助 AI 修正
 - 避免无限循环，保持人类控制
 
-### 5. Claude Code 集成
+### 5. pi 集成
 
-**方式**：调用 Claude Code CLI
+**方式**：调用 pi CLI
 
 **流程**：
 1. 构建提示词文件
-2. 调用 `claude-code` 命令
+2. 调用 `pi` 命令
 3. 传递提示词文件路径
 4. 解析输出结果
 
 **优势**：
-- 复用 Claude Code 的强大能力
+- 复用 pi 的强大能力
 - 无需实现 AI 交互逻辑
 - 支持多轮对话和工具调用
 

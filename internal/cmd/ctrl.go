@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
@@ -14,8 +15,8 @@ func NewCtrlCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ctrl",
 		Short: "Monitor and intervene in a background doing session",
-		Long:  `Launch an interactive Claude agent that monitors doing progress and applies human interventions via task.md and tasks.json.`,
-		Args: cobra.NoArgs,
+		Long:  `Launch an interactive pi agent that monitors doing progress and applies human interventions via task.md and tasks.json.`,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if GetDryRun() {
 				return runCtrlDryRun()
@@ -71,7 +72,7 @@ func runCtrl(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Job: %s\n", jID)
 	fmt.Println("🎮 Starting ctrl interactive session...")
 
-	if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
+	if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
 		return fmt.Errorf("ctrl session failed: %w", err)
 	}
 

@@ -376,7 +376,7 @@ func TestBuildTestGenerationPromptFile_NilTask(t *testing.T) {
 func TestRunTask_ActPathGeneration(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Pre-create test script so GenerateTestWithAgent skips claude invocation.
+	// Pre-create test script so GenerateTestWithAgent skips pi invocation.
 	testsDir := filepath.Join(tmpDir, "tests")
 	if err := os.MkdirAll(testsDir, 0755); err != nil {
 		t.Fatalf("failed to create tests dir: %v", err)
@@ -394,7 +394,7 @@ func TestRunTask_ActPathGeneration(t *testing.T) {
 	rawLog.Close()
 
 	sess := &mockAgentSession{
-		id:   "sess-1",
+		id: "sess-1",
 		toolCalls: []agent.ToolCall{
 			{Name: "bash", Input: "echo hi", IsError: false, Line: 1},
 		},
@@ -438,4 +438,3 @@ func TestRunTask_ActPathGeneration(t *testing.T) {
 		}
 	}
 }
-
