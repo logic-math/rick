@@ -6,11 +6,12 @@
     {
       "task_id": "task1",
       "task_name": "端到端验证任务",
-      "status": "running",
+      "status": "success",
       "dependencies": null,
       "attempts": 0,
+      "commit_hash": "3a11ae2",
       "created_at": "2026-08-11T21:39:24.75976719+08:00",
-      "updated_at": "2026-08-11T21:39:24.75990485+08:00"
+      "updated_at": "2026-08-11T21:59:00+08:00"
     }
   ]
 }
