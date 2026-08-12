@@ -19,6 +19,7 @@ An AI agent reads 'rick tools --help' to discover all available tools,
 then decides which commands to invoke to complete its work.
 
 Available subcommands:
+  init-pi         Initialize pi (rick's agent runtime) + subagent extension
   plan_check      Validate the plan directory structure for a job
   doing_check     Validate the doing directory structure for a job
   easy_check      Validate the doing directory for an easy mode job (debug/ only)
@@ -30,6 +31,7 @@ Available subcommands:
 		},
 	}
 
+	toolsCmd.AddCommand(NewInitPiCmd())
 	toolsCmd.AddCommand(NewPlanCheckCmd())
 	toolsCmd.AddCommand(NewDoingCheckCmd())
 	toolsCmd.AddCommand(NewEasyCheckCmd())

@@ -331,6 +331,20 @@ rick human-loop "如何降低 doing 重试率"
 | `<topic>` | （必传） | 思考主题 |
 | `--dry-run` | false | 输出完整 human-loop prompt 到 stdout，不调用 pi |
 
+### rick tools init-pi
+
+**职责**：初始化 pi（rick 的 agent runtime）+ subagent 扩展。幂等——检查后跳过已就绪项，缺什么补什么。`install.sh` 安装完 rick 后会自动调一次；也可单独跑。
+
+**用法**：
+```bash
+rick tools init-pi
+```
+
+**做了什么**：
+1. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
+2. 检查 pi 的 subagent 扩展是否已注册（`pi list`）；未注册则从 pi 包目录定位 `examples/extensions/subagent` 并 `pi install` 它
+3. 汇总就绪状态。pi 完全装不上才返回非零；扩展缺失只 warn（rick 仍可用，仅 Sub Agent 派发不可用）
+
 ---
 
 ## human-loop 设计
