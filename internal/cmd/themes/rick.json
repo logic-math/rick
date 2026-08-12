@@ -26,7 +26,8 @@
     "purpleBright": "#dcbdfb",
     "gold": "#eac54f",
     "linkBlue": "#6cb6ff",
-    "bashGray": "#768390"
+    "bashGray": "#768390",
+    "mutedBright": "#8b949e"
   },
   "colors": {
     "accent": "accent",
@@ -36,7 +37,7 @@
     "success": "green",
     "error": "redBright",
     "warning": "orange",
-    "muted": "textMuted",
+    "muted": "mutedBright",
     "dim": "textDim",
     "text": "text",
     "thinkingText": "textMuted",
@@ -49,10 +50,10 @@
     "toolPendingBg": "#000000",
     "toolSuccessBg": "#000000",
     "toolErrorBg": "#000000",
-    "toolTitle": "orangeBright",
+    "toolTitle": "gold",
     "toolOutput": "text",
     "mdHeading": "gold",
-    "mdLink": "linkBlue",
+    "mdLink": "greenBright",
     "mdLinkUrl": "textMuted",
     "mdCode": "greenBright",
     "mdCodeBlock": "text",
@@ -68,7 +69,7 @@
     "syntaxKeyword": "redBright",
     "syntaxFunction": "purpleBright",
     "syntaxVariable": "text",
-    "syntaxString": "cyanBright",
+    "syntaxString": "greenBright",
     "syntaxNumber": "blueBright",
     "syntaxType": "orangeBright",
     "syntaxOperator": "red",
@@ -79,6 +80,6 @@
     "thinkingMedium": "cyan",
     "thinkingHigh": "purple",
     "thinkingXhigh": "red",
-    "bashMode": "bashGray"
+    "bashMode": "gold"
   }
 }
