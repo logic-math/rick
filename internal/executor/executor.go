@@ -211,6 +211,12 @@ func (e *Executor) ExecuteJob() (*ExecutionJobResult, error) {
 		if err := SaveTasksJSON(e.tasksJSONPath, e.tasksJSON); err != nil {
 			e.logf("ERROR: Failed to save tasks.json: %v", err)
 		}
+
+		if retryResult.Status == "max_retries_exceeded" {
+			remaining := result.TotalTasks - (i + 1)
+			e.logf("✗ Task %s reached max retries (%d attempts), aborting job execution: %d remaining task(s) skipped", taskID, retryResult.TotalAttempts, remaining)
+			break
+		}
 	}
 
 	// Determine overall status
