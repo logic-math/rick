@@ -35,35 +35,31 @@
 
 ## Job 上下文
 
-暂无问题记录
+暂无（首次会话）
 
 ---
 
-## 任务信息
-
-**任务 ID**: task1
-**任务名称**: 端到端验证任务
-
-### 任务目标
-验证 rick doing 命令能调用 pi 执行任务
-
-### 关键结果
-1. 创建一个测试文件
 
 
-### 测试方法
-检查目标文件存在
+## 用户需求
 
-
+test
 
 
 ---
 
 **你需要一步步执行以下操作，不可跳过任何步骤。**
 
+## 第一步：Grilling 追问（需求澄清）
+
+在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。
+
+**加载并执行 skill:grilling**：`/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_31/doing/prompts/skill_grilling.md`
+**Grilling 结束后**，将澄清结论追加到 `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_31/doing/requirement.md`（只追加，不替换）。
 
 
-## 第一步：执行 Doing Loop
+
+## 第二步：执行 Doing Loop
 
 # Doing Loop
 
@@ -199,10 +195,19 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ---
 
-## 第二步：格式检查
+## 第三步：格式检查
 
-`/workdir/sunquan20/AI_CODING/rick/bin/rick tools doing_check job_31`
+`/workdir/sunquan20/AI_CODING/rick/bin/rick tools easy_check job_31`
 
 check pass 后才算完成。
 
+---
 
+## 第四步：执行 Learning Loop
+
+⚠️ **必须等待人类明确说"执行 learning"后，才能启动 Learning Loop。禁止自动触发。**
+
+格式检查通过后，向人类汇报完成情况并停止，等待人类指令。
+人类确认后，启动子 Agent 执行 Learning Loop：
+
+`/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_31/doing/prompts/learning_loop.md`
