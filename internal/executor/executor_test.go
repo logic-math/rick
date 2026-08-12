@@ -1254,6 +1254,137 @@ func TestExecuteJobSkipsCompletedTasksAllDone(t *testing.T) {
 	}
 }
 
+// TestExecuteJobStopAfterTaskMaxRetries verifies fail-fast behavior: when a task
+// exhausts all retries (status "max_retries_exceeded"), ExecuteJob must abort the
+// whole job instead of executing subsequent tasks.
+func TestExecuteJobStopAfterTaskMaxRetries(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
+	}
+
+	// mockAgentExecutor is a no-op, so the test script is never generated and
+	// every task execution fails; MaxRetries=1 keeps the test fast (no backoff sleep).
+	tmpDir := t.TempDir()
+	config := &ExecutionConfig{
+		MaxRetries:     1,
+		TimeoutSeconds: 5,
+		ClaudeCodePath: "/nonexistent/claude",
+		WorkspaceDir:   tmpDir,
+	}
+
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_failfast", &mockAgentExecutor{})
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	result, err := exec.ExecuteJob()
+	if err != nil {
+		t.Fatalf("ExecuteJob returned unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("ExecuteJob returned nil result")
+	}
+
+	// task1 exhausted retries; job must abort before executing task2
+	if len(result.TaskResults) != 1 {
+		t.Fatalf("expected exactly 1 task result (job aborted after task1), got %d", len(result.TaskResults))
+	}
+	tr := result.TaskResults[0]
+	if tr.TaskID != "task1" {
+		t.Errorf("expected executed task to be task1, got %s", tr.TaskID)
+	}
+	if tr.Status != "max_retries_exceeded" {
+		t.Errorf("expected task1 status 'max_retries_exceeded', got '%s'", tr.Status)
+	}
+
+	if result.FailedTasks != 1 {
+		t.Errorf("expected FailedTasks=1, got %d", result.FailedTasks)
+	}
+	if result.SuccessfulTasks != 0 {
+		t.Errorf("expected SuccessfulTasks=0, got %d", result.SuccessfulTasks)
+	}
+	if result.Status != "failed" {
+		t.Errorf("expected job status 'failed', got '%s'", result.Status)
+	}
+
+	// task2 must remain pending (never executed) so a later run can resume it
+	status, err := exec.GetTasksJSON().GetTaskStatus("task2")
+	if err != nil {
+		t.Fatalf("GetTaskStatus(task2) failed: %v", err)
+	}
+	if status != "pending" {
+		t.Errorf("expected task2 status 'pending' (not executed), got '%s'", status)
+	}
+
+	// execution log must explain why the job stopped
+	if !contains(result.ExecutionLog, "aborting job execution") {
+		t.Error("execution log should mention aborting job execution after max retries")
+	}
+
+	// error summary must point at the failed task
+	if !contains(result.ErrorSummary, "task1") {
+		t.Error("error summary should mention failed task1")
+	}
+}
+
+// TestExecuteJobFailFastLeavesRemainingTasksPending verifies that fail-fast abort
+// preserves resume semantics: already-completed tasks keep their success status,
+// the exhausted task is marked failed, and all later tasks stay pending.
+func TestExecuteJobFailFastLeavesRemainingTasksPending(t *testing.T) {
+	tasks := []*parser.Task{
+		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
+		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
+		{ID: "task3", Name: "Task 3", Goal: "G3", KeyResults: []string{"KR3"}, Dependencies: []string{"task2"}},
+	}
+
+	tmpDir := t.TempDir()
+	config := &ExecutionConfig{
+		MaxRetries:     1,
+		TimeoutSeconds: 5,
+		ClaudeCodePath: "/nonexistent/claude",
+		WorkspaceDir:   tmpDir,
+	}
+
+	// Pre-build a TasksJSON with task1 already succeeded (skipped on execution)
+	dag, _ := NewDAG(tasks)
+	sorted, _ := TopologicalSort(dag)
+	existing, _ := GenerateTasksJSON(dag, sorted)
+	_ = existing.UpdateTaskStatus("task1", "success")
+
+	exec, err := NewExecutor(tasks, config, tmpDir, "job_failfast_resume", &mockAgentExecutor{}, existing)
+	if err != nil {
+		t.Fatalf("NewExecutor failed: %v", err)
+	}
+
+	result, err := exec.ExecuteJob()
+	if err != nil {
+		t.Fatalf("ExecuteJob returned unexpected error: %v", err)
+	}
+
+	// task1 skipped (counted as success), task2 exhausted retries, task3 never ran
+	if result.SuccessfulTasks != 1 {
+		t.Errorf("expected SuccessfulTasks=1 (skipped task1), got %d", result.SuccessfulTasks)
+	}
+	if result.FailedTasks != 1 {
+		t.Errorf("expected FailedTasks=1 (task2), got %d", result.FailedTasks)
+	}
+	if result.Status != "partial" {
+		t.Errorf("expected job status 'partial', got '%s'", result.Status)
+	}
+	if len(result.TaskResults) != 1 || result.TaskResults[0].TaskID != "task2" {
+		t.Fatalf("expected only task2 in TaskResults, got %+v", result.TaskResults)
+	}
+
+	status, err := exec.GetTasksJSON().GetTaskStatus("task3")
+	if err != nil {
+		t.Fatalf("GetTaskStatus(task3) failed: %v", err)
+	}
+	if status != "pending" {
+		t.Errorf("expected task3 status 'pending' (not executed), got '%s'", status)
+	}
+}
+
 // TestGetCurrentCommitHash tests getting git commit hash
 func TestGetCurrentCommitHash(t *testing.T) {
 	tasks := []*parser.Task{

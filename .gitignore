@@ -8,5 +8,4 @@ debug.md
 # pi config (contains auth tokens — never commit)
 .pi/
 
-# Rick workspace temp (job-level smoke test artifacts)
-.rick/jobs/job_3[2-9]/
+.idea/
