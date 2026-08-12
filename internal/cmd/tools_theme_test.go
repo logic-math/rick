@@ -173,3 +173,62 @@ func TestCustomThemeNames_Sorted(t *testing.T) {
 		t.Errorf("customThemeNames: want [alpha zebra], got %v", names)
 	}
 }
+
+func TestRunThemeSet_EmbeddedRickTheme(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeSet("gh-light", &buf); err != nil {
+		t.Fatalf("runThemeSet(gh-light): %v", err)
+	}
+	if got := currentTheme(); got != "gh-light" {
+		t.Errorf("theme should be gh-light, got %q", got)
+	}
+	// The embedded theme JSON must be written into the managed themes dir
+	// (pi discovers agentDir/themes/*.json automatically).
+	themeFile := filepath.Join(home, ".rick", "pi", "agent", "themes", "gh-light.json")
+	data, err := os.ReadFile(themeFile)
+	if err != nil {
+		t.Fatalf("embedded theme not written: %v", err)
+	}
+	if !strings.Contains(string(data), `"name": "gh-light"`) {
+		t.Errorf("embedded theme content wrong: %s", string(data)[:100])
+	}
+	// hideThinkingBlock managed by bootstrap must survive.
+	s := readManagedSettings(t)
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock lost: %v", s)
+	}
+	// no npm install for embedded themes.
+	list, _ := os.ReadFile(listFile)
+	if len(list) != 0 {
+		t.Errorf("embedded theme must not trigger npm install, got %q", string(list))
+	}
+}
+
+func TestRunThemeList_MarksEmbeddedThemes(t *testing.T) {
+	setupPiSettings(t, "gh-light")
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeList(&buf); err != nil {
+		t.Fatalf("runThemeList: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "gh-light") || !strings.Contains(out, "builtin (rick)") {
+		t.Errorf("embedded themes should be listed as builtin (rick):\n%s", out)
+	}
+	if !strings.Contains(out, "gh-dark") || !strings.Contains(out, "not installed") {
+		t.Errorf("npm-provided gh-dark should be listed as not installed:\n%s", out)
+	}
+}

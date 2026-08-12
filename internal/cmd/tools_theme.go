@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"embed"
 	"fmt"
 	"io"
 	"os"
@@ -13,22 +14,48 @@ import (
 	"github.com/sunquan/rick/internal/agent/piagent"
 )
 
+//go:embed themes/*.json
+var embeddedThemes embed.FS
+
 // knownTheme maps a selectable theme name to the npm package that provides it
-// ("" = pi built-in). rick manages the theme inside its own agent dir, so the
-// choices listed here are exactly the ones rick can guarantee (it installs the
-// providing package into ~/.rick/pi on demand). Custom themes dropped into
-// ~/.rick/pi/agent/themes/*.json are discovered and listed as well.
+// ("" = pi built-in; embedded = rick-shipped custom theme file written into the
+// managed themes dir on activation). rick manages the theme inside its own
+// agent dir, so the choices listed here are exactly the ones rick can guarantee
+// (it installs the providing package into ~/.rick/pi on demand). Custom themes
+// dropped into ~/.rick/pi/agent/themes/*.json are discovered and listed too.
 type knownTheme struct {
-	name string
-	pkg  string
+	name     string
+	pkg      string
+	embedded string // embedded themes/<file>.json, written to the managed themes dir on set
 }
 
 var knownThemes = []knownTheme{
 	{name: "dark", pkg: ""},
 	{name: "light", pkg: ""},
+	// Tokyo Night（Powerline 状态栏）
 	{name: "tokyo-night-dark", pkg: "@wishx127/pi-tokyo-night"},
 	{name: "tokyo-night-light", pkg: "@wishx127/pi-tokyo-night"},
+	// Night Owl（Armin 的 pi 包）
 	{name: "nightowl", pkg: "mitsupi"},
+	// Jellybeans Mono（暗/亮）
+	{name: "jellybeans-mono", pkg: "@aliou/pi-theme-jellybeans"},
+	{name: "jellybeans-mono-light", pkg: "@aliou/pi-theme-jellybeans"},
+	// Gruber Darker / Lighter
+	{name: "gruber-darker", pkg: "pi-theme-gruber-darker"},
+	{name: "gruber-lighter", pkg: "pi-theme-gruber-darker"},
+	// Cyberpunk 高对比（4 色）
+	{name: "ameno-cyberdyne", pkg: "ameno-cyberdyne"},
+	{name: "ameno-cyberdyne-teal", pkg: "ameno-cyberdyne"},
+	{name: "ameno-cyberdyne-blue", pkg: "ameno-cyberdyne"},
+	{name: "ameno-cyberdyne-soft", pkg: "ameno-cyberdyne"},
+	// Poimandres（VSCode 风格）
+	{name: "poimandres", pkg: "@llttlltt/poimandres-pi"},
+	{name: "poimandres-storm", pkg: "@llttlltt/poimandres-pi"},
+	{name: "poimandres-white", pkg: "@llttlltt/poimandres-pi"},
+	// GitHub 风格（rick 内置，基于 GitHub Primer 配色）
+	{name: "gh-dark", pkg: "pi-gh-dark-theme"},
+	{name: "gh-dark-dimmed", embedded: "themes/gh-dark-dimmed.json"},
+	{name: "gh-light", embedded: "themes/gh-light.json"},
 }
 
 // NewThemeCmd creates the `rick tools theme` subcommand: list available pi TUI
@@ -80,7 +107,10 @@ func runThemeList(w io.Writer) error {
 	fmt.Fprintln(w, "Available themes:")
 	for _, t := range knownThemes {
 		state := "✓"
-		if t.pkg != "" && !piListContains(filepath.Base(t.pkg)) {
+		switch {
+		case t.embedded != "":
+			state = "builtin (rick)"
+		case t.pkg != "" && !piListContains(filepath.Base(t.pkg)):
 			state = "not installed"
 		}
 		marker := " "
@@ -126,10 +156,12 @@ func customThemeNames() []string {
 // first if missing, so hideThinkingBlock stays managed even on a fresh box.
 func runThemeSet(name string, w io.Writer) error {
 	pkg := ""
+	embedded := ""
 	known := false
 	for _, t := range knownThemes {
 		if t.name == name {
 			pkg = t.pkg
+			embedded = t.embedded
 			known = true
 			break
 		}
@@ -151,9 +183,24 @@ func runThemeSet(name string, w io.Writer) error {
 	}
 
 	// Make sure the managed settings.json exists first (bootstrap adds
-	// hideThinkingBlock=true), then the theme package, then activate.
+	// hideThinkingBlock=true), then the theme source, then activate.
 	if err := bootstrapAgentSettings(); err != nil {
 		return err
+	}
+	if embedded != "" {
+		// rick-shipped theme: write the embedded JSON into the managed themes
+		// dir, where pi discovers it automatically (agentDir/themes/*.json).
+		data, err := embeddedThemes.ReadFile(embedded)
+		if err != nil {
+			return fmt.Errorf("read embedded theme %s: %w", embedded, err)
+		}
+		themesDir := filepath.Join(piagent.AgentDir(), "themes")
+		if err := os.MkdirAll(themesDir, 0755); err != nil {
+			return fmt.Errorf("create themes dir: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(themesDir, name+".json"), data, 0644); err != nil {
+			return fmt.Errorf("write theme %s.json: %w", name, err)
+		}
 	}
 	if pkg != "" {
 		if !piListContains(filepath.Base(pkg)) {
