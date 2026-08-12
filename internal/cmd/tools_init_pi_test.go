@@ -252,8 +252,12 @@ func TestBootstrapAgentSettings_FreshNoLegacy(t *testing.T) {
 	if s["hideThinkingBlock"] != true {
 		t.Errorf("hideThinkingBlock should be true, got %v", s["hideThinkingBlock"])
 	}
-	if _, ok := s["theme"]; ok {
-		t.Errorf("no legacy -> no theme should be set, got %v", s["theme"])
+	// fresh managed dir seeds rick's default theme.
+	if s["theme"] != "rick" {
+		t.Errorf("fresh dir should default to rick theme, got %v", s["theme"])
+	}
+	if _, err := os.Stat(filepath.Join(home, ".rick", "pi", "agent", "themes", "rick.json")); err != nil {
+		t.Errorf("embedded rick theme should be written to managed themes dir: %v", err)
 	}
 }
 
@@ -289,8 +293,8 @@ func TestBootstrapAgentSettings_DoesNotMigrateTokyoNight(t *testing.T) {
 		t.Fatalf("bootstrapAgentSettings: %v", err)
 	}
 	s := readManagedSettings(t)
-	if _, ok := s["theme"]; ok {
-		t.Errorf("tokyo theme must not migrate, got %v", s["theme"])
+	if s["theme"] != "rick" {
+		t.Errorf("tokyo theme must not migrate; fall back to rick default, got %v", s["theme"])
 	}
 	for _, p := range s["packages"].([]any) {
 		if strings.Contains(p.(string), "tokyo") {

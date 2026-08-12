@@ -30,6 +30,9 @@ type knownTheme struct {
 }
 
 var knownThemes = []knownTheme{
+	// rick 默认主题（内置，基于 GitHub Dark Dimmed 定制）：工具标题橙、
+	// md 标题金、链接蓝、bash 命令灰 —— AI 正式回复最突出。
+	{name: "rick", embedded: "themes/rick.json"},
 	{name: "dark", pkg: ""},
 	{name: "light", pkg: ""},
 	// Night Owl（Armin 的 pi 包）

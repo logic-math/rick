@@ -186,14 +186,18 @@ func verifyExtensions() []string {
 // dir it seeds theme/packages from the legacy ~/.pi/agent/settings.json (one-
 // time migration — extensions themselves are re-installed into the managed dir
 // by the steps below). Every later run only merges hideThinkingBlock=true in
-// when missing. Non-fatal on failure (callers warn and continue).
+// when missing, and seeds rick's default theme when no theme is set. Non-fatal
+// on failure (callers warn and continue).
 func bootstrapAgentSettings() error {
 	if err := piagent.EnsureAgentDir(); err != nil {
 		return fmt.Errorf("create agent dir %s: %w", piagent.AgentDir(), err)
 	}
 	path := piSettingsPath()
 	if _, err := os.Stat(path); err == nil {
-		return ensureHideThinkingBlock(path)
+		if err := ensureHideThinkingBlock(path); err != nil {
+			return err
+		}
+		return ensureRickTheme()
 	}
 
 	// First run in the managed dir: seed from legacy ~/.pi if present.
@@ -229,6 +233,31 @@ func bootstrapAgentSettings() error {
 	}
 	if err := os.WriteFile(path, out, 0600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return ensureRickTheme()
+}
+
+// ensureRickTheme seeds rick's default theme when the managed settings has no
+// theme yet (fresh machine / fresh managed dir): the embedded rick.json is
+// written into the managed themes dir (pi discovers agentDir/themes/*.json)
+// and "theme": "rick" is set. An existing theme is never overridden.
+func ensureRickTheme() error {
+	if cur := currentTheme(); cur != "" {
+		return nil
+	}
+	data, err := embeddedThemes.ReadFile("themes/rick.json")
+	if err != nil {
+		return fmt.Errorf("read embedded rick theme: %w", err)
+	}
+	themesDir := filepath.Join(piagent.AgentDir(), "themes")
+	if err := os.MkdirAll(themesDir, 0755); err != nil {
+		return fmt.Errorf("create themes dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(themesDir, "rick.json"), data, 0644); err != nil {
+		return fmt.Errorf("write rick theme: %w", err)
+	}
+	if err := setTheme("rick"); err != nil {
+		return fmt.Errorf("activate rick theme: %w", err)
 	}
 	return nil
 }
