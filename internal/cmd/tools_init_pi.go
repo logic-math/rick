@@ -26,9 +26,8 @@ var tokyoNightThemes = []string{"tokyo-night-dark", "tokyo-night-light"}
 
 // NewInitPiCmd creates the init-pi subcommand: ensures pi (rick's agent
 // runtime) is installed, the subagent + web-access extensions are registered,
-// and rick's managed pi config (settings/theme + diff highlight patch) is in
-// place. Idempotent — each step checks before acting and skips what is already
-// done.
+// and rick's managed pi config (settings + theme) is in place. Idempotent —
+// each step checks before acting and skips what is already done.
 func NewInitPiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-pi",
@@ -40,9 +39,8 @@ rick drives pi (@earendil-works/pi-coding-agent) as its agent runtime. This
 command guarantees the runtime is ready: it installs pi if missing (via the
 official installer), registers pi-subagents (Sub Agent delegation), registers
 pi-web-access (external web search/fetch), keeps the managed config free of the
-Tokyo Night package, and patches pi's edit-diff keyword highlight (reverse
-video -> underline, so changed keywords no longer get red/green backgrounds). A
-final verification step confirms everything is registered.
+Tokyo Night package, and sets rick's managed theme. A final verification step
+confirms everything is registered.
 
 Idempotent: every step checks first and skips what is already satisfied.
 Non-fatal: a missing extension/theme does not block rick; pi being entirely
@@ -145,16 +143,7 @@ func runInitPi() error {
 		fmt.Println("✅ tokyo-night purged from managed config (theme/packages)")
 	}
 
-	// Step 5: apply rick's pi TUI rendering patches (diff keyword highlight
-	// reverse-video -> bold, diff syntax highlighting, bash command syntax
-	// highlighting) to rick's self-contained runtime. Idempotent; non-fatal
-	// (aesthetics only).
-	if err := runPatchPIDiff(os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  pi runtime patch: %v\n", err)
-		fmt.Fprintf(os.Stderr, "   rick works without it; edit diffs keep pi's default highlight.\n")
-	}
-
-	// Step 6: verify all required extensions + theme are actually registered.
+	// Step 5: verify all required extensions + theme are actually registered.
 	// Final integrity check via `pi list` — catches the case where an install
 	// appeared to succeed but the extension is not registered (e.g. the old
 	// `pi install <bare-source-dir>` silently wrote to settings.json without the

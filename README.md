@@ -358,28 +358,12 @@ rick tools init-pi
 
 **做了什么**：
 1. **前置检查**：若 pi 尚未安装，检查 node（≥22.19.0）+ npm 是否在 PATH。缺失则**终止**并提示用户自行安装 node（rick 不替用户装 node——它是用户管理的环境依赖）；pi 已装则跳过此检查，假定环境就绪
-2. 检查 rick 的自闭环 pi 运行时（`~/.rick/pi/agent/runtime`）是否存在；缺失则 `npm install --prefix` 安装 **rick 自己的 pi 副本**（若全局有 pi 则匹配其版本，全局副本本身不被修改）——rick 的 pi 与用户的全局/独立 pi 完全隔离，可独立升级、独立 patch
+2. 检查 rick 的自闭环 pi 运行时（`~/.rick/pi/agent/runtime`）是否存在；缺失则 `npm install --prefix` 安装 **rick 自己的 pi 副本**（若全局有 pi 则匹配其版本，全局副本本身不被修改）——rick 的 pi 与用户的全局/独立 pi 完全隔离，可独立升级
 3. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
 4. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
 5. **剔除 Tokyo Night 包**（`@wishx127/pi-tokyo-night`）：从其托管配置（packages + theme）中清除一切残留。该包捆绑的 Powerline 状态栏扩展硬编码 Tokyo Night 配色、不跟随当前主题（切到其他主题会出现"两个主题共存"）且会污染 rick 的 agent 上下文，rick 不再安装它。主题管理完全交给 `rick tools theme`（见上）
-6. **Patch rick 自己 pi 运行时的 TUI 渲染**（`rick tools patch-pi`，别名 `patch-pi-diff`）：① 编辑 diff 关键词：ANSI 反显（背景被染红/绿块）→**加粗**；② 编辑 diff 内容：按文件扩展名**语法高亮**（复用 pi 自己的 highlight.js 管线，同 markdown/read 工具）；③ bash 命令块：命令行 **shell 语法高亮**。只作用于 rick 自闭环运行时，全局 pi 不受影响。幂等，运行时升级后随 init-pi 自动补回
-7. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
-8. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
-
-### rick tools patch-pi
-
-**职责**：patch rick 自闭环 pi 运行时的 TUI 渲染（别名 `patch-pi-diff`），只改 `~/.rick/pi/agent/runtime` 下的副本，**全局/独立 pi 完全不受影响**。三个 patch：
-
-1. **编辑 diff 关键词高亮**：pi 单行编辑 diff 用 ANSI 反显（`theme.inverse`，`\x1b[7m`）标记变更词——反显交换前后景色，把关键词**背景**染成行色（删除行红、新增行绿）。改写为**加粗**（`theme.bold`，`\x1b[1m`）：行级红绿对比保留、关键字有可见提示但背景不变色
-2. **编辑 diff 语法高亮**：diff 内容原本是平色文本；现在按 `filePath` 扩展名（`getLanguageFromPath`）用 pi 自己的 highlight.js 管线（`highlightCode`，同 markdown 代码块/read 工具）给每行内容上语法色——`+`/`-`/行号保持红/绿/灰，内容按关键字/字符串/数字等上色
-3. **bash 命令行语法高亮**：命令块里的 `$ <command>` 用 shell 语言（hljs `bash`）高亮，`$` 前缀保持金色
-
-**实现**：`internal/cmd/tools_patch_pi_diff.go` 的 `piRuntimePatches` 清单（{file, old, new} 幂等字符串替换；每个 old 应用后消失→重跑 no-op；上游布局变更则跳过不报错）。
-
-**用法**：
-```bash
-rick tools patch-pi
-```
+6. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
+7. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 
 ---
 

@@ -128,15 +128,9 @@ type ContentBlock struct {
 - 验证：`rick tools theme` 列表 → 切换 → `rick tools theme` 确认
 - ⚠️ go:embed 陷阱：改 embedded themes/*.json 后必须先 `go build -o bin/rick ./cmd/rick` 再激活，否则旧 embed 覆盖磁盘主题文件
 
-## rick tools patch-pi（job_34 起，别名 patch-pi-diff）
+## rick 自闭环 pi 运行时（job_34 起）
 
-- **背景**：pi 0.84.x 的单行编辑 diff 用 ANSI 反显（`theme.inverse` = chalk.inverse，`\x1b[7m`）标记变更词——反显交换前后景色，把关键词**背景**染成行色（删除行红、新增行绿）（用户反馈不符合预期）；下划线方案也不被接受 → 最终用**加粗**（`theme.bold`，`\x1b[1m`）
-- **再迭代（语法高亮）**：用户要求 diff 内容有代码语法高亮、命令行有语法高亮 → 复用 pi 内置 highlight.js 管线（`theme.js` 的 `highlightCode`/`getLanguageFromPath`，read 工具文件预览与 markdown 代码块同款）：
-  - diff.js：按 `_options.filePath` 扩展名取语言，对每条 `+`/`-`/上下文行内容上语法色；`+`/`-`/行号保持 toolDiffAdded/Removed/Context 色；有语言时走语法色（放弃单行变更词加粗），无语言时回退加粗
-  - bash.js：`formatBashCall` 整函数替换，`$ <command>` 内容用 hljs `bash` 语言高亮（`$` 前缀仍 toolTitle 金色）
-- **实现形态**：`internal/cmd/tools_patch_pi_diff.go` 的 `piRuntimePatches` 清单（{file, old, new} 字符串替换，幂等：old 应用后消失→重跑 no-op；上游布局变更→跳过不报错）；注意 **import 相对路径**：diff.js 在 `dist/modes/interactive/components/` → utils 要 `../../../utils/syntax-highlight.js`，bash.js 在 `dist/core/tools/` → `../../utils/`
-- **运行时自闭环（job_34 二次追问）**：rick 不再用全局 pi，`init-pi` 用 `npm install --prefix ~/.rick/pi/agent/runtime @earendil-works/pi-coding-agent@<全局版本>` 装独立副本；`FindBinary`/`piPathOrDefault`/`piCommand`/Executor 默认全部优先托管运行时（`piagent.RuntimeBin()`，cfg.PiPath 仍最高优先）；patch 只作用于托管副本，**全局/独立 pi 完全不受影响**（升级 pi 也不会丢）
-- 定位 pi 安装：`FindBinary` → `EvalSymlinks` → 向上找含 `dist/modes/interactive/components/diff.js` 的包根
-- **幂等**：所有 old 锚点缺失时 no-op（已 patch 或上游变更），不报错；pi 缺失才报错
-- init-pi 第 6 步非致命调用（运行时升级后自动补回）
-- 验证：`./bin/rick tools patch-pi`；node 跑 renderDiff({filePath}) 检查内容有语法色（如 Go `const` 关键字）+ `+`/`-` 前缀红/绿；bash 命令含 `"str"` 字符串色
+- rick 不用全局 pi：`init-pi` 用 `npm install --prefix ~/.rick/pi/agent/runtime @earendil-works/pi-coding-agent@<全局版本>` 装独立副本（全局有则匹配版本，pinned 失败降级 latest）；`FindBinary`/`piPathOrDefault`/`piCommand`/Executor 默认全部优先托管运行时（`piagent.RuntimeBin()`，cfg.PiPath 仍最高优先）
+- **~/.rick/pi 隔离逻辑必须保留**：rick 的 pi（配置 + 运行时）与用户的全局/独立 pi 完全隔离，互不污染，可独立升级
+- 运行时副本保持**原样（stock）**，不做任何代码级修改；UI 定制只走主题配置（`rick tools theme`）
+- 设计权衡（job_34 结论）：pi 的 diff/命令渲染行为（反显高亮、语法高亮）只能通过改 pi 代码实现，主题 token 覆盖不到；该做法需修改运行时副本，当前**不引入**（后续如需再做），仅保留隔离基础设施
