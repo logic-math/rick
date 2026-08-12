@@ -50,7 +50,7 @@
     "toolPendingBg": "#0d1117",
     "toolSuccessBg": "#0d1117",
     "toolErrorBg": "#0d1117",
-    "toolTitle": "gold",
+    "toolTitle": "greenBright",
     "toolOutput": "text",
     "mdHeading": "gold",
     "mdLink": "greenBright",

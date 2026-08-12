@@ -480,7 +480,7 @@ sequenceDiagram
 {
   "max_retries": 5,
   "pi_path": "",
-  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--api-key", "sk-..."],
+  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-pro", "--api-key", "sk-..."],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",
@@ -493,7 +493,7 @@ sequenceDiagram
 |--------|------|
 | `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
 | `pi_path` | pi CLI 路径（空则使用 PATH 中的 `pi`） |
-| `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-flash","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
+| `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-pro","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
 | `default_workspace` | 默认工作区路径 |
 | `git.user_name` | 自动 commit 时使用的 Git 用户名 |
 | `git.user_email` | 自动 commit 时使用的 Git 邮箱 |
