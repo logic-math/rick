@@ -23,12 +23,13 @@ func NewInitPiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-pi",
 		Short: "Initialize pi (rick's agent runtime) + subagent extension",
-		Long: `Ensure pi is installed and the subagent extension is registered.
+		Long: `Ensure pi is installed and the subagent + web-access extensions are registered.
 
 rick drives pi (@earendil-works/pi-coding-agent) as its agent runtime. This
 command guarantees the runtime is ready: it installs pi if missing (via the
 official installer), then registers pi's subagent extension (enables rick's
-Sub Agent per-iteration delegation).
+Sub Agent per-iteration delegation) and the pi-web-access extension (enables
+external web search/fetch).
 
 Idempotent: every step checks first and skips what is already satisfied.
 Non-fatal: a missing extension does not block rick; pi being entirely missing
@@ -73,6 +74,14 @@ func runInitPi() error {
 		fmt.Fprintf(os.Stderr, "   rick works without it, but Sub Agent delegation is unavailable.\n")
 	} else {
 		fmt.Println("✅ pi subagent extension ready")
+	}
+
+	// Step 3: web-access extension registered (install if missing). Non-fatal.
+	if err := ensureNpmExtension("pi-web-access", "web-access"); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  web-access extension: %v\n", err)
+		fmt.Fprintf(os.Stderr, "   rick works without it, but external web search/fetch is unavailable.\n")
+	} else {
+		fmt.Println("✅ pi web-access extension ready")
 	}
 
 	fmt.Println("✅ pi environment ready")
@@ -137,6 +146,27 @@ func ensureSubagentExtension() error {
 	}
 	if !piListContains("subagent") {
 		return fmt.Errorf("subagent still not listed after install")
+	}
+	return nil
+}
+
+// ensureNpmExtension registers an npm-based pi extension if it is not already
+// installed. pkg is the npm spec passed to `pi install` (e.g. "pi-web-access");
+// detect is the substring `pi list` is grepped for (usually the package name
+// without the npm: prefix). Non-fatal on failure — callers warn and continue.
+func ensureNpmExtension(pkg, detect string) error {
+	if piListContains(detect) {
+		return nil // already registered
+	}
+	fmt.Printf("⚠️  %s not registered — installing via pi install npm:%s\n", pkg, pkg)
+	cmd := exec.Command("pi", "install", "npm:"+pkg)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pi install npm:%s: %w", pkg, err)
+	}
+	if !piListContains(detect) {
+		return fmt.Errorf("%s still not listed after install", pkg)
 	}
 	return nil
 }

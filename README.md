@@ -343,7 +343,8 @@ rick tools init-pi
 **做了什么**：
 1. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
 2. 检查 pi 的 subagent 扩展是否已注册（`pi list`）；未注册则从 pi 包目录定位 `examples/extensions/subagent` 并 `pi install` 它
-3. 汇总就绪状态。pi 完全装不上才返回非零；扩展缺失只 warn（rick 仍可用，仅 Sub Agent 派发不可用）
+3. 检查 pi-web-access 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
+4. 汇总就绪状态。pi 完全装不上才返回非零；扩展缺失只 warn（rick 仍可用，仅对应功能不可用）
 
 ---
 
