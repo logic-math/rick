@@ -120,7 +120,8 @@ type ContentBlock struct {
 
 ## rick tools theme [name]
 
-- 无参数：列出可选主题（内置 dark/light、tokyo-night-dark/light、nightowl、`~/.rick/pi/agent/themes/*.json` 自定义主题）+ 当前主题
+- 无参数：列出可选主题（内置 dark/light、nightowl、jellybeans-mono/gruber-darker/ameno-cyberdyne/poimandres/gh-dark 等 npm 主题、rick 内置 gh-light/gh-dark-dimmed、`~/.rick/pi/agent/themes/*.json` 自定义主题）+ 当前主题
+- **tokyo-night 已剔除**：@wishx127/pi-tokyo-night 捆绑硬编码配色的 Powerline 状态栏扩展，不随主题变化且污染上下文；init-pi 每次运行自动从 packages/theme 清除它
 - 带 name：激活主题；自动 `pi install npm:<pkg>` 安装提供方包（写入隔离目录注册），再写 managed settings.json 的 theme 字段（保留 hideThinkingBlock 等字段）
 - 已知主题映射：`internal/cmd/tools_theme.go` 的 knownThemes（name → npm pkg）
 - 验证：`rick tools theme` 列表 → 切换 → `rick tools theme` 确认

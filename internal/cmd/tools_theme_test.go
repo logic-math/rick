@@ -44,7 +44,7 @@ func TestRunThemeList_ShowsCurrentAndOptions(t *testing.T) {
 		t.Fatalf("runThemeList: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"Current theme: dark", "dark", "light", "tokyo-night-dark", "nightowl", "rick tools theme <name>"} {
+	for _, want := range []string{"Current theme: dark", "dark", "light", "gh-dark", "nightowl", "rick tools theme <name>"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list output missing %q:\n%s", want, out)
 		}
@@ -63,11 +63,11 @@ func TestRunThemeSet_AutoInstallsProvidingPackage(t *testing.T) {
 	fakePiWithList(t, listFile)
 
 	var buf bytes.Buffer
-	if err := runThemeSet("tokyo-night-light", &buf); err != nil {
+	if err := runThemeSet("gh-dark", &buf); err != nil {
 		t.Fatalf("runThemeSet: %v", err)
 	}
-	if got := currentTheme(); got != "tokyo-night-light" {
-		t.Errorf("theme should be tokyo-night-light, got %q", got)
+	if got := currentTheme(); got != "gh-dark" {
+		t.Errorf("theme should be gh-dark, got %q", got)
 	}
 	// hideThinkingBlock must survive the theme switch (bootstrap + setTheme).
 	s := readManagedSettings(t)
@@ -79,16 +79,16 @@ func TestRunThemeSet_AutoInstallsProvidingPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "npm:@wishx127/pi-tokyo-night") {
+	if !strings.Contains(string(data), "npm:pi-gh-dark-theme") {
 		t.Errorf("theme package should have been installed, list file: %q", string(data))
 	}
-	if !strings.Contains(buf.String(), "theme active: tokyo-night-light") {
+	if !strings.Contains(buf.String(), "theme active: gh-dark") {
 		t.Errorf("success message missing: %q", buf.String())
 	}
 }
 
 func TestRunThemeSet_BuiltinNoInstall(t *testing.T) {
-	setupPiSettings(t, "tokyo-night-dark")
+	setupPiSettings(t, "dark")
 	listFile := filepath.Join(t.TempDir(), "list.txt")
 	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
 		t.Fatal(err)

@@ -16,26 +16,16 @@ import (
 // piInstallerURL is the official pi installation script.
 const piInstallerURL = "https://pi.dev/install.sh"
 
-// tokyoNightPkg is the npm spec for the Tokyo Night theme package rick installs
-// for a nicer pi TUI (Tokyo Night color scheme + Powerline status bar).
+// tokyoNightPkg is the npm spec of the Tokyo Night theme+extension package.
+// rick deliberately does NOT install it: the package bundles a Powerline
+// status-bar extension with hard-coded Tokyo Night RGB colors that do not
+// follow the active theme and pollute rick's agent context. See
+// purgeTokyoNight.
 const tokyoNightPkg = "@wishx127/pi-tokyo-night"
 
-// tokyoNightTheme is the theme name written to settings.json's "theme" field.
-const tokyoNightTheme = "tokyo-night-dark"
-
-// tokyoNightPkgFiltered is the managed form of the tokyo-night package entry:
-// the package bundles a theme AND a Powerline status-bar extension that
-// hard-codes Tokyo Night RGB colors (it does not follow the active theme).
-// When rick switches to another theme (e.g. gh-dark-dimmed) the status bar
-// would keep rendering Tokyo Night colors — visually "two themes at once".
-// rick therefore registers the package with extensions disabled (themes stay
-// available), so the status bar falls back to pi's default, which follows the
-// active theme. See applyPackageFilter in pi's package-manager.js: an empty
-// array explicitly disables all resources of that type.
-var tokyoNightPkgFiltered = map[string]any{
-	"source":     "npm:" + tokyoNightPkg,
-	"extensions": []string{},
-}
+// tokyoNightThemes are the theme names provided by tokyoNightPkg. When found
+// in the managed settings (theme or packages) they are reverted/removed.
+var tokyoNightThemes = []string{"tokyo-night-dark", "tokyo-night-light"}
 
 // NewInitPiCmd creates the init-pi subcommand: ensures pi (rick's agent
 // runtime) is installed, the subagent + web-access extensions are registered,
@@ -141,24 +131,17 @@ func runInitPi() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
-	// Step 4: Tokyo Night theme. Conservative policy — only adopt the theme when
-	// init-pi JUST installed pi this run (a fresh install has no user preference
-	// to clobber). If pi already existed, assume the user configured their own
-	// theme and leave it untouched. The theme package is still installed either
-	// way (so it's available via /settings). Non-fatal.
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme, piNewlyInstalled); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  theme: %v\n", err)
-		fmt.Fprintf(os.Stderr, "   rick works without it; pi falls back to its default theme.\n")
+	// Step 4: purge the Tokyo Night package from the managed config. rick no
+	// longer ships it: the bundled status-bar extension hard-codes Tokyo Night
+	// colors (does not follow the active theme) and pollutes rick's agent
+	// context. Any existing entry (string or filtered-object form) is removed
+	// from packages and a tokyo theme is reverted to pi's default "dark".
+	// Non-fatal.
+	if err := purgeTokyoNight(); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  tokyo-night purge: %v\n", err)
+		fmt.Fprintf(os.Stderr, "   rick works without it; the package may still be listed.\n")
 	} else {
-		fmt.Printf("✅ pi theme ready: %s\n", currentTheme())
-	}
-
-	// Step 4.5: keep the tokyo-night package registered with its bundled
-	// status-bar extension disabled (themes only). See tokyoNightPkgFiltered.
-	if err := filterTokyoNightExtension(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  tokyo-night status bar: %v\n", err)
-	} else {
-		fmt.Println("✅ tokyo-night registered with status-bar extension disabled")
+		fmt.Println("✅ tokyo-night purged from managed config (theme/packages)")
 	}
 
 	// Step 5: verify all required extensions + theme are actually registered.
@@ -198,45 +181,6 @@ func verifyExtensions() []string {
 	return missing
 }
 
-// ensureTheme installs the theme package (if missing). The theme is ACTIVATED
-// (written to settings.json) only when adoptTheme is true — which the caller
-// passes only when init-pi just installed pi fresh this run. On an existing pi
-// install the user's theme is left untouched (they have a preference). The
-// package is always installed so the theme is available via /settings regardless.
-// Non-fatal on failure.
-func ensureTheme(pkg, themeName string, adoptTheme bool) error {
-	// Install the theme package if not present.
-	if !piListContains(filepath.Base(pkg)) {
-		fmt.Printf("⚠️  theme package %s not registered — installing\n", pkg)
-		cmd := piCommand("install", "npm:"+pkg)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("pi install npm:%s: %w", pkg, err)
-		}
-		if !piListContains(filepath.Base(pkg)) {
-			return fmt.Errorf("%s still not listed after install", pkg)
-		}
-	}
-	// Activate the theme only when the caller signals a fresh pi install.
-	if !adoptTheme {
-		if cur := currentTheme(); cur == themeName {
-			return nil // already active (e.g. a prior init-pi set it)
-		}
-		fmt.Printf("✅ theme left as-is: %s (pi pre-existed; assuming user preference)\n", currentTheme())
-		return nil
-	}
-	// Fresh install: adopt the theme if not already active.
-	if cur := currentTheme(); cur == themeName {
-		return nil
-	}
-	if err := setTheme(themeName); err != nil {
-		return fmt.Errorf("activate theme %s: %w", themeName, err)
-	}
-	fmt.Printf("⚠️  theme activated: %s\n", themeName)
-	return nil
-}
-
 // bootstrapAgentSettings ensures the rick-managed pi agent dir exists and its
 // settings.json carries rick's managed defaults. On first run in the managed
 // dir it seeds theme/packages from the legacy ~/.pi/agent/settings.json (one-
@@ -257,7 +201,9 @@ func bootstrapAgentSettings() error {
 	if data, err := os.ReadFile(legacyPiSettingsPath()); err == nil {
 		var legacy map[string]any
 		if json.Unmarshal(data, &legacy) == nil {
-			if t, ok := legacy["theme"].(string); ok && t != "" {
+			if t, ok := legacy["theme"].(string); ok && t != "" && !containsString(tokyoNightThemes, t) {
+				// tokyo-night themes are deliberately not carried over (the
+				// package is purged — see purgeTokyoNight).
 				base["theme"] = t
 			}
 			// packages are re-installed into the managed dir by the extension
@@ -289,14 +235,15 @@ func bootstrapAgentSettings() error {
 
 // extensionManagedByRick reports whether a settings.json packages entry is one
 // rick itself installs/verifies (so migration can carry it over) as opposed to
-// a user's ad-hoc package that would not exist in the isolated dir.
+// a user's ad-hoc package that would not exist in the isolated dir. tokyo-night
+// is deliberately excluded: rick purges it (see purgeTokyoNight).
 func extensionManagedByRick(pkg string) bool {
 	for _, p := range requiredExtensions {
 		if strings.Contains(pkg, p) {
 			return true
 		}
 	}
-	return strings.Contains(pkg, "pi-tokyo-night")
+	return false
 }
 
 // ensureHideThinkingBlock merges "hideThinkingBlock": true into an existing
@@ -324,43 +271,48 @@ func ensureHideThinkingBlock(path string) error {
 	return nil
 }
 
-// filterTokyoNightExtension rewrites the tokyo-night entry in the managed
-// settings.json from a plain string ("npm:@wishx127/pi-tokyo-night") to the
-// filtered object form {source, extensions: []}, preserving every other field.
-// No-op when the package is already in filtered form or absent. Non-fatal.
-func filterTokyoNightExtension() error {
+// purgeTokyoNight removes every trace of the Tokyo Night package from the
+// managed settings.json: the packages entry (string or filtered-object form)
+// is dropped and a tokyo-night theme is reverted to pi's built-in "dark".
+// Other fields (hideThinkingBlock, remaining packages, theme) are preserved.
+// Non-fatal — returns nil when the package is absent.
+func purgeTokyoNight() error {
 	path := piSettingsPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return nil // no managed settings yet — nothing to purge
 	}
 	var s map[string]any
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	pkgs, ok := s["packages"].([]any)
-	if !ok {
-		return nil // no packages array yet
-	}
 	source := "npm:" + tokyoNightPkg
 	changed := false
-	for i, p := range pkgs {
-		switch v := p.(type) {
-		case string:
-			if v == source {
-				pkgs[i] = tokyoNightPkgFiltered
-				changed = true
+	if pkgs, ok := s["packages"].([]any); ok {
+		kept := pkgs[:0]
+		for _, p := range pkgs {
+			drop := false
+			switch v := p.(type) {
+			case string:
+				drop = v == source
+			case map[string]any:
+				drop = v["source"] == source
 			}
-		case map[string]any:
-			if v["source"] == source {
-				if ex, ok := v["extensions"].([]any); ok && len(ex) == 0 {
-					return nil // already filtered
-				}
-				v["extensions"] = []string{}
-				pkgs[i] = v
+			if drop {
 				changed = true
+				continue
 			}
+			kept = append(kept, p)
 		}
+		if len(kept) == 0 {
+			delete(s, "packages")
+		} else {
+			s["packages"] = kept
+		}
+	}
+	if t, ok := s["theme"].(string); ok && containsString(tokyoNightThemes, t) {
+		s["theme"] = "dark"
+		changed = true
 	}
 	if !changed {
 		return nil
@@ -373,6 +325,15 @@ func filterTokyoNightExtension() error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // currentTheme reads the "theme" field from the rick-managed settings.json.

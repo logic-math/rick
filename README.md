@@ -58,7 +58,7 @@ Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-work
 
 **配置目录隔离（已实现）**：rick 对 pi 的托管通过**配置目录隔离**落地——rick 在 `~/.rick/pi/agent` 下维护专属于自己的 pi 配置（settings、扩展、主题），在**所有** pi 调用入口（交互式 plan/easy/ctrl/human-loop、doing 的 `--mode json`、`rick tools init-pi` 自身的 install/list）注入环境变量 `PI_CODING_AGENT_DIR` 指向它，与用户自有的 `~/.pi` 完全隔离。用户直接跑 pi 仍用自己的 `~/.pi`；rick 跑 pi 走 `~/.rick/pi`——两套配置互不污染。这样 rick 对"喂给 pi 的全部模型输入"（system prompt、扩展、skill）拥有完全控制力，用户此前自行装的扩展/skill 不会泄漏进 rick 的 agent 上下文。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
 
-> 实现细节：`rick tools init-pi` 负责在 `~/.rick/pi/agent` 下引导 managed settings.json（首次运行会从旧的 `~/.pi/agent/settings.json` 一次性迁移主题与 rick 托管的扩展包），并固化 rick 的托管默认值：**`hideThinkingBlock: true`**（隐藏 pi 的思考过程块——它会在 rick easy/plan 会话中冲淡关键信息，思考仍生成但不展示）。`rick tools theme` 列出可选主题（内置 dark/light、tokyo-night-dark/light、nightowl，以及放入 `~/.rick/pi/agent/themes/` 的自定义主题）并按名切换（自动安装提供主题的 npm 包）。
+> 实现细节：`rick tools init-pi` 负责在 `~/.rick/pi/agent` 下引导 managed settings.json（首次运行会从旧的 `~/.pi/agent/settings.json` 一次性迁移主题与 rick 托管的扩展包），并固化 rick 的托管默认值：**`hideThinkingBlock: true`**（隐藏 pi 的思考过程块——它会在 rick easy/plan 会话中冲淡关键信息，思考仍生成但不展示）。`rick tools theme` 列出可选主题（内置 dark/light、nightowl、jellybeans-mono、gruber-darker、ameno-cyberdyne、poimandres、gh-dark，以及 rick 内置的 GitHub Primer 主题 gh-light/gh-dark-dimmed 和放入 `~/.rick/pi/agent/themes/` 的自定义主题）并按名切换（自动安装提供主题的 npm 包）。tokyo-night 包被刻意剔除：它捆绑的 Powerline 状态栏扩展硬编码 Tokyo Night 配色、不随主题变化且污染 rick 的 agent 上下文。
 
 `rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、引导隔离配置目录（含 hideThinkingBlock 默认值）、激活主题，并在最后验证全部生效。`rick tools theme` 负责主题的查看与切换。
 
@@ -361,7 +361,7 @@ rick tools init-pi
 2. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
 3. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
 4. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
-5. 检查 Tokyo Night 主题包是否已注册；未装则 `pi install npm:@wishx127/pi-tokyo-night`（包总会装上，便于 `/settings` 切换）。激活策略：**仅当本次 init-pi 新装了 pi 时**才写入 `theme: tokyo-night-dark`；若 pi 已存在（用户早就装好），默认用户有自己的主题偏好，**不动 settings.json**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
+5. **剔除 Tokyo Night 包**（`@wishx127/pi-tokyo-night`）：从其托管配置（packages + theme）中清除一切残留。该包捆绑的 Powerline 状态栏扩展硬编码 Tokyo Night 配色、不跟随当前主题（切到其他主题会出现"两个主题共存"）且会污染 rick 的 agent 上下文，rick 不再安装它。主题管理完全交给 `rick tools theme`（见上）
 6. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
 7. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 

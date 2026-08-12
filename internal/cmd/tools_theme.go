@@ -32,9 +32,6 @@ type knownTheme struct {
 var knownThemes = []knownTheme{
 	{name: "dark", pkg: ""},
 	{name: "light", pkg: ""},
-	// Tokyo Night（Powerline 状态栏）
-	{name: "tokyo-night-dark", pkg: "@wishx127/pi-tokyo-night"},
-	{name: "tokyo-night-light", pkg: "@wishx127/pi-tokyo-night"},
 	// Night Owl（Armin 的 pi 包）
 	{name: "nightowl", pkg: "mitsupi"},
 	// Jellybeans Mono（暗/亮）
@@ -78,7 +75,7 @@ managed settings.json (hideThinkingBlock and all other settings are preserved).
 
 Examples:
   rick tools theme            # list themes
-  rick tools theme tokyo-night-light
+  rick tools theme gh-light
   rick tools theme nightowl`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

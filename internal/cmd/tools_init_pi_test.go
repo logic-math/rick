@@ -223,58 +223,6 @@ func TestSetTheme_PreservesOtherFields(t *testing.T) {
 	}
 }
 
-// runEnsureTheme is a helper that sets up a fake pi (package already listed)
-// and calls ensureTheme with the given adopt flag + starting theme.
-func runEnsureTheme(t *testing.T, startTheme string, adopt bool) string {
-	t.Helper()
-	setupPiSettings(t, startTheme)
-	tmp := t.TempDir()
-	piScript := `#!/bin/sh
-case "$1" in
-  list) echo "pi-tokyo-night";;
-esac
-`
-	writeFakePi(t, tmp, piScript)
-	t.Setenv("PATH", tmp)
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme, adopt); err != nil {
-		t.Fatalf("ensureTheme: %v", err)
-	}
-	return currentTheme()
-}
-
-func TestEnsureTheme_AdoptsOnFreshInstall(t *testing.T) {
-	// Fresh pi install (adopt=true): even with a user theme set, adopt tokyo.
-	got := runEnsureTheme(t, "gruvbox", true)
-	if got != tokyoNightTheme {
-		t.Errorf("fresh install should adopt tokyo, got %q", got)
-	}
-}
-
-func TestEnsureTheme_NoopOnExistingInstall(t *testing.T) {
-	// pi pre-existed (adopt=false): leave the user's theme alone, even if it's
-	// a default like "dark".
-	got := runEnsureTheme(t, "dark", false)
-	if got != "dark" {
-		t.Errorf("existing install should leave dark as-is, got %q", got)
-	}
-}
-
-func TestEnsureTheme_NoopOnExistingInstallWithCustomTheme(t *testing.T) {
-	// pi pre-existed (adopt=false) + user has gruvbox: must NOT override.
-	got := runEnsureTheme(t, "gruvbox", false)
-	if got != "gruvbox" {
-		t.Errorf("existing install should respect gruvbox, got %q", got)
-	}
-}
-
-func TestEnsureTheme_AlreadyTokyoIsNoop(t *testing.T) {
-	// Already tokyo-night-dark: no-op regardless of adopt flag.
-	got := runEnsureTheme(t, tokyoNightTheme, false)
-	if got != tokyoNightTheme {
-		t.Errorf("already-tokyo should stay, got %q", got)
-	}
-}
-
 // --- bootstrapAgentSettings (config isolation + hideThinkingBlock) ---
 
 // readManagedSettings reads the managed settings.json into a map.
@@ -310,7 +258,7 @@ func TestBootstrapAgentSettings_FreshNoLegacy(t *testing.T) {
 }
 
 func TestBootstrapAgentSettings_MigratesLegacyThemeAndManagedPackages(t *testing.T) {
-	setupLegacyPiSettings(t, "tokyo-night-dark")
+	setupLegacyPiSettings(t, "gruvbox")
 	if err := bootstrapAgentSettings(); err != nil {
 		t.Fatalf("bootstrapAgentSettings: %v", err)
 	}
@@ -318,7 +266,7 @@ func TestBootstrapAgentSettings_MigratesLegacyThemeAndManagedPackages(t *testing
 	if s["hideThinkingBlock"] != true {
 		t.Errorf("hideThinkingBlock should be true, got %v", s["hideThinkingBlock"])
 	}
-	if s["theme"] != "tokyo-night-dark" {
+	if s["theme"] != "gruvbox" {
 		t.Errorf("theme should migrate from legacy, got %v", s["theme"])
 	}
 	pkgs, ok := s["packages"].([]any)
@@ -329,6 +277,25 @@ func TestBootstrapAgentSettings_MigratesLegacyThemeAndManagedPackages(t *testing
 	// not installed in the isolated dir and would fail to load).
 	if len(pkgs) != 1 || pkgs[0] != "npm:pi-subagents" {
 		t.Errorf("packages should keep only rick-managed ones, got %v", pkgs)
+	}
+}
+
+func TestBootstrapAgentSettings_DoesNotMigrateTokyoNight(t *testing.T) {
+	// tokyo-night is deliberately purged from the managed config (bundled
+	// status-bar extension hard-codes Tokyo Night colors and pollutes rick's
+	// agent context) — its theme and package must not carry over.
+	setupLegacyPiSettings(t, "tokyo-night-dark")
+	if err := bootstrapAgentSettings(); err != nil {
+		t.Fatalf("bootstrapAgentSettings: %v", err)
+	}
+	s := readManagedSettings(t)
+	if _, ok := s["theme"]; ok {
+		t.Errorf("tokyo theme must not migrate, got %v", s["theme"])
+	}
+	for _, p := range s["packages"].([]any) {
+		if strings.Contains(p.(string), "tokyo") {
+			t.Errorf("tokyo-night package must not migrate, got %v", s["packages"])
+		}
 	}
 }
 
@@ -367,9 +334,9 @@ func TestBootstrapAgentSettings_NoopWhenAlreadyManaged(t *testing.T) {
 	}
 }
 
-// --- filterTokyoNightExtension (status bar vs theme mismatch) ---
+// --- purgeTokyoNight (remove tokyo-night package + theme traces) ---
 
-func TestFilterTokyoNightExtension_StringToFilteredObject(t *testing.T) {
+func TestPurgeTokyoNight_RemovesStringEntryAndRevertsTheme(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, ".rick", "pi", "agent")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
@@ -377,6 +344,7 @@ func TestFilterTokyoNightExtension_StringToFilteredObject(t *testing.T) {
 	}
 	managed := map[string]any{
 		"hideThinkingBlock": true,
+		"theme":             "tokyo-night-dark",
 		"packages":          []string{"npm:pi-subagents", "npm:@wishx127/pi-tokyo-night"},
 	}
 	data, _ := json.MarshalIndent(managed, "", "  ")
@@ -385,28 +353,23 @@ func TestFilterTokyoNightExtension_StringToFilteredObject(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 
-	if err := filterTokyoNightExtension(); err != nil {
-		t.Fatalf("filterTokyoNightExtension: %v", err)
+	if err := purgeTokyoNight(); err != nil {
+		t.Fatalf("purgeTokyoNight: %v", err)
 	}
 	s := readManagedSettings(t)
 	pkgs := s["packages"].([]any)
-	if len(pkgs) != 2 {
-		t.Fatalf("packages: %v", pkgs)
+	if len(pkgs) != 1 || pkgs[0] != "npm:pi-subagents" {
+		t.Errorf("tokyo-night should be removed from packages, got %v", pkgs)
 	}
-	obj, ok := pkgs[1].(map[string]any)
-	if !ok || obj["source"] != "npm:@wishx127/pi-tokyo-night" {
-		t.Fatalf("tokyo-night should be an object with source, got %v", pkgs[1])
+	if s["theme"] != "dark" {
+		t.Errorf("tokyo theme should revert to dark, got %v", s["theme"])
 	}
-	if ex, ok := obj["extensions"].([]any); !ok || len(ex) != 0 {
-		t.Errorf("extensions should be empty (disabled), got %v", obj["extensions"])
-	}
-	// hideThinkingBlock preserved.
 	if s["hideThinkingBlock"] != true {
 		t.Errorf("hideThinkingBlock lost: %v", s)
 	}
 }
 
-func TestFilterTokyoNightExtension_AlreadyFilteredNoop(t *testing.T) {
+func TestPurgeTokyoNight_RemovesFilteredObjectForm(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, ".rick", "pi", "agent")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
@@ -414,27 +377,32 @@ func TestFilterTokyoNightExtension_AlreadyFilteredNoop(t *testing.T) {
 	}
 	managed := map[string]any{
 		"hideThinkingBlock": true,
+		"theme":             "tokyo-night-light",
 		"packages": []any{
 			map[string]any{"source": "npm:@wishx127/pi-tokyo-night", "extensions": []any{}},
+			"npm:pi-web-access",
 		},
 	}
 	data, _ := json.MarshalIndent(managed, "", "  ")
-	path := filepath.Join(agentDir, "settings.json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 
-	if err := filterTokyoNightExtension(); err != nil {
-		t.Fatalf("filterTokyoNightExtension: %v", err)
+	if err := purgeTokyoNight(); err != nil {
+		t.Fatalf("purgeTokyoNight: %v", err)
 	}
-	after, _ := os.ReadFile(path)
-	if string(after) != string(data) {
-		t.Errorf("settings should be untouched, got:\n%s", string(after))
+	s := readManagedSettings(t)
+	pkgs := s["packages"].([]any)
+	if len(pkgs) != 1 || pkgs[0] != "npm:pi-web-access" {
+		t.Errorf("filtered-object tokyo-night should be removed, got %v", pkgs)
+	}
+	if s["theme"] != "dark" {
+		t.Errorf("tokyo-light should revert to dark, got %v", s["theme"])
 	}
 }
 
-func TestFilterTokyoNightExtension_AbsentNoop(t *testing.T) {
+func TestPurgeTokyoNight_AbsentNoop(t *testing.T) {
 	home := t.TempDir()
 	agentDir := filepath.Join(home, ".rick", "pi", "agent")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
@@ -442,6 +410,7 @@ func TestFilterTokyoNightExtension_AbsentNoop(t *testing.T) {
 	}
 	managed := map[string]any{
 		"hideThinkingBlock": true,
+		"theme":             "gh-dark-dimmed",
 		"packages":          []string{"npm:pi-subagents"},
 	}
 	data, _ := json.MarshalIndent(managed, "", "  ")
@@ -451,8 +420,8 @@ func TestFilterTokyoNightExtension_AbsentNoop(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 
-	if err := filterTokyoNightExtension(); err != nil {
-		t.Fatalf("filterTokyoNightExtension: %v", err)
+	if err := purgeTokyoNight(); err != nil {
+		t.Fatalf("purgeTokyoNight: %v", err)
 	}
 	after, _ := os.ReadFile(path)
 	if string(after) != string(data) {
