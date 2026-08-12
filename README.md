@@ -504,6 +504,7 @@ sequenceDiagram
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 3.1.5 | 2026-08 | rick 主题 → VSCode Dark+ 配色；默认模型 deepseek-v4-pro；命令绿/链接蓝主题体系；自闭环 pi 运行时（~/.rick/pi 隔离） |
 | 2.10.9 | 2026-07 | 重构 human-loop：sense subagent + loop_N 会话目录 |
 | 2.10.x | 2026-07 | draft 基础设施、learning 注入 draft_dir、human-loop 三阶段模板 |
 | 2.9.10 | 2026-06 | 删除 easy auto-trigger learning，等人类显式触发 |
