@@ -76,3 +76,24 @@ git log --oneline -2  # 应见 pi 的 commit
 - `pi install` 对 user scope 包在 managed 路径缺失时**回退全局 npm root**（`npm root -g`）复用代码——注册隔离、代码共享
 - 隔离后 settings.json 无 provider/model → 直跑 pi 报 "No API key found"，必须带 CLI flags（rick 本就如此）
 - `--session-id` 对不存在 id 打 Warning "No project session found...creating a new session" 是**正常创建语义**，不是错误
+
+### 7. 运行时自闭环验证（~/.rick/pi/agent/runtime，job_34 沉淀）
+
+rick 自闭环运行时 = 用 `npm install --prefix` 装**独立的 pi 包副本**，与全局 pi 完全隔离：
+
+| 事实 | 值 |
+|------|-----|
+| 安装 | `npm install --prefix ~/.rick/pi/agent/runtime @earendil-works/pi-coding-agent@<全局版本>`（全局有则匹配版本，pinned 失败降级 latest） |
+| 二进制 | `~/.rick/pi/agent/runtime/node_modules/.bin/pi`（npm bin 软链 → 包内 dist/cli.js） |
+| 解析优先级 | `cfg.PiPath` → 托管运行时（`piagent.RuntimeBin()`）→ PATH 的 `pi`（FindBinary / piPathOrDefault / piCommand / Executor 默认全部一致） |
+| 版本锁定 | 与全局同版本（0.84.1）→ 行为连续；独立升级互不影响 |
+| 测试隔离 | 测试用 `t.Setenv("HOME", t.TempDir())` 或 `t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())` 让 RuntimeBin 解析到不存在路径 → 回退 PATH fake |
+
+验证命令：
+```bash
+~/.rick/pi/agent/runtime/node_modules/.bin/pi --version   # 托管版本
+rick tools theme rick                                     # 主题写入 agent/themes/（配置隔离，job_33）
+python3 -c "import filecmp,os; print(filecmp.cmp('$HOME/.local/lib/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/diff.js','$HOME/.rick/pi/agent/runtime/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/diff.js',shallow=False))"  # 运行时副本 = 原样（无 patch）
+```
+
+**注意**：运行时副本保持 stock，不做代码级修改（用户决策，见 theme skill 第 7 节）。若未来要做运行时 patch（diff 反显→加粗、语法高亮等），需整函数替换保证幂等（锚点被消费），import 相对路径按文件层级算（diff.js 在 `dist/modes/interactive/components/` → utils 需 `../../../`）。

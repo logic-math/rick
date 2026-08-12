@@ -101,3 +101,38 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
 ```
 
 **首次发现**: job_33 / commit b018a41  **验证状态**: ✅ 已修复
+
+### pi 解析"托管运行时优先"后，PATH-fake 测试静默命中真实 pi（挂死/联网）
+
+**根因**: `FindBinary`/`piCommand` 等把解析顺序改为 `cfg.PiPath → RuntimeBin()（~/.rick/pi/agent/runtime）→ PATH` 后，测试只 `t.Setenv("PATH", fakeDir)` 不再够——真实托管 pi 存在时优先命中，fake 不生效；部分测试（plan/learning workflow）甚至拉起真实 pi 交互会话 → 全套件从 265s 挂到 10 分钟超时（panic 无具体 --- FAIL）。
+
+**精确解决步骤**:
+```go
+// 所有依赖 PATH fake pi 的测试，隔离托管运行时解析根：
+t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())  // piagent.AgentDir() → temp，RuntimeBin() 不存在 → 回退 PATH
+// 或等价：t.Setenv("HOME", t.TempDir())    // AgentDir() = $HOME/.rick/pi/agent
+// 配置类测试用 setupPiSettings（HOME 隔离）模式
+```
+排查：`go test -timeout 60s -run <可疑测试>` 逐个定位（全量 6 分钟太慢）；超时 panic 的 "running tests:" 直接点名。
+
+**首次发现**: job_34 / commit c4812dc  **验证状态**: ✅ 已修复
+
+### Go raw string 里嵌 JS 模板字符串（反引号）会截断字符串
+
+**根因**: Go raw string（`` ` ``...`` ` ``）无法包含反引号——测试 fixture 要复刻含 `${...}` 模板字符串的 JS 代码时，直接写 `` \`-${x} ` `` 会在第一个反引号处截断，编译报错。
+
+**精确解决步骤**:
+```go
+// 用"raw 段 + 解释型段"拼接，反引号放解释型段里：
+const fixture = `result.push(theme.fg("toolDiffRemoved", ` + "`-${removed.lineNum} ${removedLine}`" + `));`
+```
+
+**首次发现**: job_34 / commit 740756d  **验证状态**: ✅ 已修复
+
+### 幂等字符串 patch 的"锚点仍存在"陷阱（helper 插入重复）
+
+**根因**: 字符串替换式 patch 若 old 锚点在 new 里**仍然存在**（如往 `function formatBashCall(args) {` 前插 helper，锚点本身未变）→ 二次运行 old 再次命中 → 重复插入。
+
+**精确解决步骤**: 用**整函数替换**——old 包含完整函数体（含会被改掉的行），替换后被消费；或让 old 含一段唯一且必被修改的文本。验证：同一命令跑两遍，第二遍应报 no-op，文件逐字节不变。
+
+**首次发现**: job_34 / commit 740756d  **验证状态**: ✅ 已修复

@@ -58,3 +58,18 @@ claude code 用 `ANTHROPIC_BASE_URL=mcli.sankuai.com` + `ANTHROPIC_AUTH_TOKEN` +
 }
 ```
 deepseek-v4-flash 默认带 thinking（思考慢），可用 `--thinking off` 关闭。响应有时不稳定（网关限流），后台运行 + 长超时（600s）+ tee 捕获。
+
+## rick 自闭环运行时（~/.rick/pi/agent/runtime，job_34 起）
+
+- rick 不用全局 pi：`init-pi` 用 `npm install --prefix ~/.rick/pi/agent/runtime @earendil-works/pi-coding-agent@<全局版本>` 装独立副本（全局有则匹配版本，pinned 失败自动降级 latest）
+- **解析优先级（全链路一致）**：`cfg.PiPath` → 托管运行时（`piagent.RuntimeBin()` = `~/.rick/pi/agent/runtime/node_modules/.bin/pi`）→ PATH `pi`——FindBinary / piPathOrDefault / piCommand / Executor 默认
+- 运行时副本保持 **stock**（与全局逐字节一致），**不做代码级 patch**（用户决策：破坏运行时的做法不引入，后续可能再做）
+- 主题等 UI 定制只走主题配置（`rick tools theme` → `~/.rick/pi/agent/themes/rick.json`，custom theme 目录 pi 自动发现 + 热重载）
+- 若未来做运行时 patch（diff 反显→加粗/语法高亮）：需整函数替换保幂等；import 相对路径按层级算（diff.js 在 dist/modes/interactive/components/ → utils 需 `../../../`，bash.js 在 dist/core/tools/ → `../../`）
+- 测试隔离：RICK_PI_AGENT_DIR 或 HOME 指到 temp，RuntimeBin 不存在 → 回退 PATH fake
+
+## pi 渲染行为 vs 主题 token 边界（job_34 结论）
+
+- 主题只有 51 个颜色 token（fg/bg 颜色映射），**只能决定颜色**
+- 渲染行为（diff 变更词反显 `\x1b[7m`、diff/命令行语法高亮）**不可主题化**——pi 无配置口，改行为必须改 dist JS
+- 已否决运行时 patch → diff/命令渲染保持 pi 原生行为（反显高亮、平色文本）

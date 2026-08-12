@@ -60,3 +60,39 @@ go build -o bin/rick ./cmd/rick && ./bin/rick tools theme <name>
 ```bash
 python3 -c "import json; print(json.load(open('$HOME/.rick/pi/agent/themes/rick.json'))['colors']['mdHeading'])"
 ```
+
+### 6. 主题试色/切换工作流（job_34 沉淀）
+
+用户要"试试别的配色"时的标准流程（**目标：10 分钟内完成一轮试色**）：
+
+```bash
+# ① 直接改运行时激活副本 —— pi 对 custom theme 文件热重载，运行中会话立即刷新
+vim ~/.rick/pi/agent/themes/rick.json
+# ② 满意后同步仓库源头 + 重建（go:embed 陷阱，见第 5 节）
+cp ~/.rick/pi/agent/themes/rick.json internal/cmd/themes/rick.json
+go build -o bin/rick ./cmd/rick && ./bin/rick tools theme rick && ./scripts/install.sh
+```
+
+**试色只改 vars**（调色板），colors 的 51 个 token 映射保持不动——换方案 = 换一组 vars 值。经典方案 vars 速查（job_34 已实践）：
+
+| 方案 | bg | accent/强调 | 语法风格 |
+|------|----|------------|---------|
+| 极客绿(Matrix) | `#070a07` | `#00ff41` 霓虹绿 | keyword 红 / string 绿 / number 青 |
+| Dracula | `#282a36` | `#ff79c6` 粉 | keyword 粉 / string 黄 / number 紫 / type 青 |
+| One Dark | `#282c34` | `#61afef` 蓝 | keyword 紫 / string 绿 / number 橙 |
+| Tokyo Night | `#1a1b26` | `#7aa2f7` 蓝 | keyword 粉红 / string 绿 / operator 青 |
+| VSCode Dark+ | `#1e1e1e` | `#007acc` | keyword 紫 / string 橙 / comment 绿 `#6a9955` |
+
+**展示预览**（让用户判断）用 python 24-bit ANSI 按实际 token 渲染模拟场景（命令块/diff/markdown/语法），比贴 JSON 直观得多。
+
+### 7. 边界：渲染行为不可主题化（job_34 核心结论）
+
+**主题只有 51 个颜色 token，只能决定"哪个元素用什么颜色"，管不了"渲染行为"**：
+
+| 想要的效果 | 属于 | 主题能改吗 |
+|-----------|------|-----------|
+| 命令块/工具标题颜色、链接色、语法色 | 颜色 | ✅ 改 token |
+| diff 变更词反显（`\x1b[7m` 背景红/绿块） | 渲染行为（pi 写死在 diff.js `theme.inverse`） | ❌ |
+| diff 内容语法高亮、命令行语法高亮 | 渲染行为（需调用 highlight.js） | ❌ |
+
+改渲染行为 = 改 pi 运行时代码（patch dist JS）——**job_34 用户决策：不引入**（破坏运行时副本的做法留待后续）。确认边界后再承诺需求，别把"主题能改"说成能改一切。
