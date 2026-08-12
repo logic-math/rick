@@ -150,9 +150,11 @@ func TestSetTheme_PreservesOtherFields(t *testing.T) {
 	}
 }
 
-func TestEnsureTheme_NoopWhenAlreadyActive(t *testing.T) {
-	// theme already tokyo-night-dark + package present in fake pi list.
-	setupPiSettings(t, tokyoNightTheme)
+// runEnsureTheme is a helper that sets up a fake pi (package already listed)
+// and calls ensureTheme with the given adopt flag + starting theme.
+func runEnsureTheme(t *testing.T, startTheme string, adopt bool) string {
+	t.Helper()
+	setupPiSettings(t, startTheme)
 	tmp := t.TempDir()
 	piScript := `#!/bin/sh
 case "$1" in
@@ -161,61 +163,41 @@ esac
 `
 	writeFakePi(t, tmp, piScript)
 	t.Setenv("PATH", tmp)
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
-		t.Fatalf("ensureTheme (already active): %v", err)
-	}
-	if currentTheme() != tokyoNightTheme {
-		t.Error("theme should remain unchanged")
-	}
-}
-
-func TestEnsureTheme_AdoptsWhenDefault(t *testing.T) {
-	// theme is "dark" (default) → init-pi should adopt tokyo-night-dark.
-	setupPiSettings(t, "dark")
-	tmp := t.TempDir()
-	piScript := `#!/bin/sh
-case "$1" in
-  list) echo "pi-tokyo-night";;
-esac
-`
-	writeFakePi(t, tmp, piScript)
-	t.Setenv("PATH", tmp)
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme, adopt); err != nil {
 		t.Fatalf("ensureTheme: %v", err)
 	}
-	if currentTheme() != tokyoNightTheme {
-		t.Errorf("expected theme adopted to %q, got %q", tokyoNightTheme, currentTheme())
+	return currentTheme()
+}
+
+func TestEnsureTheme_AdoptsOnFreshInstall(t *testing.T) {
+	// Fresh pi install (adopt=true): even with a user theme set, adopt tokyo.
+	got := runEnsureTheme(t, "gruvbox", true)
+	if got != tokyoNightTheme {
+		t.Errorf("fresh install should adopt tokyo, got %q", got)
 	}
 }
 
-func TestEnsureTheme_RespectsUserCustomTheme(t *testing.T) {
-	// theme is a user-chosen non-default (e.g. "gruvbox") → must NOT override.
-	setupPiSettings(t, "gruvbox")
-	tmp := t.TempDir()
-	piScript := `#!/bin/sh
-case "$1" in
-  list) echo "pi-tokyo-night";;
-esac
-`
-	writeFakePi(t, tmp, piScript)
-	t.Setenv("PATH", tmp)
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
-		t.Fatalf("ensureTheme: %v", err)
-	}
-	if currentTheme() != "gruvbox" {
-		t.Errorf("user theme should be respected, got %q", currentTheme())
+func TestEnsureTheme_NoopOnExistingInstall(t *testing.T) {
+	// pi pre-existed (adopt=false): leave the user's theme alone, even if it's
+	// a default like "dark".
+	got := runEnsureTheme(t, "dark", false)
+	if got != "dark" {
+		t.Errorf("existing install should leave dark as-is, got %q", got)
 	}
 }
 
-func TestIsDefaultTheme(t *testing.T) {
-	for _, c := range []string{"", "dark", "light"} {
-		if !isDefaultTheme(c) {
-			t.Errorf("isDefaultTheme(%q) = false, want true", c)
-		}
+func TestEnsureTheme_NoopOnExistingInstallWithCustomTheme(t *testing.T) {
+	// pi pre-existed (adopt=false) + user has gruvbox: must NOT override.
+	got := runEnsureTheme(t, "gruvbox", false)
+	if got != "gruvbox" {
+		t.Errorf("existing install should respect gruvbox, got %q", got)
 	}
-	for _, c := range []string{"tokyo-night-dark", "gruvbox", "nord"} {
-		if isDefaultTheme(c) {
-			t.Errorf("isDefaultTheme(%q) = true, want false", c)
-		}
+}
+
+func TestEnsureTheme_AlreadyTokyoIsNoop(t *testing.T) {
+	// Already tokyo-night-dark: no-op regardless of adopt flag.
+	got := runEnsureTheme(t, tokyoNightTheme, false)
+	if got != tokyoNightTheme {
+		t.Errorf("already-tokyo should stay, got %q", got)
 	}
 }

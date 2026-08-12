@@ -344,7 +344,7 @@ rick tools init-pi
 1. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
 2. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
 3. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
-4. 检查 Tokyo Night 主题包是否已注册 + 是否已激活为当前主题；未装则 `pi install npm:@wishx127/pi-tokyo-night`。激活策略：仅当当前主题是默认值（空/`dark`/`light`）时才写入 `theme: tokyo-night-dark`；若用户已设了别的主题（说明有偏好），**尊重用户选择，跳过不动**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
+4. 检查 Tokyo Night 主题包是否已注册；未装则 `pi install npm:@wishx127/pi-tokyo-night`（包总会装上，便于 `/settings` 切换）。激活策略：**仅当本次 init-pi 新装了 pi 时**才写入 `theme: tokyo-night-dark`；若 pi 已存在（用户早就装好），默认用户有自己的主题偏好，**不动 settings.json**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
 5. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
 6. 汇总就绪状态。pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 

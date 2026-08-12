@@ -61,7 +61,7 @@ Exit codes:
 // warned about, not fatal.
 func runInitPi() error {
 	// Step 1: pi binary present (install if missing).
-	piPath, err := ensurePI()
+	piPath, piNewlyInstalled, err := ensurePI()
 	if err != nil {
 		// Fatal: without pi, rick cannot execute any agent command.
 		fmt.Fprintf(os.Stderr, "❌ pi is not available and could not be installed: %v\n", err)
@@ -72,6 +72,9 @@ func runInitPi() error {
 	fmt.Printf("✅ pi found: %s", piPath)
 	if ver != "" {
 		fmt.Printf(" (v%s)", ver)
+	}
+	if piNewlyInstalled {
+		fmt.Printf(" (newly installed)")
 	}
 	fmt.Println()
 
@@ -95,9 +98,12 @@ func runInitPi() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
-	// Step 4: Tokyo Night theme installed + (if default) activated. Non-fatal.
-	// If the user has set a non-default theme, it is left as-is (their choice).
-	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+	// Step 4: Tokyo Night theme. Conservative policy — only adopt the theme when
+	// init-pi JUST installed pi this run (a fresh install has no user preference
+	// to clobber). If pi already existed, assume the user configured their own
+	// theme and leave it untouched. The theme package is still installed either
+	// way (so it's available via /settings). Non-fatal.
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme, piNewlyInstalled); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  theme: %v\n", err)
 		fmt.Fprintf(os.Stderr, "   rick works without it; pi falls back to its default theme.\n")
 	} else {
@@ -141,9 +147,13 @@ func verifyExtensions() []string {
 	return missing
 }
 
-// ensureTheme installs the theme package (if missing) and activates the theme
-// in settings.json (if not already the active theme). Non-fatal on failure.
-func ensureTheme(pkg, themeName string) error {
+// ensureTheme installs the theme package (if missing). The theme is ACTIVATED
+// (written to settings.json) only when adoptTheme is true — which the caller
+// passes only when init-pi just installed pi fresh this run. On an existing pi
+// install the user's theme is left untouched (they have a preference). The
+// package is always installed so the theme is available via /settings regardless.
+// Non-fatal on failure.
+func ensureTheme(pkg, themeName string, adoptTheme bool) error {
 	// Install the theme package if not present.
 	if !piListContains(filepath.Base(pkg)) {
 		fmt.Printf("⚠️  theme package %s not registered — installing\n", pkg)
@@ -157,16 +167,16 @@ func ensureTheme(pkg, themeName string) error {
 			return fmt.Errorf("%s still not listed after install", pkg)
 		}
 	}
-	// Activate the theme only when the user has NOT set a custom theme: if the
-	// current theme is already the target, skip; if it's a default (unset/dark/
-	// light), adopt Tokyo Night; if it's anything else, the user chose it —
-	// respect their preference and skip.
-	cur := currentTheme()
-	if cur == themeName {
-		return nil // already active
+	// Activate the theme only when the caller signals a fresh pi install.
+	if !adoptTheme {
+		if cur := currentTheme(); cur == themeName {
+			return nil // already active (e.g. a prior init-pi set it)
+		}
+		fmt.Printf("✅ theme left as-is: %s (pi pre-existed; assuming user preference)\n", currentTheme())
+		return nil
 	}
-	if !isDefaultTheme(cur) {
-		fmt.Printf("✅ theme left as-is: %s (user-configured, not overriding)\n", cur)
+	// Fresh install: adopt the theme if not already active.
+	if cur := currentTheme(); cur == themeName {
 		return nil
 	}
 	if err := setTheme(themeName); err != nil {
@@ -174,17 +184,6 @@ func ensureTheme(pkg, themeName string) error {
 	}
 	fmt.Printf("⚠️  theme activated: %s\n", themeName)
 	return nil
-}
-
-// isDefaultTheme reports whether cur is a pi default theme value (unset, "dark",
-// or "light") — i.e. the user has not expressed a preference, so init-pi is free
-// to adopt Tokyo Night. Any other value means the user configured it themselves.
-func isDefaultTheme(cur string) bool {
-	switch cur {
-	case "", "dark", "light":
-		return true
-	}
-	return false
 }
 
 // currentTheme reads the "theme" field from ~/.pi/agent/settings.json. Returns
@@ -237,20 +236,21 @@ func piSettingsPath() string {
 }
 
 // ensurePI returns the path to the pi binary, installing it via the official
-// installer if it is not on PATH. Returns an error only if pi is still missing.
-func ensurePI() (string, error) {
+// installer if it is not on PATH. The second return is true iff pi was installed
+// this call (vs already present). Returns an error only if pi is still missing.
+func ensurePI() (string, bool, error) {
 	if p, err := exec.LookPath("pi"); err == nil {
-		return p, nil
+		return p, false, nil
 	}
 	fmt.Println("⚠️  pi not found on PATH — installing via official installer...")
 	if err := installPI(); err != nil {
-		return "", fmt.Errorf("install pi: %w", err)
+		return "", false, fmt.Errorf("install pi: %w", err)
 	}
 	p, err := exec.LookPath("pi")
 	if err != nil {
-		return "", fmt.Errorf("pi still not on PATH after install")
+		return "", false, fmt.Errorf("pi still not on PATH after install")
 	}
-	return p, nil
+	return p, true, nil
 }
 
 // installPI runs the official pi installer (curl | sh).
