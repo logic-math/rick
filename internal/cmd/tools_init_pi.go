@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,12 +12,9 @@ import (
 // piInstallerURL is the official pi installation script.
 const piInstallerURL = "https://pi.dev/install.sh"
 
-// subagentRelPath is the subagent example's location inside the pi package dir.
-const subagentRelPath = "examples/extensions/subagent"
-
 // NewInitPiCmd creates the init-pi subcommand: ensures pi (rick's agent
-// runtime) is installed and the subagent extension is registered. Idempotent —
-// each step checks before acting and skips what is already done.
+// runtime) is installed and the subagent + web-access extensions are registered.
+// Idempotent — each step checks before acting and skips what is already done.
 func NewInitPiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-pi",
@@ -69,7 +65,11 @@ func runInitPi() error {
 	fmt.Println()
 
 	// Step 2: subagent extension registered (install if missing). Non-fatal.
-	if err := ensureSubagentExtension(); err != nil {
+	// pi-subagents is the official npm extension providing the `subagent` tool
+	// (single/parallel/chain delegation with isolated context). The bare .ts
+	// example in the pi package has no package.json and `pi install <path>`
+	// silently fails to register it — only the npm package works.
+	if err := ensureNpmExtension("pi-subagents", "pi-subagents"); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  subagent extension: %v\n", err)
 		fmt.Fprintf(os.Stderr, "   rick works without it, but Sub Agent delegation is unavailable.\n")
 	} else {
@@ -84,8 +84,36 @@ func runInitPi() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
+	// Step 4: verify all required extensions are actually registered. This is a
+	// final integrity check via `pi list` — it catches the case where an install
+	// appeared to succeed but the extension is not registered (e.g. the old
+	// `pi install <bare-source-dir>` silently wrote to settings.json without the
+	// loader recognizing it).
+	missing := verifyExtensions()
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  verification: these extensions are NOT registered: %s\n", strings.Join(missing, ", "))
+		fmt.Fprintf(os.Stderr, "   rick may be degraded. Re-run `rick tools init-pi` or install manually.\n")
+	} else {
+		fmt.Println("✅ verification: all required extensions registered")
+	}
+
 	fmt.Println("✅ pi environment ready")
 	return nil
+}
+
+// requiredExtensions is the full set of pi extensions rick depends on.
+var requiredExtensions = []string{"pi-subagents", "pi-web-access"}
+
+// verifyExtensions runs `pi list` and returns the names of required extensions
+// that are NOT registered. Empty result means all present.
+func verifyExtensions() []string {
+	var missing []string
+	for _, pkg := range requiredExtensions {
+		if !piListContains(pkg) {
+			missing = append(missing, pkg)
+		}
+	}
+	return missing
 }
 
 // ensurePI returns the path to the pi binary, installing it via the official
@@ -127,29 +155,6 @@ func piVersion(piPath string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// ensureSubagentExtension registers pi's subagent extension if it is not
-// already registered. Non-fatal on failure — callers warn and continue.
-func ensureSubagentExtension() error {
-	if piListContains("subagent") {
-		return nil // already registered
-	}
-	src, err := findSubagentSource()
-	if err != nil {
-		return fmt.Errorf("locate subagent source: %w", err)
-	}
-	fmt.Printf("⚠️  subagent extension not registered — installing from %s\n", src)
-	cmd := exec.Command("pi", "install", src)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("pi install subagent: %w", err)
-	}
-	if !piListContains("subagent") {
-		return fmt.Errorf("subagent still not listed after install")
-	}
-	return nil
-}
-
 // ensureNpmExtension registers an npm-based pi extension if it is not already
 // installed. pkg is the npm spec passed to `pi install` (e.g. "pi-web-access");
 // detect is the substring `pi list` is grepped for (usually the package name
@@ -171,30 +176,8 @@ func ensureNpmExtension(pkg, detect string) error {
 	return nil
 }
 
-// findSubagentSource resolves the subagent example directory from the pi binary
-// itself: readlink -f $(which pi) → .../dist/cli.js → package dir →
-// examples/extensions/subagent. This is robust to pi being installed under
-// ~/.local (where `npm root -g` returns the wrong path).
-func findSubagentSource() (string, error) {
-	piBin, err := exec.LookPath("pi")
-	if err != nil {
-		return "", fmt.Errorf("pi not on PATH: %w", err)
-	}
-	piReal, err := filepath.EvalSymlinks(piBin)
-	if err != nil {
-		return "", fmt.Errorf("resolve pi symlink %s: %w", piBin, err)
-	}
-	// piReal = <pkgDir>/dist/cli.js → pkgDir = dirname(dirname(piReal))
-	pkgDir := filepath.Dir(filepath.Dir(piReal))
-	src := filepath.Join(pkgDir, subagentRelPath)
-	if info, err := os.Stat(src); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("subagent source not found at %s (pi may not be an npm install)", src)
-	}
-	return src, nil
-}
-
 // piListContains reports whether `pi list` output contains substr. Used to
-// detect installed extensions idempotently.
+// detect installed extensions idempotently (ensureNpmExtension + verifyExtensions).
 func piListContains(substr string) bool {
 	out, err := exec.Command("pi", "list").Output()
 	if err != nil {
