@@ -145,6 +145,7 @@ Layer 2 叶子层：executor.go(PiExecutor+JSONL解析) / cli.go(CallCLI+FindBin
 | `rick easy` | CallCLI(Interactive, --session-id) | `job_N/doing/prompts/easy_prompt.md` | ✅ 修复 bug 后通过（见下） |
 | `rick learning` | CallCLI(Interactive) | `job_N/learning/prompts/learning_prompt.md` | ✅ pi 返回 LEARNING_OK |
 | `rick human-loop` | CallCLI(Interactive) | `draft/loops/loop_N/prompts/sense_loop.md` | ✅ pi 返回 HUMANLOOP_OK，"思考记录已保存" |
+| `rick ctrl --job` | CallCLI(Interactive) | `job_N/doing/prompts/ctrl_prompt.md` | ✅ pi 返回 CTRL_OK |
 | `rick dream --background` | CallCLI(Print) | `.rick/dream/prompts/dream_prompt.md` | ⚠️ prompt 落盘+pi 启动正确；LLM 任务量大（5 job 反思）deepseek 超时未跑完（链路已验证，非代码问题） |
 
 ### 发现并修复的 easy 命令 bug（命令级验证副产品）
