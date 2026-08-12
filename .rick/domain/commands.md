@@ -121,8 +121,18 @@ type ContentBlock struct {
 ## rick tools theme [name]
 
 - 无参数：列出可选主题 + 当前主题
-- **默认主题 `rick`**（embedded themes/rick.json）：工具标题橙、md 标题金、链接蓝、bash 命令灰；bootstrap 时无 theme 则自动 seed（ensureRickTheme）；用户已有主题则不覆盖
+- **默认主题 `rick`**（embedded themes/rick.json）：工具标题/命令绿（toolTitle=greenBright）、md 标题金（mdHeading=gold）、链接/路径蓝（mdLink/syntaxString=linkBlue）、bashMode 金；bootstrap 时无 theme 则自动 seed（ensureRickTheme）；用户已有主题则不覆盖
 - **tokyo-night 已剔除**：@wishx127/pi-tokyo-night 捆绑硬编码配色的 Powerline 状态栏扩展，不随主题变化且污染上下文；init-pi 每次运行自动从 packages/theme 清除它
 - 带 name：激活主题；自动 `pi install npm:<pkg>` 安装提供方包（写入隔离目录注册），再写 managed settings.json 的 theme 字段（保留 hideThinkingBlock 等字段）
 - 已知主题映射：`internal/cmd/tools_theme.go` 的 knownThemes（name → npm pkg）
 - 验证：`rick tools theme` 列表 → 切换 → `rick tools theme` 确认
+- ⚠️ go:embed 陷阱：改 embedded themes/*.json 后必须先 `go build -o bin/rick ./cmd/rick` 再激活，否则旧 embed 覆盖磁盘主题文件
+
+## rick tools patch-pi-diff（job_34 起）
+
+- **背景**：pi 0.84.x 的单行编辑 diff 用 ANSI 反显（`theme.inverse` = chalk.inverse，`\x1b[7m`）标记变更词——反显交换前后景色，把关键词**背景**染成行色（删除行红、新增行绿），在行级红/绿之上叠出红/绿背景块（用户反馈不符合预期）
+- **方案**：改写 pi 的 `dist/modes/interactive/components/diff.js` 中 `theme.inverse(` → `theme.underline(`（2 处，renderIntraLineDiff 的 removedLine/addedLine）——行级红绿对比保留，关键字改为下划线强调，无背景块
+- 定位 pi 安装：`FindBinary` → `EvalSymlinks` → 向上找含 `dist/modes/interactive/components/diff.js` 的包根（适配 ~/.local/bin/pi → .../pi-coding-agent/dist/cli.js 符号链接布局）
+- **幂等**：已 patch（含 theme.underline 且无 theme.inverse）则跳过；pi 布局变更（无 theme.inverse）则 warn 不报错；pi 缺失才报错
+- init-pi 第 6 步非致命调用（pi 升级后自动补回）
+- 验证：`./bin/rick tools patch-pi-diff`；或 node 跑 renderDiff 检查输出不再含 `\x1b[7m`、含 `\x1b[4m`

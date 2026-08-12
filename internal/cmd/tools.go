@@ -20,6 +20,7 @@ then decides which commands to invoke to complete its work.
 
 Available subcommands:
   init-pi         Initialize pi (rick's agent runtime) + subagent extension
+  patch-pi-diff   Patch pi TUI diff highlight (keyword reverse-video bg -> underline)
   plan_check      Validate the plan directory structure for a job
   doing_check     Validate the doing directory structure for a job
   easy_check      Validate the doing directory for an easy mode job (debug/ only)
@@ -32,6 +33,7 @@ Available subcommands:
 	}
 
 	toolsCmd.AddCommand(NewInitPiCmd())
+	toolsCmd.AddCommand(NewPatchPIDiffCmd())
 	toolsCmd.AddCommand(NewThemeCmd())
 	toolsCmd.AddCommand(NewPlanCheckCmd())
 	toolsCmd.AddCommand(NewDoingCheckCmd())
