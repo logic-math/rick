@@ -145,13 +145,12 @@ func runInitPi() error {
 		fmt.Println("✅ tokyo-night purged from managed config (theme/packages)")
 	}
 
-	// Step 5: patch pi's TUI diff highlight. pi's intra-line word highlight
-	// uses ANSI reverse video (theme.inverse), painting changed keywords'
-	// backgrounds red/green on top of the line color. rick rewrites pi's
-	// diff.js to underline instead (line-level red/green stays, no colored
-	// keyword backgrounds). Idempotent; non-fatal (aesthetics only).
+	// Step 5: apply rick's pi TUI rendering patches (diff keyword highlight
+	// reverse-video -> bold, diff syntax highlighting, bash command syntax
+	// highlighting) to rick's self-contained runtime. Idempotent; non-fatal
+	// (aesthetics only).
 	if err := runPatchPIDiff(os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️  pi diff highlight patch: %v\n", err)
+		fmt.Fprintf(os.Stderr, "⚠️  pi runtime patch: %v\n", err)
 		fmt.Fprintf(os.Stderr, "   rick works without it; edit diffs keep pi's default highlight.\n")
 	}
 
