@@ -3,11 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/prompt"
@@ -134,11 +134,11 @@ func executeLearningWorkflow(jobID string) error {
 		return fmt.Errorf("failed to collect execution data: %w", err)
 	}
 
-	fmt.Println("\n=== Step 2: Analyzing with Claude ===")
-	fmt.Println("Calling Claude Code CLI for analysis...")
+	fmt.Println("\n=== Step 2: Analyzing with pi ===")
+	fmt.Println("Calling pi for analysis...")
 
-	if err := callClaudeForAnalysis(data); err != nil {
-		return fmt.Errorf("Claude analysis failed: %w", err)
+	if err := callAgentForAnalysis(data); err != nil {
+		return fmt.Errorf("pi analysis failed: %w", err)
 	}
 
 	fmt.Println("\n✅ Learning workflow completed!")
@@ -205,8 +205,8 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 	return data, nil
 }
 
-// callClaudeForAnalysis calls Claude Code CLI for analysis
-func callClaudeForAnalysis(data *ExecutionData) error {
+// callAgentForAnalysis drives the pi agent to analyze execution data and write learning docs.
+func callAgentForAnalysis(data *ExecutionData) error {
 	rickDir, err := workspace.GetRickDir()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
@@ -234,23 +234,13 @@ func callClaudeForAnalysis(data *ExecutionData) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	claudePath := cfg.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-
 	fmt.Printf("📝 提示词已保存到: %s\n", promptFile)
-	fmt.Println("🤖 启动 Claude Code CLI 交互模式...")
-	fmt.Println("📌 Claude 将在 learning 目录下生成文档（等待人工审核后合并）")
+	fmt.Println("🤖 启动 pi 交互模式...")
+	fmt.Println("📌 pi 将在 learning 目录下生成文档（等待人工审核后合并）")
 	fmt.Println()
 
-	cmd := exec.Command(claudePath, promptFile)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Claude Code CLI 执行失败: %w", err)
+	if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
+		return fmt.Errorf("pi CLI 执行失败: %w", err)
 	}
 
 	fmt.Println()

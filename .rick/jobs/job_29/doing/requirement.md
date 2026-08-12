@@ -1,0 +1,1 @@
+参考 draft 中的 rpc cluade 迁移 pi，以及 loop4 内的各种上下文信息，本次 job 要重构 rick 使其基于 pi 完成任务，将 claude code 全部移除医

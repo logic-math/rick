@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sunquan/rick/internal/config"
 )
 
 // TestPlanCmdCreation tests that NewPlanCmd creates a valid command
@@ -49,15 +47,15 @@ func TestGenerateJobID(t *testing.T) {
 }
 
 // TestExecutePlanWorkflow tests the planning workflow
-// Note: This test is skipped because it requires actual Claude CLI interaction
+// Note: This test is skipped because it requires actual pi interaction
 func TestExecutePlanWorkflow(t *testing.T) {
-	t.Skip("Skipping integration test that requires Claude CLI - run manually if needed")
+	t.Skip("Skipping integration test that requires pi - run manually if needed")
 
-	// This test would require mocking the Claude CLI interaction
+	// This test would require mocking the pi interaction
 	// For now, we skip it to avoid blocking CI/CD pipelines
 	//
 	// To test manually:
-	// 1. Ensure Claude CLI is installed
+	// 1. Ensure pi is installed
 	// 2. Run: go test -v -run TestExecutePlanWorkflow
 }
 
@@ -93,100 +91,9 @@ func TestPlanCmdWithEmptyRequirement(t *testing.T) {
 	}
 }
 
-// TestCallClaudeCodeCLI_MockBinary tests callClaudeCodeCLI with a mock binary.
-// Uses a mock binary that writes os.Args to a file so we can verify argv order.
-func TestCallClaudeCodeCLI_MockBinary(t *testing.T) {
-	tmpDir := t.TempDir()
-	argsFile := filepath.Join(tmpDir, "args.txt")
-
-	// Mock binary: writes all args (excluding argv[0]) to argsFile, then exits 0.
-	mockScript := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %s\nexit 0\n", argsFile)
-	mockPath := filepath.Join(tmpDir, "mock_claude")
-	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &config.Config{ClaudeCodePath: mockPath}
-
-	t.Run("promptFile_nonempty", func(t *testing.T) {
-		promptFile := filepath.Join(tmpDir, "test.md")
-		if err := os.WriteFile(promptFile, []byte("# prompt"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := callClaudeCodeCLI(cfg, promptFile, "--session-id", "abc"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		data, err := os.ReadFile(argsFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := strings.TrimSpace(string(data))
-		lines := strings.Split(got, "\n")
-		// Expected argv: --session-id, abc, test.md
-		want := []string{"--session-id", "abc", promptFile}
-		if len(lines) != len(want) {
-			t.Fatalf("argv mismatch: got %v, want %v", lines, want)
-		}
-		for i, w := range want {
-			if lines[i] != w {
-				t.Errorf("argv[%d]: got %q, want %q", i, lines[i], w)
-			}
-		}
-		// Must not contain empty string
-		for i, l := range lines {
-			if l == "" {
-				t.Errorf("argv[%d] is empty string", i)
-			}
-		}
-	})
-
-	t.Run("promptFile_empty", func(t *testing.T) {
-		if err := callClaudeCodeCLI(cfg, "", "--resume", "xyz"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		data, err := os.ReadFile(argsFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := strings.TrimSpace(string(data))
-		lines := strings.Split(got, "\n")
-		// Expected argv: --resume, xyz  (no empty string)
-		want := []string{"--resume", "xyz"}
-		if len(lines) != len(want) {
-			t.Fatalf("argv mismatch: got %v, want %v", lines, want)
-		}
-		for i, w := range want {
-			if lines[i] != w {
-				t.Errorf("argv[%d]: got %q, want %q", i, lines[i], w)
-			}
-		}
-		for i, l := range lines {
-			if l == "" {
-				t.Errorf("argv[%d] is empty string", i)
-			}
-		}
-	})
-}
-
-// TestCallClaudeCodeCLI_FailingBinary tests callClaudeCodeCLI with a failing binary
-func TestCallClaudeCodeCLI_FailingBinary(t *testing.T) {
-	tmpDir := t.TempDir()
-	mockScript := "#!/bin/sh\nexit 1\n"
-	mockPath := filepath.Join(tmpDir, "mock_claude_fail")
-	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	promptFile := filepath.Join(tmpDir, "prompt.md")
-	if err := os.WriteFile(promptFile, []byte("# Test prompt"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &config.Config{ClaudeCodePath: mockPath}
-	if err := callClaudeCodeCLI(cfg, promptFile); err == nil {
-		t.Error("expected error with failing mock claude")
-	}
-}
+// (The callClaudeCodeCLI mock-binary argv tests moved to the piagent package
+// as TestCallCLI_MockBinaryArgv / TestCallCLI_FailingBinary, covering the
+// piagent.CallCLI subprocess plumbing that replaced callClaudeCodeCLI.)
 
 // TestPlanCmdWithJobFlagDryRun tests plan command with --job flag in dry-run mode
 func TestPlanCmdWithJobFlagDryRun(t *testing.T) {
@@ -234,11 +141,11 @@ func TestReEnterPlanWorkflow_NonExistentJob(t *testing.T) {
 	}
 }
 
-// TestExecutePlanWorkflow_WithMockClaude tests executePlanWorkflow with mock claude
-func TestExecutePlanWorkflow_WithMockClaude(t *testing.T) {
+// TestExecutePlanWorkflow_WithMockPi tests executePlanWorkflow with mock pi binary
+func TestExecutePlanWorkflow_WithMockPi(t *testing.T) {
 	mockDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(mockDir, "claude")
+	mockPath := filepath.Join(mockDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -257,8 +164,8 @@ func TestExecutePlanWorkflow_WithMockClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write a config with mock claude path
-	cfgContent := fmt.Sprintf(`{"claude_code_path": "%s"}`, mockPath)
+	// Write a config with mock pi path
+	cfgContent := fmt.Sprintf(`{"pi_path": "%s"}`, mockPath)
 	cfgDir := filepath.Join(os.TempDir(), ".rick")
 	_ = os.MkdirAll(cfgDir, 0755)
 	_ = os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644)

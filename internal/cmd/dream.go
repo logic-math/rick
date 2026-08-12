@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/prompt"
@@ -93,14 +94,14 @@ func dreamWorkflow(jobNum int, background bool) error {
 	}
 
 	if background {
-		fmt.Println("🤖 Starting Claude Code CLI (background mode)...")
-		if err := callClaudeCodeCLIBackground(cfg, promptFile); err != nil {
-			return fmt.Errorf("Claude Code CLI failed: %w", err)
+		fmt.Println("🤖 Starting pi (background mode)...")
+		if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModePrint); err != nil {
+			return fmt.Errorf("pi failed: %w", err)
 		}
 	} else {
-		fmt.Println("🤖 Starting Claude Code CLI (interactive mode)...")
-		if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
-			return fmt.Errorf("Claude Code CLI failed: %w", err)
+		fmt.Println("🤖 Starting pi (interactive mode)...")
+		if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
+			return fmt.Errorf("pi failed: %w", err)
 		}
 	}
 
@@ -198,4 +199,3 @@ func jobNumber(jobID string) int {
 	n, _ := strconv.Atoi(strings.TrimPrefix(jobID, "job_"))
 	return n
 }
-

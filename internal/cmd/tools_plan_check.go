@@ -3,11 +3,11 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/workspace"
@@ -60,10 +60,9 @@ Exit codes:
 					break
 				}
 
-				// Auto-fix: find claude binary
-				claudePath, findErr := findClaudeBinary()
-				if findErr != nil {
-					// No claude available; skip auto-fix
+				// Auto-fix: ensure pi binary is available
+				if _, findErr := piagent.FindBinary(nil); findErr != nil {
+					// No pi available; skip auto-fix
 					break
 				}
 
@@ -73,7 +72,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := runAutoFix(claudePath, promptFile); fixErr != nil {
+				if fixErr := piagent.CallCLI(GetVerbose(), nil, promptFile, piagent.ModePrint); fixErr != nil {
 					break
 				}
 			}
@@ -200,26 +199,9 @@ func fileHasMeaningfulContent(path string) bool {
 	return meaningful >= 10
 }
 
-// runAutoFix calls claude in non-interactive mode with the given prompt file.
-// claudePath is the path to the claude binary.
-// promptFile is a file containing the fix prompt.
-func runAutoFix(claudePath, promptFile string) error {
-	cmd := exec.Command(claudePath, "--dangerously-skip-permissions", promptFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
+// (All agent invocation goes through piagent.CallCLI / piagent.FindBinary.)
 
-// findClaudeBinary searches for the claude binary in PATH.
-func findClaudeBinary() (string, error) {
-	path, err := exec.LookPath("claude")
-	if err != nil {
-		return "", fmt.Errorf("claude binary not found in PATH")
-	}
-	return path, nil
-}
-
-// writePlanCheckFixPrompt writes a prompt file asking claude to fix the plan check errors.
+// writePlanCheckFixPrompt writes a prompt file asking pi to fix the plan check errors.
 // Returns the path to the temporary prompt file.
 func writePlanCheckFixPrompt(planDir string, checkErr error) (string, error) {
 	tmpFile, err := os.CreateTemp("", "rick-plan-check-fix-*.md")

@@ -13,7 +13,7 @@ import (
 type RetryResult struct {
 	TaskID         string
 	TaskName       string
-	Status         string    // success, failed, max_retries_exceeded
+	Status         string // success, failed, max_retries_exceeded
 	TotalAttempts  int
 	LastError      string
 	Output         string
@@ -81,7 +81,7 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 		// Execute the task with debug context and test error feedback
 		// This will:
 		// 1. Generate doing prompt with task.md + debug.md + test errors + OKR.md + SPEC.md
-		// 2. Call Claude to execute the task (may fix test script if needed)
+		// 2. Call the agent to execute the task (may fix test script if needed)
 		// 3. Run the test script
 		// 4. Return pass/fail result
 		execResult, err := trm.runner.RunTask(task, debugContext, testErrorFeedback)
@@ -108,7 +108,7 @@ func (trm *TaskRetryManager) RetryTask(task *parser.Task) (*RetryResult, error) 
 
 		// Task failed, record error
 		result.LastError = execResult.Error
-		// Note: debug.md is now managed by Claude, not by the program
+		// Note: debug.md is now managed by the agent, not by the program
 
 		// Accumulate test error feedback for next retry (keep last 2 attempts only)
 		// execResult.Error already contains the full test output (including stderr/traceback)
@@ -142,7 +142,7 @@ func (trm *TaskRetryManager) loadDebugContext(debugFile string) string {
 	return LoadDebugContext(filepath.Dir(debugFile))
 }
 
-// Note: Debug logging is now handled by Claude, not by the program
+// Note: Debug logging is now handled by the agent, not by the program
 // The program only loads debug.md and passes it as context
 
 // RetryTaskSimple is a convenience function that creates a TaskRetryManager and retries a task

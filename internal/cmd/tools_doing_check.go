@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -67,8 +68,7 @@ Exit codes:
 					break
 				}
 
-				claudePath, findErr := findClaudeBinary()
-				if findErr != nil {
+				if _, findErr := piagent.FindBinary(nil); findErr != nil {
 					break
 				}
 
@@ -78,7 +78,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := runAutoFix(claudePath, promptFile); fixErr != nil {
+				if fixErr := piagent.CallCLI(GetVerbose(), nil, promptFile, piagent.ModePrint); fixErr != nil {
 					break
 				}
 			}
@@ -89,7 +89,7 @@ Exit codes:
 		},
 	}
 
-	cmd.Flags().BoolVar(&autoFix, "auto-fix", false, "Attempt to auto-fix errors using Claude")
+	cmd.Flags().BoolVar(&autoFix, "auto-fix", false, "Attempt to auto-fix errors using pi")
 	return cmd
 }
 
@@ -155,7 +155,7 @@ func runDoingCheck(doingDir string) error {
 	return nil
 }
 
-// writeDoingCheckFixPrompt writes a prompt file asking claude to fix doing check errors.
+// writeDoingCheckFixPrompt writes a prompt file asking pi to fix doing check errors.
 func writeDoingCheckFixPrompt(doingDir string, checkErr error) (string, error) {
 	tmpFile, err := os.CreateTemp("", "rick-doing-check-fix-*.md")
 	if err != nil {

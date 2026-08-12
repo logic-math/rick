@@ -1,6 +1,7 @@
 {
   "max_retries": 5,
-  "claude_code_path": "",
+  "pi_path": "",
+  "pi_extra_args": [],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",

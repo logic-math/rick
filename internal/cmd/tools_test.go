@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunquan/rick/internal/agent/piagent"
+	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 )
 
@@ -283,7 +285,6 @@ func TestRunLearningCheck_MissingJobHeading(t *testing.T) {
 	}
 }
 
-
 func TestRunLearningCheck_Valid(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "SUMMARY.md"), []byte("# Job Summary\nsome content"), 0644); err != nil {
@@ -395,7 +396,6 @@ func TestToolsSubcommands(t *testing.T) {
 		}
 	}
 }
-
 
 // ─── Workspace-dependent tests ────────────────────────────────────────────────
 
@@ -556,20 +556,20 @@ func setupGitRepo(t *testing.T) string {
 	return dir
 }
 
-func TestFindClaudeBinary(t *testing.T) {
+func TestFindPiBinary(t *testing.T) {
 	// Just verify the function runs without panic
-	path, err := findClaudeBinary()
+	path, err := piagent.FindBinary(nil)
 	if err != nil {
-		t.Logf("findClaudeBinary returned error (claude not in PATH): %v", err)
+		t.Logf("piagent.FindBinary returned error (pi not in PATH): %v", err)
 	} else if path == "" {
-		t.Error("expected non-empty path when claude is found")
+		t.Error("expected non-empty path when pi is found")
 	}
 }
 
-func TestRunAutoFix_MockBinary(t *testing.T) {
+func TestAutoFix_MockPi(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(tmpDir, "mock_claude")
+	mockPath := filepath.Join(tmpDir, "mock_pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -577,15 +577,16 @@ func TestRunAutoFix_MockBinary(t *testing.T) {
 	if err := os.WriteFile(promptFile, []byte("# prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := runAutoFix(mockPath, promptFile); err != nil {
-		t.Errorf("expected no error with mock binary, got: %v", err)
+	cfg := &config.Config{PiPath: mockPath}
+	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModePrint); err != nil {
+		t.Errorf("expected no error with mock pi, got: %v", err)
 	}
 }
 
-func TestRunAutoFix_FailingBinary(t *testing.T) {
+func TestAutoFix_FailingPi(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 1\n"
-	mockPath := filepath.Join(tmpDir, "mock_claude_fail")
+	mockPath := filepath.Join(tmpDir, "mock_pi_fail")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -593,8 +594,9 @@ func TestRunAutoFix_FailingBinary(t *testing.T) {
 	if err := os.WriteFile(promptFile, []byte("# prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := runAutoFix(mockPath, promptFile); err == nil {
-		t.Error("expected error with failing binary")
+	cfg := &config.Config{PiPath: mockPath}
+	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModePrint); err == nil {
+		t.Error("expected error with failing pi binary")
 	}
 }
 

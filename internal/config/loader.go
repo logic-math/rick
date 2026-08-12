@@ -45,7 +45,7 @@ func GetDefaultConfig() *Config {
 
 	return &Config{
 		MaxRetries:       5,
-		ClaudeCodePath:   "",
+		PiPath:           "",
 		DefaultWorkspace: filepath.Join(home, rickDirName),
 		Git: GitConfig{
 			UserName:  "Rick",
@@ -54,13 +54,13 @@ func GetDefaultConfig() *Config {
 		HumanLoop: HumanLoopConfig{
 			MaxRetries: 5,
 			ResearchSourceWeights: map[string]float64{
-				"代码原文":   0.4,
+				"代码原文":  0.4,
 				"运行时行为": 0.3,
-				"文档":     0.2,
-				"反事实":    0.1,
+				"文档":    0.2,
+				"反事实":   0.1,
 			},
-			ThinkTopN: 3,
-			SenseMaxBackflows: 3,
+			ThinkTopN:           3,
+			SenseMaxBackflows:   3,
 			ThinkMinAssumptions: 5,
 		},
 	}
@@ -126,10 +126,10 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("MaxRetries must be non-negative, got %d", cfg.MaxRetries)
 	}
 
-	// Check if ClaudeCodePath exists (only if it's not empty)
-	if cfg.ClaudeCodePath != "" {
-		if _, err := os.Stat(cfg.ClaudeCodePath); os.IsNotExist(err) {
-			return fmt.Errorf("ClaudeCodePath does not exist: %s", cfg.ClaudeCodePath)
+	// Check if PiPath exists (only if it's not empty)
+	if cfg.PiPath != "" {
+		if _, err := os.Stat(cfg.PiPath); os.IsNotExist(err) {
+			return fmt.Errorf("PiPath does not exist: %s", cfg.PiPath)
 		}
 	}
 

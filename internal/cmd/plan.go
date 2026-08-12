@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
@@ -151,13 +151,13 @@ func executePlanWorkflow(requirement string) error {
 		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	// Step 4: Call Claude Code CLI with planning prompt file (interactive mode)
+	// Step 4: Call pi with planning prompt file (interactive mode)
 	if GetVerbose() {
-		fmt.Println("[INFO] Calling Claude Code CLI for planning...")
+		fmt.Println("[INFO] Calling pi for planning...")
 	}
 
-	if err := callClaudeCodeCLI(cfg, planPromptFile); err != nil {
-		return fmt.Errorf("failed to call Claude Code CLI: %w", err)
+	if err := piagent.CallCLI(GetVerbose(), cfg, planPromptFile, piagent.ModeInteractive); err != nil {
+		return fmt.Errorf("failed to call pi: %w", err)
 	}
 
 	fmt.Printf("\nPlanning session completed! Job: %s\n", jobID)
@@ -166,7 +166,6 @@ func executePlanWorkflow(requirement string) error {
 
 	return nil
 }
-
 
 // reEnterPlanWorkflow re-enters a planning session for an existing job
 func reEnterPlanWorkflow(existingJobID string, requirement string) error {
@@ -206,8 +205,8 @@ func reEnterPlanWorkflow(existingJobID string, requirement string) error {
 		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	if err := callClaudeCodeCLI(cfg, planPromptFile); err != nil {
-		return fmt.Errorf("failed to call Claude Code CLI: %w", err)
+	if err := piagent.CallCLI(GetVerbose(), cfg, planPromptFile, piagent.ModeInteractive); err != nil {
+		return fmt.Errorf("failed to call pi: %w", err)
 	}
 
 	fmt.Printf("\nPlanning session completed! Job: %s\n", existingJobID)
@@ -244,54 +243,4 @@ func generateJobID() string {
 	return fmt.Sprintf("job_%d", time.Now().Unix())
 }
 
-// callClaudeCodeCLI calls Claude Code CLI in interactive mode.
-// extraArgs are prepended before promptFile; promptFile is omitted when empty.
-func callClaudeCodeCLI(cfg *config.Config, promptFile string, extraArgs ...string) error {
-	claudePath := cfg.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-
-	args := make([]string, 0, len(extraArgs)+1)
-	args = append(args, extraArgs...)
-	if promptFile != "" {
-		args = append(args, promptFile)
-	}
-
-	cmd := exec.Command(claudePath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if GetVerbose() {
-		fmt.Printf("[INFO] Executing: %s %s\n", claudePath, strings.Join(args, " "))
-	}
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Claude Code CLI failed: %w", err)
-	}
-
-	return nil
-}
-
-// callClaudeCodeCLIBackground runs Claude in non-interactive background mode.
-// Uses --dangerously-skip-permissions; stdout/stderr are forwarded to terminal.
-func callClaudeCodeCLIBackground(cfg *config.Config, promptFile string) error {
-	claudePath := cfg.ClaudeCodePath
-	if claudePath == "" {
-		claudePath = "claude"
-	}
-
-	cmd := exec.Command(claudePath, "-p", "--dangerously-skip-permissions", promptFile)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if GetVerbose() {
-		fmt.Printf("[INFO] Executing (background): %s -p --dangerously-skip-permissions %s\n", claudePath, promptFile)
-	}
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Claude Code CLI failed: %w", err)
-	}
-	return nil
-}
+// (All agent invocation goes through piagent.CallCLI — the unified CLI abstraction.)

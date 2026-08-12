@@ -48,6 +48,22 @@ Rick 将上下文分为两个维度。**执行维度**承载"怎么做"的操作
 
 在这个视角下，命令体系是作用于知识体系的控制手段。`doing` 与 `easy` 是熵增的源头（执行过程产生上下文），`learning` 是增强回路（把单次 job 的经验提取为 loops/skills，让下次更准），`dream` 是调节回路（跨 job 反思、淘汰失效 loops/skills、维持 `domain` 简洁），`human-loop` 是人类介入深度思考的入口（产出 `draft`），`ctrl` 是黑箱执行的可挂测性设计（人类对 doing 进行干预）。主要矛盾是"上下文熵增"与"AI coding 准确性"之间的势能差，Rick 通过 learning 的增强回路和 dream 的调节回路共同对抗这一熵增，让后续的 AI agent 越跑越准。
 
+### pi 作为受控的执行后端
+
+Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-works/pi-coding-agent`）作为执行后端——一个可被 shell 调用的 agent runtime。Rick 自身是**引导程序**：确定性拼装 prompt/文件、注入系统提示词、约束工作流，pi 负责实际的 agentic 执行。这条边界的设计原则是**关注点分离**：
+
+- **用户不应感知 pi 的存在**。所有 pi 的配置（provider/model/api-key、subagent/web-access 扩展、主题）都通过 `rick tools init-pi` 引导完成，用户只需跑 rick，不需要直接操作 pi。
+- **Rick 托管 pi 的配置以控制模型输入**。pi 的扩展、skill、system prompt 都是模型输入的一部分——这些若由用户随意配置，会污染 agent 的上下文（上下文熵增的又一来源）。Rick 主动安装并固化 pi 的扩展配置（而非让用户各自装），正是为了对"喂给模型的输入"拥有更强的控制力，保证 pi 作为 rick 执行后端的**可控性**与**一致性**。
+- **Node 是用户管理的环境依赖**。pi 是 Node.js 程序，需要 node ≥22.19.0 + npm。Rick 不替用户装 node——它是环境依赖，用户负责（保持 rick 引导的简洁性）。`rick tools init-pi` 只在"需要安装 pi"时检查 node/npm 是否就绪，缺失则终止并提示用户自行安装；pi 已装时则假定环境就绪，不再检查。
+
+**演进方向**：未来 rick 会进一步让 pi **完全被托管**，方式是**配置目录隔离**——rick 在 `~/.rick/pi` 下维护专属于自己的 pi 配置（settings、扩展、主题、API key），启动 pi 时通过环境变量 `PI_CODING_AGENT_DIR` 指向它，与用户自有的 `~/.pi` 完全隔离。用户直接跑 pi 仍用自己的 `~/.pi`；rick 跑 pi 走 `~/.rick/pi`——两套配置互不污染。这样 rick 对"喂给 pi 的全部模型输入"（system prompt、扩展、skill）拥有完全控制力，用户此前自行装的扩展/skill 不会泄漏进 rick 的 agent 上下文。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
+
+> 注：配置目录隔离为规划中的设计，代码尚未实现（当前 rick 与用户共用 `~/.pi`）。下一步将在 rick 调用 pi 的所有入口注入 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`，并让 `rick tools init-pi` 在该目录下安装扩展、写设置。
+
+`rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、可选激活主题，并在最后验证全部生效。
+
+---
+
 ---
 
 ## 双维度知识体系
@@ -89,7 +105,7 @@ rick easy --resume job_5
 ```
 
 **工作流**：
-1. 人类提出需求 → 进入交互式 Claude 会话
+1. 人类提出需求 → 进入交互式 pi 会话
 2. Agent 执行，每个问题自动记录到 `doing/debug/`
 3. 退出后人类显式触发 `rick learning job_N`（不自动触发）
 
@@ -137,7 +153,7 @@ rick plan --job job_5 [requirement]   # 复用已有 job 的 plan 目录
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | 空 | 复用已有 job 目录，跳过 NextJobID() |
-| `--dry-run` | false | 输出完整 plan prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 plan prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -170,7 +186,7 @@ rick doing --job job_5            # 等价于 rick doing job_5
 | `--job <id>` | 空 | 指定 job ID |
 | `--easy` | false | 进入 easy 模式（见下方 rick easy） |
 | `--ctx <path>` | 空 | 从指定 `.rick` 目录继承上下文（easy 模式专用） |
-| `--dry-run` | false | 输出完整 doing prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 doing prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -206,7 +222,7 @@ rick easy --resume job_5     # 恢复会话
 | `-r, --requirement <text>` | 空 | 会话需求 |
 | `--ctx <path>` | 空 | 从指定 `.rick` 目录继承上下文 |
 | `--resume <job_id>` | 空 | 恢复已存在的 easy 会话 |
-| `--dry-run` | false | 输出完整 easy prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 easy prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -216,7 +232,7 @@ rick easy --resume job_3
 
 **产出**：
 - `.rick/jobs/job_N/doing/requirement.md`
-- `.rick/jobs/job_N/doing/session_id`（Claude 会话 UUID）
+- `.rick/jobs/job_N/doing/session_id`（pi 会话 UUID）
 - `.rick/jobs/job_N/doing/prompts/`（持久化的 prompt 文件）
 - `.rick/jobs/job_N/doing/tasks.json`（合成 `easy_session` 任务，供 dream 发现）
 
@@ -237,7 +253,7 @@ rick learning --job job_5
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | 空 | 指定 job ID |
-| `--dry-run` | false | 输出完整 learning prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 learning prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -269,7 +285,7 @@ rick dream --job_num 3    # 每次处理 3 个 job
 |------|------|------|
 | `--job_num <n>` | 5 | 每次处理的 job 数量 |
 | `-p, --background` | false | 后台模式（非交互，skip-permissions） |
-| `--dry-run` | false | 输出完整 dream prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 dream prompt 到 stdout，不调用 pi |
 
 **示例**：
 ```bash
@@ -300,7 +316,7 @@ rick ctrl --job job_5
 | flag | 默认 | 说明 |
 |------|------|------|
 | `--job <id>` | （必传） | 指定 job ID |
-| `--dry-run` | false | 输出完整 ctrl prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 ctrl prompt 到 stdout，不调用 pi |
 
 **四种干预场景**：
 
@@ -329,7 +345,25 @@ rick human-loop "如何降低 doing 重试率"
 | flag | 默认 | 说明 |
 |------|------|------|
 | `<topic>` | （必传） | 思考主题 |
-| `--dry-run` | false | 输出完整 human-loop prompt 到 stdout，不调用 Claude |
+| `--dry-run` | false | 输出完整 human-loop prompt 到 stdout，不调用 pi |
+
+### rick tools init-pi
+
+**职责**：初始化 pi（rick 的 agent runtime）+ subagent 扩展。幂等——检查后跳过已就绪项，缺什么补什么。`install.sh` 安装完 rick 后会自动调一次；也可单独跑。
+
+**用法**：
+```bash
+rick tools init-pi
+```
+
+**做了什么**：
+1. **前置检查**：若 pi 尚未安装，检查 node（≥22.19.0）+ npm 是否在 PATH。缺失则**终止**并提示用户自行安装 node（rick 不替用户装 node——它是用户管理的环境依赖）；pi 已装则跳过此检查，假定环境就绪
+2. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
+3. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
+4. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
+5. 检查 Tokyo Night 主题包是否已注册；未装则 `pi install npm:@wishx127/pi-tokyo-night`（包总会装上，便于 `/settings` 切换）。激活策略：**仅当本次 init-pi 新装了 pi 时**才写入 `theme: tokyo-night-dark`；若 pi 已存在（用户早就装好），默认用户有自己的主题偏好，**不动 settings.json**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
+6. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
+7. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 
 ---
 
@@ -445,7 +479,8 @@ sequenceDiagram
 ```json
 {
   "max_retries": 5,
-  "claude_code_path": "",
+  "pi_path": "",
+  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-flash", "--api-key", "sk-..."],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",
@@ -457,7 +492,8 @@ sequenceDiagram
 | 配置项 | 说明 |
 |--------|------|
 | `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
-| `claude_code_path` | Claude CLI 路径（空则使用 PATH 中的 `claude`） |
+| `pi_path` | pi CLI 路径（空则使用 PATH 中的 `pi`） |
+| `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-flash","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
 | `default_workspace` | 默认工作区路径 |
 | `git.user_name` | 自动 commit 时使用的 Git 用户名 |
 | `git.user_email` | 自动 commit 时使用的 Git 邮箱 |

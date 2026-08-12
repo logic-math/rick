@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/workspace"
@@ -75,8 +76,8 @@ func NewHumanLoopCmd() *cobra.Command {
 				fmt.Printf("[INFO] rfc directory: %s\n", rfcDir)
 			}
 
-			if err := callClaudeCodeCLI(cfg, mainFile); err != nil {
-				return fmt.Errorf("failed to start Claude Code CLI: %w", err)
+			if err := piagent.CallCLI(GetVerbose(), cfg, mainFile, piagent.ModeInteractive); err != nil {
+				return fmt.Errorf("failed to start pi CLI: %w", err)
 			}
 
 			fmt.Printf("思考记录已保存到 %s\n", loopDir)

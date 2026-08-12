@@ -369,6 +369,16 @@ main() {
         print_info "Or add ~/.local/bin to your PATH and try again."
     fi
 
+    # Initialize pi (rick's agent runtime) + subagent extension.
+    # Non-fatal: rick is installed regardless; the user can re-run init-pi later.
+    print_info "Initializing pi environment (rick's agent runtime)..."
+    if "$command_name" tools init-pi; then
+        print_success "pi environment ready."
+    else
+        print_error "pi initialization had issues (see above). rick is installed;"
+        print_error "run '$command_name tools init-pi' manually after installing pi."
+    fi
+
     print_path_hint "$command_name"
     print_success "Rick CLI installation completed successfully!"
 }

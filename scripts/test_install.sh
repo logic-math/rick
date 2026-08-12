@@ -26,17 +26,17 @@ TESTS_TOTAL=0
 # Functions
 print_test_start() {
     echo -e "${BLUE}[TEST]${NC} $1"
-    ((TESTS_TOTAL++))
+    ((TESTS_TOTAL++)) || true
 }
 
 print_test_pass() {
     echo -e "${GREEN}[PASS]${NC} $1"
-    ((TESTS_PASSED++))
+    ((TESTS_PASSED++)) || true
 }
 
 print_test_fail() {
     echo -e "${RED}[FAIL]${NC} $1"
-    ((TESTS_FAILED++))
+    ((TESTS_FAILED++)) || true
 }
 
 print_info() {
@@ -176,6 +176,39 @@ test_source_installation() {
     return 0
 }
 
+# Test: rick tools init-pi subcommand exists
+test_init_pi_subcommand() {
+    print_test_start "rick tools init-pi subcommand exists"
+
+    if ! command -v go &> /dev/null; then
+        print_info "Go not installed, skipping init-pi subcommand test"
+        return 0
+    fi
+
+    local temp_install_dir=$(mktemp -d)
+    trap "rm -rf $temp_install_dir" RETURN
+
+    if ! "$SCRIPT_DIR/install.sh" --prefix "$temp_install_dir" --source > /dev/null 2>&1; then
+        print_test_fail "Source installation failed"
+        return 1
+    fi
+
+    # init-pi must be listed under tools --help
+    if ! "$temp_install_dir/bin/rick" tools --help 2>&1 | grep -q "init-pi"; then
+        print_test_fail "init-pi not found in 'rick tools --help'"
+        return 1
+    fi
+
+    # init-pi --help must run (does not install anything, just shows help)
+    if ! "$temp_install_dir/bin/rick" tools init-pi --help > /dev/null 2>&1; then
+        print_test_fail "rick tools init-pi --help failed"
+        return 1
+    fi
+
+    print_test_pass "init-pi subcommand registered and runnable"
+    return 0
+}
+
 # Test 7: Test parameter combinations
 test_parameter_combinations() {
     print_test_start "Parameter combination validation"
@@ -307,6 +340,7 @@ main() {
     test_symlink_logic
     test_installation_structure
     test_source_installation
+    test_init_pi_subcommand
 
     echo ""
     echo -e "${BLUE}========================================${NC}"

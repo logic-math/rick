@@ -10,10 +10,10 @@ import (
 	"github.com/sunquan/rick/internal/parser"
 )
 
-// skipIfNoClause skips the test if RICK_INTEGRATION_TEST env var is not set.
-// Tests that call ExecuteJob() invoke claude CLI and are too slow for unit tests.
+// skipIfNoIntegration skips the test if RICK_INTEGRATION_TEST env var is not set.
+// Tests that call ExecuteJob() invoke the pi CLI and are too slow for unit tests.
 // Run them with: RICK_INTEGRATION_TEST=1 go test ./internal/executor/...
-func skipIfNoClaude(t *testing.T) {
+func skipIfNoIntegration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("RICK_INTEGRATION_TEST") == "" {
 		t.Skip("skipping integration test: set RICK_INTEGRATION_TEST=1 to enable")
@@ -618,7 +618,7 @@ func TestExecutorDAGValidation(t *testing.T) {
 
 // TestExecuteJobSingleTask tests executing a single task
 func TestExecuteJobSingleTask(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -662,7 +662,7 @@ func TestExecuteJobSingleTask(t *testing.T) {
 
 // TestExecuteJobMultipleTasks tests executing multiple tasks
 func TestExecuteJobMultipleTasks(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -714,7 +714,7 @@ func TestExecuteJobMultipleTasks(t *testing.T) {
 
 // TestExecuteJobTasksJSONPersistence tests that tasks.json is persisted during execution
 func TestExecuteJobTasksJSONPersistence(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -766,7 +766,7 @@ func TestExecuteJobTasksJSONPersistence(t *testing.T) {
 
 // TestExecuteJobResultStatus tests ExecutionJobResult status field
 func TestExecuteJobResultStatus(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -808,7 +808,7 @@ func TestExecuteJobResultStatus(t *testing.T) {
 
 // TestExecuteJobLogging tests that execution logging works
 func TestExecuteJobLogging(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -853,7 +853,7 @@ func TestExecuteJobLogging(t *testing.T) {
 
 // TestExecuteJobTimestamps tests that execution timestamps are set
 func TestExecuteJobTimestamps(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -901,7 +901,7 @@ func TestExecuteJobTimestamps(t *testing.T) {
 
 // TestExecuteJobTaskResultsNotNil tests that task results are not nil
 func TestExecuteJobTaskResultsNotNil(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -941,7 +941,7 @@ func TestExecuteJobTaskResultsNotNil(t *testing.T) {
 
 // TestExecuteJobWithDependencies tests execution with task dependencies
 func TestExecuteJobWithDependencies(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -993,7 +993,7 @@ func TestExecuteJobWithDependencies(t *testing.T) {
 
 // TestExecuteJobCounters tests task success/failure counters
 func TestExecuteJobCounters(t *testing.T) {
-	skipIfNoClaude(t)
+	skipIfNoIntegration(t)
 	tasks := []*parser.Task{
 		{
 			ID:           "task1",
@@ -1154,11 +1154,11 @@ func TestExecuteJobSkipsCompletedTasks(t *testing.T) {
 		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
 	}
 
-	// Use a non-existent claude path so any real execution attempt would fail
+	// Use a non-existent pi path so any real execution attempt would fail
 	config := &ExecutionConfig{
 		MaxRetries:     1,
 		TimeoutSeconds: 5,
-		ClaudeCodePath: "/nonexistent/claude",
+		PiPath:         "/nonexistent/pi",
 	}
 	tmpDir := t.TempDir()
 
@@ -1174,7 +1174,7 @@ func TestExecuteJobSkipsCompletedTasks(t *testing.T) {
 	}
 
 	result, err := exec.ExecuteJob()
-	// task2 will fail (no real claude), but task1 must have been skipped, not re-run
+	// task2 will fail (no real pi), but task1 must have been skipped, not re-run
 	if result == nil {
 		t.Fatal("ExecuteJob returned nil result")
 	}
@@ -1206,18 +1206,18 @@ func TestExecuteJobSkipsCompletedTasks(t *testing.T) {
 
 // TestExecuteJobSkipsCompletedTasksAllDone verifies that when ALL tasks are already
 // "success" in the existing TasksJSON, ExecuteJob returns status "completed" without
-// calling claude at all.
+// calling pi at all.
 func TestExecuteJobSkipsCompletedTasksAllDone(t *testing.T) {
 	tasks := []*parser.Task{
 		{ID: "task1", Name: "Task 1", Goal: "G1", KeyResults: []string{"KR1"}, Dependencies: []string{}},
 		{ID: "task2", Name: "Task 2", Goal: "G2", KeyResults: []string{"KR2"}, Dependencies: []string{"task1"}},
 	}
 
-	// Use a non-existent claude path — if any task is executed, the test will fail
+	// Use a non-existent pi path — if any task is executed, the test will fail
 	config := &ExecutionConfig{
 		MaxRetries:     1,
 		TimeoutSeconds: 5,
-		ClaudeCodePath: "/nonexistent/claude",
+		PiPath:         "/nonexistent/pi",
 	}
 	tmpDir := t.TempDir()
 

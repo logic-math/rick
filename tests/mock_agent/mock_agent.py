@@ -3,7 +3,7 @@
 mock_agent.py - Mock AI agent for testing Rick workflows without Claude CLI.
 
 Usage:
-    MOCK_SCENARIO=<scenario> python3 mock_agent.py [--output-format text|stream-json] <prompt_file>
+    MOCK_SCENARIO=<scenario> python3 mock_agent.py [--mode text|json|rpc] <prompt_file>
     python3 mock_agent.py --self-test
 
 Scenarios:
@@ -456,37 +456,36 @@ def scenario_learning_no_summary(prompt_content, learning_dir):
 
 
 def scenario_doing_v2_success(prompt_content, doing_dir):
-    """Output stream-json NDJSON with RED->GREEN TDD flow: testing agent first outputs fail, then pass."""
+    """Output pi --mode json JSONL with RED->GREEN TDD flow: agent first fails tests, then passes."""
     sess_id = "mock-session-v2-001"
+    # Emit pi `--mode json` JSONL event stream (session header + events + agent_settled).
+    # Fields are camelCase per pi's schema; agent_settled terminates the stream (pi emits
+    # no duration — rick self-times). See internal/agent/piagent/executor.go parseStream.
     lines = [
-        json.dumps({"type": "system", "subtype": "init", "session_id": sess_id, "model": "mock"}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "go build ./..."}}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "user", "message": {"content": [
-            {"type": "tool_result", "tool_use_id": "t1", "content": "Build ok", "is_error": False}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "python3 test.py"}}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "user", "message": {"content": [
-            {"type": "tool_result", "tool_use_id": "t2",
-             "content": json.dumps({"pass": False, "errors": ["RED: test not implemented yet"]}),
-             "is_error": False}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "python3 test.py"}}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "user", "message": {"content": [
-            {"type": "tool_result", "tool_use_id": "t3",
-             "content": json.dumps({"pass": True, "errors": []}),
-             "is_error": False}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "assistant", "message": {"content": [
+        json.dumps({"type": "session", "version": 3, "id": sess_id, "cwd": "/tmp"}),
+        json.dumps({"type": "agent_start"}),
+        json.dumps({"type": "turn_start"}),
+        json.dumps({"type": "message_start", "message": {"role": "user", "content": [{"type": "text", "text": "do the task"}]}}),
+        json.dumps({"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "do the task"}]}}),
+        json.dumps({"type": "message_start", "message": {"role": "assistant", "content": []}}),
+        json.dumps({"type": "tool_execution_start", "toolCallId": "t1", "toolName": "Bash",
+                    "args": {"command": "go build ./..."}}),
+        json.dumps({"type": "tool_execution_end", "toolCallId": "t1", "result": "Build ok", "isError": False}),
+        json.dumps({"type": "tool_execution_start", "toolCallId": "t2", "toolName": "Bash",
+                    "args": {"command": "python3 test.py"}}),
+        json.dumps({"type": "tool_execution_end", "toolCallId": "t2",
+                    "result": json.dumps({"pass": False, "errors": ["RED: test not implemented yet"]}),
+                    "isError": False}),
+        json.dumps({"type": "tool_execution_start", "toolCallId": "t3", "toolName": "Bash",
+                    "args": {"command": "python3 test.py"}}),
+        json.dumps({"type": "tool_execution_end", "toolCallId": "t3",
+                    "result": json.dumps({"pass": True, "errors": []}), "isError": False}),
+        json.dumps({"type": "message_end", "message": {"role": "assistant", "content": [
             {"type": "text", "text": "Task completed successfully with RED->GREEN TDD flow."}
-        ]}, "session_id": sess_id}),
-        json.dumps({"type": "result", "subtype": "success", "is_error": False,
-                    "duration_ms": 5000, "session_id": sess_id}),
+        ]}}),
+        json.dumps({"type": "turn_end", "toolResults": []}),
+        json.dumps({"type": "agent_end", "willRetry": False}),
+        json.dumps({"type": "agent_settled"}),
     ]
     for line in lines:
         print(line)
@@ -531,20 +530,20 @@ def scenario_doing_v2_success(prompt_content, doing_dir):
 
 | # | 工具 | 输入摘要 | 结果 | 行号 |
 |---|------|----------|------|------|
-| 1 | Bash | go build ./... | Build ok | [L2]({raw_log_path}:2) |
-| 2 | Bash | python3 test.py | {{\"pass\": false, ...}} | [L4]({raw_log_path}:4) |
-| 3 | Bash | python3 test.py | {{\"pass\": true, ...}} | [L6]({raw_log_path}:6) |
+| 1 | Bash | go build ./... | Build ok | [L7]({raw_log_path}:7) |
+| 2 | Bash | python3 test.py | {{\"pass\": false, ...}} | [L9]({raw_log_path}:9) |
+| 3 | Bash | python3 test.py | {{\"pass\": true, ...}} | [L11]({raw_log_path}:11) |
 
 ## Agent 最终输出
 
 Task completed successfully with RED->GREEN TDD flow.
 
-> [raw_session.log:8]({raw_log_path})
+> [raw_session.log:13]({raw_log_path})
 """
         with open(os.path.join(task1_dir, "act-path.md"), "w") as f:
             f.write(act_path_md)
 
-    print("[mock_agent] doing_v2_success: output stream-json NDJSON with RED->GREEN", file=sys.stderr)
+    print("[mock_agent] doing_v2_success: output pi JSONL with RED->GREEN", file=sys.stderr)
 
 
 def scenario_learning_v2_success(prompt_content, learning_dir, rick_dir):
@@ -823,15 +822,25 @@ def main():
         run_self_test()
         return
 
-    parser = argparse.ArgumentParser(description="Mock AI agent for Rick testing")
-    parser.add_argument("--output-format", choices=["text", "stream-json"], default="text",
-                        help="Output format (default: text)")
+    parser = argparse.ArgumentParser(description="Mock AI agent (pi-compatible) for Rick testing")
+    parser.add_argument("--mode", choices=["text", "json", "rpc"], default="text",
+                        help="pi mode (default: text). json emits a JSONL event stream.")
+    parser.add_argument("--output-format", choices=["text", "stream-json"], default=None,
+                        help="Legacy claude flag (stream-json maps to --mode json)")
     parser.add_argument("--verbose", action="store_true", help="Verbose output (ignored)")
     parser.add_argument("--dangerously-skip-permissions", action="store_true",
-                        help="Compatibility flag (ignored)")
-    parser.add_argument("-p", action="store_true", help="Compatibility flag (ignored)")
+                        help="Legacy claude flag (ignored; pi has no permission popups)")
+    parser.add_argument("-p", "--print", action="store_true", help="pi print mode (ignored by mock)")
+    parser.add_argument("--session", default=None, help="pi session id/path (ignored by mock)")
+    parser.add_argument("--continue", "--resume", dest="resume", action="store_true",
+                        help="pi resume/continue session (ignored by mock)")
+    parser.add_argument("--fork", default=None, help="pi fork session (ignored by mock)")
     parser.add_argument("prompt_file", nargs="?", help="Prompt file path")
     args = parser.parse_args()
+
+    # Legacy --output-format stream-json maps to pi --mode json
+    if args.output_format == "stream-json" and args.mode == "text":
+        args.mode = "json"
 
     if args.prompt_file is None or args.prompt_file == "/dev/null":
         prompt_content = ""

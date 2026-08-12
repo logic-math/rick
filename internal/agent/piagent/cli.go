@@ -1,0 +1,106 @@
+package piagent
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/sunquan/rick/internal/config"
+)
+
+// CLIMode selects how the pi binary is invoked.
+type CLIMode int
+
+const (
+	// ModeInteractive runs `pi [extraArgs] <promptFile>` with stdin/stdout/stderr
+	// inherited from rick (human-facing interactive session).
+	ModeInteractive CLIMode = iota
+	// ModePrint runs `pi -p [extraArgs] <promptFile>` in non-interactive print
+	// mode, forwarding stdout/stderr to the terminal. pi has no permission popups,
+	// so no --dangerously-skip-permissions flag is needed.
+	ModePrint
+)
+
+// FindBinary resolves the pi binary path: cfg.PiPath if set, otherwise "pi" looked
+// up in PATH. cfg may be nil (PATH-only lookup, used by auto-fix sites that have
+// no config context). Returns an error if pi is neither configured nor on PATH.
+func FindBinary(cfg *config.Config) (string, error) {
+	if cfg != nil && cfg.PiPath != "" {
+		return cfg.PiPath, nil
+	}
+	path, err := exec.LookPath("pi")
+	if err != nil {
+		return "", fmt.Errorf("pi binary not found in PATH (set pi_path in config or install pi): %w", err)
+	}
+	return path, nil
+}
+
+// piPathOrDefault returns cfg.PiPath or "pi" without a PATH check. Used by
+// CallCLI where a missing binary should surface as a natural exec error rather
+// than a pre-flight failure.
+func piPathOrDefault(cfg *config.Config) string {
+	if cfg != nil && cfg.PiPath != "" {
+		return cfg.PiPath
+	}
+	return "pi"
+}
+
+// buildArgs assembles the pi argument list for a given mode. It is split out
+// from CallCLI so flag logic can be unit-tested without shelling out.
+//
+// extraArgs are pi flags passed through verbatim (e.g. "--session", "<id>" or
+// "--continue"). promptFile is appended last and omitted when empty (used by
+// easy.go's resume path, which passes only flags).
+func buildArgs(mode CLIMode, promptFile string, extraArgs ...string) []string {
+	args := make([]string, 0, len(extraArgs)+2)
+	if mode == ModePrint {
+		args = append(args, "-p")
+	}
+	args = append(args, extraArgs...)
+	if promptFile != "" {
+		args = append(args, promptFile)
+	}
+	return args
+}
+
+// CallCLI invokes the pi binary for the direct (non-AgentSession) call sites.
+// Interactive inherits stdio; Print forwards stdout/stderr to the terminal.
+// verbose mirrors the previous callClaudeCodeCLI [INFO] log line.
+//
+// pi flags come from two sources, in this order: cfg.PiExtraArgs (global, e.g.
+// --provider/--model/--api-key) then extraArgs (per-call, e.g. --session <id>).
+// promptFile is always appended last.
+func CallCLI(verbose bool, cfg *config.Config, promptFile string, mode CLIMode, extraArgs ...string) error {
+	piBin := piPathOrDefault(cfg)
+	merged := mergeExtraArgs(cfg, extraArgs)
+	args := buildArgs(mode, promptFile, merged...)
+
+	if verbose {
+		fmt.Printf("[INFO] Executing: %s %s\n", piBin, strings.Join(args, " "))
+	}
+
+	cmd := exec.Command(piBin, args...)
+	if mode == ModeInteractive {
+		cmd.Stdin = os.Stdin
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("pi CLI failed: %w", err)
+	}
+	return nil
+}
+
+// mergeExtraArgs prepends cfg.PiExtraArgs to the caller's extraArgs (global
+// config flags first, then per-call flags). cfg may be nil.
+func mergeExtraArgs(cfg *config.Config, extraArgs []string) []string {
+	if cfg == nil || len(cfg.PiExtraArgs) == 0 {
+		return extraArgs
+	}
+	merged := make([]string, 0, len(cfg.PiExtraArgs)+len(extraArgs))
+	merged = append(merged, cfg.PiExtraArgs...)
+	merged = append(merged, extraArgs...)
+	return merged
+}

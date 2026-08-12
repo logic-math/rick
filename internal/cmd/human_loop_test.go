@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 )
 
@@ -13,7 +14,7 @@ import (
 func TestHumanLoopCreatesDraftDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(tmpDir, "mock_claude")
+	mockPath := filepath.Join(tmpDir, "mock_pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +38,7 @@ func TestHumanLoopCreatesDraftDirs(t *testing.T) {
 	if err := os.MkdirAll(rickDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	cfgContent := `{"claude_code_path": "` + mockPath + `", "max_retries": 1}`
+	cfgContent := `{"pi_path": "` + mockPath + `", "max_retries": 1}`
 	if err := os.WriteFile(filepath.Join(rickDir, "config.json"), []byte(cfgContent), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +154,7 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 	// Create a mock claude script
 	tmpDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(tmpDir, "mock_claude")
+	mockPath := filepath.Join(tmpDir, "mock_pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -173,15 +174,15 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write config pointing to mock claude
-	cfgContent := `{"claude_code_path": "` + mockPath + `"}`
+	// Write config pointing to mock pi
+	cfgContent := `{"pi_path": "` + mockPath + `"}`
 	cfgDir := filepath.Join(workDir, ".rick")
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Override config load by patching env or using direct call
-	cfg := &config.Config{ClaudeCodePath: mockPath}
+	cfg := &config.Config{PiPath: mockPath}
 
 	// Create prompt manager and generate prompt file manually to test the flow
 	rfcDir := filepath.Join(workDir, ".rick", "draft", "rfc")
@@ -194,13 +195,13 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 		t.Error("rfc directory was not created under draft")
 	}
 
-	// Test callClaudeCodeCLI with mock
+	// Test piagent.CallCLI with mock (interactive mode)
 	promptFile := filepath.Join(tmpDir, "prompt.md")
 	if err := os.WriteFile(promptFile, []byte("# Test human-loop prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := callClaudeCodeCLI(cfg, promptFile); err != nil {
-		t.Errorf("callClaudeCodeCLI with mock failed: %v", err)
+	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModeInteractive); err != nil {
+		t.Errorf("piagent.CallCLI with mock failed: %v", err)
 	}
 }
