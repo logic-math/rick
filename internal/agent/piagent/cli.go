@@ -22,26 +22,35 @@ const (
 	ModePrint
 )
 
-// FindBinary resolves the pi binary path: cfg.PiPath if set, otherwise "pi" looked
-// up in PATH. cfg may be nil (PATH-only lookup, used by auto-fix sites that have
-// no config context). Returns an error if pi is neither configured nor on PATH.
+// FindBinary resolves the pi binary path: cfg.PiPath if set, otherwise rick's
+// self-contained runtime (~/.rick/pi/agent/runtime) if installed, otherwise
+// "pi" looked up in PATH. cfg may be nil (PATH-only lookup, used by auto-fix
+// sites that have no config context). Returns an error if pi is neither
+// configured, installed in the managed runtime, nor on PATH.
 func FindBinary(cfg *config.Config) (string, error) {
 	if cfg != nil && cfg.PiPath != "" {
 		return cfg.PiPath, nil
 	}
+	if bin := RuntimeBin(); FileExists(bin) {
+		return bin, nil
+	}
 	path, err := exec.LookPath("pi")
 	if err != nil {
-		return "", fmt.Errorf("pi binary not found in PATH (set pi_path in config or install pi): %w", err)
+		return "", fmt.Errorf("pi binary not found (set pi_path in config, run rick tools init-pi, or install pi): %w", err)
 	}
 	return path, nil
 }
 
-// piPathOrDefault returns cfg.PiPath or "pi" without a PATH check. Used by
-// CallCLI where a missing binary should surface as a natural exec error rather
-// than a pre-flight failure.
+// piPathOrDefault returns cfg.PiPath, else rick's managed runtime pi if
+// installed, else "pi" without a PATH check. Used by CallCLI where a missing
+// binary should surface as a natural exec error rather than a pre-flight
+// failure.
 func piPathOrDefault(cfg *config.Config) string {
 	if cfg != nil && cfg.PiPath != "" {
 		return cfg.PiPath
+	}
+	if bin := RuntimeBin(); FileExists(bin) {
+		return bin
 	}
 	return "pi"
 }

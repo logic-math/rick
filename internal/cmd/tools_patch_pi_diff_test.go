@@ -68,6 +68,9 @@ func TestPiPackageRoot(t *testing.T) {
 }
 
 func TestRunPatchPIDiffPatches(t *testing.T) {
+	// Isolate the managed runtime dir so FindBinary resolves the fake pi on
+	// PATH, never the real managed runtime.
+	t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())
 	binDir, pkgRoot := buildFakePiTree(t, unpatchedDiffSrc)
 	t.Setenv("PATH", binDir)
 
@@ -79,11 +82,12 @@ func TestRunPatchPIDiffPatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(got), patchPIDiffOld) {
+	text := string(got)
+	if strings.Contains(text, "theme.inverse(") {
 		t.Error("diff.js still contains theme.inverse( after patch")
 	}
-	if !strings.Contains(string(got), patchPIDiffNew) {
-		t.Error("diff.js missing theme.underline( after patch")
+	if !strings.Contains(text, "removedLine += theme.bold(value);") || !strings.Contains(text, "addedLine += theme.bold(value);") {
+		t.Errorf("diff.js should render changed words bold, got:\n%s", text)
 	}
 	if !strings.Contains(buf.String(), "patched pi diff highlight") {
 		t.Errorf("unexpected output: %q", buf.String())
@@ -91,6 +95,7 @@ func TestRunPatchPIDiffPatches(t *testing.T) {
 }
 
 func TestRunPatchPIDiffIdempotent(t *testing.T) {
+	t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())
 	binDir, pkgRoot := buildFakePiTree(t, unpatchedDiffSrc)
 	t.Setenv("PATH", binDir)
 
@@ -106,8 +111,8 @@ func TestRunPatchPIDiffIdempotent(t *testing.T) {
 	if err := runPatchPIDiff(&buf); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
-	if !strings.Contains(buf.String(), "already patched") {
-		t.Errorf("second run should report already patched, got: %q", buf.String())
+	if !strings.Contains(buf.String(), "nothing to patch") {
+		t.Errorf("second run should report nothing to patch, got: %q", buf.String())
 	}
 	afterSecond, err := os.ReadFile(filepath.Join(pkgRoot, diffComponentRel))
 	if err != nil {
@@ -119,21 +124,10 @@ func TestRunPatchPIDiffIdempotent(t *testing.T) {
 }
 
 func TestRunPatchPIDiffAlreadyPatched(t *testing.T) {
-	binDir, _ := buildFakePiTree(t, strings.ReplaceAll(unpatchedDiffSrc, patchPIDiffOld, patchPIDiffNew))
-	t.Setenv("PATH", binDir)
-
-	var buf bytes.Buffer
-	if err := runPatchPIDiff(&buf); err != nil {
-		t.Fatalf("runPatchPIDiff: %v", err)
-	}
-	if !strings.Contains(buf.String(), "already patched") {
-		t.Errorf("expected already-patched report, got: %q", buf.String())
-	}
-}
-
-func TestRunPatchPIDiffNoInverseCalls(t *testing.T) {
-	// pi layout changed upstream: diff.js exists but has no theme.inverse(.
-	binDir, _ := buildFakePiTree(t, "export function renderDiff(t) { return t; }\n")
+	// A diff.js with no theme.inverse( at all (already patched or pi changed
+	// upstream) is a no-op, not an error.
+	t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())
+	binDir, pkgRoot := buildFakePiTree(t, "export function renderDiff(t) { return t; }\n")
 	t.Setenv("PATH", binDir)
 
 	var buf bytes.Buffer
@@ -141,12 +135,20 @@ func TestRunPatchPIDiffNoInverseCalls(t *testing.T) {
 		t.Fatalf("runPatchPIDiff: %v", err)
 	}
 	if !strings.Contains(buf.String(), "nothing to patch") {
-		t.Errorf("expected nothing-to-patch warning, got: %q", buf.String())
+		t.Errorf("expected nothing-to-patch report, got: %q", buf.String())
+	}
+	got, err := os.ReadFile(filepath.Join(pkgRoot, diffComponentRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "renderDiff(t)") {
+		t.Error("no-op run must not modify diff.js")
 	}
 }
 
 func TestRunPatchPIDiffPiMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no pi on PATH
+	t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())
 	var buf bytes.Buffer
 	if err := runPatchPIDiff(&buf); err == nil {
 		t.Error("expected error when pi is not on PATH")

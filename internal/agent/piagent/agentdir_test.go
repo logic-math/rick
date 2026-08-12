@@ -73,3 +73,31 @@ func containsEnvPrefix(env []string, prefix string) bool {
 	}
 	return false
 }
+
+func TestRuntimeDirUnderAgentDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(rickAgentDirEnv, dir)
+	if got := RuntimeDir(); got != filepath.Join(dir, "runtime") {
+		t.Errorf("RuntimeDir = %q, want %q", got, filepath.Join(dir, "runtime"))
+	}
+	if got := RuntimeBin(); got != filepath.Join(dir, "runtime", "node_modules", ".bin", "pi") {
+		t.Errorf("RuntimeBin = %q, want %q", got, filepath.Join(dir, "runtime", "node_modules", ".bin", "pi"))
+	}
+}
+
+func TestFileExists(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "x")
+	if FileExists(f) {
+		t.Error("FileExists(nonexistent) = true, want false")
+	}
+	if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if !FileExists(f) {
+		t.Error("FileExists(file) = false, want true")
+	}
+	if FileExists(dir) {
+		t.Error("FileExists(dir) = true, want false")
+	}
+}

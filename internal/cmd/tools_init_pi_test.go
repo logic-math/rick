@@ -12,6 +12,10 @@ import (
 // prints a canned list, covering both the found and not-found cases. This
 // helper backs ensureNpmExtension's idempotency check.
 func TestPiListContains(t *testing.T) {
+	// Isolate HOME so rick's managed pi runtime (agent/runtime) resolves under
+	// a temp dir and piCommand falls back to the fake pi on PATH instead of the
+	// real managed runtime.
+	t.Setenv("HOME", t.TempDir())
 	tmp := t.TempDir()
 	// fake pi: prints argv[1] routing — "list" prints canned packages.
 	piScript := `#!/bin/sh
@@ -40,6 +44,9 @@ esac
 // registered. Test it with a fake pi covering both all-present and
 // missing-one cases (no real pi / LLM needed).
 func TestVerifyExtensions(t *testing.T) {
+	// Isolate HOME so piCommand prefers the PATH fake pi, never the real
+	// managed runtime (which would read the real ~/.rick/pi/agent config).
+	t.Setenv("HOME", t.TempDir())
 	tmp := t.TempDir()
 
 	t.Run("all_present", func(t *testing.T) {

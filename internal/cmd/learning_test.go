@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,6 +204,20 @@ func TestExecuteLearningWorkflow_WithMockClaude(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	_ = os.Setenv("PATH", mockDir+":"+origPath)
 	defer os.Setenv("PATH", origPath)
+
+	// Isolate HOME and point pi_path at the mock binary so the workflow calls
+	// the mock directly — never the real managed runtime or PATH pi (learning
+	// drives piagent.CallCLI, not the legacy claude CLI).
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfgContent := fmt.Sprintf(`{"pi_path": "%s"}`, mockPath)
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	err = executeLearningWorkflow("job_test")
 	t.Logf("executeLearningWorkflow returned: %v", err)

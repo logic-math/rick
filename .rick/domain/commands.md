@@ -130,9 +130,10 @@ type ContentBlock struct {
 
 ## rick tools patch-pi-diff（job_34 起）
 
-- **背景**：pi 0.84.x 的单行编辑 diff 用 ANSI 反显（`theme.inverse` = chalk.inverse，`\x1b[7m`）标记变更词——反显交换前后景色，把关键词**背景**染成行色（删除行红、新增行绿），在行级红/绿之上叠出红/绿背景块（用户反馈不符合预期）
-- **方案**：改写 pi 的 `dist/modes/interactive/components/diff.js` 中 `theme.inverse(` → `theme.underline(`（2 处，renderIntraLineDiff 的 removedLine/addedLine）——行级红绿对比保留，关键字改为下划线强调，无背景块
-- 定位 pi 安装：`FindBinary` → `EvalSymlinks` → 向上找含 `dist/modes/interactive/components/diff.js` 的包根（适配 ~/.local/bin/pi → .../pi-coding-agent/dist/cli.js 符号链接布局）
-- **幂等**：已 patch（含 theme.underline 且无 theme.inverse）则跳过；pi 布局变更（无 theme.inverse）则 warn 不报错；pi 缺失才报错
-- init-pi 第 6 步非致命调用（pi 升级后自动补回）
-- 验证：`./bin/rick tools patch-pi-diff`；或 node 跑 renderDiff 检查输出不再含 `\x1b[7m`、含 `\x1b[4m`
+- **背景**：pi 0.84.x 的单行编辑 diff 用 ANSI 反显（`theme.inverse` = chalk.inverse，`\x1b[7m`）标记变更词——反显交换前后景色，把关键词**背景**染成行色（删除行红、新增行绿），在行级红/绿之上叠出红/绿背景块（用户反馈不符合预期）；下划线方案也不被接受 → 最终用**加粗**（`theme.bold`，`\x1b[1m`）
+- **方案**：改写 rick 自闭环运行时 `~/.rick/pi/agent/runtime/node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/diff.js` 中 `theme.inverse(` → `theme.bold(`（regexp 匹配任意单参，2 处，renderIntraLineDiff 的 removedLine/addedLine）——行级红绿对比保留，关键字加粗提示、无背景块
+- **运行时自闭环（job_34 二次追问）**：rick 不再用全局 pi，`init-pi` 用 `npm install --prefix ~/.rick/pi/agent/runtime @earendil-works/pi-coding-agent@<全局版本>` 装独立副本；`FindBinary`/`piPathOrDefault`/`piCommand`/Executor 默认全部优先托管运行时（`piagent.RuntimeBin()`，cfg.PiPath 仍最高优先）；patch 只作用于托管副本，**全局/独立 pi 完全不受影响**（升级 pi 也不会丢）
+- 定位 pi 安装：`FindBinary` → `EvalSymlinks` → 向上找含 `dist/modes/interactive/components/diff.js` 的包根
+- **幂等**：无 `theme.inverse(` 则 no-op（已 patch 或上游变更），不报错；pi 缺失才报错
+- init-pi 第 6 步非致命调用（运行时升级后自动补回）
+- 验证：`./bin/rick tools patch-pi-diff`；或从托管包目录跑 node renderDiff 检查输出含 `\x1b[1m` 且不含 `\x1b[7m`；全局 diff.js 应保持 `theme.inverse`

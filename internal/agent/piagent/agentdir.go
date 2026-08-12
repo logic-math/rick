@@ -34,6 +34,27 @@ func SettingsPath() string {
 	return filepath.Join(AgentDir(), "settings.json")
 }
 
+// RuntimeDir returns the npm prefix of rick's self-contained pi runtime
+// (agent/runtime). rick installs its own copy of the @earendil-works/
+// pi-coding-agent package here so it can patch pi's UI behavior (e.g. the diff
+// keyword highlight) without touching the user's global/standalone pi install.
+// Keeping it under AgentDir gives tests the same RICK_PI_AGENT_DIR isolation.
+func RuntimeDir() string {
+	return filepath.Join(AgentDir(), "runtime")
+}
+
+// RuntimeBin returns the pi binary shim of the managed runtime
+// (agent/runtime/node_modules/.bin/pi). Empty/invalid until installed.
+func RuntimeBin() string {
+	return filepath.Join(RuntimeDir(), "node_modules", ".bin", "pi")
+}
+
+// FileExists reports whether path exists and is not a directory.
+func FileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 // EnsureAgentDir creates the rick-managed pi agent directory (and parents).
 func EnsureAgentDir() error {
 	return os.MkdirAll(AgentDir(), 0755)

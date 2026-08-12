@@ -13,9 +13,6 @@ import (
 	"github.com/sunquan/rick/internal/agent/piagent"
 )
 
-// piInstallerURL is the official pi installation script.
-const piInstallerURL = "https://pi.dev/install.sh"
-
 // tokyoNightPkg is the npm spec of the Tokyo Night theme+extension package.
 // rick deliberately does NOT install it: the package bundles a Powerline
 // status-bar extension with hard-coded Tokyo Night RGB colors that do not
@@ -69,29 +66,30 @@ Exit codes:
 // unavailable and rick therefore cannot run. Missing extensions/theme are
 // warned about, not fatal.
 func runInitPi() error {
-	// Step 0: prerequisite — only when pi is NOT yet installed. pi is a Node.js
-	// program (>= 22.19.0) and its installer needs npm, so node/npm must be on
-	// PATH before rick can install pi. rick does NOT install node — it is a
-	// user-managed environment dependency (keeps rick's guidance simple and
-	// respects the user's environment). When pi already exists, the user's
-	// environment is assumed ready and this check is skipped.
-	if _, err := exec.LookPath("pi"); err != nil {
+	// Step 0: prerequisite — only when rick's managed pi runtime is NOT yet
+	// installed. pi is a Node.js program (>= 22.19.0) and its npm install needs
+	// node/npm on PATH, so they must be present before rick can install pi.
+	// rick does NOT install node — it is a user-managed environment dependency
+	// (keeps rick's guidance simple and respects the user's environment). When
+	// the managed runtime already exists, the environment is assumed ready and
+	// this check is skipped.
+	if !piagent.FileExists(piagent.RuntimeBin()) {
 		if err := requireNodeForPiInstall(); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 			return err
 		}
 	}
 
-	// Step 1: pi binary present (install if missing).
+	// Step 1: rick's self-contained pi runtime present (install if missing).
 	piPath, piNewlyInstalled, err := ensurePI()
 	if err != nil {
 		// Fatal: without pi, rick cannot execute any agent command.
 		fmt.Fprintf(os.Stderr, "❌ pi is not available and could not be installed: %v\n", err)
-		fmt.Fprintf(os.Stderr, "   Install pi manually: curl -fsSL %s | sh\n", piInstallerURL)
+		fmt.Fprintf(os.Stderr, "   Install manually: npm install -g @earendil-works/pi-coding-agent\n")
 		return err
 	}
 	ver := piVersion(piPath)
-	fmt.Printf("✅ pi found: %s", piPath)
+	fmt.Printf("✅ rick pi runtime ready: %s", piPath)
 	if ver != "" {
 		fmt.Printf(" (v%s)", ver)
 	}
@@ -423,7 +421,14 @@ func setTheme(theme string) error {
 // `pi --version` invocation must use it so installs and checks always act on
 // rick's own configuration, never the user's ~/.pi.
 func piCommand(args ...string) *exec.Cmd {
-	cmd := exec.Command("pi", args...)
+	// Prefer rick's self-contained runtime pi; fall back to PATH (e.g. before
+	// the runtime is installed). All pi subprocesses get AgentEnv so config
+	// stays isolated under ~/.rick/pi/agent.
+	bin := "pi"
+	if rb := piagent.RuntimeBin(); piagent.FileExists(rb) {
+		bin = rb
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Env = piagent.AgentEnv()
 	return cmd
 }
@@ -445,22 +450,68 @@ func legacyPiSettingsPath() string {
 	return filepath.Join(home, ".pi", "agent", "settings.json")
 }
 
-// ensurePI returns the path to the pi binary, installing it via the official
-// installer if it is not on PATH. The second return is true iff pi was installed
-// this call (vs already present). Returns an error only if pi is still missing.
+// ensurePI returns the path to rick's self-contained pi runtime binary,
+// installing it via npm into ~/.rick/pi/agent/runtime if missing. When an
+// existing global pi is on PATH, its version is matched so behavior stays
+// identical (the global install itself is never modified). The second return is
+// true iff pi was installed this call. Returns an error only if pi is still
+// missing.
 func ensurePI() (string, bool, error) {
+	if bin := piagent.RuntimeBin(); piagent.FileExists(bin) {
+		return bin, false, nil
+	}
+	// Prefer matching the version of an existing global pi (preserves known
+	// behavior); otherwise install the latest.
+	version := ""
 	if p, err := exec.LookPath("pi"); err == nil {
-		return p, false, nil
+		version = piVersion(p)
 	}
-	fmt.Println("⚠️  pi not found on PATH — installing via official installer...")
-	if err := installPI(); err != nil {
-		return "", false, fmt.Errorf("install pi: %w", err)
+	fmt.Printf("⚠️  rick's managed pi runtime missing — installing self-contained pi under %s", piagent.RuntimeDir())
+	if version != "" {
+		fmt.Printf(" (matching global v%s)", version)
 	}
-	p, err := exec.LookPath("pi")
-	if err != nil {
-		return "", false, fmt.Errorf("pi still not on PATH after install")
+	fmt.Println(" ...")
+	if err := installManagedPI(version); err != nil {
+		return "", false, fmt.Errorf("install managed pi: %w", err)
 	}
-	return p, true, nil
+	bin := piagent.RuntimeBin()
+	if !piagent.FileExists(bin) {
+		return "", false, fmt.Errorf("managed pi still missing after install: %s", bin)
+	}
+	return bin, true, nil
+}
+
+// installManagedPI installs the pi package into rick's self-contained runtime
+// dir (~/.rick/pi/agent/runtime) via `npm install --prefix`, so rick's pi is
+// fully isolated from the user's global/standalone pi. version may be "" for
+// latest; a failed pinned install falls back to latest (registry may have
+// dropped the exact version).
+func installManagedPI(version string) error {
+	prefix := piagent.RuntimeDir()
+	if err := os.MkdirAll(prefix, 0755); err != nil {
+		return fmt.Errorf("create runtime dir: %w", err)
+	}
+	spec := "@earendil-works/pi-coding-agent"
+	if version != "" {
+		spec += "@" + version
+	}
+	cmd := exec.Command("npm", "install", "--prefix", prefix, "--no-fund", "--no-audit", spec)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if version != "" {
+			fmt.Println("⚠️  pinned install failed — retrying with latest version...")
+			cmd = exec.Command("npm", "install", "--prefix", prefix, "--no-fund", "--no-audit", "@earendil-works/pi-coding-agent")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err2 := cmd.Run(); err2 != nil {
+				return fmt.Errorf("npm install @earendil-works/pi-coding-agent (pinned: %v): %w", err, err2)
+			}
+			return nil
+		}
+		return fmt.Errorf("npm install %s: %w", spec, err)
+	}
+	return nil
 }
 
 // requireNodeForPiInstall checks that node and npm are on PATH before rick
@@ -480,18 +531,6 @@ func requireNodeForPiInstall() error {
    Install Node.js LTS from https://nodejs.org/ (this includes npm), then re-run:
 
      rick tools init-pi`)
-}
-
-// installPI runs the official pi installer (curl | sh).
-func installPI() error {
-	cmdStr := fmt.Sprintf("curl -fsSL %s | sh", piInstallerURL)
-	cmd := exec.Command("sh", "-c", cmdStr)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("installer failed: %w", err)
-	}
-	return nil
 }
 
 // piVersion returns pi's version string (e.g. "0.84.1"), or "" if it cannot be

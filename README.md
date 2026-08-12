@@ -358,17 +358,17 @@ rick tools init-pi
 
 **做了什么**：
 1. **前置检查**：若 pi 尚未安装，检查 node（≥22.19.0）+ npm 是否在 PATH。缺失则**终止**并提示用户自行安装 node（rick 不替用户装 node——它是用户管理的环境依赖）；pi 已装则跳过此检查，假定环境就绪
-2. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
+2. 检查 rick 的自闭环 pi 运行时（`~/.rick/pi/agent/runtime`）是否存在；缺失则 `npm install --prefix` 安装 **rick 自己的 pi 副本**（若全局有 pi 则匹配其版本，全局副本本身不被修改）——rick 的 pi 与用户的全局/独立 pi 完全隔离，可独立升级、独立 patch
 3. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
 4. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
 5. **剔除 Tokyo Night 包**（`@wishx127/pi-tokyo-night`）：从其托管配置（packages + theme）中清除一切残留。该包捆绑的 Powerline 状态栏扩展硬编码 Tokyo Night 配色、不跟随当前主题（切到其他主题会出现"两个主题共存"）且会污染 rick 的 agent 上下文，rick 不再安装它。主题管理完全交给 `rick tools theme`（见上）
-6. **Patch pi 的 diff 关键字高亮**（`rick tools patch-pi-diff`）：pi 的单行编辑 diff 用 ANSI 反显（`theme.inverse`）标关键词，导致关键字背景被染成红/绿块；改为下划线（`theme.underline`）——行级红绿对比保留、关键字背景不再变色。幂等，pi 升级后随 init-pi 自动补回
+6. **Patch rick 自己 pi 运行时的 diff 关键字高亮**（`rick tools patch-pi-diff`）：pi 的单行编辑 diff 用 ANSI 反显（`theme.inverse`）标关键词，导致关键字背景被染成红/绿块；改为**加粗**（`theme.bold`）——行级红绿对比保留、关键字有可见提示但背景不变色。只作用于 rick 自闭环运行时，全局 pi 不受影响。幂等，运行时升级后随 init-pi 自动补回
 7. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
 8. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 
 ### rick tools patch-pi-diff
 
-**职责**：patch pi 的编辑 diff 关键字高亮——把 pi 内置的反显（reverse video）改成下划线。pi 的单行编辑 diff 用 ANSI 反显（`theme.inverse`）标记变更词，反显会把词的**背景**染成行色（删除行红、新增行绿），在行级红/绿对比之上叠出红/绿背景块。本命令把 pi 的 `dist/modes/interactive/components/diff.js` 中 `theme.inverse(` 改写为 `theme.underline(`——行级红绿对比保留，关键字不再有彩色背景。幂等：已 patch 的安装自动跳过，pi 升级后可安全重跑；`rick tools init-pi` 也会非致命地自动应用。
+**职责**：patch rick 自闭环 pi 运行时的编辑 diff 关键字高亮——把 pi 内置的反显（reverse video）改成**加粗**。pi 的单行编辑 diff 用 ANSI 反显（`theme.inverse`）标记变更词，反显会把词的**背景**染成行色（删除行红、新增行绿），在行级红/绿对比之上叠出红/绿背景块。本命令把 `~/.rick/pi/agent/runtime` 下 rick 自己 pi 的 `dist/modes/interactive/components/diff.js` 中 `theme.inverse(` 改写为 `theme.bold(`——行级红绿对比保留，关键字加粗提示、背景不变色。**只改 rick 的运行时副本，全局/独立 pi 完全不受影响**。幂等：已 patch 的安装自动跳过，运行时升级后可安全重跑；`rick tools init-pi` 也会非致命地自动应用。
 
 **用法**：
 ```bash

@@ -59,7 +59,11 @@ func (e *Executor) Execute(promptFile, taskID, workspaceDir, logFileName string)
 
 	piBin := e.piPath
 	if piBin == "" {
-		piBin = "pi"
+		if bin := RuntimeBin(); FileExists(bin) {
+			piBin = bin
+		} else {
+			piBin = "pi"
+		}
 	}
 
 	// pi json mode: JSONL event stream over stdout (session header + events + agent_settled).

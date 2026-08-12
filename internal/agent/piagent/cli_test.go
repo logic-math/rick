@@ -1,6 +1,8 @@
 package piagent
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sunquan/rick/internal/config"
@@ -50,14 +52,45 @@ func TestFindBinary_ConfiguredPath(t *testing.T) {
 }
 
 func TestFindBinary_FallsBackToPathLookup(t *testing.T) {
-	// With an empty PiPath, FindBinary falls back to PATH lookup. Point PATH at a
-	// directory that does not contain pi to prove the pre-flight error fires
-	// (environment-independent: works whether or not pi is actually installed).
+	// With an empty PiPath and no managed runtime, FindBinary falls back to
+	// PATH lookup. Isolate the managed runtime dir (RICK_PI_AGENT_DIR) so it is
+	// empty, then point PATH at a directory that does not contain pi to prove
+	// the pre-flight error fires (environment-independent).
+	t.Setenv(rickAgentDirEnv, t.TempDir())
 	t.Setenv("PATH", "/nonexistent-empty-path")
 	cfg := &config.Config{PiPath: ""}
 	_, err := FindBinary(cfg)
 	if err == nil {
-		t.Error("expected error when pi is neither configured nor on PATH")
+		t.Error("expected error when pi is neither configured, in the managed runtime, nor on PATH")
+	}
+}
+
+func TestFindBinary_PrefersManagedRuntime(t *testing.T) {
+	// When rick's self-contained runtime is installed, FindBinary returns it
+	// even though PATH has another pi.
+	agentDir := t.TempDir()
+	runtimeBin := filepath.Join(agentDir, "runtime", "node_modules", ".bin", "pi")
+	if err := os.MkdirAll(filepath.Dir(runtimeBin), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtimeBin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(rickAgentDirEnv, agentDir)
+	t.Setenv("PATH", "/nonexistent-empty-path")
+
+	got, err := FindBinary(&config.Config{PiPath: ""})
+	if err != nil {
+		t.Fatalf("FindBinary: %v", err)
+	}
+	if got != runtimeBin {
+		t.Errorf("FindBinary = %q, want managed runtime %q", got, runtimeBin)
+	}
+
+	// cfg.PiPath still wins over the managed runtime.
+	cfg := &config.Config{PiPath: "/custom/bin/pi"}
+	if got, err := FindBinary(cfg); err != nil || got != "/custom/bin/pi" {
+		t.Errorf("configured path must win: got %q err %v", got, err)
 	}
 }
 
@@ -65,6 +98,10 @@ func TestPiPathOrDefault(t *testing.T) {
 	if got := piPathOrDefault(&config.Config{PiPath: "/x/pi"}); got != "/x/pi" {
 		t.Errorf("configured: want /x/pi, got %q", got)
 	}
+
+	// Without a managed runtime, falls back to "pi" on PATH. Isolate the
+	// managed runtime dir so the test is environment-independent.
+	t.Setenv(rickAgentDirEnv, t.TempDir())
 	if got := piPathOrDefault(&config.Config{PiPath: ""}); got != "pi" {
 		t.Errorf("empty: want pi, got %q", got)
 	}

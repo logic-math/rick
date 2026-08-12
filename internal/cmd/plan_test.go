@@ -164,11 +164,21 @@ func TestExecutePlanWorkflow_WithMockPi(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Isolate HOME so LoadConfig reads this test's config (never the real
+	// ~/.rick/config.json), and point pi_path at the mock pi so the workflow
+	// resolves the mock directly — not the real managed runtime or PATH pi.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
 	// Write a config with mock pi path
 	cfgContent := fmt.Sprintf(`{"pi_path": "%s"}`, mockPath)
-	cfgDir := filepath.Join(os.TempDir(), ".rick")
-	_ = os.MkdirAll(cfgDir, 0755)
-	_ = os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644)
+	cfgDir := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	origPath := os.Getenv("PATH")
 	_ = os.Setenv("PATH", mockDir+":"+origPath)
