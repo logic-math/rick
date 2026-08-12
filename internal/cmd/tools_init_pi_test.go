@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,5 +89,82 @@ func writeFakePi(t *testing.T, dir, script string) {
 	piPath := filepath.Join(dir, "pi")
 	if err := os.WriteFile(piPath, []byte(script), 0755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// setupPiSettings writes a ~/.pi/agent/settings.json with the given theme (or
+// no theme if ""), pointing HOME at a temp dir, and returns that HOME.
+func setupPiSettings(t *testing.T, theme string) string {
+	t.Helper()
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	s := map[string]any{"theme": theme, "packages": []string{"npm:pi-subagents"}}
+	if theme == "" {
+		delete(s, "theme")
+	}
+	data, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	return home
+}
+
+func TestCurrentTheme_ReadsField(t *testing.T) {
+	setupPiSettings(t, "tokyo-night-dark")
+	if got := currentTheme(); got != "tokyo-night-dark" {
+		t.Errorf("currentTheme: want tokyo-night-dark, got %q", got)
+	}
+}
+
+func TestCurrentTheme_EmptyWhenUnset(t *testing.T) {
+	setupPiSettings(t, "")
+	if got := currentTheme(); got != "" {
+		t.Errorf("currentTheme: want empty, got %q", got)
+	}
+}
+
+func TestSetTheme_PreservesOtherFields(t *testing.T) {
+	setupPiSettings(t, "dark")
+	if err := setTheme("tokyo-night-dark"); err != nil {
+		t.Fatalf("setTheme: %v", err)
+	}
+	if got := currentTheme(); got != "tokyo-night-dark" {
+		t.Errorf("after setTheme: want tokyo-night-dark, got %q", got)
+	}
+	// packages field must survive the rewrite.
+	data, err := os.ReadFile(piSettingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	pkgs, ok := s["packages"].([]any)
+	if !ok || len(pkgs) != 1 || pkgs[0] != "npm:pi-subagents" {
+		t.Errorf("packages field not preserved: %v", s["packages"])
+	}
+}
+
+func TestEnsureTheme_NoopWhenAlreadyActive(t *testing.T) {
+	// theme already tokyo-night-dark + package present in fake pi list.
+	setupPiSettings(t, tokyoNightTheme)
+	tmp := t.TempDir()
+	piScript := `#!/bin/sh
+case "$1" in
+  list) echo "pi-tokyo-night";;
+esac
+`
+	writeFakePi(t, tmp, piScript)
+	t.Setenv("PATH", tmp)
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+		t.Fatalf("ensureTheme (already active): %v", err)
+	}
+	if currentTheme() != tokyoNightTheme {
+		t.Error("theme should remain unchanged")
 	}
 }

@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,24 +14,33 @@ import (
 // piInstallerURL is the official pi installation script.
 const piInstallerURL = "https://pi.dev/install.sh"
 
+// tokyoNightPkg is the npm spec for the Tokyo Night theme package rick installs
+// for a nicer pi TUI (Tokyo Night color scheme + Powerline status bar).
+const tokyoNightPkg = "@wishx127/pi-tokyo-night"
+
+// tokyoNightTheme is the theme name written to settings.json's "theme" field.
+const tokyoNightTheme = "tokyo-night-dark"
+
 // NewInitPiCmd creates the init-pi subcommand: ensures pi (rick's agent
-// runtime) is installed and the subagent + web-access extensions are registered.
-// Idempotent — each step checks before acting and skips what is already done.
+// runtime) is installed, the subagent + web-access extensions are registered,
+// and the Tokyo Night theme is activated. Idempotent — each step checks before
+// acting and skips what is already done.
 func NewInitPiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-pi",
-		Short: "Initialize pi (rick's agent runtime) + subagent extension",
-		Long: `Ensure pi is installed and the subagent + web-access extensions are registered.
+		Short: "Initialize pi (rick's agent runtime) + extensions + theme",
+		Long: `Ensure pi is installed, required extensions are registered, and the
+Tokyo Night theme is activated.
 
 rick drives pi (@earendil-works/pi-coding-agent) as its agent runtime. This
 command guarantees the runtime is ready: it installs pi if missing (via the
-official installer), then registers pi's subagent extension (enables rick's
-Sub Agent per-iteration delegation) and the pi-web-access extension (enables
-external web search/fetch).
+official installer), registers pi-subagents (Sub Agent delegation), registers
+pi-web-access (external web search/fetch), and activates the Tokyo Night theme
+(nicer TUI). A final verification step confirms everything is registered.
 
 Idempotent: every step checks first and skips what is already satisfied.
-Non-fatal: a missing extension does not block rick; pi being entirely missing
-is the only fatal condition.
+Non-fatal: a missing extension/theme does not block rick; pi being entirely
+missing is the only fatal condition.
 
 Exit codes:
   0  pi environment ready (or ready enough to run rick)
@@ -45,9 +56,9 @@ Exit codes:
 	}
 }
 
-// runInitPi runs the two-step initialization and returns an error only when pi
-// is unavailable and rick therefore cannot run. Missing extensions are warned
-// about, not fatal.
+// runInitPi runs the initialization and returns an error only when pi is
+// unavailable and rick therefore cannot run. Missing extensions/theme are
+// warned about, not fatal.
 func runInitPi() error {
 	// Step 1: pi binary present (install if missing).
 	piPath, err := ensurePI()
@@ -84,17 +95,30 @@ func runInitPi() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
-	// Step 4: verify all required extensions are actually registered. This is a
-	// final integrity check via `pi list` — it catches the case where an install
+	// Step 4: Tokyo Night theme installed + activated. Non-fatal (cosmetic).
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  theme: %v\n", err)
+		fmt.Fprintf(os.Stderr, "   rick works without it; pi falls back to its default theme.\n")
+	} else {
+		fmt.Printf("✅ pi theme ready: %s\n", tokyoNightTheme)
+	}
+
+	// Step 5: verify all required extensions + theme are actually registered.
+	// Final integrity check via `pi list` — catches the case where an install
 	// appeared to succeed but the extension is not registered (e.g. the old
 	// `pi install <bare-source-dir>` silently wrote to settings.json without the
-	// loader recognizing it).
+	// loader recognizing it). Also confirms the theme field is set.
 	missing := verifyExtensions()
 	if len(missing) > 0 {
 		fmt.Fprintf(os.Stderr, "⚠️  verification: these extensions are NOT registered: %s\n", strings.Join(missing, ", "))
 		fmt.Fprintf(os.Stderr, "   rick may be degraded. Re-run `rick tools init-pi` or install manually.\n")
 	} else {
 		fmt.Println("✅ verification: all required extensions registered")
+	}
+	if cur := currentTheme(); cur != tokyoNightTheme {
+		fmt.Fprintf(os.Stderr, "⚠️  verification: theme is %q (expected %q)\n", cur, tokyoNightTheme)
+	} else {
+		fmt.Printf("✅ verification: theme %s active\n", tokyoNightTheme)
 	}
 
 	fmt.Println("✅ pi environment ready")
@@ -114,6 +138,82 @@ func verifyExtensions() []string {
 		}
 	}
 	return missing
+}
+
+// ensureTheme installs the theme package (if missing) and activates the theme
+// in settings.json (if not already the active theme). Non-fatal on failure.
+func ensureTheme(pkg, themeName string) error {
+	// Install the theme package if not present.
+	if !piListContains(filepath.Base(pkg)) {
+		fmt.Printf("⚠️  theme package %s not registered — installing\n", pkg)
+		cmd := exec.Command("pi", "install", "npm:"+pkg)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("pi install npm:%s: %w", pkg, err)
+		}
+		if !piListContains(filepath.Base(pkg)) {
+			return fmt.Errorf("%s still not listed after install", pkg)
+		}
+	}
+	// Activate the theme in settings.json if not already active.
+	if cur := currentTheme(); cur == themeName {
+		return nil // already active
+	}
+	if err := setTheme(themeName); err != nil {
+		return fmt.Errorf("activate theme %s: %w", themeName, err)
+	}
+	fmt.Printf("⚠️  theme activated: %s\n", themeName)
+	return nil
+}
+
+// currentTheme reads the "theme" field from ~/.pi/agent/settings.json. Returns
+// "" if unset or unreadable.
+func currentTheme() string {
+	data, err := os.ReadFile(piSettingsPath())
+	if err != nil {
+		return ""
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		return ""
+	}
+	if t, ok := s["theme"].(string); ok {
+		return t
+	}
+	return ""
+}
+
+// setTheme writes the "theme" field in ~/.pi/agent/settings.json, preserving
+// all other fields.
+func setTheme(theme string) error {
+	path := piSettingsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	s["theme"] = theme
+	out, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// piSettingsPath returns ~/.pi/agent/settings.json. Respects $HOME (tests).
+func piSettingsPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".pi", "agent", "settings.json")
 }
 
 // ensurePI returns the path to the pi binary, installing it via the official
