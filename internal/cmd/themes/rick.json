@@ -53,7 +53,7 @@
     "toolTitle": "greenBright",
     "toolOutput": "text",
     "mdHeading": "gold",
-    "mdLink": "greenBright",
+    "mdLink": "linkBlue",
     "mdLinkUrl": "textMuted",
     "mdCode": "greenBright",
     "mdCodeBlock": "text",
