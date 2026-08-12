@@ -56,7 +56,9 @@ Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-work
 - **Rick 托管 pi 的配置以控制模型输入**。pi 的扩展、skill、system prompt 都是模型输入的一部分——这些若由用户随意配置，会污染 agent 的上下文（上下文熵增的又一来源）。Rick 主动安装并固化 pi 的扩展配置（而非让用户各自装），正是为了对"喂给模型的输入"拥有更强的控制力，保证 pi 作为 rick 执行后端的**可控性**与**一致性**。
 - **Node 是用户管理的环境依赖**。pi 是 Node.js 程序，需要 node ≥22.19.0 + npm。Rick 不替用户装 node——它是环境依赖，用户负责（保持 rick 引导的简洁性）。`rick tools init-pi` 只在"需要安装 pi"时检查 node/npm 是否就绪，缺失则终止并提示用户自行安装；pi 已装时则假定环境就绪，不再检查。
 
-**演进方向**：未来 rick 会进一步让 pi **完全被托管**——所有 pi 配置都由 rick 控制，以便 rick 掌控全部模型输入信息。极端情况下，rick 安装时会**先通知用户卸载已有 pi 再重装**，避免用户此前自行装的过多 skill/扩展污染模型输入。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
+**演进方向**：未来 rick 会进一步让 pi **完全被托管**，方式是**配置目录隔离**——rick 在 `~/.rick/pi` 下维护专属于自己的 pi 配置（settings、扩展、主题、API key），启动 pi 时通过环境变量 `PI_CODING_AGENT_DIR` 指向它，与用户自有的 `~/.pi` 完全隔离。用户直接跑 pi 仍用自己的 `~/.pi`；rick 跑 pi 走 `~/.rick/pi`——两套配置互不污染。这样 rick 对"喂给 pi 的全部模型输入"（system prompt、扩展、skill）拥有完全控制力，用户此前自行装的扩展/skill 不会泄漏进 rick 的 agent 上下文。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
+
+> 注：配置目录隔离为规划中的设计，代码尚未实现（当前 rick 与用户共用 `~/.pi`）。下一步将在 rick 调用 pi 的所有入口注入 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`，并让 `rick tools init-pi` 在该目录下安装扩展、写设置。
 
 `rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、可选激活主题，并在最后验证全部生效。
 
