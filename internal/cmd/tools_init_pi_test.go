@@ -366,3 +366,96 @@ func TestBootstrapAgentSettings_NoopWhenAlreadyManaged(t *testing.T) {
 		t.Errorf("managed settings should be untouched, got %v", s)
 	}
 }
+
+// --- filterTokyoNightExtension (status bar vs theme mismatch) ---
+
+func TestFilterTokyoNightExtension_StringToFilteredObject(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	managed := map[string]any{
+		"hideThinkingBlock": true,
+		"packages":          []string{"npm:pi-subagents", "npm:@wishx127/pi-tokyo-night"},
+	}
+	data, _ := json.MarshalIndent(managed, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := filterTokyoNightExtension(); err != nil {
+		t.Fatalf("filterTokyoNightExtension: %v", err)
+	}
+	s := readManagedSettings(t)
+	pkgs := s["packages"].([]any)
+	if len(pkgs) != 2 {
+		t.Fatalf("packages: %v", pkgs)
+	}
+	obj, ok := pkgs[1].(map[string]any)
+	if !ok || obj["source"] != "npm:@wishx127/pi-tokyo-night" {
+		t.Fatalf("tokyo-night should be an object with source, got %v", pkgs[1])
+	}
+	if ex, ok := obj["extensions"].([]any); !ok || len(ex) != 0 {
+		t.Errorf("extensions should be empty (disabled), got %v", obj["extensions"])
+	}
+	// hideThinkingBlock preserved.
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock lost: %v", s)
+	}
+}
+
+func TestFilterTokyoNightExtension_AlreadyFilteredNoop(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	managed := map[string]any{
+		"hideThinkingBlock": true,
+		"packages": []any{
+			map[string]any{"source": "npm:@wishx127/pi-tokyo-night", "extensions": []any{}},
+		},
+	}
+	data, _ := json.MarshalIndent(managed, "", "  ")
+	path := filepath.Join(agentDir, "settings.json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := filterTokyoNightExtension(); err != nil {
+		t.Fatalf("filterTokyoNightExtension: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(data) {
+		t.Errorf("settings should be untouched, got:\n%s", string(after))
+	}
+}
+
+func TestFilterTokyoNightExtension_AbsentNoop(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	managed := map[string]any{
+		"hideThinkingBlock": true,
+		"packages":          []string{"npm:pi-subagents"},
+	}
+	data, _ := json.MarshalIndent(managed, "", "  ")
+	path := filepath.Join(agentDir, "settings.json")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := filterTokyoNightExtension(); err != nil {
+		t.Fatalf("filterTokyoNightExtension: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(after) != string(data) {
+		t.Errorf("settings should be untouched, got:\n%s", string(after))
+	}
+}

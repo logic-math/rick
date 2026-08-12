@@ -23,6 +23,20 @@ const tokyoNightPkg = "@wishx127/pi-tokyo-night"
 // tokyoNightTheme is the theme name written to settings.json's "theme" field.
 const tokyoNightTheme = "tokyo-night-dark"
 
+// tokyoNightPkgFiltered is the managed form of the tokyo-night package entry:
+// the package bundles a theme AND a Powerline status-bar extension that
+// hard-codes Tokyo Night RGB colors (it does not follow the active theme).
+// When rick switches to another theme (e.g. gh-dark-dimmed) the status bar
+// would keep rendering Tokyo Night colors — visually "two themes at once".
+// rick therefore registers the package with extensions disabled (themes stay
+// available), so the status bar falls back to pi's default, which follows the
+// active theme. See applyPackageFilter in pi's package-manager.js: an empty
+// array explicitly disables all resources of that type.
+var tokyoNightPkgFiltered = map[string]any{
+	"source":     "npm:" + tokyoNightPkg,
+	"extensions": []string{},
+}
+
 // NewInitPiCmd creates the init-pi subcommand: ensures pi (rick's agent
 // runtime) is installed, the subagent + web-access extensions are registered,
 // and the Tokyo Night theme is activated. Idempotent — each step checks before
@@ -137,6 +151,14 @@ func runInitPi() error {
 		fmt.Fprintf(os.Stderr, "   rick works without it; pi falls back to its default theme.\n")
 	} else {
 		fmt.Printf("✅ pi theme ready: %s\n", currentTheme())
+	}
+
+	// Step 4.5: keep the tokyo-night package registered with its bundled
+	// status-bar extension disabled (themes only). See tokyoNightPkgFiltered.
+	if err := filterTokyoNightExtension(); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  tokyo-night status bar: %v\n", err)
+	} else {
+		fmt.Println("✅ tokyo-night registered with status-bar extension disabled")
 	}
 
 	// Step 5: verify all required extensions + theme are actually registered.
@@ -292,6 +314,57 @@ func ensureHideThinkingBlock(path string) error {
 		return nil // already managed
 	}
 	s["hideThinkingBlock"] = true
+	out, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// filterTokyoNightExtension rewrites the tokyo-night entry in the managed
+// settings.json from a plain string ("npm:@wishx127/pi-tokyo-night") to the
+// filtered object form {source, extensions: []}, preserving every other field.
+// No-op when the package is already in filtered form or absent. Non-fatal.
+func filterTokyoNightExtension() error {
+	path := piSettingsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	pkgs, ok := s["packages"].([]any)
+	if !ok {
+		return nil // no packages array yet
+	}
+	source := "npm:" + tokyoNightPkg
+	changed := false
+	for i, p := range pkgs {
+		switch v := p.(type) {
+		case string:
+			if v == source {
+				pkgs[i] = tokyoNightPkgFiltered
+				changed = true
+			}
+		case map[string]any:
+			if v["source"] == source {
+				if ex, ok := v["extensions"].([]any); ok && len(ex) == 0 {
+					return nil // already filtered
+				}
+				v["extensions"] = []string{}
+				pkgs[i] = v
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
 	out, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal settings: %w", err)
