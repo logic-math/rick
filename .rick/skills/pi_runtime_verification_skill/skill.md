@@ -60,3 +60,19 @@ git log --oneline -2  # 应见 pi 的 commit
 ### 5. 验证失败时的处理
 
 发现的 bug 多是"flag 语义误判"或"路径错"——修复后必须**重跑该命令验证**，不能只改代码不验。
+
+### 6. 配置目录隔离验证（PI_CODING_AGENT_DIR，job_33 沉淀）
+
+改动涉及 `piagent.AgentEnv()`（所有 pi 子进程注入 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`）时，四项必须验证：
+
+| 项 | 验证方法 | 通过标准 |
+|---|---|---|
+| env 注入 | fake pi 脚本 `echo "$PI_CODING_AGENT_DIR"` 断言 | 值 = 托管 agent dir |
+| 隔离生效 | `PI_CODING_AGENT_DIR=/tmp/x pi list` + `pi install npm:y` | settings.json 写在 /tmp/x 下，且**保留未知字段**（hideThinkingBlock 等不被重写） |
+| 包过滤 | settings.json 用对象形式 `{"source": ..., "extensions": []}` | `pi list` 显示 `(filtered)` 且**不会重写** settings.json |
+| 真实加载 | `PI_CODING_AGENT_DIR=$HOME/.rick/pi/agent pi --mode json <provider/model/key flags> -p '列出可用工具'` | 输出含 subagent/web_search（扩展真的加载） |
+
+**已知边界（pi 内部行为）**：
+- `pi install` 对 user scope 包在 managed 路径缺失时**回退全局 npm root**（`npm root -g`）复用代码——注册隔离、代码共享
+- 隔离后 settings.json 无 provider/model → 直跑 pi 报 "No API key found"，必须带 CLI flags（rick 本就如此）
+- `--session-id` 对不存在 id 打 Warning "No project session found...creating a new session" 是**正常创建语义**，不是错误

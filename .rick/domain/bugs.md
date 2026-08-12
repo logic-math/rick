@@ -71,3 +71,33 @@ case "message_end":
 
 **首次发现**: job_30 / commit a81eda0  **验证状态**: ✅ 已修复
 
+
+### go:embed 主题文件修改后未重建 → 旧 embed 覆盖磁盘新文件
+
+**根因**: rick 内置主题（`internal/cmd/themes/*.json`）通过 go:embed 打进二进制。修改 json 后若只跑 `rick tools theme <name>` 而未先 `go build`，theme 命令用**旧二进制里的旧 embed** 重写磁盘主题文件 —— 表现是"改了没生效"，且再次激活时旧内容继续覆盖新文件。
+
+**精确解决步骤**:
+```bash
+# 修改 themes/*.json 后必须：先重建，再激活
+go build -o bin/rick ./cmd/rick
+./bin/rick tools theme <name>
+# 验证安装副本（非源码）确实是新内容：
+python3 -c "import json; print(json.load(open('$HOME/.rick/pi/agent/themes/rick.json'))['colors']['mdHeading'])"
+```
+
+**首次发现**: job_33 / commit dac5370  **验证状态**: ✅ 已修复
+
+### fake pi 脚本在 PATH 替换测试中静默失败（command not found 被吞）
+
+**根因**: Go 测试用 `t.Setenv("PATH", tmp)` 只留 fake bin 目录后，fake 脚本里 `cat`/`ls` 等**外部命令**找不到（`command not found`），若脚本再 `2>/dev/null` 或测试用 `cmd.Output()`（吞 stderr），错误完全不可见——表现为"某分支静默返回空"。`echo` 是 shell 内建所以该分支正常，造成"部分命令行、部分不行"的迷惑现象。
+
+**精确解决步骤**:
+```bash
+# fake 脚本开头恢复系统 PATH（首选）
+#!/bin/sh
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+# 或只用内建：while IFS= read -r line; do echo "$line"; done < "$FILE"
+# 调试：去掉 2>/dev/null、加 >&2 诊断、sh -x ./fake 独立跑
+```
+
+**首次发现**: job_33 / commit b018a41  **验证状态**: ✅ 已修复
