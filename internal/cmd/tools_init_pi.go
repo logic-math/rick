@@ -60,6 +60,19 @@ Exit codes:
 // unavailable and rick therefore cannot run. Missing extensions/theme are
 // warned about, not fatal.
 func runInitPi() error {
+	// Step 0: prerequisite — only when pi is NOT yet installed. pi is a Node.js
+	// program (>= 22.19.0) and its installer needs npm, so node/npm must be on
+	// PATH before rick can install pi. rick does NOT install node — it is a
+	// user-managed environment dependency (keeps rick's guidance simple and
+	// respects the user's environment). When pi already exists, the user's
+	// environment is assumed ready and this check is skipped.
+	if _, err := exec.LookPath("pi"); err != nil {
+		if err := requireNodeForPiInstall(); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			return err
+		}
+	}
+
 	// Step 1: pi binary present (install if missing).
 	piPath, piNewlyInstalled, err := ensurePI()
 	if err != nil {
@@ -251,6 +264,25 @@ func ensurePI() (string, bool, error) {
 		return "", false, fmt.Errorf("pi still not on PATH after install")
 	}
 	return p, true, nil
+}
+
+// requireNodeForPiInstall checks that node and npm are on PATH before rick
+// installs pi. pi is a Node.js program (>= 22.19.0) and its installer shells
+// out to npm. rick treats node as a user-managed environment dependency — it
+// does NOT install node (keeps rick's guidance simple; respects the user's
+// environment). Returns a fatal error with install instructions if missing.
+func requireNodeForPiInstall() error {
+	_, nodeErr := exec.LookPath("node")
+	_, npmErr := exec.LookPath("npm")
+	if nodeErr == nil && npmErr == nil {
+		return nil
+	}
+	return fmt.Errorf(`pi requires Node.js (>= 22.19.0) and npm to install, but they are not on PATH.
+
+   rick does not install Node.js — it is an environment dependency you manage.
+   Install Node.js LTS from https://nodejs.org/ (this includes npm), then re-run:
+
+     rick tools init-pi`)
 }
 
 // installPI runs the official pi installer (curl | sh).

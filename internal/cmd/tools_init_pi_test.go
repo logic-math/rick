@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,56 @@ func writeFakePi(t *testing.T, dir, script string) {
 	piPath := filepath.Join(dir, "pi")
 	if err := os.WriteFile(piPath, []byte(script), 0755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// writeFakeBin writes a trivial executable named `name` into dir (a fake node/npm).
+func writeFakeBin(t *testing.T, dir, name string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRequireNodeForPiInstall_BothPresent(t *testing.T) {
+	tmp := t.TempDir()
+	writeFakeBin(t, tmp, "node")
+	writeFakeBin(t, tmp, "npm")
+	t.Setenv("PATH", tmp)
+	if err := requireNodeForPiInstall(); err != nil {
+		t.Errorf("expected nil when node+npm present, got: %v", err)
+	}
+}
+
+func TestRequireNodeForPiInstall_NodeMissing(t *testing.T) {
+	tmp := t.TempDir()
+	writeFakeBin(t, tmp, "npm") // npm present, node absent
+	t.Setenv("PATH", tmp)
+	err := requireNodeForPiInstall()
+	if err == nil {
+		t.Fatal("expected error when node missing")
+	}
+	if !strings.Contains(err.Error(), "Node.js") {
+		t.Errorf("error should mention Node.js, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "nodejs.org") {
+		t.Errorf("error should point to nodejs.org, got: %v", err)
+	}
+}
+
+func TestRequireNodeForPiInstall_NpmMissing(t *testing.T) {
+	tmp := t.TempDir()
+	writeFakeBin(t, tmp, "node") // node present, npm absent
+	t.Setenv("PATH", tmp)
+	if err := requireNodeForPiInstall(); err == nil {
+		t.Fatal("expected error when npm missing")
+	}
+}
+
+func TestRequireNodeForPiInstall_BothMissing(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent-empty-path")
+	if err := requireNodeForPiInstall(); err == nil {
+		t.Fatal("expected error when both missing")
 	}
 }
 

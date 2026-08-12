@@ -48,6 +48,20 @@ Rick 将上下文分为两个维度。**执行维度**承载"怎么做"的操作
 
 在这个视角下，命令体系是作用于知识体系的控制手段。`doing` 与 `easy` 是熵增的源头（执行过程产生上下文），`learning` 是增强回路（把单次 job 的经验提取为 loops/skills，让下次更准），`dream` 是调节回路（跨 job 反思、淘汰失效 loops/skills、维持 `domain` 简洁），`human-loop` 是人类介入深度思考的入口（产出 `draft`），`ctrl` 是黑箱执行的可挂测性设计（人类对 doing 进行干预）。主要矛盾是"上下文熵增"与"AI coding 准确性"之间的势能差，Rick 通过 learning 的增强回路和 dream 的调节回路共同对抗这一熵增，让后续的 AI agent 越跑越准。
 
+### pi 作为受控的执行后端
+
+Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-works/pi-coding-agent`）作为执行后端——一个可被 shell 调用的 agent runtime。Rick 自身是**引导程序**：确定性拼装 prompt/文件、注入系统提示词、约束工作流，pi 负责实际的 agentic 执行。这条边界的设计原则是**关注点分离**：
+
+- **用户不应感知 pi 的存在**。所有 pi 的配置（provider/model/api-key、subagent/web-access 扩展、主题）都通过 `rick tools init-pi` 引导完成，用户只需跑 rick，不需要直接操作 pi。
+- **Rick 托管 pi 的配置以控制模型输入**。pi 的扩展、skill、system prompt 都是模型输入的一部分——这些若由用户随意配置，会污染 agent 的上下文（上下文熵增的又一来源）。Rick 主动安装并固化 pi 的扩展配置（而非让用户各自装），正是为了对"喂给模型的输入"拥有更强的控制力，保证 pi 作为 rick 执行后端的**可控性**与**一致性**。
+- **Node 是用户管理的环境依赖**。pi 是 Node.js 程序，需要 node ≥22.19.0 + npm。Rick 不替用户装 node——它是环境依赖，用户负责（保持 rick 引导的简洁性）。`rick tools init-pi` 只在"需要安装 pi"时检查 node/npm 是否就绪，缺失则终止并提示用户自行安装；pi 已装时则假定环境就绪，不再检查。
+
+**演进方向**：未来 rick 会进一步让 pi **完全被托管**——所有 pi 配置都由 rick 控制，以便 rick 掌控全部模型输入信息。极端情况下，rick 安装时会**先通知用户卸载已有 pi 再重装**，避免用户此前自行装的过多 skill/扩展污染模型输入。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
+
+`rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、可选激活主题，并在最后验证全部生效。
+
+---
+
 ---
 
 ## 双维度知识体系
@@ -341,12 +355,13 @@ rick tools init-pi
 ```
 
 **做了什么**：
-1. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
-2. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
-3. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
-4. 检查 Tokyo Night 主题包是否已注册；未装则 `pi install npm:@wishx127/pi-tokyo-night`（包总会装上，便于 `/settings` 切换）。激活策略：**仅当本次 init-pi 新装了 pi 时**才写入 `theme: tokyo-night-dark`；若 pi 已存在（用户早就装好），默认用户有自己的主题偏好，**不动 settings.json**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
-5. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
-6. 汇总就绪状态。pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
+1. **前置检查**：若 pi 尚未安装，检查 node（≥22.19.0）+ npm 是否在 PATH。缺失则**终止**并提示用户自行安装 node（rick 不替用户装 node——它是用户管理的环境依赖）；pi 已装则跳过此检查，假定环境就绪
+2. 检查 `pi` 是否在 PATH；不在则跑官方安装器 `curl -fsSL https://pi.dev/install.sh | sh`
+3. 检查 `pi-subagents` 扩展是否已注册（`pi list`）；未注册则 `pi install npm:pi-subagents`（提供 `subagent` 工具：单/并行/链式派发独立上下文子 agent）
+4. 检查 `pi-web-access` 扩展是否已注册；未注册则 `pi install npm:pi-web-access`（提供 `web_search`/`web_fetch` 工具，外部搜索/抓取网页）
+5. 检查 Tokyo Night 主题包是否已注册；未装则 `pi install npm:@wishx127/pi-tokyo-night`（包总会装上，便于 `/settings` 切换）。激活策略：**仅当本次 init-pi 新装了 pi 时**才写入 `theme: tokyo-night-dark`；若 pi 已存在（用户早就装好），默认用户有自己的主题偏好，**不动 settings.json**（Tokyo Night 配色 + Powerline 状态栏，TUI 更美观；纯美化，可选）
+6. 最终验证：跑 `pi list` 确认所有必需扩展都真注册成功 + 主题字段已设置（捕获"装了但没生效"的假象）
+7. 汇总就绪状态。node 缺失（需装 pi 时）或 pi 完全装不上才返回非零；扩展/主题缺失只 warn（rick 仍可用，仅对应功能不可用）
 
 ---
 
