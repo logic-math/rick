@@ -69,7 +69,7 @@
     "syntaxKeyword": "redBright",
     "syntaxFunction": "purpleBright",
     "syntaxVariable": "text",
-    "syntaxString": "greenBright",
+    "syntaxString": "linkBlue",
     "syntaxNumber": "blueBright",
     "syntaxType": "orangeBright",
     "syntaxOperator": "red",

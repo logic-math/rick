@@ -31,7 +31,7 @@ type knownTheme struct {
 
 var knownThemes = []knownTheme{
 	// rick 默认主题（内置，基于 GitHub Dark Dimmed 定制）：工具标题/命令绿、
-	// md 标题金、链接蓝、路径绿、bashMode 金 —— AI 正式回复最突出。
+	// md 标题金、链接/路径蓝、bashMode 金 —— AI 正式回复最突出。
 	{name: "rick", embedded: "themes/rick.json"},
 	{name: "dark", pkg: ""},
 	{name: "light", pkg: ""},
