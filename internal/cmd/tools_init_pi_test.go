@@ -168,3 +168,54 @@ esac
 		t.Error("theme should remain unchanged")
 	}
 }
+
+func TestEnsureTheme_AdoptsWhenDefault(t *testing.T) {
+	// theme is "dark" (default) → init-pi should adopt tokyo-night-dark.
+	setupPiSettings(t, "dark")
+	tmp := t.TempDir()
+	piScript := `#!/bin/sh
+case "$1" in
+  list) echo "pi-tokyo-night";;
+esac
+`
+	writeFakePi(t, tmp, piScript)
+	t.Setenv("PATH", tmp)
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+		t.Fatalf("ensureTheme: %v", err)
+	}
+	if currentTheme() != tokyoNightTheme {
+		t.Errorf("expected theme adopted to %q, got %q", tokyoNightTheme, currentTheme())
+	}
+}
+
+func TestEnsureTheme_RespectsUserCustomTheme(t *testing.T) {
+	// theme is a user-chosen non-default (e.g. "gruvbox") → must NOT override.
+	setupPiSettings(t, "gruvbox")
+	tmp := t.TempDir()
+	piScript := `#!/bin/sh
+case "$1" in
+  list) echo "pi-tokyo-night";;
+esac
+`
+	writeFakePi(t, tmp, piScript)
+	t.Setenv("PATH", tmp)
+	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
+		t.Fatalf("ensureTheme: %v", err)
+	}
+	if currentTheme() != "gruvbox" {
+		t.Errorf("user theme should be respected, got %q", currentTheme())
+	}
+}
+
+func TestIsDefaultTheme(t *testing.T) {
+	for _, c := range []string{"", "dark", "light"} {
+		if !isDefaultTheme(c) {
+			t.Errorf("isDefaultTheme(%q) = false, want true", c)
+		}
+	}
+	for _, c := range []string{"tokyo-night-dark", "gruvbox", "nord"} {
+		if isDefaultTheme(c) {
+			t.Errorf("isDefaultTheme(%q) = true, want false", c)
+		}
+	}
+}

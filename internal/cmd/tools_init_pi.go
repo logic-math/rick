@@ -95,19 +95,20 @@ func runInitPi() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
-	// Step 4: Tokyo Night theme installed + activated. Non-fatal (cosmetic).
+	// Step 4: Tokyo Night theme installed + (if default) activated. Non-fatal.
+	// If the user has set a non-default theme, it is left as-is (their choice).
 	if err := ensureTheme(tokyoNightPkg, tokyoNightTheme); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  theme: %v\n", err)
 		fmt.Fprintf(os.Stderr, "   rick works without it; pi falls back to its default theme.\n")
 	} else {
-		fmt.Printf("✅ pi theme ready: %s\n", tokyoNightTheme)
+		fmt.Printf("✅ pi theme ready: %s\n", currentTheme())
 	}
 
 	// Step 5: verify all required extensions + theme are actually registered.
 	// Final integrity check via `pi list` — catches the case where an install
 	// appeared to succeed but the extension is not registered (e.g. the old
 	// `pi install <bare-source-dir>` silently wrote to settings.json without the
-	// loader recognizing it). Also confirms the theme field is set.
+	// loader recognizing it). Also confirms a theme is set (any non-empty value).
 	missing := verifyExtensions()
 	if len(missing) > 0 {
 		fmt.Fprintf(os.Stderr, "⚠️  verification: these extensions are NOT registered: %s\n", strings.Join(missing, ", "))
@@ -115,10 +116,10 @@ func runInitPi() error {
 	} else {
 		fmt.Println("✅ verification: all required extensions registered")
 	}
-	if cur := currentTheme(); cur != tokyoNightTheme {
-		fmt.Fprintf(os.Stderr, "⚠️  verification: theme is %q (expected %q)\n", cur, tokyoNightTheme)
+	if cur := currentTheme(); cur == "" {
+		fmt.Fprintf(os.Stderr, "⚠️  verification: no theme set in settings.json\n")
 	} else {
-		fmt.Printf("✅ verification: theme %s active\n", tokyoNightTheme)
+		fmt.Printf("✅ verification: theme %s active\n", cur)
 	}
 
 	fmt.Println("✅ pi environment ready")
@@ -156,15 +157,34 @@ func ensureTheme(pkg, themeName string) error {
 			return fmt.Errorf("%s still not listed after install", pkg)
 		}
 	}
-	// Activate the theme in settings.json if not already active.
-	if cur := currentTheme(); cur == themeName {
+	// Activate the theme only when the user has NOT set a custom theme: if the
+	// current theme is already the target, skip; if it's a default (unset/dark/
+	// light), adopt Tokyo Night; if it's anything else, the user chose it —
+	// respect their preference and skip.
+	cur := currentTheme()
+	if cur == themeName {
 		return nil // already active
+	}
+	if !isDefaultTheme(cur) {
+		fmt.Printf("✅ theme left as-is: %s (user-configured, not overriding)\n", cur)
+		return nil
 	}
 	if err := setTheme(themeName); err != nil {
 		return fmt.Errorf("activate theme %s: %w", themeName, err)
 	}
 	fmt.Printf("⚠️  theme activated: %s\n", themeName)
 	return nil
+}
+
+// isDefaultTheme reports whether cur is a pi default theme value (unset, "dark",
+// or "light") — i.e. the user has not expressed a preference, so init-pi is free
+// to adopt Tokyo Night. Any other value means the user configured it themselves.
+func isDefaultTheme(cur string) bool {
+	switch cur {
+	case "", "dark", "light":
+		return true
+	}
+	return false
 }
 
 // currentTheme reads the "theme" field from ~/.pi/agent/settings.json. Returns
