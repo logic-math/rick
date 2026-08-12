@@ -71,6 +71,33 @@ func TestCallCLI_MockBinaryArgv(t *testing.T) {
 	})
 }
 
+func TestCallCLI_InjectsIsolatedAgentEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	envFile := filepath.Join(tmpDir, "env.txt")
+	mockPath := filepath.Join(tmpDir, "mock_pi_env")
+	// Mock pi prints PI_CODING_AGENT_DIR to envFile (proves CallCLI's cmd.Env
+	// carries rick's managed agent dir into the pi subprocess).
+	mockScript := fmt.Sprintf("#!/bin/sh\necho \"$PI_CODING_AGENT_DIR\" > %s\nexit 0\n", envFile)
+	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{PiPath: mockPath}
+
+	agentDir := filepath.Join(t.TempDir(), "rick", "pi", "agent")
+	t.Setenv(rickAgentDirEnv, agentDir)
+
+	if err := CallCLI(false, cfg, "", ModeInteractive); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); got != agentDir {
+		t.Errorf("PI_CODING_AGENT_DIR: want %q, got %q", agentDir, got)
+	}
+}
+
 func TestCallCLI_FailingBinary(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockPath := filepath.Join(tmpDir, "mock_pi_fail")

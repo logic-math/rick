@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/sunquan/rick/internal/agent/piagent"
 )
 
 // piInstallerURL is the official pi installation script.
@@ -91,6 +93,20 @@ func runInitPi() error {
 	}
 	fmt.Println()
 
+	// Step 1.5: rick-managed agent dir + settings bootstrap. rick keeps pi's
+	// entire configuration under ~/.rick/pi/agent (injected via
+	// PI_CODING_AGENT_DIR at every pi call site), isolated from the user's own
+	// ~/.pi. The managed settings.json is bootstrapped with rick's managed
+	// defaults: hideThinkingBlock=true (hide thinking blocks — they drown out
+	// key information in rick easy/plan sessions), plus a one-time migration
+	// of the theme from the legacy ~/.pi/agent/settings.json.
+	if err := bootstrapAgentSettings(); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  managed agent dir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "   rick will still run, but pi config isolation may be incomplete.\n")
+	} else {
+		fmt.Printf("✅ pi agent dir ready: %s (hideThinkingBlock=true)\n", piagent.AgentDir())
+	}
+
 	// Step 2: subagent extension registered (install if missing). Non-fatal.
 	// pi-subagents is the official npm extension providing the `subagent` tool
 	// (single/parallel/chain delegation with isolated context). The bare .ts
@@ -170,7 +186,7 @@ func ensureTheme(pkg, themeName string, adoptTheme bool) error {
 	// Install the theme package if not present.
 	if !piListContains(filepath.Base(pkg)) {
 		fmt.Printf("⚠️  theme package %s not registered — installing\n", pkg)
-		cmd := exec.Command("pi", "install", "npm:"+pkg)
+		cmd := piCommand("install", "npm:"+pkg)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -199,7 +215,94 @@ func ensureTheme(pkg, themeName string, adoptTheme bool) error {
 	return nil
 }
 
-// currentTheme reads the "theme" field from ~/.pi/agent/settings.json. Returns
+// bootstrapAgentSettings ensures the rick-managed pi agent dir exists and its
+// settings.json carries rick's managed defaults. On first run in the managed
+// dir it seeds theme/packages from the legacy ~/.pi/agent/settings.json (one-
+// time migration — extensions themselves are re-installed into the managed dir
+// by the steps below). Every later run only merges hideThinkingBlock=true in
+// when missing. Non-fatal on failure (callers warn and continue).
+func bootstrapAgentSettings() error {
+	if err := piagent.EnsureAgentDir(); err != nil {
+		return fmt.Errorf("create agent dir %s: %w", piagent.AgentDir(), err)
+	}
+	path := piSettingsPath()
+	if _, err := os.Stat(path); err == nil {
+		return ensureHideThinkingBlock(path)
+	}
+
+	// First run in the managed dir: seed from legacy ~/.pi if present.
+	base := map[string]any{"hideThinkingBlock": true}
+	if data, err := os.ReadFile(legacyPiSettingsPath()); err == nil {
+		var legacy map[string]any
+		if json.Unmarshal(data, &legacy) == nil {
+			if t, ok := legacy["theme"].(string); ok && t != "" {
+				base["theme"] = t
+			}
+			// packages are re-installed into the managed dir by the extension
+			// steps below; only carry over names we know how to provide so the
+			// managed settings never references packages that are not installed.
+			if pkgs, ok := legacy["packages"].([]any); ok {
+				var kept []any
+				for _, p := range pkgs {
+					s, _ := p.(string)
+					if extensionManagedByRick(s) {
+						kept = append(kept, s)
+					}
+				}
+				if len(kept) > 0 {
+					base["packages"] = kept
+				}
+			}
+		}
+	}
+	out, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal managed settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// extensionManagedByRick reports whether a settings.json packages entry is one
+// rick itself installs/verifies (so migration can carry it over) as opposed to
+// a user's ad-hoc package that would not exist in the isolated dir.
+func extensionManagedByRick(pkg string) bool {
+	for _, p := range requiredExtensions {
+		if strings.Contains(pkg, p) {
+			return true
+		}
+	}
+	return strings.Contains(pkg, "pi-tokyo-night")
+}
+
+// ensureHideThinkingBlock merges "hideThinkingBlock": true into an existing
+// managed settings.json, preserving all other fields.
+func ensureHideThinkingBlock(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	if v, ok := s["hideThinkingBlock"].(bool); ok && v {
+		return nil // already managed
+	}
+	s["hideThinkingBlock"] = true
+	out, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// currentTheme reads the "theme" field from the rick-managed settings.json.
 // "" if unset or unreadable.
 func currentTheme() string {
 	data, err := os.ReadFile(piSettingsPath())
@@ -216,7 +319,7 @@ func currentTheme() string {
 	return ""
 }
 
-// setTheme writes the "theme" field in ~/.pi/agent/settings.json, preserving
+// setTheme writes the "theme" field in the rick-managed settings.json, preserving
 // all other fields.
 func setTheme(theme string) error {
 	path := piSettingsPath()
@@ -239,8 +342,26 @@ func setTheme(theme string) error {
 	return nil
 }
 
-// piSettingsPath returns ~/.pi/agent/settings.json. Respects $HOME (tests).
+// piCommand builds a pi subprocess that runs against rick's managed agent dir
+// (PI_CODING_AGENT_DIR=~/.rick/pi/agent). Every `pi install` / `pi list` /
+// `pi --version` invocation must use it so installs and checks always act on
+// rick's own configuration, never the user's ~/.pi.
+func piCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("pi", args...)
+	cmd.Env = piagent.AgentEnv()
+	return cmd
+}
+
+// piSettingsPath returns the rick-managed settings.json
+// (~/.rick/pi/agent/settings.json). Respects $HOME and RICK_PI_AGENT_DIR (tests).
 func piSettingsPath() string {
+	return piagent.SettingsPath()
+}
+
+// legacyPiSettingsPath returns the pre-isolation settings.json
+// (~/.pi/agent/settings.json), read once during migration so rick's managed
+// config starts from the user's existing choices (theme) instead of defaults.
+func legacyPiSettingsPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -300,7 +421,11 @@ func installPI() error {
 // piVersion returns pi's version string (e.g. "0.84.1"), or "" if it cannot be
 // determined. Best-effort — init-pi does not gate on version.
 func piVersion(piPath string) string {
-	out, err := exec.Command(piPath, "--version").Output()
+	cmd := piCommand("--version")
+	if piPath != "" {
+		cmd.Path = piPath
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
@@ -316,7 +441,7 @@ func ensureNpmExtension(pkg, detect string) error {
 		return nil // already registered
 	}
 	fmt.Printf("⚠️  %s not registered — installing via pi install npm:%s\n", pkg, pkg)
-	cmd := exec.Command("pi", "install", "npm:"+pkg)
+	cmd := piCommand("install", "npm:"+pkg)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -331,7 +456,7 @@ func ensureNpmExtension(pkg, detect string) error {
 // piListContains reports whether `pi list` output contains substr. Used to
 // detect installed extensions idempotently (ensureNpmExtension + verifyExtensions).
 func piListContains(substr string) bool {
-	out, err := exec.Command("pi", "list").Output()
+	out, err := piCommand("list").Output()
 	if err != nil {
 		return false
 	}

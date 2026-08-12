@@ -10,9 +10,11 @@ pi --provider deepseek --model deepseek-v4-flash --api-key sk-... <prompt>
 
 rick 通过 config 的 `pi_extra_args` 字段透传这些 flags（`internal/agent/piagent` 在 `CallCLI`/`Execute` 时合并到 pi 命令行）。**不要试图用 env 注入 provider**。
 
-## pi 配置目录隔离（规划中，未实现）
+## pi 配置目录隔离（已实现，job_33）
 
-pi 支持 `PI_CODING_AGENT_DIR` 环境变量指定 agent 配置目录（默认 `~/.pi/agent`）。源码 `dist/config.js:396-417`：`getAgentDir()` 优先读此 env。未来 rick 会设 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`，让 rick 的 pi 配置与用户 `~/.pi` 完全隔离。
+pi 支持 `PI_CODING_AGENT_DIR` 环境变量指定 agent 配置目录（默认 `~/.pi/agent`）。rick 已在**所有** pi 调用入口注入 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`（`piagent.AgentEnv()`，用于 CallCLI 交互入口 + Executor `--mode json` + init-pi 的 install/list/version），rick 的 pi 配置与用户 `~/.pi` 完全隔离：settings.json（含 `hideThinkingBlock: true` 托管默认值）、主题、扩展注册都在 `~/.rick/pi/agent` 下管理。
+
+**注意（pi 内部行为）**：`pi install` 对 user scope 的包在 managed 路径不存在时回退到全局 npm root（`npm root -g`，pi 安装器将其指向 `~/.pi/agent/npm/node_modules`）复用代码——注册（settings.json packages）是隔离的，但包代码可能与用户全局安装共享。用户卸载自己的包可能影响 rick 的扩展（已知限制，非 rick bug）。
 
 ## pi 扩展加载机制
 

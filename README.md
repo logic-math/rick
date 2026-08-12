@@ -56,11 +56,11 @@ Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-work
 - **Rick 托管 pi 的配置以控制模型输入**。pi 的扩展、skill、system prompt 都是模型输入的一部分——这些若由用户随意配置，会污染 agent 的上下文（上下文熵增的又一来源）。Rick 主动安装并固化 pi 的扩展配置（而非让用户各自装），正是为了对"喂给模型的输入"拥有更强的控制力，保证 pi 作为 rick 执行后端的**可控性**与**一致性**。
 - **Node 是用户管理的环境依赖**。pi 是 Node.js 程序，需要 node ≥22.19.0 + npm。Rick 不替用户装 node——它是环境依赖，用户负责（保持 rick 引导的简洁性）。`rick tools init-pi` 只在"需要安装 pi"时检查 node/npm 是否就绪，缺失则终止并提示用户自行安装；pi 已装时则假定环境就绪，不再检查。
 
-**演进方向**：未来 rick 会进一步让 pi **完全被托管**，方式是**配置目录隔离**——rick 在 `~/.rick/pi` 下维护专属于自己的 pi 配置（settings、扩展、主题、API key），启动 pi 时通过环境变量 `PI_CODING_AGENT_DIR` 指向它，与用户自有的 `~/.pi` 完全隔离。用户直接跑 pi 仍用自己的 `~/.pi`；rick 跑 pi 走 `~/.rick/pi`——两套配置互不污染。这样 rick 对"喂给 pi 的全部模型输入"（system prompt、扩展、skill）拥有完全控制力，用户此前自行装的扩展/skill 不会泄漏进 rick 的 agent 上下文。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
+**配置目录隔离（已实现）**：rick 对 pi 的托管通过**配置目录隔离**落地——rick 在 `~/.rick/pi/agent` 下维护专属于自己的 pi 配置（settings、扩展、主题），在**所有** pi 调用入口（交互式 plan/easy/ctrl/human-loop、doing 的 `--mode json`、`rick tools init-pi` 自身的 install/list）注入环境变量 `PI_CODING_AGENT_DIR` 指向它，与用户自有的 `~/.pi` 完全隔离。用户直接跑 pi 仍用自己的 `~/.pi`；rick 跑 pi 走 `~/.rick/pi`——两套配置互不污染。这样 rick 对"喂给 pi 的全部模型输入"（system prompt、扩展、skill）拥有完全控制力，用户此前自行装的扩展/skill 不会泄漏进 rick 的 agent 上下文。这是"控制上下文熵增"理念在执行后端层的延伸：不仅要治理 rick 自身产出的上下文，还要治理 pi 这个后端被喂入的上下文。
 
-> 注：配置目录隔离为规划中的设计，代码尚未实现（当前 rick 与用户共用 `~/.pi`）。下一步将在 rick 调用 pi 的所有入口注入 `PI_CODING_AGENT_DIR=~/.rick/pi/agent`，并让 `rick tools init-pi` 在该目录下安装扩展、写设置。
+> 实现细节：`rick tools init-pi` 负责在 `~/.rick/pi/agent` 下引导 managed settings.json（首次运行会从旧的 `~/.pi/agent/settings.json` 一次性迁移主题与 rick 托管的扩展包），并固化 rick 的托管默认值：**`hideThinkingBlock: true`**（隐藏 pi 的思考过程块——它会在 rick easy/plan 会话中冲淡关键信息，思考仍生成但不展示）。`rick tools theme` 列出可选主题（内置 dark/light、tokyo-night-dark/light、nightowl，以及放入 `~/.rick/pi/agent/themes/` 的自定义主题）并按名切换（自动安装提供主题的 npm 包）。
 
-`rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、可选激活主题，并在最后验证全部生效。
+`rick tools init-pi` 就是这套托管能力的入口：安装 pi、注册 rick 依赖的扩展（pi-subagents、pi-web-access）、引导隔离配置目录（含 hideThinkingBlock 默认值）、激活主题，并在最后验证全部生效。`rick tools theme` 负责主题的查看与切换。
 
 ---
 

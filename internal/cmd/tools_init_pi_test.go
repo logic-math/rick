@@ -143,18 +143,40 @@ func TestRequireNodeForPiInstall_BothMissing(t *testing.T) {
 	}
 }
 
-// setupPiSettings writes a ~/.pi/agent/settings.json with the given theme (or
-// no theme if ""), pointing HOME at a temp dir, and returns that HOME.
+// setupPiSettings writes the rick-managed settings.json (~/.rick/pi/agent)
+// with the given theme (or no theme if ""), pointing HOME at a temp dir, and
+// returns that HOME.
 func setupPiSettings(t *testing.T, theme string) string {
 	t.Helper()
 	home := t.TempDir()
-	agentDir := filepath.Join(home, ".pi", "agent")
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	s := map[string]any{"theme": theme, "packages": []string{"npm:pi-subagents"}}
 	if theme == "" {
 		delete(s, "theme")
+	}
+	data, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	return home
+}
+
+// setupLegacyPiSettings writes a legacy ~/.pi/agent/settings.json (pre-
+// isolation layout) for migration tests.
+func setupLegacyPiSettings(t *testing.T, theme string) string {
+	t.Helper()
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	s := map[string]any{
+		"theme":    theme,
+		"packages": []string{"npm:pi-subagents", "npm:user-random-thing"},
 	}
 	data, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
@@ -250,5 +272,97 @@ func TestEnsureTheme_AlreadyTokyoIsNoop(t *testing.T) {
 	got := runEnsureTheme(t, tokyoNightTheme, false)
 	if got != tokyoNightTheme {
 		t.Errorf("already-tokyo should stay, got %q", got)
+	}
+}
+
+// --- bootstrapAgentSettings (config isolation + hideThinkingBlock) ---
+
+// readManagedSettings reads the managed settings.json into a map.
+func readManagedSettings(t *testing.T) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(piSettingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestBootstrapAgentSettings_FreshNoLegacy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := bootstrapAgentSettings(); err != nil {
+		t.Fatalf("bootstrapAgentSettings: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".rick", "pi", "agent")); err != nil {
+		t.Errorf("managed agent dir not created: %v", err)
+	}
+	s := readManagedSettings(t)
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock should be true, got %v", s["hideThinkingBlock"])
+	}
+	if _, ok := s["theme"]; ok {
+		t.Errorf("no legacy -> no theme should be set, got %v", s["theme"])
+	}
+}
+
+func TestBootstrapAgentSettings_MigratesLegacyThemeAndManagedPackages(t *testing.T) {
+	setupLegacyPiSettings(t, "tokyo-night-dark")
+	if err := bootstrapAgentSettings(); err != nil {
+		t.Fatalf("bootstrapAgentSettings: %v", err)
+	}
+	s := readManagedSettings(t)
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock should be true, got %v", s["hideThinkingBlock"])
+	}
+	if s["theme"] != "tokyo-night-dark" {
+		t.Errorf("theme should migrate from legacy, got %v", s["theme"])
+	}
+	pkgs, ok := s["packages"].([]any)
+	if !ok {
+		t.Fatalf("packages missing: %v", s)
+	}
+	// rick-managed packages carried over; user ad-hoc package dropped (it is
+	// not installed in the isolated dir and would fail to load).
+	if len(pkgs) != 1 || pkgs[0] != "npm:pi-subagents" {
+		t.Errorf("packages should keep only rick-managed ones, got %v", pkgs)
+	}
+}
+
+func TestBootstrapAgentSettings_AddsHideThinkingBlockWhenMissing(t *testing.T) {
+	setupPiSettings(t, "dark") // managed settings exists, no hideThinkingBlock
+	if err := bootstrapAgentSettings(); err != nil {
+		t.Fatalf("bootstrapAgentSettings: %v", err)
+	}
+	s := readManagedSettings(t)
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock should be added, got %v", s["hideThinkingBlock"])
+	}
+	if s["theme"] != "dark" {
+		t.Errorf("existing theme must be preserved, got %v", s["theme"])
+	}
+}
+
+func TestBootstrapAgentSettings_NoopWhenAlreadyManaged(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	managed := map[string]any{"hideThinkingBlock": true, "theme": "tokyo-night-dark"}
+	data, _ := json.MarshalIndent(managed, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	if err := bootstrapAgentSettings(); err != nil {
+		t.Fatalf("bootstrapAgentSettings: %v", err)
+	}
+	s := readManagedSettings(t)
+	if len(s) != 2 || s["theme"] != "tokyo-night-dark" {
+		t.Errorf("managed settings should be untouched, got %v", s)
 	}
 }

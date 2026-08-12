@@ -66,6 +66,9 @@ func (e *Executor) Execute(promptFile, taskID, workspaceDir, logFileName string)
 	args := append([]string{"--mode", "json"}, e.extraArgs...)
 	args = append(args, promptFile)
 	cmd := exec.Command(piBin, args...)
+	// rick-managed pi config isolation (same as CallCLI): pi reads its settings/
+	// extensions/themes from ~/.rick/pi/agent, not the user's ~/.pi.
+	cmd.Env = AgentEnv()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

@@ -32,6 +32,7 @@ Available subcommands:
 	}
 
 	toolsCmd.AddCommand(NewInitPiCmd())
+	toolsCmd.AddCommand(NewThemeCmd())
 	toolsCmd.AddCommand(NewPlanCheckCmd())
 	toolsCmd.AddCommand(NewDoingCheckCmd())
 	toolsCmd.AddCommand(NewEasyCheckCmd())

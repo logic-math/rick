@@ -1,0 +1,175 @@
+package cmd
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// fakePiWithList installs a fake pi on PATH whose `list` reads a list file and
+// whose `install` appends "npm:<pkg>" to it — enough state to exercise the
+// auto-install path of rick tools theme without a real pi/npm/network.
+func fakePiWithList(t *testing.T, listFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	// cat is not a shell builtin: restore the system PATH inside the script
+	// because tests replace PATH with the fake-pi dir only (echo works either
+	// way, which is why plain-echo fakes never hit this).
+	script := `#!/bin/sh
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+case "$1" in
+  list) cat "$FAKE_PI_LIST" 2>/dev/null;;
+  install) echo "$2" >> "$FAKE_PI_LIST"; echo "Installed $2";;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "pi"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("FAKE_PI_LIST", listFile)
+}
+
+func TestRunThemeList_ShowsCurrentAndOptions(t *testing.T) {
+	setupPiSettings(t, "dark") // managed settings with theme=dark
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeList(&buf); err != nil {
+		t.Fatalf("runThemeList: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Current theme: dark", "dark", "light", "tokyo-night-dark", "nightowl", "rick tools theme <name>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list output missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "not installed") {
+		t.Errorf("uninstalled packages should be marked, output:\n%s", out)
+	}
+}
+
+func TestRunThemeSet_AutoInstallsProvidingPackage(t *testing.T) {
+	setupPiSettings(t, "dark")
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeSet("tokyo-night-light", &buf); err != nil {
+		t.Fatalf("runThemeSet: %v", err)
+	}
+	if got := currentTheme(); got != "tokyo-night-light" {
+		t.Errorf("theme should be tokyo-night-light, got %q", got)
+	}
+	// hideThinkingBlock must survive the theme switch (bootstrap + setTheme).
+	s := readManagedSettings(t)
+	if s["hideThinkingBlock"] != true {
+		t.Errorf("hideThinkingBlock lost during theme switch: %v", s)
+	}
+	// The providing package was installed into the (fake) managed registry.
+	data, err := os.ReadFile(listFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "npm:@wishx127/pi-tokyo-night") {
+		t.Errorf("theme package should have been installed, list file: %q", string(data))
+	}
+	if !strings.Contains(buf.String(), "theme active: tokyo-night-light") {
+		t.Errorf("success message missing: %q", buf.String())
+	}
+}
+
+func TestRunThemeSet_BuiltinNoInstall(t *testing.T) {
+	setupPiSettings(t, "tokyo-night-dark")
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeSet("light", &buf); err != nil {
+		t.Fatalf("runThemeSet(light): %v", err)
+	}
+	if got := currentTheme(); got != "light" {
+		t.Errorf("theme should be light, got %q", got)
+	}
+	// built-in themes need no package install.
+	data, _ := os.ReadFile(listFile)
+	if len(data) != 0 {
+		t.Errorf("built-in theme must not trigger an install, got %q", string(data))
+	}
+}
+
+func TestRunThemeSet_UnknownTheme(t *testing.T) {
+	setupPiSettings(t, "dark")
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	err := runThemeSet("no-such-theme", &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected error for unknown theme")
+	}
+	if !strings.Contains(err.Error(), "no-such-theme") || !strings.Contains(err.Error(), "available") {
+		t.Errorf("error should name the theme and available options, got: %v", err)
+	}
+}
+
+func TestRunThemeSet_CustomThemeFromManagedDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	themesDir := filepath.Join(home, ".rick", "pi", "agent", "themes")
+	if err := os.MkdirAll(themesDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(themesDir, "gruvbox.json"), []byte(`{"name":"gruvbox","vars":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	listFile := filepath.Join(t.TempDir(), "list.txt")
+	if err := os.WriteFile(listFile, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakePiWithList(t, listFile)
+
+	var buf bytes.Buffer
+	if err := runThemeSet("gruvbox", &buf); err != nil {
+		t.Fatalf("runThemeSet(gruvbox): %v", err)
+	}
+	if got := currentTheme(); got != "gruvbox" {
+		t.Errorf("theme should be gruvbox, got %q", got)
+	}
+	// no package install for custom themes.
+	data, _ := os.ReadFile(listFile)
+	if len(data) != 0 {
+		t.Errorf("custom theme must not trigger install, got %q", string(data))
+	}
+}
+
+func TestCustomThemeNames_Sorted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	themeDir := filepath.Join(home, ".rick", "pi", "agent", "themes")
+	if err := os.MkdirAll(themeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"zebra.json", "alpha.json", "note.txt"} {
+		if err := os.WriteFile(filepath.Join(themeDir, f), []byte("{}"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := customThemeNames()
+	if len(names) != 2 || names[0] != "alpha" || names[1] != "zebra" {
+		t.Errorf("customThemeNames: want [alpha zebra], got %v", names)
+	}
+}

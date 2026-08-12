@@ -86,6 +86,9 @@ func CallCLI(verbose bool, cfg *config.Config, promptFile string, mode CLIMode, 
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// rick manages pi's config under ~/.rick/pi/agent (PI_CODING_AGENT_DIR),
+	// isolated from the user's own ~/.pi — every pi subprocess must see it.
+	cmd.Env = AgentEnv()
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("pi CLI failed: %w", err)

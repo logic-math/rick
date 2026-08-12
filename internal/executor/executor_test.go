@@ -1269,7 +1269,7 @@ func TestExecuteJobStopAfterTaskMaxRetries(t *testing.T) {
 	config := &ExecutionConfig{
 		MaxRetries:     1,
 		TimeoutSeconds: 5,
-		ClaudeCodePath: "/nonexistent/claude",
+		PiPath:         "/nonexistent/pi",
 		WorkspaceDir:   tmpDir,
 	}
 
@@ -1342,7 +1342,7 @@ func TestExecuteJobFailFastLeavesRemainingTasksPending(t *testing.T) {
 	config := &ExecutionConfig{
 		MaxRetries:     1,
 		TimeoutSeconds: 5,
-		ClaudeCodePath: "/nonexistent/claude",
+		PiPath:         "/nonexistent/pi",
 		WorkspaceDir:   tmpDir,
 	}
 
