@@ -107,3 +107,67 @@ func TestBuildPrompt_Dispatch(t *testing.T) {
 		t.Error("expected error for unknown cmd")
 	}
 }
+
+func TestBuildPlan_InlinesGrillingContent(t *testing.T) {
+	pb := NewPIBuilder()
+	_, instance, err := pb.BuildPlan("implement login", map[string]string{
+		"rick_dir":     t.TempDir(),
+		"job_plan_dir": filepath.Join(t.TempDir(), "jobs", "job_1", "plan"),
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan failed: %v", err)
+	}
+	// 单文件内聚：grilling skill 内容内联进主产物（而非仅 skill_grilling.md 路径引用）。
+	if !strings.Contains(instance, "Grilling") {
+		t.Error("instance should inline grilling content (Grilling)")
+	}
+	if !strings.Contains(instance, "结构化追问") {
+		t.Error("instance should inline grilling content (结构化追问)")
+	}
+	if !strings.Contains(instance, "内联技能") {
+		t.Error("instance should have a structured inline-skills section")
+	}
+	if strings.Contains(instance, "{{") {
+		t.Error("instance should have no unreplaced variables")
+	}
+}
+
+func TestBuildDoing_InlinesDoingLoopContent(t *testing.T) {
+	pb := NewPIBuilder()
+	rickDir := t.TempDir()
+	_, instance, err := pb.BuildDoing("task1", map[string]string{
+		"rick_dir":  rickDir,
+		"plan_dir":  filepath.Join(rickDir, "jobs", "job_1", "plan"),
+		"doing_dir": filepath.Join(rickDir, "jobs", "job_1", "doing"),
+		"job_id":    "job_1",
+	})
+	if err != nil {
+		t.Fatalf("BuildDoing failed: %v", err)
+	}
+	// doing_loop 内容内联（非路径引用），含 Step 0 domain 搜索等正文。
+	if !strings.Contains(instance, "Step 0") || !strings.Contains(instance, "Step 1") {
+		t.Error("instance should inline doing_loop content (Step 0/Step 1)")
+	}
+	if strings.Contains(instance, "{{") {
+		t.Error("instance should have no unreplaced variables")
+	}
+}
+
+func TestBuildEasy_InlinesGrillingContent(t *testing.T) {
+	pb := NewPIBuilder()
+	rickDir := t.TempDir()
+	_, instance, err := pb.BuildEasy("测试需求", map[string]string{
+		"rick_dir":  rickDir,
+		"doing_dir": filepath.Join(rickDir, "jobs", "job_N", "doing"),
+		"job_id":    "job_N",
+	})
+	if err != nil {
+		t.Fatalf("BuildEasy failed: %v", err)
+	}
+	if !strings.Contains(instance, "Grilling") {
+		t.Error("instance should inline grilling content (Grilling)")
+	}
+	if strings.Contains(instance, "{{") {
+		t.Error("instance should have no unreplaced variables")
+	}
+}

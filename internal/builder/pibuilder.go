@@ -148,11 +148,37 @@ func stripYAMLFrontmatter(s string) string {
 	return strings.TrimLeft(rest[idx+5:], "\n")
 }
 
-func renderDoingLoop(domainDir, debugSkillPath string) string {
-	raw := prompt.LoadCoreSkills([]string{"doing_loop"})
+// renderDoingLoop reads the doing_loop skill via prompt.ReadEmbeddedSkill（跨包访问
+// 未导出的 skillsFS），strips YAML frontmatter, and substitutes the domain/debug-skill
+// paths. Missing skill returns error（非静默空内容）。
+func renderDoingLoop(domainDir, debugSkillPath string) (string, error) {
+	raw, err := prompt.ReadEmbeddedSkill("doing_loop")
+	if err != nil {
+		return "", err
+	}
 	content := stripYAMLFrontmatter(raw)
 	content = strings.ReplaceAll(content, "{{domain_dir}}", domainDir)
-	return strings.ReplaceAll(content, "{{debug_skill_path}}", debugSkillPath)
+	return strings.ReplaceAll(content, "{{debug_skill_path}}", debugSkillPath), nil
+}
+
+// renderInlineSkills reads embedded skills via prompt.ReadEmbeddedSkill and renders
+// them as pi 可识别的结构化「skill 内联段」（单文件内聚）。Missing skill returns error.
+func renderInlineSkills(skills []string) (string, error) {
+	var sb strings.Builder
+	for i, name := range skills {
+		content, err := prompt.ReadEmbeddedSkill(name)
+		if err != nil {
+			return "", err
+		}
+		if i > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("### skill:")
+		sb.WriteString(name)
+		sb.WriteString("\n\n")
+		sb.WriteString(stripYAMLFrontmatter(content))
+	}
+	return sb.String(), nil
 }
 
 // taskFilePath returns the plan/taskN.md path injected into task_info_section.
@@ -256,6 +282,13 @@ func (p *PIBuilder) BuildPlan(requirement string, params map[string]string) (met
 		return "", "", fmt.Errorf("failed to load plan template: %w", err)
 	}
 
+	// 单文件内聚：关键 skill 内容内联进主产物（而非散落路径引用）。缺内联源时
+	// 返回 error（非 panic、非静默产出空内容）。
+	inlineSkills, err := renderInlineSkills([]string{"grilling", "tdd-zh", "testing-anti-patterns-zh"})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to inline plan skills: %w", err)
+	}
+
 	b := prompt.NewPromptBuilder(tmpl)
 	b.SetVariable("loops_context", prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))
 	b.SetVariable("domain_dir", filepath.Join(rickDir, "domain"))
@@ -271,6 +304,9 @@ func (p *PIBuilder) BuildPlan(requirement string, params map[string]string) (met
 	if err != nil {
 		return "", "", fmt.Errorf("failed to build plan prompt: %w", err)
 	}
+
+	// 内联段追加在主产物末尾，作为 pi 可识别的结构化「skill 内联段」。
+	instance += "\n\n---\n\n## 内联技能（单文件内聚）\n\n" + inlineSkills
 	return commandMethod("plan"), instance, nil
 }
 
@@ -291,6 +327,11 @@ func (p *PIBuilder) BuildDoing(taskID string, params map[string]string) (method 
 		return "", "", fmt.Errorf("failed to load doing template: %w", err)
 	}
 
+	doingLoopContent, err := renderDoingLoop(filepath.Join(rickDir, "domain"), "<doing-prompts>/skill_debug_skill.md")
+	if err != nil {
+		return "", "", fmt.Errorf("failed to inline doing loop: %w", err)
+	}
+
 	b := prompt.NewPromptBuilder(tmpl)
 	b.SetVariable("task_info_section", taskFilePath(planDir, taskID))
 	b.SetVariable("requirement", "")
@@ -299,7 +340,7 @@ func (p *PIBuilder) BuildDoing(taskID string, params map[string]string) (method 
 	b.SetVariable("session_wrap_section", "")
 	b.SetVariable("loops_context", prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
-	b.SetVariable("doing_loop_content", renderDoingLoop(filepath.Join(rickDir, "domain"), "<doing-prompts>/skill_debug_skill.md"))
+	b.SetVariable("doing_loop_content", doingLoopContent)
 	b.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
 	b.SetVariable("debug_context", debugDirPath(doingDir))
 	b.SetVariable("orchestration_section", buildOrchestrationSection(doingDir, planDir))
@@ -333,6 +374,16 @@ func (p *PIBuilder) BuildEasy(requirement string, params map[string]string) (met
 		return "", "", fmt.Errorf("failed to load doing template: %w", err)
 	}
 
+	// 单文件内聚：doing_loop + grilling 关键 skill 内容内联进主产物。
+	doingLoopContent, err := renderDoingLoop(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md"))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to inline doing loop: %w", err)
+	}
+	inlineSkills, err := renderInlineSkills([]string{"grilling"})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to inline easy skills: %w", err)
+	}
+
 	b := prompt.NewPromptBuilder(tmpl)
 	b.SetVariable("task_info_section", "")
 	b.SetVariable("requirement", buildRequirementSection(requirement))
@@ -341,7 +392,7 @@ func (p *PIBuilder) BuildEasy(requirement string, params map[string]string) (met
 	b.SetVariable("loops_context", prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	b.SetVariable("debug_context", debugDirPath(doingDir))
-	b.SetVariable("doing_loop_content", renderDoingLoop(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
+	b.SetVariable("doing_loop_content", doingLoopContent)
 	b.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
 	b.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
 	b.SetVariable("orchestration_section", "")
@@ -352,6 +403,9 @@ func (p *PIBuilder) BuildEasy(requirement string, params map[string]string) (met
 	if err != nil {
 		return "", "", fmt.Errorf("failed to build easy prompt: %w", err)
 	}
+
+	// 内联段追加在主产物末尾，作为 pi 可识别的结构化「skill 内联段」。
+	instance += "\n\n---\n\n## 内联技能（单文件内聚）\n\n" + inlineSkills
 	return commandMethod("easy"), instance, nil
 }
 
@@ -473,6 +527,11 @@ func (p *PIBuilder) SaveDoingPrompt(doingDir, planDir, rickDir, jobID string) (p
 		return "", "", nil, fmt.Errorf("failed to load doing template: %w", err)
 	}
 
+	doingLoopContent, err := renderDoingLoop(filepath.Join(rickDir, "domain"), debugSkillFile)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("failed to inline doing loop: %w", err)
+	}
+
 	b := prompt.NewPromptBuilder(tmpl)
 	b.SetVariable("task_info_section", taskFilePath(planDir, ""))
 	b.SetVariable("requirement", "")
@@ -481,7 +540,7 @@ func (p *PIBuilder) SaveDoingPrompt(doingDir, planDir, rickDir, jobID string) (p
 	b.SetVariable("session_wrap_section", "")
 	b.SetVariable("loops_context", prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
-	b.SetVariable("doing_loop_content", renderDoingLoop(filepath.Join(rickDir, "domain"), debugSkillFile))
+	b.SetVariable("doing_loop_content", doingLoopContent)
 	b.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
 	b.SetVariable("debug_context", debugDirPath(doingDir))
 	b.SetVariable("orchestration_section", buildOrchestrationSection(doingDir, planDir))
@@ -542,6 +601,11 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 		return "", "", nil, fmt.Errorf("failed to load doing template: %w", err)
 	}
 
+	doingLoopContent, err := renderDoingLoop(domainDir, debugSkillFile)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("failed to inline doing loop: %w", err)
+	}
+
 	b := prompt.NewPromptBuilder(tmpl)
 	b.SetVariable("task_info_section", "")
 	b.SetVariable("requirement", buildRequirementSection(requirement))
@@ -550,7 +614,7 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 	b.SetVariable("loops_context", prompt.LoadLoopsContext(loopsDir))
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(skillsDir))
 	b.SetVariable("debug_context", debugDirPath(doingDir))
-	b.SetVariable("doing_loop_content", renderDoingLoop(domainDir, debugSkillFile))
+	b.SetVariable("doing_loop_content", doingLoopContent)
 	b.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
 	b.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
 	b.SetVariable("orchestration_section", "")

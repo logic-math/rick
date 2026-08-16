@@ -232,6 +232,26 @@ func TestLoadCoreSkills_Grilling(t *testing.T) {
 	}
 }
 
+func TestReadEmbeddedSkill(t *testing.T) {
+	t.Run("existing_skill", func(t *testing.T) {
+		content, err := ReadEmbeddedSkill("grilling")
+		if err != nil {
+			t.Fatalf("ReadEmbeddedSkill(grilling) failed: %v", err)
+		}
+		if !strings.Contains(content, "Grilling") || !strings.Contains(content, "结构化追问") {
+			t.Error("grilling content should contain 'Grilling' and '结构化追问'")
+		}
+	})
+
+	t.Run("missing_skill_returns_error", func(t *testing.T) {
+		if _, err := ReadEmbeddedSkill("nonexistent-skill-xyz"); err == nil {
+			t.Fatal("expected error for missing skill")
+		} else if !strings.Contains(err.Error(), "nonexistent-skill-xyz") {
+			t.Errorf("error should name the missing skill, got %v", err)
+		}
+	})
+}
+
 func TestTrimSpace(t *testing.T) {
 	tests := []struct {
 		input    string

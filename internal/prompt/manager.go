@@ -208,6 +208,25 @@ func (pm *PromptManager) GetCacheSize() int {
 	return len(pm.cache)
 }
 
+// skillPath maps a skill name to its embedded path under templates/skills/.
+// Names like "tdd/testing-anti-patterns" map to templates/skills/tdd/testing-anti-patterns.md;
+// all other names map to templates/skills/{name}.md.
+func skillPath(name string) string {
+	return "templates/skills/" + name + ".md"
+}
+
+// ReadEmbeddedSkill reads a single embedded skill's raw content by name. It is the
+// cross-package accessor for the unexported skillsFS: builder is a separate package
+// and cannot reach skillsFS directly, so it must go through this exported function.
+// A missing skill returns an error (no panic, no silent empty content).
+func ReadEmbeddedSkill(name string) (string, error) {
+	content, err := skillsFS.ReadFile(skillPath(name))
+	if err != nil {
+		return "", fmt.Errorf("embedded skill %q not found: %w", name, err)
+	}
+	return string(content), nil
+}
+
 // LoadCoreSkills reads embedded skill files by name and returns their concatenated content.
 // Names like "tdd/testing-anti-patterns" map to templates/skills/tdd/testing-anti-patterns.md.
 // All other names map to templates/skills/{name}.md.
@@ -215,7 +234,7 @@ func (pm *PromptManager) GetCacheSize() int {
 func LoadCoreSkills(names []string) string {
 	var parts []string
 	for _, name := range names {
-		path := "templates/skills/" + name + ".md"
+		path := skillPath(name)
 		content, err := skillsFS.ReadFile(path)
 		if err != nil {
 			log.Printf("warn: core skill not found: %s (%v)", path, err)
