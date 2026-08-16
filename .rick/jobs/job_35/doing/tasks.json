@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T04:23:31.370289+08:00",
+  "updated_at": "2026-08-17T04:50:47.124916+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -100,19 +100,20 @@
     {
       "task_id": "task7",
       "task_name": "完成 handler 覆盖 human-loop/ctrl/dream/learning 并让 cli 全量变薄",
+      "task_file": "task7.md",
       "status": "success",
       "dependencies": [
         "task6"
       ],
       "attempts": 0,
+      "commit_hash": "f4f5f0338f2d33ca66b318ff773793fa2238fdf8",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T04:23:31.370289+08:00",
-      "commit_hash": "af47384dfc42fa25e8d2e47753506276bda02bce"
+      "updated_at": "2026-08-17T04:24:56.118348382+08:00"
     },
     {
       "task_id": "task8",
       "task_name": "做薄 cutover：下沉 doing 调度与门禁到 pi，并删除全部冗余 Go 包",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task3",
         "task4",
@@ -122,7 +123,8 @@
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T04:50:47.124916+08:00",
+      "commit_hash": "fc8668374551d509480fa858ad0077e43d6ce826"
     },
     {
       "task_id": "task10",
