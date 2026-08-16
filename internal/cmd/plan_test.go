@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -29,34 +26,10 @@ func TestPromptForRequirement(t *testing.T) {
 	t.Skip("Skipping interactive test - requires stdin mocking")
 }
 
-// TestGenerateJobID tests job ID generation
-func TestGenerateJobID(t *testing.T) {
-	jobID1 := generateJobID()
-	if jobID1 == "" {
-		t.Error("generateJobID returned empty string")
-	}
-	if !strings.HasPrefix(jobID1, "job_") {
-		t.Errorf("expected job ID to start with 'job_', got %s", jobID1)
-	}
-
-	// Verify the format is job_<timestamp>
-	parts := strings.Split(jobID1, "_")
-	if len(parts) != 2 {
-		t.Errorf("expected job ID format 'job_<timestamp>', got %s", jobID1)
-	}
-}
-
-// TestExecutePlanWorkflow tests the planning workflow
+// TestPlanWorkflow tests the planning workflow
 // Note: This test is skipped because it requires actual pi interaction
-func TestExecutePlanWorkflow(t *testing.T) {
+func TestPlanWorkflow(t *testing.T) {
 	t.Skip("Skipping integration test that requires pi - run manually if needed")
-
-	// This test would require mocking the pi interaction
-	// For now, we skip it to avoid blocking CI/CD pipelines
-	//
-	// To test manually:
-	// 1. Ensure pi is installed
-	// 2. Run: go test -v -run TestExecutePlanWorkflow
 }
 
 // TestPlanCmdWithDryRun tests plan command in dry-run mode
@@ -91,10 +64,6 @@ func TestPlanCmdWithEmptyRequirement(t *testing.T) {
 	}
 }
 
-// (The callClaudeCodeCLI mock-binary argv tests moved to the runtime package
-// as TestCallCLI_MockBinaryArgv / TestCallCLI_FailingBinary, covering the
-// runtime.CallCLI subprocess plumbing that replaced callClaudeCodeCLI.)
-
 // TestPlanCmdWithJobFlagDryRun tests plan command with --job flag in dry-run mode
 func TestPlanCmdWithJobFlagDryRun(t *testing.T) {
 	origDryRun := dryRun
@@ -114,76 +83,4 @@ func TestPlanCmdWithJobFlagDryRun(t *testing.T) {
 	if err != nil {
 		t.Errorf("plan command with --job dry-run failed: %v", err)
 	}
-}
-
-// TestReEnterPlanWorkflow_NonExistentJob tests error when job plan dir does not exist
-func TestReEnterPlanWorkflow_NonExistentJob(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	err = reEnterPlanWorkflow("job_999", "test requirement")
-	if err == nil {
-		t.Fatal("expected error for non-existent job plan directory")
-	}
-	if !strings.Contains(err.Error(), "job job_999 plan directory does not exist") {
-		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-// TestExecutePlanWorkflow_WithMockPi tests executePlanWorkflow with mock pi binary
-func TestExecutePlanWorkflow_WithMockPi(t *testing.T) {
-	mockDir := t.TempDir()
-	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(mockDir, "pi")
-	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Isolate HOME so LoadConfig reads this test's config (never the real
-	// ~/.rick/config.json), and point pi_path at the mock pi so the workflow
-	// resolves the mock directly — not the real managed runtime or PATH pi.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	// Write a config with mock pi path
-	cfgContent := fmt.Sprintf(`{"pi_path": "%s"}`, mockPath)
-	cfgDir := filepath.Join(home, ".rick")
-	if err := os.MkdirAll(cfgDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	origPath := os.Getenv("PATH")
-	_ = os.Setenv("PATH", mockDir+":"+origPath)
-	defer os.Setenv("PATH", origPath)
-
-	err = executePlanWorkflow("test requirement")
-	t.Logf("executePlanWorkflow returned: %v", err)
 }

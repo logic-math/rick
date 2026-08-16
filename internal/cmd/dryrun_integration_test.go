@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sunquan/rick/internal/handler"
 )
 
 // TestDryRun_PlanPrintsPrompt verifies that rick plan --dry-run prints the full plan prompt.
@@ -38,7 +40,7 @@ func TestDryRun_PlanPrintsPrompt(t *testing.T) {
 		os.Stdout = old
 	}()
 
-	err = runPlanDryRun()
+	err = handler.PlanDryRun()
 	w.Close()
 
 	var buf bytes.Buffer
@@ -47,7 +49,7 @@ func TestDryRun_PlanPrintsPrompt(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("runPlanDryRun() returned error: %v", err)
+		t.Fatalf("handler.PlanDryRun() returned error: %v", err)
 	}
 
 	// Must contain the dry-run header
@@ -138,7 +140,7 @@ func TestDryRun_PlanPromptContainsJobPlanDir(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = origDryRun }()
 
-	err = runPlanDryRun()
+	err = handler.PlanDryRun()
 	w.Close()
 
 	var buf bytes.Buffer
@@ -147,7 +149,7 @@ func TestDryRun_PlanPromptContainsJobPlanDir(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("runPlanDryRun() returned error: %v", err)
+		t.Fatalf("handler.PlanDryRun() returned error: %v", err)
 	}
 
 	// The plan prompt template uses {{job_plan_dir}} which should be replaced
