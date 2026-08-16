@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T05:30:43.181726+08:00",
+  "updated_at": "2026-08-17T05:31:25.583021028+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -144,6 +144,7 @@
     {
       "task_id": "task11",
       "task_name": "把自然语言 subagent 触发词等价迁移为 pi 显式触发语法",
+      "task_file": "task11.md",
       "status": "success",
       "dependencies": [
         "task5",
@@ -151,14 +152,14 @@
         "task9"
       ],
       "attempts": 0,
+      "commit_hash": "be847c7b98ce070860e35ba56be90b7c52e88a6e",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T05:30:43.181726+08:00",
-      "commit_hash": "386262be21be74e117466df8026ec90835eaeb00"
+      "updated_at": "2026-08-17T05:31:25.582031614+08:00"
     },
     {
       "task_id": "task12",
       "task_name": "三个 O 端到端验收 + README/wiki 文档同步",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task1",
         "task2",
@@ -169,7 +170,8 @@
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T06:01:04.789297",
+      "commit_hash": "a758f6fae396ea85b019dd2d0eff29e7839a559b"
     }
   ]
 }
