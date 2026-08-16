@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T03:13:45.444973+08:00",
+  "updated_at": "2026-08-17T03:44:28.210283+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -70,6 +70,21 @@
     {
       "task_id": "task6",
       "task_name": "落地 handler 调度聚合层并让 cli 变薄（plan/doing/easy）",
+      "task_file": "task6.md",
+      "status": "success",
+      "dependencies": [
+        "task3",
+        "task4",
+        "task5"
+      ],
+      "attempts": 0,
+      "commit_hash": "319e8433a4af8fad251137620fe42402b867e890",
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T03:14:44.093231149+08:00"
+    },
+    {
+      "task_id": "task9",
+      "task_name": "注册 think/research/exporter 为 pi 自定义 agent（经 env 职责 3 落盘）",
       "status": "success",
       "dependencies": [
         "task3",
@@ -78,21 +93,8 @@
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T03:13:45.444973+08:00",
-      "commit_hash": "c9d747010ffbb5b3808487a586d190f9c4398f96"
-    },
-    {
-      "task_id": "task9",
-      "task_name": "注册 think/research/exporter 为 pi 自定义 agent（经 env 职责 3 落盘）",
-      "status": "pending",
-      "dependencies": [
-        "task3",
-        "task4",
-        "task5"
-      ],
-      "attempts": 0,
-      "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T03:44:28.210283+08:00",
+      "commit_hash": "ec24d2d9bf3c173c8724ba81cc75429d1c16e092"
     },
     {
       "task_id": "task7",
