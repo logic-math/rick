@@ -35,7 +35,7 @@ type Trace struct {
 
 // Runtime is the seam for agent runtimes (pi today, dsh later). Handlers depend
 // on this interface rather than a concrete piRuntime, so adding a new runtime
-// means implementing and registering dshRuntime without touching the handlers
+// means implementing and registering the corresponding Runtime without touching the handlers
 // or the method-layer templates.
 //
 // methodText is the method-layer system prompt (rick 方法描述): it is injected

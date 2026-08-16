@@ -12,7 +12,7 @@
 //  4. 提供 pi 功能点就绪 check 函数，不含 session（check.go）
 //
 // 扩展 seam：RuntimeEnv 接口 + piEnv 实现，将来新增 dsh runtime 时只实现
-// dshEnv 并注册，cli/handler 不改。
+// 对应的 RuntimeEnv 并注册，cli/handler 不改。
 package env
 
 import (
@@ -24,7 +24,7 @@ import (
 )
 
 // RuntimeEnv 是 env 抽象的扩展 seam（单一 runtime pi + dsh 预留）。pi 是当前
-// 唯一实现；将来 dsh 只新增 dshEnv（安装方式/扩展机制/定制落盘格式/就绪 check
+// 唯一实现；将来 dsh 只新增对应的 RuntimeEnv（安装方式/扩展机制/定制落盘格式/就绪 check
 // 各自实现）并注册，cli/handler/方法层 templates 不改。
 type RuntimeEnv interface {
 	// Ensure 保证 runtime 就绪（安装/更新 runtime + 生态扩展 + 功能点校验）。

@@ -22,7 +22,7 @@ type AgentDef struct {
 // RuntimeBuilder is the escaping-layer seam for agent runtimes (builder 三件之
 // xxxxbuilder). pi is the only implementation today (PIBuilder). Adding a new
 // runtime (e.g. dsh) only means implementing this interface and registering a
-// dshBuilder — cli/handler/env 不改；与新 runtime 更好适配的信息封装在此层。
+// 对应的 RuntimeBuilder — cli/handler/env 不改；与新 runtime 更好适配的信息封装在此层。
 type RuntimeBuilder interface {
 	// Name returns the runtime identifier ("pi").
 	Name() string
