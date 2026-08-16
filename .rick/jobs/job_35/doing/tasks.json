@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T04:50:47.124916+08:00",
+  "updated_at": "2026-08-17T05:06:44.818648+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -113,6 +113,7 @@
     {
       "task_id": "task8",
       "task_name": "做薄 cutover：下沉 doing 调度与门禁到 pi，并删除全部冗余 Go 包",
+      "task_file": "task8.md",
       "status": "success",
       "dependencies": [
         "task3",
@@ -122,21 +123,22 @@
         "task7"
       ],
       "attempts": 0,
+      "commit_hash": "e06f65b2f9957a9c858f281f2fc36c27be7dcc41",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T04:50:47.124916+08:00",
-      "commit_hash": "fc8668374551d509480fa858ad0077e43d6ce826"
+      "updated_at": "2026-08-17T04:51:39.031977189+08:00"
     },
     {
       "task_id": "task10",
       "task_name": "让 pibuilder 产出单文件内聚的 pi 定制化规范产物",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task5",
         "task8"
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T05:06:44.818648+08:00",
+      "commit_hash": "9058bee3cc5dd50d8287a2bee02647b46a625052"
     },
     {
       "task_id": "task11",
