@@ -115,14 +115,20 @@ task1, task2  （无依赖则留空）
 
 6. **任务分解**：模块化分解，验证无循环依赖，确认可拓扑排序
 
-7. **六维评审**（每个 subagent 独立启动，**串行执行**，上一个完成后再启动下一个）：
-   - subagent_1：一致性检查 —— 任务目标与每个 task{n}.md 的任务目标对齐，确认每个 task 的交付物都能推进对应的 KR
-   - subagent_2：loops/skills 利用检查 —— 检查 `.rick/loops/` 和 `.rick/skills/` 中已有的工作流与技能是否在合适的 task 中被引用和使用
-   - subagent_3：依赖关系完整性 —— 确认所有 task 依赖的库、接口、数据结构在项目中已存在或在前置 task 中会被创建
-   - subagent_4：执行风险推演 —— 阅读项目源码，逐 task 模拟真实执行过程：AI agent 会读哪些文件、调哪些接口、遇到哪些编译错误或运行时异常？暴露可能导致任务失败的风险点与卡点，在 task.md 中提前补充约束说明或修正任务描述
-   - subagent_5：测试用例完整性 —— 参考 skill:tdd（`{{tdd_skill_path}}`）和 skill:testing-anti-patterns（`{{testing_anti_patterns_path}}`），检查每个 task 的测试方法是否覆盖四要素（前置条件/输入参数/操作序列/预期输出），同时验证无测试反模式（如测试 mock 行为、仅用于测试的生产方法等）
-   - subagent_6：端到端验证设计 —— 以用户视角设计可复用的验收测试方法：明确用户操作入口、预期的可观测输出、异常路径的兜底验证，确保交付产物质量可被客观检验
-   - 每个 subagent 输出评审结论后，根据结论修正 task 文件，再启动下一个
+7. **六维评审**（用 `subagent({ workflowScript: ... })` + `runs.all` 并行派发 6 个 `agent:'reviewer'`，`context: "fresh"`，只读评审；结果返回后由你（parent）综合修正 task 文件）：
+   - agent:'reviewer' #1（一致性检查）—— 任务目标与每个 task{n}.md 的任务目标对齐，确认每个 task 的交付物都能推进对应的 KR
+   - agent:'reviewer' #2（loops/skills 利用检查）—— 检查 `.rick/loops/` 和 `.rick/skills/` 中已有的工作流与技能是否在合适的 task 中被引用和使用
+   - agent:'reviewer' #3（依赖关系完整性）—— 确认所有 task 依赖的库、接口、数据结构在项目中已存在或在前置 task 中会被创建
+   - agent:'reviewer' #4（执行风险推演）—— 阅读项目源码，逐 task 模拟真实执行过程：AI agent 会读哪些文件、调哪些接口、遇到哪些编译错误或运行时异常？暴露可能导致任务失败的风险点与卡点，在 task.md 中提前补充约束说明或修正任务描述
+   - agent:'reviewer' #5（测试用例完整性）—— 参考 skill:tdd（`{{tdd_skill_path}}`）和 skill:testing-anti-patterns（`{{testing_anti_patterns_path}}`），检查每个 task 的测试方法是否覆盖四要素（前置条件/输入参数/操作序列/预期输出），同时验证无测试反模式（如测试 mock 行为、仅用于测试的生产方法等）
+   - agent:'reviewer' #6（端到端验证设计）—— 以用户视角设计可复用的验收测试方法：明确用户操作入口、预期的可观测输出、异常路径的兜底验证，确保交付产物质量可被客观检验
+
+   触发语法示例（并行评审 fanout，reviewer 只读、不修改文件）：
+   ```text
+   subagent({ workflowScript: "const r = await runs.all([{ key: 'review1', agent: 'reviewer', task: '一致性检查：任务目标与每个 task.md 对齐' }, { key: 'review2', agent: 'reviewer', task: 'loops/skills 利用检查' }, { key: 'review3', agent: 'reviewer', task: '依赖关系完整性' }, { key: 'review4', agent: 'reviewer', task: '执行风险推演' }, { key: 'review5', agent: 'reviewer', task: '测试用例完整性' }, { key: 'review6', agent: 'reviewer', task: '端到端验证设计' }]); return r.map(x => x.output)" })
+   ```
+
+   **评审后**：你（parent）综合 6 份评审结论，逐条修正 task 文件（单写者：只有你写 task 文件，reviewer 只读）。
 
 8. **格式检查**：逐 task 确认格式完整（# 依赖关系 / # 任务名称 / # 任务目标 / # 关键结果 / # 测试方法），依赖引用存在且无循环依赖；不合格则修复后重新检查，直至通过
 

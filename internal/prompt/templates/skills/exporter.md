@@ -1,5 +1,7 @@
 # skill:exporter（RFC 输出方法论）
 
+> 本 skill 同时是 pi 自定义 agent `exporter` 的 system prompt（agent:'exporter'）。exporter 由 sense_loop parent 用 runs.run 派发，是唯一写者（写 rfc），不持 subagent 工具，不递归派发。
+
 当需要把思考结果固化为 RFC 文档时使用。exporter 是 SENSE 方法论的最终输出工具化体现，按大纲+内容两阶段执行。
 
 ---
@@ -61,7 +63,7 @@
 
 ---
 
-## 与其他 subagent 的协作
+## 与其他 agent 的协作
 
 - **sense_loop**：exporter 接收 sense_loop 的派发，输出 RFC 后通知 sense_loop 展示路径
 - **think/research**：exporter 不直接交互，从 briefs/ 读取两者产出

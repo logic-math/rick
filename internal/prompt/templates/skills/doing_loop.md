@@ -29,7 +29,7 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 ---
 
-## Step 1：Main Agent 确认全局目标
+## Step 1：parent（编排者）确认全局目标
 
 确认以下内容全部清晰后才继续：
 
@@ -38,48 +38,53 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 ---
 
-## Step 2：Main Agent 读取上下文（压缩策略）
+## Step 2：parent 读取上下文（压缩策略）
 
-从 `doing/debug/` 目录读取已有信息，按以下方式压缩后传递给 Sub Agent：
+从 `doing/debug/` 目录读取已有信息，按以下方式压缩后传递给 worker child：
 
 - **bug\*.md** → 从每个文件的 frontmatter `summary` 字段提取摘要，避免重复踩坑
 - **跨轮核心事实** → 任务目标 + Key Results 达成状态 + debug/ 摘要 + 当前迭代编号 N
 
 ---
 
-## Step 3：启动 Sub Agent 执行工作流
+## Step 3：启动 worker child 执行工作流
 
-**每轮迭代由 Main Agent 启动一个独立 Sub Agent，携带 Step 2 的上下文，执行完整工作流后返回产出摘要。**
+**每轮迭代由 parent 用 `runs.run` 启动一个独立 worker child（`agent:'worker'`），携带 Step 2 的上下文，执行完整工作流后返回产出摘要。**
 
 ```
-[Main Agent]
+[parent 编排者]
    │
-   ├─ SPAWN Sub Agent（携带：任务目标 + debug/摘要 + 迭代编号 N）
+   ├─ runs.run 派发 worker child（agent:'worker'，携带：任务目标 + debug/摘要 + 迭代编号 N）
    │     │
-   │     │  Sub Agent 执行：
+   │     │  worker child 执行：
    │     │  [ANALYZE] → [RED] → [GREEN] → [REFACTOR] → [COMMIT]
    │     │                 ↑        │
    │     │                 └──[DEBUG]┘
    │     │
-   │     └─ Sub Agent 完成，输出产出摘要
+   │     └─ worker child 完成，输出产出摘要
    │
-   └─ Main Agent 执行 Step 4 产出评估
+   └─ parent 执行 Step 4 产出评估
 ```
 
-### Sub Agent：ANALYZE（理解需求）
+触发语法（单写者：同一 cwd 只允许一个 worker child 写代码；默认 `async: true`；`context: "fork"` 继承父会话）：
+```text
+subagent({ workflowScript: "return runs.run('doing-N', { agent: 'worker', task: '<任务目标 + debug/摘要 + 迭代编号 N>' })", async: true, context: "fork" })
+```
+
+### worker child：ANALYZE（理解需求）
 1. 声明：`"I will use skill:sense."`，按 S→E→N 分析（Symptoms / Evidence / Next）
 2. 读取 debug/ 摘要，避免重复踩坑
 
-### Sub Agent：RED（先写失败测试）
+### worker child：RED（先写失败测试）
 1. 声明：`"I will use skill:tdd for implementation."`
 2. 针对 `# 测试方法` 中每个场景编写测试
 3. 运行测试，**必须确认 FAIL**（证明测试有效，进入 GREEN 的前提）
 
-### Sub Agent：GREEN（最小实现）
+### worker child：GREEN（最小实现）
 1. 编写让测试通过的最小实现代码（不超出 task scope）
 2. 通过 → REFACTOR；失败 → DEBUG
 
-### Sub Agent：DEBUG（遇红强制触发）
+### worker child：DEBUG（遇红强制触发）
 
 触发条件（任意一条）：测试 FAIL / 编译报错 / 行为与预期不符
 
@@ -91,23 +96,23 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 4. Phase 4 上限 3 次，达上限后输出当前状态并升级人工协作
 5. 修复后回到 GREEN
 
-### Sub Agent：REFACTOR（代码改善）
+### worker child：REFACTOR（代码改善）
 1. 测试全绿后改善代码质量（命名、结构、去重）
 2. 运行全量测试确认无回归；回归失败 → DEBUG
 
-### Sub Agent：COMMIT（收尾提交）
+### worker child：COMMIT（收尾提交）
 1. `git add` + `git commit`（commit message 含 task ID）
 2. 确认门禁（rick-gates）通过：rick 侧会在 pi 会话结束后调用
    `python3 .rick/skills/rick-gates/helper.py <doing_dir>` 校验
    （tasks.json 可解析 / 无 zombie running / success 有 commit_hash）。
 3. 门禁失败 → 修复后由 rick 重试循环收敛，循环直到通过
-4. **Sub Agent 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知 Main Agent 执行 Step 4
+4. **worker child 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知 parent 执行 Step 4
 
 ---
 
-## Step 4：Main Agent 产出评估
+## Step 4：parent 产出评估
 
-Sub Agent 完成后，Main Agent 逐项检查：
+worker child 完成后，parent 逐项检查：
 
 | 检查项 | 判断方法 |
 |--------|----------|
@@ -120,7 +125,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ---
 
-## Step 5：Main Agent 确认停止标准
+## Step 5：parent 确认停止标准
 
 **成功退出**：门禁通过（rick-gates）+ 测试全通过 + 所有 Key Results 达成
 
@@ -129,4 +134,4 @@ Sub Agent 完成后，Main Agent 逐项检查：
 - 连续 2 轮产出相同错误（判断无法自动收敛）
 - 人类明确要求停止
 
-**退出时**：Main Agent 输出 Loop 执行摘要（完成了哪些 KR、遗留了哪些问题），等待人类决策。
+**退出时**：parent 输出 Loop 执行摘要（完成了哪些 KR、遗留了哪些问题），等待人类决策。

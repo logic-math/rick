@@ -8,12 +8,12 @@
 
 ## 角色
 
-research = main agent + 调度器。**不直接调研**,只维护尽调树、配置信源、派发 subagent、整合报告。
+research = child agent（agent:'research'），由 sense_loop parent 用 runs.run 派发。**不递归派发**（research 不持 subagent 工具），只维护尽调树、配置信源、执行叶节点调研、整合报告。
 
 3 个概念:
 1. **尽调树**:每层 MECE 划分(不重复不遗漏),节点产生疑问则下钻
 2. **信源加权**:置信度 = Σ(信源验证结果 × 权重)
-3. **subagent 上下文隔离**:具体调研派给 subagent 落盘
+3. **上下文隔离**:每个叶节点调研在单次 fresh 会话内执行并落盘（research 不持 subagent 工具，不递归派发）
 
 **终止条件**:所有叶节点置信度 = 高(≥ 0.8)。无法达高的叶节点附理由 R7 上报。
 
@@ -44,7 +44,7 @@ research = main agent + 调度器。**不直接调研**,只维护尽调树、配
 LOOP:
   a. 选节点:置信度 < 高的叶节点(优先 think 选出的最高风险假设对应分支)
      全部叶节点置信度 = 高 → 退出
-  b. 派发 subagent(传:节点路径+信源配置+调研动作约束)
+  b. 执行叶节点调研（传:节点路径+信源配置+调研动作约束）
      执行:运行程序 / 修改代码(后 git restore 还原) / 获取信息
      返回:各信源验证结果(0/1)+ 证据 + 疑问点
      落盘:{{loop_dir}}/briefs/research-{N}-{节点路径}.md
@@ -56,7 +56,7 @@ LOOP:
 
 ### Step 3:输出
 
-整合所有 subagent 报告:整合摘要(总节点数/高置信度叶节点数/R7 上报项)+ R7 上报项清单 → 呈现 sense_loop → human 决策。
+整合所有叶节点调研报告:整合摘要(总节点数/高置信度叶节点数/R7 上报项)+ R7 上报项清单 → 呈现 sense_loop → human 决策。
 
 ---
 
@@ -93,7 +93,7 @@ LOOP:
 
 ---
 
-## subagent 派发模板
+## 叶节点调研模板
 
 ```
 节点路径:[根 > 父 > 当前节点]
@@ -103,7 +103,7 @@ LOOP:
 任务:对该节点执行各信源验证,返回结果(0/1)+ 证据 + 疑问点
 ```
 
-subagent 报告写入 `{{loop_dir}}/briefs/research-{N}-{节点路径}.md`,含:执行动作 / 各信源验证结果 / 还原确认 / 疑问点。
+调研报告写入 `{{loop_dir}}/briefs/research-{N}-{节点路径}.md`,含:执行动作 / 各信源验证结果 / 还原确认 / 疑问点。
 
 ---
 
@@ -155,9 +155,9 @@ subagent 报告写入 `{{loop_dir}}/briefs/research-{N}-{节点路径}.md`,含:�
 
 1. 修改代码必须 `git restore` 还原,research 整合前检查 subagent 报告"还原确认"段
 2. 运行程序优先只读命令,写命令需先备份
-3. subagent 不持全树上下文,只接收节点路径+信源配置
-4. subagent 报告必须落盘(供 learning 复盘)
-5. 置信度计算只在 research(避免 subagent 私调权重)
+3. 每个叶节点调研只接收节点路径+信源配置，不持全树上下文
+4. 调研报告必须落盘(供 learning 复盘)
+5. 置信度计算只在 research 本 agent(避免调研环节私调权重)
 
 ---
 
@@ -169,4 +169,4 @@ subagent 报告写入 `{{loop_dir}}/briefs/research-{N}-{节点路径}.md`,含:�
 - 单次调用处理多个子步骤
 - 替 human 判断 R7 上报项(必须呈现给 human 决策)
 - 跳过 MECE 划分原则(每层必须完备+互斥)
-- subagent 私自计算置信度(只返回原始验证结果)
+- 调研环节私自计算置信度(只返回原始验证结果)

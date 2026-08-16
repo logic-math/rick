@@ -68,7 +68,7 @@ mkdir -p ./debug
 
 ### 触发 review debug agent：建立假设时
 
-在 Phase 1 建立假设时，启动 **review debug agent**（subagent）：
+在 Phase 1 建立假设时，启动 **review debug agent**（`agent:'reviewer'`）：
 - 输入：相关源码 + 测试输出 + 已有 debug 记录
 - 任务：大范围读取源码，输出假设列表（每条包含观察证据 + 推断 + 建议）
 - **角色约束**：只输出分析，不执行任何改动，不写文件，输出后即退出
@@ -108,7 +108,7 @@ mkdir -p ./debug
 
 ### 触发 review debug agent：生成假设时
 
-在 Phase 3 生成假设时，启动 **review debug agent**（subagent）：
+在 Phase 3 生成假设时，启动 **review debug agent**（`agent:'reviewer'`）：
 - 输入：测试输出 + 源码 + Phase 1-2 记录
 - 任务：产出 3-5 个有优先级的可证伪假设（每条包含观察证据 + 推断 + 建议验证方法）
 - **角色约束**：只输出分析，不执行任何改动，不写文件，输出后即退出
@@ -220,7 +220,11 @@ FOR each attempt (max 3):
 
 ### 定义
 
-review debug agent 是在调试特定触发点由主 Agent 启动的 subagent，职责是**深度分析**，不执行任何修改。
+review debug agent 是在调试特定触发点由 parent 用 `runs.run` 启动的 `agent:'reviewer'`，职责是**深度分析**，不执行任何修改。触发语法：
+
+```text
+subagent({ workflowScript: "return runs.run('review-debug', { agent: 'reviewer', task: '<相关源码 + 测试输出 + 已有 debug 记录>' })", context: "fresh" })
+```
 
 ### 启动时必须加载 SENSE 方法
 

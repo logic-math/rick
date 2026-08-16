@@ -94,7 +94,7 @@ YOU MUST declare: `"I will use skill:gen-domain."`
 3. 更新环境配置、构建命令等事实到对应文件
 4. 淘汰已不再适用的过时事实（注明淘汰原因）
 
-**父 Agent 验收**：`ls {{domain_dir}}/` 确认文件已更新。
+**parent 验收**：`ls {{domain_dir}}/` 确认文件已更新。
 
 ---
 
@@ -121,27 +121,32 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ---
 
-### Step 7：质量验证（4 个子 Agent 串行）
+### Step 7：质量验证（4 个验证 agent 串行）
 
-**每个子 Agent 完成后，父 Agent 根据结论修正，再启动下一个。**
+**每个验证 agent 完成后，你（parent）根据结论修正，再启动下一个。**
 
-#### subagent_1：Loops/Skills 格式校验
+触发语法（串行验证；单写者——只有你（parent）与 domain 一致性 worker 写文件，其余 reviewer 只读）：
+```text
+subagent({ workflowScript: "const a = await runs.run('verify1', { agent: 'reviewer', task: 'Loops/Skills 格式校验' }); const b = await runs.run('verify2', { agent: 'reviewer', task: '重复与合并检查' }); const c = await runs.run('verify3', { agent: 'reviewer', task: '可用性仿真' }); const d = await runs.run('verify4', { agent: 'worker', task: 'Code↔Domain 一致性检查' }); return { a: a.output, b: b.output, c: c.output, d: d.output }" })
+```
+
+#### agent:'reviewer' #1：Loops/Skills 格式校验
 
 检查本次新增或修改的所有文件：
 
 1. **Loop 文件**（Step 0-5 结构）：
    - frontmatter 含 name / trigger / scope
    - 有 Step 0（环境确认 + domain 搜索）
-   - 有 Step 1（Main Agent 确认全局目标）
-   - 有 Step 2（Main Agent 读取上下文）
-   - 有 Step 3（Sub Agent 工作流，且每个子步骤写明精确命令 + skill 引用）
-   - 有 Step 4（Main Agent 产出评估，含验证表格）
+   - 有 Step 1（parent 确认全局目标）
+   - 有 Step 2（parent 读取上下文）
+   - 有 Step 3（child 工作流，且每个子步骤写明精确命令 + skill 引用）
+   - 有 Step 4（parent 产出评估，含验证表格）
    - 有 Step 5（停止标准，成功退出 + 优雅退出条件）
 2. **Skill 目录**：`{name}_skill/` 目录存在；`skill.md` 含触发场景 / 预期效果 / 核心内容三节
 
 **输出**：格式问题列表；全部合规则输出 ✅
 
-#### subagent_2：重复与合并检查
+#### agent:'reviewer' #2：重复与合并检查
 
 1. 扫描 `{{loops_dir}}/` 所有 loop 文件，识别 trigger 相似度 > 80% 的条目
 2. 扫描 `{{skills_dir}}/` 所有 skill 目录，识别触发场景重叠的条目
@@ -149,7 +154,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：合并候选列表；无重复则输出 ✅
 
-#### subagent_3：可用性仿真
+#### agent:'reviewer' #3：可用性仿真
 
 选取 Step 3 中识别的**最典型跨 job 场景**，仿真验证：
 > 如果 agent 面对该场景，能否从当前 loops/skills 中找到正确的 loop 或 skill 并成功执行？
@@ -160,7 +165,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：仿真结果（✅/❌）+ 盲区列表；若有盲区则补充对应 loop/skill 条目
 
-#### subagent_4：Code ↔ Domain 一致性检查（持续轮询）
+#### agent:'worker' #4：Code ↔ Domain 一致性检查（持续轮询）
 
 检查业务代码与 `{{domain_dir}}/` 中记录的事实是否一致：
 
@@ -225,7 +230,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 {1-3 条建议}
 ```
 
-汇总报告输出：处理的 jobs、loops/skills 变更清单、subagent 验证结果、下次重点。
+汇总报告输出：处理的 jobs、loops/skills 变更清单、验证 agent 结果、下次重点。
 
 ---
 
@@ -238,4 +243,4 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 5. **loop 文件**：`{{loops_dir}}/{name}-loop.md`
 6. **domain 追加不覆盖**：domain 文件只追加新事实，不删除已确认的历史事实
 7. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
-8. **四个子 Agent 串行**：Step 7 的四个子 Agent 串行执行，每个完成后修正再启动下一个
+8. **四个验证 agent 串行**：Step 7 的四个验证 agent（3 个 `agent:'reviewer'` + 1 个 `agent:'worker'`）串行执行，每个完成后修正再启动下一个

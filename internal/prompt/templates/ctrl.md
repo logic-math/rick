@@ -179,6 +179,7 @@ doing/
 - **非侵入**：不终止 doing 进程，只通过文件修改影响未来行为
 - **范围限制**：只能修改 `{{doing_dir}}/` 和 `{{plan_dir}}/` 下的文件
 - **诚实**：日志不存在时如实告知（任务尚未开始执行，或首次运行）
+- **无编排权**：ctrl 是单 agent 只读监控，不持 subagent 工具，不派发任何 child（不触发 `workflowScript`/`runs.run`）
 
 ---
 

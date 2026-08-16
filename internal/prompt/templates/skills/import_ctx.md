@@ -7,7 +7,7 @@ description: 上下文继承 Loop；将父级 .rick 的 loops/skills 迁移到�
 
 仅在 `--ctx` 模式下触发：本次会话继承了父级 .rick 上下文 `{{ctx_path}}`。
 
-在开始处理用户需求之前，先启动一个子 Agent 完成上下文初始化。
+在开始处理用户需求之前，先启动一个 worker child 完成上下文初始化。
 
 ---
 
@@ -36,7 +36,7 @@ description: 上下文继承 Loop；将父级 .rick 的 loops/skills 迁移到�
 
 ---
 
-## 子 Agent 工作流
+## worker child 工作流
 
 ```
 [READ_PARENT] → [FILTER] → [ADAPT] → [WRITE_CANDIDATES]

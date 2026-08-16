@@ -47,7 +47,7 @@ pip install {package}
 
 ---
 
-### Step 1：Main Agent 确认全局目标
+### Step 1：parent（编排者）确认全局目标
 
 描述本 Loop 要达成的目标和成功标准（与 task 的 Key Results 对齐）：
 
@@ -56,7 +56,7 @@ pip install {package}
 
 ---
 
-### Step 2：Main Agent 读取上下文（压缩策略）
+### Step 2：parent 读取上下文（压缩策略）
 
 从 `doing/debug/` 目录读取已有信息：
 
@@ -65,26 +65,26 @@ pip install {package}
 
 ---
 
-### Step 3：启动 Sub Agent 执行工作流
+### Step 3：启动 worker child 执行工作流
 
-**每轮迭代由 Main Agent 启动一个独立 Sub Agent，执行完整工作流后返回产出摘要。**
+**每轮迭代由 parent 用 `runs.run` 启动一个独立 worker child，执行完整工作流后返回产出摘要。**
 
 ```
-[Main Agent]
+[parent 编排者]
    │
-   ├─ SPAWN Sub Agent（携带：任务目标 + debug/摘要 + 迭代编号 N）
+   ├─ runs.run 派发 worker child（agent:'worker'，携带：任务目标 + debug/摘要 + 迭代编号 N）
    │     │
-   │     │  Sub Agent 执行：
+   │     │  worker child 执行：
    │     │  [{Step A}] → [{Step B}] → [COMMIT]
    │     │      ↑              │
    │     │      └──[DEBUG]─────┘
    │     │
-   │     └─ Sub Agent 完成，输出产出摘要
+   │     └─ worker child 完成，输出产出摘要
    │
-   └─ Main Agent 执行 Step 4 产出评估
+   └─ parent 执行 Step 4 产出评估
 ```
 
-**Sub Agent：{Step A 名称}**
+**worker child：{Step A 名称}**
 - 加载 skill：`.rick/{skill_name}_skill/skill.md`
 - **精确命令**（必须写到具体命令，不得模糊描述）：
   ```bash
@@ -93,7 +93,7 @@ pip install {package}
   ```
 - 产出：...
 
-**Sub Agent：{Step B 名称}**
+**worker child：{Step B 名称}**
 - 加载 skill：`.rick/{skill_name}_skill/skill.md`
 - **精确命令**：
   ```bash
@@ -101,13 +101,13 @@ pip install {package}
   ```
 - 产出：...
 
-**Sub Agent：COMMIT**
+**worker child：COMMIT**
 1. `git add` + `git commit`（含 task ID）
 2. 运行 check 命令，循环直到 pass
 
 ---
 
-### Step 4：Main Agent 产出评估
+### Step 4：parent 产出评估
 
 **调用验证 skill**：`.rick/{verify_skill}_skill/skill.md`
 
@@ -121,7 +121,7 @@ pip install {package}
 
 ---
 
-### Step 5：Main Agent 确认停止标准
+### Step 5：parent 确认停止标准
 
 **成功退出**：所有 Key Results 达成，check pass
 
@@ -130,7 +130,7 @@ pip install {package}
 - 连续 2 轮产出相同错误
 - 人类明确要求停止
 
-**退出时**：Main Agent 输出 Loop 执行摘要，等待人类决策。
+**退出时**：parent 输出 Loop 执行摘要，等待人类决策。
 
 ---
 
@@ -159,7 +159,7 @@ pip install {package}
    - 有相似 loop → 优先升级已有 loop（补充新步骤、完善依赖或评估标准），不创建新文件
    - 无相似 loop → 按上述 Step 0-5 格式编写新 {name}-loop.md
 4. Step 0 填写依赖准备（从 runtime-trace 的环境配置步骤提取）
-5. Step 3 填写每个 Sub Agent Step 引用的 skill 路径
+5. Step 3 填写每个 worker child Step 引用的 skill 路径
 6. Step 4 填写产出评估的验证 skill
 7. 写入 {{loops_dir}}/{name}-loop.md
 ```
@@ -170,7 +170,7 @@ pip install {package}
 
 - trigger 足够具体，能判断何时激活
 - Step 0 依赖准备完整，新环境可直接运行
-- **Step 3 每个 Sub Agent Step 必须写明精确的 shell 命令**（`go test ./internal/...` 而非"运行测试"）
-- Step 3 每个 Sub Agent Step 明确引用对应 skill（`.rick/{name}_skill/skill.md`）
+- **Step 3 每个 worker child Step 必须写明精确的 shell 命令**（`go test ./internal/...` 而非"运行测试"）
+- Step 3 每个 worker child Step 明确引用对应 skill（`.rick/{name}_skill/skill.md`）
 - Step 4 产出评估有具体验证 skill 和精确验证命令
 - Step 5 停止标准可量化，不依赖主观判断

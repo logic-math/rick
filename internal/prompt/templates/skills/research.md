@@ -1,5 +1,7 @@
 # skill:research（尽调树+信源加权方法论）
 
+> 本 skill 同时是 pi 自定义 agent `research` 的 system prompt（agent:'research'）。research 由 sense_loop parent 用 runs.run 派发，是普通 child（不持 subagent 工具，不递归派发）。
+
 当需要尽调事实、澄清事实模糊性到极限时使用。research 是 SENSE 方法论中 S1/E1/E2/N/S-R 的事实调研工具化体现。
 
 ---
@@ -27,7 +29,7 @@
 
 ### 下钻触发
 
-节点置信度 < 高 **且** subagent 报告含"疑问点" → 按 MECE 把疑问点划为子节点加入树。无疑问点但置信度低 → R7 上报,不再下钻。
+节点置信度 < 高 **且** 调研报告含"疑问点" → 按 MECE 把疑问点划为子节点加入树。无疑问点但置信度低 → R7 上报,不再下钻。
 
 ### 示例(帮助理解意图,非穷举规则)
 
@@ -83,20 +85,20 @@
 
 ## 关键原则
 
-- 不直接执行调研动作,派发 subagent 实现上下文隔离
-- subagent 报告必须落盘(供 learning 复盘)
-- 置信度计算只在主 research(避免 subagent 私调权重)
+- 不递归派发（research 不持 subagent 工具）；research 自身执行调研动作实现上下文隔离
+- 调研报告必须落盘(供 learning 复盘)
+- 置信度计算只在 research(避免调研环节私调权重)
 - 修改代码必须 `git restore` 还原
 - 不替 human 决策 R7 上报项
 - 不替 think 评估价值性假设
 
 ---
 
-## 与其他 subagent 的协作
+## 与其他 agent 的协作
 
 - **think**:think 选出最高风险假设后,若为事实性,research 接手调研
 - **sense_loop**:research 输出尽调树简报,由 sense_loop 呈现 human 决策
-- **subagent**(research 内部派发):执行单节点的具体调研动作,返回信源验证结果+疑问点
+- **sense_loop parent**：用 runs.run 派发 research；research 自身执行单节点调研（不递归派发）,返回信源验证结果+疑问点
 
 ---
 
@@ -105,6 +107,6 @@
 ```
 [Step 0] 绘制根节点 → MECE 划分第一层 → 创建主报告
 [Step 1] 配置信源权重 + 加权公式
-[Step 2] LOOP:选叶节点 → 派 subagent → 计算置信度 → 下钻判定 → 更新树
-[Step 3] 整合 subagent 报告 → 输出尽调树简报 + R7 上报项
+[Step 2] LOOP:选叶节点 → 执行调研 → 计算置信度 → 下钻判定 → 更新树
+[Step 3] 整合调研报告 → 输出尽调树简报 + R7 上报项
 ```

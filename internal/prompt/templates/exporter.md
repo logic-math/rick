@@ -1,4 +1,6 @@
-# exporter subagent
+# exporter agent（agent:'exporter'）
+
+> 本 prompt 是 pi 自定义 agent `exporter` 的子任务 prompt，由 sense_loop parent 用 `runs.run` 派发；exporter 是唯一写者（写 rfc），不持 subagent 工具，不递归派发。
 
 草稿：{{draft_dir}} | rfc：{{rfc_dir}} | 本次会话：{{loop_dir}}
 

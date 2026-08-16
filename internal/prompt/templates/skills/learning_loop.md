@@ -1,6 +1,6 @@
 ---
 name: learning-loop
-description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4 产出需人类反复审核，直至沉淀完成
+description: Learning 阶段 Loop；每个 Step 由 parent 用 runs.run 派发独立 worker child，Step 3-4 产出需人类反复审核，直至沉淀完成
 ---
 
 ## 全局目标
@@ -31,18 +31,23 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 ## 工作流
 
-**每个 Step 由父 Agent 启动一个独立子 Agent 执行。Step 3-4 完成后需人类审核，审核未通过则重新迭代。**
+**每个 Step 由 parent 用 `runs.run` 派发一个独立 worker child（`agent:'worker'`）执行。Step 3-4 完成后需人类审核，审核未通过则重新迭代。单写者：同一时间只有一个 child 写 skills/loops/domain。**
+
+触发语法（串行派发 worker child；默认 `async: true`）：
+```text
+subagent({ workflowScript: "const s1 = await runs.run('learning-step1', { agent: 'worker', task: '分析执行记录' }); const s2 = await runs.run('learning-step2', { agent: 'worker', task: '评估 runtime-trace' }); return { step1: s1.output, step2: s2.output }" })
+```
 
 ```
-[父 Agent]
+[parent 编排者]
    │
-   ├─ SPAWN Step 1 子 Agent → 分析执行记录 → 父 Agent 验收
+   ├─ runs.run 派发 Step 1 worker child → 分析执行记录 → parent 验收
    │
-   ├─ SPAWN Step 2 子 Agent → 评估 runtime-trace → 父 Agent 验收
+   ├─ runs.run 派发 Step 2 worker child → 评估 runtime-trace → parent 验收
    │
-   ├─ SPAWN Step 3 子 Agent → 提取 Skill → 父 Agent 验收
+   ├─ runs.run 派发 Step 3 worker child → 提取 Skill → parent 验收
    │
-   ├─ SPAWN Step 4 子 Agent → 提取 Loop → 父 Agent 验收
+   ├─ runs.run 派发 Step 4 worker child → 提取 Loop → parent 验收
    │
    ├─ [人类审核 Skills & Loops] ←──────────────────────────┐
    │     │                                                  │
@@ -50,16 +55,16 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
    │     │                                                  │
    │     └─ 需修改 → 重启 Step 3/4 ────────────────────────────┘
    │
-   ├─ SPAWN Step 5 子 Agent → 整理 Domain 事实 → 父 Agent 验收
+   ├─ runs.run 派发 Step 5 worker child → 整理 Domain 事实 → parent 验收
    │
-   ├─ SPAWN Step 6 子 Agent → 生成 SUMMARY.md → 父 Agent 验收
+   ├─ runs.run 派发 Step 6 worker child → 生成 SUMMARY.md → parent 验收
    │
-   └─ SPAWN Step 7 子 Agent → 运行 learning_check → [DONE] ✅
+   └─ runs.run 派发 Step 7 worker child → 运行 learning_check → [DONE] ✅
 ```
 
 ---
 
-### Step 1 子 Agent：分析执行记录（硬约束，必须完成）
+### Step 1 worker child：分析执行记录（硬约束，必须完成）
 
 **1a. 分析 debug/**
 
@@ -74,11 +79,11 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 - 报错次数与修复路径
 - 执行耗时与关键决策点
 
-**父 Agent 验收**：子 Agent 输出包含每个 task 的轨迹摘要，且 debug 分析结论明确。
+**parent 验收**：child 输出包含每个 task 的轨迹摘要，且 debug 分析结论明确。
 
 ---
 
-### Step 2 子 Agent：评估更合理的 runtime-trace
+### Step 2 worker child：评估更合理的 runtime-trace
 
 针对每个 task 评估：
 1. 是否存在冗余工具调用（可合并或省略）？
@@ -87,11 +92,11 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 为路径最长或报错最多的 1-2 个 task 输出改进建议。
 
-**父 Agent 验收**：子 Agent 输出包含具体改进建议。
+**parent 验收**：child 输出包含具体改进建议。
 
 ---
 
-### Step 3 子 Agent：提取可复用 Skill
+### Step 3 worker child：提取可复用 Skill
 
 声明：`"I will use skill:gen-skill."`
 
@@ -101,11 +106,11 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 - 主文件写入 `{{skills_dir}}/{name}_skill/skill.md`
 - 如有辅助脚本，写入同目录的 `.py` 文件
 
-**父 Agent 验收**：`ls {{skills_dir}}/` 确认目录已创建（如无可提取的 skill 则跳过）。
+**parent 验收**：`ls {{skills_dir}}/` 确认目录已创建（如无可提取的 skill 则跳过）。
 
 ---
 
-### Step 4 子 Agent：提取 Loop 模式
+### Step 4 worker child：提取 Loop 模式
 
 声明：`"I will use skill:gen-loop."`
 
@@ -116,13 +121,13 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 - ✅ 每个 Step 引用对应的 `.rick/{name}_skill/skill.md`
 - ✅ 有具体的产出评估 skill
 
-**父 Agent 验收**：`ls {{loops_dir}}/*.md` 确认文件已写入（如无可识别的 loop 则跳过）。
+**parent 验收**：`ls {{loops_dir}}/*.md` 确认文件已写入（如无可识别的 loop 则跳过）。
 
 ---
 
 ### 人类审核 Skills & Loops
 
-**父 Agent 向人类展示产出摘要后，等待人类反馈：**
+**parent 向人类展示产出摘要后，等待人类反馈：**
 
 ```
 已生成：
@@ -130,17 +135,17 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 - Loops:  ls {{loops_dir}}/
 
 请审核上述产出，确认后输入 "approved" 继续，
-或指出需要修改的内容，父 Agent 将重新启动对应 Step。
+或指出需要修改的内容，parent 将重新启动对应 Step。
 ```
 
 **迭代规则**：
-- 人类要求修改 skill → 重启 Step 3 子 Agent（携带修改意见）
-- 人类要求修改 loop → 重启 Step 4 子 Agent（携带修改意见）
+- 人类要求修改 skill → 重启 Step 3 worker child（携带修改意见）
+- 人类要求修改 loop → 重启 Step 4 worker child（携带修改意见）
 - 人类输入 "approved" → 进入 Step 5
 
 ---
 
-### Step 5 子 Agent：整理 Domain 事实知识
+### Step 5 worker child：整理 Domain 事实知识
 
 声明：`"I will use skill:gen-domain."`
 
@@ -151,11 +156,11 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 - 构建/测试命令事实 → `{{domain_dir}}/build.md`（追加）
 - 其他主题事实 → `{{domain_dir}}/{topic}.md`
 
-**父 Agent 验收**：`ls {{domain_dir}}/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
+**parent 验收**：`ls {{domain_dir}}/` 确认有更新（如本次 job 无新事实则跳过，说明原因）。
 
 ---
 
-### Step 6 子 Agent：生成 SUMMARY.md
+### Step 6 worker child：生成 SUMMARY.md
 
 ⚠️ **前置检查**：Step 1a 必须已完成，且人类已审核通过 Skills & Loops。
 
@@ -190,11 +195,11 @@ APPROVED: true
 - [ ] loops/{name}-loop.md - loop 描述（如有）
 ```
 
-**父 Agent 验收**：`{{learning_dir}}/SUMMARY.md` 存在，首行为 `APPROVED: true`。
+**parent 验收**：`{{learning_dir}}/SUMMARY.md` 存在，首行为 `APPROVED: true`。
 
 ---
 
-### Step 7 子 Agent：运行 learning_check
+### Step 7 worker child：运行 learning_check
 
 ```bash
 {{rick_bin_path}} tools learning_check {{job_id}}
@@ -202,7 +207,7 @@ APPROVED: true
 
 失败则修复后重新运行，直至通过。
 
-**父 Agent 验收**：命令输出 `✅ learning check passed`。
+**parent 验收**：命令输出 `✅ learning check passed`。
 
 ---
 
@@ -219,7 +224,7 @@ APPROVED: true
 
 ## 停止标准
 
-**完成退出**：Step 7 子 Agent 的 learning_check pass，且人类已审核确认。
+**完成退出**：Step 7 worker child 的 learning_check pass，且人类已审核确认。
 
 **优雅退出**：人类明确要求停止。
 
@@ -227,7 +232,7 @@ APPROVED: true
 
 ## ⚠️ 约束
 
-1. **Step 1a 是硬约束**：未完成 Step 1a 禁止启动 Step 6 子 Agent（SUMMARY）
+1. **Step 1a 是硬约束**：未完成 Step 1a 禁止启动 Step 6 worker child（SUMMARY）
 2. **人类审核是必经环节**：Step 3-4 产出未经人类确认，不得进入 Step 5（Domain）
 3. **skill 目录结构**：`{{skills_dir}}/{name}_skill/skill.md`
 4. **loop 文件**：`{{loops_dir}}/{name}-loop.md`
