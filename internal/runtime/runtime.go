@@ -6,9 +6,19 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/sunquan/rick/internal/agent"
 	"github.com/sunquan/rick/internal/config"
 )
+
+// ToolCall is a single tool invocation within a runtime session. It replaces
+// the deleted internal/agent.ToolCall — the runtime is now the sole owner of
+// the session/trace vocabulary (there is no second agent runtime to abstract).
+type ToolCall struct {
+	Name    string
+	Input   string
+	Output  string
+	Line    int
+	IsError bool
+}
 
 // Trace is the behavioral trace of a single runtime run. It carries the same
 // information the old act-path + session pair held: the session identity, the
@@ -16,7 +26,7 @@ import (
 // self-timed duration, and whether the runtime reported a clean settle.
 type Trace struct {
 	SessionID    string
-	ToolCalls    []agent.ToolCall
+	ToolCalls    []ToolCall
 	FinalMessage string
 	RawLogPath   string
 	Duration     time.Duration
@@ -54,23 +64,21 @@ func (r *piRuntime) Name() string { return "pi" }
 
 // Run launches pi for one prompt and returns the parsed session id + trace.
 //
-// methodText (the method layer) is written to a temp file and injected through
-// `--append-system-prompt <methodFile>` — a session-preparation injection that
-// preserves pi's default skeleton and avoids passing long text inline. The temp
-// file is created by the runtime and removed on return (defer cleanup, deleted
-// once used). promptFile is passed last as the user prompt (instance context).
+// The runtime contract (task8 Execute→Run switch): returning a non-empty
+// sessionID means the run succeeded. If the JSONL stream never produced a
+// session id or never emitted agent_settled (the session did not settle), Run
+// returns an error so the caller (handler) can apply its retry safety net.
 //
-// This is the runtime contract's skeleton: it is not yet wired into handlers
-// (task8 performs the Execute→Run switch). The AgentExecutor-compatible Execute
-// below remains the wired entry point for the structured doing path.
+// methodText (the method layer) is written to a temp file and injected through
+// `--append-system-prompt <methodFile>`. promptFile is passed last as the user
+// prompt (instance context). The temp method file is removed on return.
 func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config) (string, *Trace, error) {
 	piBin := r.piPath
 	if piBin == "" {
 		piBin = piPathOrDefault(cfg)
 	}
 
-	// Method layer → temp file → --append-system-prompt <methodFile>. The runtime
-	// owns the temp file and deletes it once pi has consumed it (defer).
+	// Method layer → temp file → --append-system-prompt <methodFile>.
 	var methodFile string
 	if methodText != "" {
 		f, err := os.CreateTemp("", "rick-method-*.md")
@@ -90,8 +98,7 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 		defer os.Remove(methodFile)
 	}
 
-	// Raw JSONL log: parseStream persists the event stream for the trace. The
-	// skeleton keeps it in a temp file (task8 routes it to the job dir).
+	// Raw JSONL log: the runtime persists the event stream for the trace.
 	rawLog, err := os.CreateTemp("", "rick-raw-*.log")
 	if err != nil {
 		return "", nil, fmt.Errorf("create raw log temp file: %w", err)
@@ -112,7 +119,7 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 	}
 
 	cmd := exec.Command(piBin, args...)
-	// rick-managed pi config isolation (same as CallCLI / Execute).
+	// rick-managed pi config isolation (same as CallCLI).
 	cmd.Env = AgentEnv()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -136,5 +143,12 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 		Duration:     sess.duration,
 		Settled:      sess.settled,
 	}
+
+	// Readiness contract: a run that never settled (or produced no session id)
+	// is a failure from the caller's perspective.
+	if !isSessionReady(sess.sessionID, sess.settled) {
+		return "", trace, fmt.Errorf("pi session did not settle (sessionID=%q settled=%v)", sess.sessionID, sess.settled)
+	}
+
 	return sess.sessionID, trace, nil
 }

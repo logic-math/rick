@@ -11,36 +11,26 @@ doing 阶段 task 失败重试时，需要理解或调整失败信息如何传�
 
 ## 核心内容
 
-### 失败信息流转
+### 失败信息流转（task8 后）
 
 ```
-ExecuteTestScript 返回 testOutput
-    → RunTask 构造 result.Error（含 Full test output: ...）
-    → RetryTask 生成 "=== Attempt N ===\n{error}" 条目
-    → appendFailureFeedback（最近2条，3000字符）
-    → GenerateDoingPromptFile 注入 testErrorFeedback
-    → 下一轮 Claude Agent
+pi 会话未 settle / 任务未完成 / 门禁失败
+    → runtime.Run 返回 error（未解析出 sessionID 或未收 agent_settled）
+    → rick-gates helper.py 校验（可解析 / 无 zombie / success 有 commit_hash）
+    → handler.Doing 重试循环（上限 cfg.MaxRetries）
+    → 重新生成「只含剩余 pending」的 workflowScript 编排
 ```
 
-### appendFailureFeedback 算法
+### 重试收敛
 
-- 按 `=== Attempt ` 分割现有条目
-- 追加新条目，只保留最近 `maxEntries`（默认 2）条
-- 合并后超 `maxBytes`（默认 3000）时从尾部截断，对齐到行边界
+- rick 侧薄重试循环仅作为兜底安全网（非正确性前提）。
+- 每次重试重新计算剩余拓扑（生成期过滤 status=success），已完成 task 天然不在编排里。
+- 上限为 `cfg.MaxRetries`（默认 3），超限后把最后的门禁/未 settle 错误返回给上层。
 
-### 调试：查看传递给下一轮的 prompt
+### 调试：查看重试信息
 
-doing prompt 执行后默认被删除。临时调试时注释掉 runner.go 中的删除逻辑：
-```go
-// defer os.Remove(doingPromptFile)  // 注释以保留文件
-```
-
-### 调整参数（internal/executor/retry.go）
-
-```go
-// 保留最近条数（默认2）和字符上限（默认3000）
-testErrorFeedback = appendFailureFeedback(testErrorFeedback, newEntry, 2, 3000)
-```
+- `doing/prompts/doing_prompt.md` 持久化落盘，可直接查看当前轮的 workflowScript 编排。
+- `doing/tasks.json` 记录每个 task 的状态与 commit_hash。
 
 ### 为什么完整 testOutput 重要
 

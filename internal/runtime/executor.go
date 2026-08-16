@@ -3,14 +3,13 @@
 // pi is a Node.js/TypeScript coding agent (@earendil-works/pi-coding-agent) that
 // rick shells out to as its agent runtime. rick acts as a bootloader: it
 // deterministically assembles prompts/files and drives pi, which provides the
-// actual agentic execution. See RFC rfc-rick-pi-迁移的价值基础与架构定位-2026-08-10.
+// actual agentic execution.
 //
-// This file implements the AgentExecutor interface (the structured doing.go path)
-// using pi's `--mode json` output: a JSONL event stream over stdout. pi's event
-// schema differs from claude code's stream-json NDJSON (see research-5-N2 /
-// research-7-N4): fields are camelCase, termination is the `agent_settled` event
-// (no `result` line), tool calls are `tool_execution_start`/`tool_execution_end`
-// events (not content blocks), and pi emits no duration (rick self-times).
+// This file implements the pi `--mode json` event-stream parser. pi's event
+// schema differs from claude code's stream-json NDJSON: fields are camelCase,
+// termination is the `agent_settled` event (no `result` line), tool calls are
+// `tool_execution_start`/`tool_execution_end` events (not content blocks), and
+// pi emits no duration (rick self-times).
 package runtime
 
 import (
@@ -20,99 +19,30 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"time"
-
-	"github.com/sunquan/rick/internal/agent"
 )
 
-// Executor runs the pi binary in `--mode json` mode and parses its JSONL event stream.
-type Executor struct {
-	piPath    string
-	extraArgs []string // extra pi flags (e.g. --provider/--model/--api-key) from config
-}
-
-// NewExecutor creates a pi agent executor. piPath may be empty (resolve "pi" via
-// PATH). extraArgs are passed through to pi before the prompt file — use them to
-// configure provider/model/api-key (pi does not read these from env vars).
-func NewExecutor(piPath string, extraArgs ...string) *Executor {
-	return &Executor{piPath: piPath, extraArgs: extraArgs}
-}
-
-// Execute runs pi for a single prompt file and returns the parsed session.
-// It shells out to `pi --mode json [extraArgs] <promptFile>` (per-prompt subprocess,
-// isomorphic to the previous claude `stream-json` invocation). pi has no permission
-// popups, so no `--dangerously-skip-permissions` flag is needed.
-func (e *Executor) Execute(promptFile, taskID, workspaceDir, logFileName string) (agent.AgentSession, error) {
-	dir := filepath.Join(workspaceDir, "tasks", taskID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
-	}
-	if logFileName == "" {
-		logFileName = "raw_session_coding.log"
-	}
-	rawLogPath, err := filepath.Abs(filepath.Join(dir, logFileName))
-	if err != nil {
-		return nil, err
-	}
-
-	piBin := e.piPath
-	if piBin == "" {
-		if bin := RuntimeBin(); FileExists(bin) {
-			piBin = bin
-		} else {
-			piBin = "pi"
-		}
-	}
-
-	// pi json mode: JSONL event stream over stdout (session header + events + agent_settled).
-	args := append([]string{"--mode", "json"}, e.extraArgs...)
-	args = append(args, promptFile)
-	cmd := exec.Command(piBin, args...)
-	// rick-managed pi config isolation (same as CallCLI): pi reads its settings/
-	// extensions/themes from ~/.rick/pi/agent, not the user's ~/.pi.
-	cmd.Env = AgentEnv()
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	sess, parseErr := parseStream(stdout, rawLogPath)
-	cmd.Wait() //nolint
-	return sess, parseErr
-}
-
 // --- JSONL event types ---
-//
-// pi emits one JSON object per line. The schema below is derived from the
-// research briefs (research-5-N2 / research-7-N4, which read pi's source:
-// rpc-types.ts, agent-session.ts, agent-loop.ts). Field names are camelCase.
-// CAUTION: the exact wrapper shape was captured from source that is no longer
-// available; calibrate against real `pi --mode json` output once pi is installed.
 
 type piEvent struct {
-	Type       string          `json:"type"`       // "session"/"agent_start"/"message_end"/"tool_execution_start"/"tool_execution_end"/"agent_settled"/...
-	ID         string          `json:"id"`         // session header id
-	SessionID  string          `json:"sessionId"`  // alternative session id (camelCase)
-	ToolCallID string          `json:"toolCallId"` // tool events
-	ToolName   string          `json:"toolName"`   // tool_execution_start
-	Args       json.RawMessage `json:"args"`       // tool_execution_start
-	Result     json.RawMessage `json:"result"`     // tool_execution_end
-	IsError    bool            `json:"isError"`    // tool_execution_end
-	Message    *piMessage      `json:"message"`    // message_end
+	Type       string          `json:"type"`
+	ID         string          `json:"id"`
+	SessionID  string          `json:"sessionId"`
+	ToolCallID string          `json:"toolCallId"`
+	ToolName   string          `json:"toolName"`
+	Args       json.RawMessage `json:"args"`
+	Result     json.RawMessage `json:"result"`
+	IsError    bool            `json:"isError"`
+	Message    *piMessage      `json:"message"`
 }
 
 type piMessage struct {
-	Role    string      `json:"role"` // "user" / "assistant" — only assistant text is the final message
+	Role    string      `json:"role"`
 	Content []piContent `json:"content"`
 }
 
 type piContent struct {
-	Type string `json:"type"` // "text"
+	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
@@ -120,8 +50,8 @@ type piContent struct {
 
 type piSession struct {
 	sessionID        string
-	toolCalls        []agent.ToolCall
-	toolCallIDs      []string // parallel to toolCalls, for matching end→start by toolCallId
+	toolCalls        []ToolCall
+	toolCallIDs      []string
 	finalMessage     string
 	finalMessageLine int
 	rawLogPath       string
@@ -130,25 +60,13 @@ type piSession struct {
 	settled          bool
 }
 
-func (s *piSession) ID() string                  { return s.sessionID }
-func (s *piSession) Duration() time.Duration     { return s.duration }
-func (s *piSession) ToolCalls() []agent.ToolCall { return s.toolCalls }
-func (s *piSession) FinalMessage() string        { return s.finalMessage }
-func (s *piSession) FinalMessageLine() int       { return s.finalMessageLine }
-func (s *piSession) RawLogPath() string          { return s.rawLogPath }
-
-func (s *piSession) GetRawLogPath() string { return s.rawLogPath }
-
-// isSessionReady reports whether a parsed pi session is ready to serve as the
-// runtime's result: a non-empty session ID plus the agent_settled termination
-// signal. It is deliberately extracted (and not yet wired into Execute) so the
-// readiness contract is explicit and independently testable. Note that a
-// session without agent_settled is not an error — parseStream still returns the
-// partial session with fallback timing — so callers decide readiness, not the
-// parser.
-func isSessionReady(sessionID string, settled bool) bool {
-	return sessionID != "" && settled
-}
+func (s *piSession) ID() string               { return s.sessionID }
+func (s *piSession) Duration() time.Duration  { return s.duration }
+func (s *piSession) ToolCalls() []ToolCall    { return s.toolCalls }
+func (s *piSession) FinalMessage() string     { return s.finalMessage }
+func (s *piSession) FinalMessageLine() int    { return s.finalMessageLine }
+func (s *piSession) RawLogPath() string       { return s.rawLogPath }
+func (s *piSession) GetRawLogPath() string    { return s.rawLogPath }
 
 func (s *piSession) GetErrorCount() int {
 	count := 0
@@ -158,6 +76,15 @@ func (s *piSession) GetErrorCount() int {
 		}
 	}
 	return count
+}
+
+// isSessionReady reports whether a parsed pi session is ready to serve as the
+// runtime's result: a non-empty session ID plus the agent_settled termination
+// signal. A session without agent_settled is not an error at parse time
+// (parseStream still returns the partial session with fallback timing) — the
+// caller (Run) decides readiness.
+func isSessionReady(sessionID string, settled bool) bool {
+	return sessionID != "" && settled
 }
 
 // --- core parser ---
@@ -171,7 +98,7 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 
 	sess := &piSession{rawLogPath: rawLogPath, startTime: time.Now()}
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024*1024), 64*1024*1024) // 64MB per line for large tool outputs
+	scanner.Buffer(make([]byte, 64*1024*1024), 64*1024*1024)
 	lineNo := 0
 
 	for scanner.Scan() {
@@ -189,11 +116,9 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 			continue
 		}
 
-		// Track session id from any line that carries one (header / state events).
 		if ev.SessionID != "" {
 			sess.sessionID = ev.SessionID
 		} else if ev.ID != "" && sess.sessionID == "" {
-			// First-line session header typically exposes `id` without a sessionId.
 			sess.sessionID = ev.ID
 		}
 
@@ -205,9 +130,6 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 			if ev.Message == nil {
 				continue
 			}
-			// Only the assistant's final message is the agent's output; pi also
-			// emits message_end for the user turn (echoing the prompt), which we
-			// must not mistake for the agent's reply.
 			if ev.Message.Role != "assistant" {
 				continue
 			}
@@ -219,7 +141,7 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 			}
 		case "tool_execution_start":
 			input := truncate(string(ev.Args), 300)
-			sess.toolCalls = append(sess.toolCalls, agent.ToolCall{
+			sess.toolCalls = append(sess.toolCalls, ToolCall{
 				Name:  ev.ToolName,
 				Input: input,
 				Line:  lineNo,
@@ -236,8 +158,6 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 		}
 	}
 
-	// If pi never emitted agent_settled (e.g. crashed or non-termination), still
-	// record elapsed time so Duration() is meaningful.
 	if !sess.settled {
 		sess.duration = time.Since(sess.startTime)
 	}
@@ -245,10 +165,9 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 	return sess, scanner.Err()
 }
 
-// matchToolCall resolves a tool_execution_end event to the tool_execution_start
-// it pairs with. It prefers an exact toolCallId match; if none (or empty id), it
-// falls back to the most recent tool call without a recorded output — mirroring
-// the previous claude parser's "last tool call" behavior.
+// matchToolCall resolves a tool_execution_end event to its start. Prefers an
+// exact toolCallId match; otherwise falls back to the most recent tool call
+// without a recorded output.
 func matchToolCall(sess *piSession, toolCallID string) int {
 	if toolCallID != "" {
 		for i, id := range sess.toolCallIDs {

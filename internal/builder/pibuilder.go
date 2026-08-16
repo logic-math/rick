@@ -274,17 +274,14 @@ func (p *PIBuilder) BuildPlan(requirement string, params map[string]string) (met
 	return commandMethod("plan"), instance, nil
 }
 
-// BuildDoing renders the doing method + instance，task_info_section/debug_context
-// 注入路径（非内容）。params 约定键：rick_dir/plan_dir/doing_dir/job_id/check_command。
+// BuildDoing renders the doing method + instance（task_info_section/debug_context
+// 注入路径；orchestration_section 注入 pi workflowScript 编排）。params 约定键：
+// rick_dir/plan_dir/doing_dir/job_id。taskID 可选（task_info_section 的路径片段）。
 func (p *PIBuilder) BuildDoing(taskID string, params map[string]string) (method string, instance string, err error) {
 	rickDir := getParam(params, "rick_dir")
 	planDir := getParam(params, "plan_dir")
 	doingDir := getParam(params, "doing_dir")
 	jobID := getParam(params, "job_id")
-	checkCommand := getParam(params, "check_command")
-	if checkCommand == "" {
-		checkCommand = "doing_check"
-	}
 	if jobID == "" {
 		jobID = "job_N"
 	}
@@ -304,10 +301,9 @@ func (p *PIBuilder) BuildDoing(taskID string, params map[string]string) (method 
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	b.SetVariable("doing_loop_content", renderDoingLoop(filepath.Join(rickDir, "domain"), "<doing-prompts>/skill_debug_skill.md"))
 	b.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
-	b.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 	b.SetVariable("debug_context", debugDirPath(doingDir))
+	b.SetVariable("orchestration_section", buildOrchestrationSection(doingDir, planDir))
 	b.SetVariable("rick_bin_path", resolveRickBinPath())
-	b.SetVariable("check_command", checkCommand)
 	b.SetVariable("job_id", jobID)
 
 	instance, err = b.Build()
@@ -347,10 +343,9 @@ func (p *PIBuilder) BuildEasy(requirement string, params map[string]string) (met
 	b.SetVariable("debug_context", debugDirPath(doingDir))
 	b.SetVariable("doing_loop_content", renderDoingLoop(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
 	b.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	b.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	b.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
+	b.SetVariable("orchestration_section", "")
 	b.SetVariable("rick_bin_path", resolveRickBinPath())
-	b.SetVariable("check_command", "easy_check")
 	b.SetVariable("job_id", jobID)
 
 	instance, err = b.Build()
@@ -454,12 +449,10 @@ func (p *PIBuilder) SavePlanPrompt(requirement, jobPlanDir, rickDir string) (pro
 	return promptFile, commandMethod("plan"), nil
 }
 
-// SaveDoingPrompt writes {taskID}_doing_prompt.md + skill_debug_skill.md to
-// doingDir/prompts/（task_info_section/debug_context 注入路径）。
-func (p *PIBuilder) SaveDoingPrompt(taskID, doingDir, planDir, rickDir, jobID, checkCommand string) (promptFile string, method string, skillFiles []string, err error) {
-	if checkCommand == "" {
-		checkCommand = "doing_check"
-	}
+// SaveDoingPrompt writes doing_prompt.md + skill_debug_skill.md to
+// doingDir/prompts/（task_info_section/debug_context 注入路径；orchestration_section
+// 注入 pi workflowScript 编排）。返回单一 job 级编排提示词。
+func (p *PIBuilder) SaveDoingPrompt(doingDir, planDir, rickDir, jobID string) (promptFile string, method string, skillFiles []string, err error) {
 	if jobID == "" {
 		jobID = "job_N"
 	}
@@ -481,7 +474,7 @@ func (p *PIBuilder) SaveDoingPrompt(taskID, doingDir, planDir, rickDir, jobID, c
 	}
 
 	b := prompt.NewPromptBuilder(tmpl)
-	b.SetVariable("task_info_section", taskFilePath(planDir, taskID))
+	b.SetVariable("task_info_section", taskFilePath(planDir, ""))
 	b.SetVariable("requirement", "")
 	b.SetVariable("grilling_section", "")
 	b.SetVariable("import_ctx_content", "")
@@ -490,13 +483,12 @@ func (p *PIBuilder) SaveDoingPrompt(taskID, doingDir, planDir, rickDir, jobID, c
 	b.SetVariable("skills_context", prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	b.SetVariable("doing_loop_content", renderDoingLoop(filepath.Join(rickDir, "domain"), debugSkillFile))
 	b.SetVariable("loop_step_header", "## 第一步：执行 Doing Loop")
-	b.SetVariable("check_step_header", "\n---\n\n## 第二步：格式检查")
 	b.SetVariable("debug_context", debugDirPath(doingDir))
+	b.SetVariable("orchestration_section", buildOrchestrationSection(doingDir, planDir))
 	b.SetVariable("rick_bin_path", resolveRickBinPath())
-	b.SetVariable("check_command", checkCommand)
 	b.SetVariable("job_id", jobID)
 
-	promptFile = filepath.Join(promptsDir, taskID+"_doing_prompt.md")
+	promptFile = filepath.Join(promptsDir, "doing_prompt.md")
 	if err := b.SaveToFile(promptFile); err != nil {
 		return "", "", nil, fmt.Errorf("failed to save doing prompt: %w", err)
 	}
@@ -560,10 +552,9 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 	b.SetVariable("debug_context", debugDirPath(doingDir))
 	b.SetVariable("doing_loop_content", renderDoingLoop(domainDir, debugSkillFile))
 	b.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	b.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	b.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
+	b.SetVariable("orchestration_section", "")
 	b.SetVariable("rick_bin_path", resolveRickBinPath())
-	b.SetVariable("check_command", "easy_check")
 	b.SetVariable("job_id", jobID)
 
 	promptFile = filepath.Join(promptsDir, "easy_prompt.md")

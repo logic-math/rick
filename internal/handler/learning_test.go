@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunquan/rick/internal/executor"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
-func writeTasksJSON(t *testing.T, dir string, tasks []executor.TaskState) {
+func writeTasksJSON(t *testing.T, dir string, tasks []workspace.TaskState) {
 	t.Helper()
 	now := "2026-01-01T00:00:00Z"
 	data := map[string]interface{}{
@@ -33,9 +33,9 @@ func TestBuildLearningPrompt(t *testing.T) {
 	data := &ExecutionData{
 		JobID:        "job_0",
 		DebugContent: "## debug1: test error\n**现象**: something went wrong",
-		TasksJSON: &executor.TasksJSON{
+		TasksJSON: &workspace.TasksJSON{
 			Version: "1.0",
-			Tasks: []executor.TaskState{
+			Tasks: []workspace.TaskState{
 				{
 					TaskID:     "task1",
 					TaskName:   "Test Task",
@@ -273,7 +273,7 @@ func TestCollectExecutionData_WithData(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Create tasks.json
-	writeTasksJSON(t, doingDir, []executor.TaskState{
+	writeTasksJSON(t, doingDir, []workspace.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
 	})
 	data, err := collectExecutionData("job_test")
@@ -308,7 +308,7 @@ func TestCollectExecutionData_NoDebugMD(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Create tasks.json but no debug.md
-	writeTasksJSON(t, doingDir, []executor.TaskState{
+	writeTasksJSON(t, doingDir, []workspace.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
 	})
 	data, err := collectExecutionData("job_test")

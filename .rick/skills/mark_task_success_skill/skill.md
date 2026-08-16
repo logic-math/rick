@@ -2,16 +2,16 @@
 
 ## 触发场景
 
-doing task 代码已提交（有 commit hash）但 doing_check 报错：
-- `task status != success`
-- `task status=success but commit_hash is empty`
+doing task 代码已提交（有 commit hash）但 rick-gates 门禁（helper.py）报错：
+- `missing commit_hash`
+- `zombie running`
 
-信号词：`doing_check` 输出 `task status` 相关错误。
+信号词：`python3 .rick/skills/rick-gates/helper.py <doing_dir>` 输出上述错误。
 
 ## 预期效果
 
-- 一次修复通过 doing_check
-- 不需要反复读取 tasks.json 格式或 check 源码
+- 一次修复通过 rick-gates 门禁
+- 不需要反复读取 tasks.json 格式或门禁源码
 
 ## 核心内容
 
@@ -27,7 +27,7 @@ git add .rick/jobs/job_N/doing/tasks.json
 git commit -m "chore(taskX): mark taskX success in tasks.json"
 
 # 验证：
-./bin/rick tools doing_check job_N  # 应输出 ✅ PASS
+python3 .rick/skills/rick-gates/helper.py .rick/jobs/job_N/doing  # 应 exit 0
 ```
 
 ### 手动修复（备用）
@@ -58,7 +58,7 @@ with open(".rick/jobs/job_N/doing/tasks.json", "w") as f:
 1. 完成代码变更 → `git commit` → 记录 commit hash
 2. `python3 .rick/skills/mark_task_success_skill/mark_task_success.py --job job_N --task taskX`
 3. `git add tasks.json && git commit -m "chore(taskX): mark success"`
-4. `./bin/rick tools doing_check job_N`（此时必过）
+4. `python3 .rick/skills/rick-gates/helper.py .rick/jobs/job_N/doing`（此时必过）
 
 ### tasks.json 结构说明
 
@@ -75,4 +75,4 @@ with open(".rick/jobs/job_N/doing/tasks.json", "w") as f:
 }
 ```
 
-`status=success` + `commit_hash` 非空 → doing_check 通过。
+`status=success` + `commit_hash` 非空 → rick-gates 门禁通过。

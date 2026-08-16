@@ -18,7 +18,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 **输入**（从 learning prompt 上下文获取）：
 - debug/ 记录（已内嵌在 prompt）
-- act-path.md 文件列表
+- runtime-trace.md 文件列表
 - task*.md 文件列表
 - 任务执行结果表
 
@@ -38,7 +38,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
    │
    ├─ SPAWN Step 1 子 Agent → 分析执行记录 → 父 Agent 验收
    │
-   ├─ SPAWN Step 2 子 Agent → 评估 act-path → 父 Agent 验收
+   ├─ SPAWN Step 2 子 Agent → 评估 runtime-trace → 父 Agent 验收
    │
    ├─ SPAWN Step 3 子 Agent → 提取 Skill → 父 Agent 验收
    │
@@ -69,7 +69,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 **1b. 还原完整执行轨迹**
 
-读取所有 act-path.md 文件，逐 task 列出轨迹摘要（1-3 句）：
+读取所有 runtime-trace.md 文件，逐 task 列出轨迹摘要（1-3 句）：
 - 每个 task 的工具调用序列
 - 报错次数与修复路径
 - 执行耗时与关键决策点
@@ -78,7 +78,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 ---
 
-### Step 2 子 Agent：评估更合理的 act-path
+### Step 2 子 Agent：评估更合理的 runtime-trace
 
 针对每个 task 评估：
 1. 是否存在冗余工具调用（可合并或省略）？
@@ -95,7 +95,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-skill."`
 
-读取 `{{gen_skill_path}}`，按其定义的格式（触发场景 / 预期效果 / 核心内容）从 act-path 和 debug 中提取可复用技能：
+读取 `{{gen_skill_path}}`，按其定义的格式（触发场景 / 预期效果 / 核心内容）从 runtime-trace 和 debug 中提取可复用技能：
 
 - 每个 skill 创建目录 `{{skills_dir}}/{name}_skill/`
 - 主文件写入 `{{skills_dir}}/{name}_skill/skill.md`
@@ -109,7 +109,7 @@ description: Learning 阶段 Loop；每个 Step 启动独立子 Agent，Step 3-4
 
 声明：`"I will use skill:gen-loop."`
 
-读取 `{{gen_loop_path}}`，从 act-path 和 debug 中识别 job 内反复出现的循环模式，按其定义的完整格式写入 `{{loops_dir}}/{name}-loop.md`：
+读取 `{{gen_loop_path}}`，从 runtime-trace 和 debug 中识别 job 内反复出现的循环模式，按其定义的完整格式写入 `{{loops_dir}}/{name}-loop.md`：
 
 - ✅ 有明确触发条件（trigger）
 - ✅ 包含依赖准备（软件版本、工具、环境安装）

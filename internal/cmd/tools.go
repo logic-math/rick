@@ -20,9 +20,6 @@ then decides which commands to invoke to complete its work.
 
 Available subcommands:
   init-pi         Initialize pi (rick's agent runtime) + subagent extension
-  plan_check      Validate the plan directory structure for a job
-  doing_check     Validate the doing directory structure for a job
-  easy_check      Validate the doing directory for an easy mode job (debug/ only)
   learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
   dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
 `,
@@ -33,9 +30,6 @@ Available subcommands:
 
 	toolsCmd.AddCommand(NewInitPiCmd())
 	toolsCmd.AddCommand(NewThemeCmd())
-	toolsCmd.AddCommand(NewPlanCheckCmd())
-	toolsCmd.AddCommand(NewDoingCheckCmd())
-	toolsCmd.AddCommand(NewEasyCheckCmd())
 	toolsCmd.AddCommand(NewLearningCheckCmd())
 	toolsCmd.AddCommand(NewDreamCheckCmd())
 

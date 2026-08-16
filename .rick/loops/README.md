@@ -8,9 +8,11 @@ Loop 描述一个带评估机制的迭代控制流，供 agent 在需要反复�
 
 ```
 .rick/loops/
+├── agent-runtime-bootstrap-loop.md   # pi runtime 初始化/迁移/重装
+├── protocol-redesign-loop.md         # 多阶段协议重构
+├── readme-wiki-sync-loop.md          # README/wiki 同步
 ├── tdd-red-green-refactor-loop.md    # TDD 迭代直到测试通过
-├── do-check-mark-success-loop.md     # doing_check 失败修复
-└── deprecated/                       # 已淘汰（连续3次dream未被触发）
+└── deprecated/                       # 已淘汰（含 do-check-mark-success-loop）
 ```
 
 ## Loop 文件格式（五要素）

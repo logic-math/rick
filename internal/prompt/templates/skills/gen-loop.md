@@ -1,6 +1,6 @@
-# skill:gen-loop（从 act-path 提取并生成 Loop）
+# skill:gen-loop（从 runtime-trace 提取并生成 Loop）
 
-从 act-path 和 debug 日志中识别 job 内反复出现的循环模式，固化为可复用的 Loop 文件。
+从 runtime-trace 和 debug 日志中识别 job 内反复出现的循环模式，固化为可复用的 Loop 文件。
 
 ## Loop 文件格式
 
@@ -134,7 +134,7 @@ pip install {package}
 
 ---
 
-## 从 act-path 提取协议
+## 从 runtime-trace 提取协议
 
 识别以下信号，判断是否值得提取为 Loop：
 
@@ -153,12 +153,12 @@ pip install {package}
 ## 写入协议
 
 ```
-1. 读取所有 act-path.md 和 debug/bug*.md
+1. 读取所有 runtime-trace.md 和 debug/bug*.md
 2. 识别反复出现的循环模式
 3. 检查 .rick/loops/ 中是否已有 trigger/scope 相似的 loop：
    - 有相似 loop → 优先升级已有 loop（补充新步骤、完善依赖或评估标准），不创建新文件
    - 无相似 loop → 按上述 Step 0-5 格式编写新 {name}-loop.md
-4. Step 0 填写依赖准备（从 act-path 的环境配置步骤提取）
+4. Step 0 填写依赖准备（从 runtime-trace 的环境配置步骤提取）
 5. Step 3 填写每个 Sub Agent Step 引用的 skill 路径
 6. Step 4 填写产出评估的验证 skill
 7. 写入 {{loops_dir}}/{name}-loop.md

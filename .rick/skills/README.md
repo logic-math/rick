@@ -24,9 +24,9 @@ Skill 是一个原子级能力单元（静态上下文），agent 在遇到触�
 | test_script_practices_skill | 编写/调试 .rick/jobs/job_N/doing/tests/taskN.py |
 | zero_retry_task_design_skill | plan 阶段分解任务，降低 doing 重试率 |
 | dag_task_decomposition_skill | 设计复杂 task DAG，识别并行化机会 |
-| check_mechanism_skill | plan/doing/learning_check 失败，理解修复方法 |
+| check_mechanism_skill | learning_check/dream_check 失败，理解修复方法 |
 | failure_feedback_skill | 理解/调整 doing 重试时失败信息传递机制 |
-| mark_task_success_skill | doing_check 报 status != success 时修复 |
+| mark_task_success_skill | rick-gates 门禁报 missing commit_hash 时修复 |
 | global_ref_sync_skill | 修改核心名称/变量前先全局 grep 找引用 |
 | verify_go_changes_skill | 修改 Go 源文件后验证编译+测试通过 |
 | template_injection_skill | 向 plan/easy 模板注入新 skill 或修改变量 |

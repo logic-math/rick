@@ -9,27 +9,20 @@ import (
 
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/executor"
-	"github.com/sunquan/rick/internal/git"
-	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
-// Doing executes the complete doing workflow (migrated from
-// cmd.executeDoingWorkflow). In this task the scheduling is unchanged: doing
-// still runs through the executor (task8 switches to runtime.Run + pi
-// workflowScript orchestration).
+// Doing executes the complete doing workflow. Scheduling is now delegated to
+// pi's workflowScript orchestration (parent single-writer + runs.run with await),
+// and the gate is a deterministic rick-side script run after the pi session
+// settles. rick's retry loop is only a safety net: it regenerates an
+// orchestration of the remaining pending tasks on each attempt, bounded by
+// cfg.MaxRetries.
 func Doing(jobID string, opts Options) error {
-	// Step 1: Load configuration and workspace
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	_, err = workspace.New()
-	if err != nil {
-		return fmt.Errorf("failed to create workspace: %w", err)
 	}
 
 	rickDir, err := workspace.GetRickDir()
@@ -37,18 +30,6 @@ func Doing(jobID string, opts Options) error {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
-	if opts.Verbose {
-		fmt.Printf("[INFO] Using workspace: %s\n", rickDir)
-	}
-
-	// Step 1.5: Auto-initialize Git repository if not exists
-	if err := ensureGitInitialized(rickDir, opts.Verbose); err != nil {
-		if opts.Verbose {
-			fmt.Printf("[WARN] Failed to initialize Git repository: %v\n", err)
-		}
-	}
-
-	// Step 2: Validate job directory structure
 	jobDir := filepath.Join(rickDir, "jobs", jobID)
 	planDir := filepath.Join(jobDir, "plan")
 	doingDir := filepath.Join(jobDir, "doing")
@@ -56,12 +37,9 @@ func Doing(jobID string, opts Options) error {
 	if _, err := os.Stat(jobDir); os.IsNotExist(err) {
 		return fmt.Errorf("job directory not found: %s", jobDir)
 	}
-
 	if _, err := os.Stat(planDir); os.IsNotExist(err) {
 		return fmt.Errorf("plan directory not found: %s", planDir)
 	}
-
-	// Create doing directory if it doesn't exist
 	if err := os.MkdirAll(doingDir, 0755); err != nil {
 		return fmt.Errorf("failed to create doing directory: %w", err)
 	}
@@ -72,381 +50,74 @@ func Doing(jobID string, opts Options) error {
 		fmt.Printf("[INFO] Doing directory: %s\n", doingDir)
 	}
 
-	// Step 3: Load tasks from plan directory
-	if opts.Verbose {
-		fmt.Println("[INFO] Loading tasks from plan directory...")
+	// Initial tasks.json draft: builder scans plan/task*.md (all pending).
+	if err := builder.EnsureTasksJSON(doingDir, planDir); err != nil {
+		return fmt.Errorf("failed to initialize tasks.json: %w", err)
 	}
 
-	tasks, err := loadTasksFromPlan(planDir)
-	if err != nil {
-		return fmt.Errorf("failed to load tasks: %w", err)
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
 	}
 
-	if len(tasks) == 0 {
-		return fmt.Errorf("no tasks found in plan directory")
-	}
+	piRuntime := runtime.NewPiRuntime(cfg.PiPath, cfg.PiExtraArgs...)
 
-	if opts.Verbose {
-		fmt.Printf("[INFO] Loaded %d tasks\n", len(tasks))
-		for i, task := range tasks {
-			fmt.Printf("  [%d] %s: %s\n", i+1, task.ID, task.Name)
-		}
-	}
-
-	// Step 3.5: Check for existing tasks.json in doing directory to resume progress
-	var existingTasksJSON *executor.TasksJSON
-	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
-	if _, err := os.Stat(tasksJSONPath); err == nil {
-		loaded, loadErr := executor.LoadTasksJSON(tasksJSONPath)
-		if loadErr == nil {
-			existingTasksJSON = loaded
-			if opts.Verbose {
-				completed := loaded.GetCompletedCount()
-				total := loaded.GetTaskCount()
-				fmt.Printf("[INFO] Resuming from existing tasks.json: %d/%d tasks already completed\n", completed, total)
-			} else {
-				completed := loaded.GetCompletedCount()
-				total := loaded.GetTaskCount()
-				fmt.Printf("Resuming job %s: %d/%d tasks already completed\n", jobID, completed, total)
-			}
-		} else if opts.Verbose {
-			fmt.Printf("[WARN] Failed to load existing tasks.json, starting fresh: %v\n", loadErr)
-		}
-	}
-
-	// Step 4: Create executor with execution config
-	execConfig := &executor.ExecutionConfig{
-		MaxRetries:     cfg.MaxRetries,
-		TimeoutSeconds: 3600,
-		LogFile:        filepath.Join(doingDir, "execution.log"),
-		PiPath:         cfg.PiPath,
-		WorkspaceDir:   doingDir,
-	}
-
-	if opts.Verbose {
-		fmt.Printf("[INFO] Execution config: MaxRetries=%d, TimeoutSeconds=%d\n",
-			execConfig.MaxRetries, execConfig.TimeoutSeconds)
-	}
-
-	piExec := runtime.NewExecutor(cfg.PiPath, cfg.PiExtraArgs...)
-	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, piExec, existingTasksJSON)
-	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
-	}
-
-	// Step 5: Execute job
-	if opts.Verbose {
-		fmt.Println("[INFO] Starting task execution...")
-	}
-
-	result, err := exec.ExecuteJob()
-	if err != nil {
-		return fmt.Errorf("execution error: %w", err)
-	}
-
-	// Step 6: Print execution summary
-	printExecutionSummary(result)
-
-	// Step 7: Handle execution results
-	if result.Status == "completed" {
-		// All tasks succeeded, commit the results
+	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if opts.Verbose {
-			fmt.Println("[INFO] All tasks completed successfully, committing results...")
+			fmt.Printf("[INFO] Attempt %d/%d\n", attempt, maxRetries)
 		}
 
-		if err := commitDoingResults(jobID, result, opts.Verbose); err != nil {
-			fmt.Printf("[WARN] Failed to commit results: %v\n", err)
-		}
-
-		return nil
-	} else if result.Status == "partial" {
-		// Some tasks succeeded, some failed
-		fmt.Printf("\n⚠ Job execution completed with partial success (%d/%d tasks)\n",
-			result.SuccessfulTasks, result.TotalTasks)
-		fmt.Println("Please review the failed tasks and run 'rick doing job_id' again to retry.")
-
-		// Commit partial results
-		if opts.Verbose {
-			fmt.Println("[INFO] Committing partial results...")
-		}
-
-		if err := commitDoingResults(jobID, result, opts.Verbose); err != nil {
-			fmt.Printf("[WARN] Failed to commit partial results: %v\n", err)
-		}
-
-		return fmt.Errorf("job execution incomplete: %d/%d tasks failed", result.FailedTasks, result.TotalTasks)
-	} else {
-		// All tasks failed
-		fmt.Printf("\n✗ Job execution failed (%d/%d tasks failed)\n",
-			result.FailedTasks, result.TotalTasks)
-		fmt.Println("Please review the errors and run 'rick doing job_id' again to retry.")
-
-		return fmt.Errorf("job execution failed: all tasks failed")
-	}
-}
-
-// loadTasksFromPlan loads all task*.md files from the plan directory.
-func loadTasksFromPlan(planDir string) ([]*parser.Task, error) {
-	tasks := make([]*parser.Task, 0)
-
-	// List all task*.md files in the plan directory
-	entries, err := os.ReadDir(planDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read plan directory: %w", err)
-	}
-
-	taskFiles := make([]string, 0)
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "task") && strings.HasSuffix(entry.Name(), ".md") {
-			taskFiles = append(taskFiles, entry.Name())
-		}
-	}
-
-	if len(taskFiles) == 0 {
-		return nil, fmt.Errorf("no task*.md files found in plan directory")
-	}
-
-	// Sort task files by name to ensure consistent order
-	sortTaskFiles(taskFiles)
-
-	// Parse each task file
-	for _, taskFile := range taskFiles {
-		taskPath := filepath.Join(planDir, taskFile)
-
-		content, err := os.ReadFile(taskPath)
+		// builder regenerates an orchestration of only the remaining pending
+		// tasks (completed tasks are filtered out at generation time).
+		promptFile, method, _, err := builder.NewPIBuilder().SaveDoingPrompt(doingDir, planDir, rickDir, jobID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read task file %s: %w", taskFile, err)
+			return fmt.Errorf("failed to build doing prompt: %w", err)
 		}
 
-		task, err := parser.ParseTask(string(content))
+		_, _, err = piRuntime.Run(method, promptFile, cfg)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse task file %s: %w", taskFile, err)
-		}
-
-		// Extract task ID from filename (task1.md -> task1)
-		taskID := strings.TrimSuffix(taskFile, ".md")
-		task.ID = taskID
-
-		tasks = append(tasks, task)
-	}
-
-	return tasks, nil
-}
-
-// sortTaskFiles sorts task files in numerical order (task1.md, task2.md, ...).
-func sortTaskFiles(files []string) {
-	// Simple bubble sort for small lists
-	for i := 0; i < len(files); i++ {
-		for j := i + 1; j < len(files); j++ {
-			// Extract numbers from filenames
-			numI := extractTaskNumber(files[i])
-			numJ := extractTaskNumber(files[j])
-			if numJ < numI {
-				files[i], files[j] = files[j], files[i]
+			fmt.Printf("[WARN] pi run did not settle (attempt %d/%d): %v\n", attempt, maxRetries, err)
+			if attempt < maxRetries {
+				continue
 			}
+			return fmt.Errorf("pi run failed after %d attempts: %w", maxRetries, err)
 		}
-	}
-}
 
-// extractTaskNumber extracts the numeric part from a task filename.
-func extractTaskNumber(filename string) int {
-	// task1.md -> 1, task2.md -> 2, etc.
-	base := strings.TrimSuffix(filename, ".md")
-	base = strings.TrimPrefix(base, "task")
-
-	var num int
-	fmt.Sscanf(base, "%d", &num)
-	return num
-}
-
-// printExecutionSummary prints a summary of the execution results.
-func printExecutionSummary(result *executor.ExecutionJobResult) {
-	separator := strings.Repeat("=", 60)
-	fmt.Printf("\n%s\n", separator)
-	fmt.Println("Execution Summary")
-	fmt.Printf("%s\n", separator)
-	fmt.Printf("Job ID:           %s\n", result.JobID)
-	fmt.Printf("Status:           %s\n", result.Status)
-	fmt.Printf("Duration:         %v\n", result.Duration())
-	fmt.Printf("Total Tasks:      %d\n", result.TotalTasks)
-	fmt.Printf("Successful Tasks: %d\n", result.SuccessfulTasks)
-	fmt.Printf("Failed Tasks:     %d\n", result.FailedTasks)
-	fmt.Println()
-
-	if len(result.TaskResults) > 0 {
-		fmt.Println("Task Details:")
-		for i, tr := range result.TaskResults {
-			status := "✓"
-			if tr.Status != "success" {
-				status = "✗"
+		// Deterministic gate after the session settles (agent_settled).
+		if gateErr := runDoingGate(rickDir, doingDir); gateErr != nil {
+			fmt.Printf("[WARN] gate failed (attempt %d/%d): %v\n", attempt, maxRetries, gateErr)
+			if attempt < maxRetries {
+				continue
 			}
-			fmt.Printf("  [%d] %s %s (%s, %d attempts)\n",
-				i+1, status, tr.TaskID, tr.Status, tr.TotalAttempts)
-			if tr.Status != "success" && tr.LastError != "" {
-				fmt.Printf("       Error: %s\n", tr.LastError)
-			}
+			return fmt.Errorf("doing gate failed after %d attempts: %w", maxRetries, gateErr)
 		}
-		fmt.Println()
-	}
 
-	fmt.Printf("%s\n", separator)
-}
-
-// commitDoingResults commits the execution results to git.
-func commitDoingResults(jobID string, result *executor.ExecutionJobResult, verbose bool) error {
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
-	}
-
-	// Create git manager
-	gm := git.New(cwd)
-
-	// Create auto committer
-	ac := git.NewAutoCommitter(gm)
-
-	// Generate commit message based on execution result
-	var commitMsg string
-	if result.Status == "completed" {
-		commitMsg = fmt.Sprintf("morty: doing %s - COMPLETED\n\nAll %d tasks executed successfully.\n\nCo-Authored-By: pi <noreply@pi.dev>",
-			jobID, result.TotalTasks)
-	} else if result.Status == "partial" {
-		commitMsg = fmt.Sprintf("morty: doing %s - PARTIAL\n\n%d/%d tasks completed successfully.\n\nCo-Authored-By: pi <noreply@pi.dev>",
-			jobID, result.SuccessfulTasks, result.TotalTasks)
-	} else {
-		commitMsg = fmt.Sprintf("morty: doing %s - FAILED\n\n%d/%d tasks failed.\n\nCo-Authored-By: pi <noreply@pi.dev>",
-			jobID, result.FailedTasks, result.TotalTasks)
-	}
-
-	// Check if there are any changes to commit
-	hasChanges, err := ac.HasChanges()
-	if err != nil {
-		return fmt.Errorf("failed to check for changes: %w", err)
-	}
-
-	if !hasChanges {
-		if verbose {
-			fmt.Println("[INFO] No changes to commit")
-		}
+		fmt.Printf("Job %s execution completed!\n", jobID)
 		return nil
 	}
 
-	// Add all files before committing
-	if err := ac.AutoAddAndCommitJob(jobID, commitMsg); err != nil {
-		return fmt.Errorf("failed to commit changes: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("job execution incomplete after %d attempts", maxRetries)
 }
 
-// ensureGitUserConfigured ensures Git user is configured for the repository.
-// Reads user.name and user.email from global config (~/.rick/config.json).
-func ensureGitUserConfigured(projectRoot string, verbose bool) error {
-	// Load global config
-	cfg, err := config.LoadConfig()
+// runDoingGate runs the deterministic rick-side gate script:
+// python3 .rick/skills/rick-gates/helper.py <doingDir>. Exit non-zero = gate
+// failure (unparseable tasks.json / zombie running / success without commit_hash).
+func runDoingGate(rickDir, doingDir string) error {
+	helper := filepath.Join(rickDir, "skills", "rick-gates", "helper.py")
+	cmd := exec.Command("python3", helper, doingDir)
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("%s", msg)
 	}
-
-	// Check if user.name is configured in the repository
-	cmd := exec.Command("git", "config", "user.name")
-	cmd.Dir = projectRoot
-	if output, err := cmd.Output(); err != nil || strings.TrimSpace(string(output)) == "" {
-		// Set user.name from global config
-		userName := cfg.Git.UserName
-		if userName == "" {
-			if projectName, err := workspace.GetProjectName(); err == nil && projectName != "" {
-				userName = projectName
-			} else {
-				userName = "Rick"
-			}
-		}
-		cmd = exec.Command("git", "config", "user.name", userName)
-		cmd.Dir = projectRoot
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to set git user.name: %w", err)
-		}
-		if verbose {
-			fmt.Printf("[INFO] Set git user.name to '%s'\n", userName)
-		}
-	}
-
-	// Check if user.email is configured in the repository
-	cmd = exec.Command("git", "config", "user.email")
-	cmd.Dir = projectRoot
-	if output, err := cmd.Output(); err != nil || strings.TrimSpace(string(output)) == "" {
-		// Set user.email from global config
-		userEmail := cfg.Git.UserEmail
-		if userEmail == "" {
-			userEmail = "rick@localhost" // Fallback default
-		}
-		cmd = exec.Command("git", "config", "user.email", userEmail)
-		cmd.Dir = projectRoot
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to set git user.email: %w", err)
-		}
-		if verbose {
-			fmt.Printf("[INFO] Set git user.email to '%s'\n", userEmail)
-		}
-	}
-
 	return nil
 }
 
-// ensureGitInitialized checks if Git is initialized in the project root directory
-// and initializes it if not present.
-func ensureGitInitialized(rickDir string, verbose bool) error {
-	// Get current working directory (project root)
-	projectRoot, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Check if .git directory exists in project root
-	gitDir := filepath.Join(projectRoot, ".git")
-	if _, err := os.Stat(gitDir); err == nil {
-		// Git already initialized
-		if verbose {
-			fmt.Println("[INFO] Git repository already initialized in project root")
-		}
-		return nil
-	}
-
-	// Initialize Git repository in project root
-	if verbose {
-		fmt.Printf("[INFO] Initializing Git repository in project root: %s\n", projectRoot)
-	}
-
-	cmd := exec.Command("git", "init")
-	cmd.Dir = projectRoot
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to run git init: %w\nOutput: %s", err, string(output))
-	}
-
-	// Configure Git user if not already configured
-	if err := ensureGitUserConfigured(projectRoot, verbose); err != nil {
-		return fmt.Errorf("failed to configure git user: %w", err)
-	}
-
-	// Create initial .gitignore if it doesn't exist
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		content := "# Project gitignore\n*.log\n.DS_Store\n"
-		if err := os.WriteFile(gitignorePath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to create .gitignore: %w", err)
-		}
-		if verbose {
-			fmt.Println("[INFO] Created .gitignore file")
-		}
-	}
-
-	fmt.Printf("✅ Git repository initialized in project root: %s\n", projectRoot)
-	return nil
-}
-
-// DoingDryRun generates and prints the doing prompt for the first non-success
-// task without executing it (migrated from cmd.runDoingDryRun).
+// DoingDryRun generates and prints the doing prompt (with the pi workflowScript
+// orchestration) without executing it.
 func DoingDryRun(jobID string) error {
 	if jobID == "" {
 		fmt.Println("[DRY-RUN] No job ID provided")
@@ -461,7 +132,6 @@ func DoingDryRun(jobID string) error {
 
 	planDir := filepath.Join(rickDir, "jobs", jobID, "plan")
 	if _, err := os.Stat(planDir); os.IsNotExist(err) {
-		// Detect easy mode job (has doing/requirement.md but no plan/)
 		doingDirFallback := filepath.Join(rickDir, "jobs", jobID, "doing")
 		if _, e := os.Stat(filepath.Join(doingDirFallback, "requirement.md")); e == nil {
 			fmt.Printf("[DRY-RUN] %s is an easy mode job (no plan/). Use: rick doing --easy --dry-run\n", jobID)
@@ -471,26 +141,9 @@ func DoingDryRun(jobID string) error {
 		return nil
 	}
 
-	tasks, err := loadTasksFromPlan(planDir)
-	if err != nil || len(tasks) == 0 {
-		fmt.Printf("[DRY-RUN] no tasks found: %v\n", err)
-		return nil
-	}
-
-	// Try to find the first non-success task from tasks.json
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
-	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
-	task := tasks[0]
-	if tasksJSON, err := executor.LoadTasksJSON(tasksJSONPath); err == nil {
-		for _, t := range tasks {
-			if status, err := tasksJSON.GetTaskStatus(t.ID); err != nil || status != "success" {
-				task = t
-				break
-			}
-		}
-	}
 
-	promptFile, _, _, err := builder.NewPIBuilder().SaveDoingPrompt(task.ID, doingDir, planDir, rickDir, jobID, "doing_check")
+	promptFile, _, _, err := builder.NewPIBuilder().SaveDoingPrompt(doingDir, planDir, rickDir, jobID)
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
 		return nil
@@ -502,7 +155,7 @@ func DoingDryRun(jobID string) error {
 		return nil
 	}
 
-	fmt.Printf("[DRY-RUN] Prompt for task %s:\n\n", task.ID)
+	fmt.Printf("[DRY-RUN] Doing prompt:\n\n")
 	fmt.Println(string(content))
 	return nil
 }

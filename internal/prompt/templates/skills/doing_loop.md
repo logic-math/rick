@@ -34,7 +34,7 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 确认以下内容全部清晰后才继续：
 
 - task.md 中 `# 任务目标` 和 `# 关键结果` 已理解
-- 成功标准已明确：测试脚本全通过 + check pass + 所有 Key Results 达成
+- 成功标准已明确：测试脚本全通过 + 门禁通过（rick-gates helper 校验）+ 所有 Key Results 达成
 
 ---
 
@@ -97,10 +97,10 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
 
 ### Sub Agent：COMMIT（收尾提交）
 1. `git add` + `git commit`（commit message 含 task ID）
-2. 运行 check 命令（使用 prompt 上下文中的 rick_bin_path 和 job_id）：
-   - doing 阶段：`<rick_bin_path> tools doing_check <job_id>`
-   - easy 阶段：`<rick_bin_path> tools easy_check <job_id>`
-3. check 失败 → 修复后重新运行，循环直到 pass
+2. 确认门禁（rick-gates）通过：rick 侧会在 pi 会话结束后调用
+   `python3 .rick/skills/rick-gates/helper.py <doing_dir>` 校验
+   （tasks.json 可解析 / 无 zombie running / success 有 commit_hash）。
+3. 门禁失败 → 修复后由 rick 重试循环收敛，循环直到通过
 4. **Sub Agent 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知 Main Agent 执行 Step 4
 
 ---
@@ -111,7 +111,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 | 检查项 | 判断方法 |
 |--------|----------|
-| check pass | 读取 doing_check / easy_check 输出，确认 ✅ |
+| 门禁通过 | 读取 rick-gates helper 输出，确认 exit 0 |
 | 测试全通过 | 确认测试脚本无 FAIL 输出 |
 | Key Results 达成 | 逐条比对 task.md `# 关键结果` |
 
@@ -122,7 +122,7 @@ Sub Agent 完成后，Main Agent 逐项检查：
 
 ## Step 5：Main Agent 确认停止标准
 
-**成功退出**：check pass + 测试全通过 + 所有 Key Results 达成
+**成功退出**：门禁通过（rick-gates）+ 测试全通过 + 所有 Key Results 达成
 
 **优雅退出**（任意一条触发）：
 - 迭代次数达上限（默认 **3 轮**）

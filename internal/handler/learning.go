@@ -7,7 +7,6 @@ import (
 
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -17,7 +16,7 @@ import (
 type ExecutionData struct {
 	JobID        string
 	DebugContent string // raw content of debug.md, embedded directly in prompt
-	TasksJSON    *executor.TasksJSON
+	TasksJSON    *workspace.TasksJSON
 	TaskMDPaths  []string
 	RickDir      string
 	ActPathFiles []string
@@ -70,7 +69,7 @@ func LearningDryRun(jobID string) error {
 	}
 
 	doingDir := filepath.Join(jobDir, "doing")
-	data.DebugContent = executor.LoadDebugContext(doingDir)
+	data.DebugContent = workspace.LoadDebugContext(doingDir)
 
 	promptsDir := ""
 	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
@@ -114,13 +113,13 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 	}
 
 	// Load debug context: prefers debug/ summaries, falls back to debug.md
-	data.DebugContent = executor.LoadDebugContext(doingDir)
+	data.DebugContent = workspace.LoadDebugContext(doingDir)
 	fmt.Printf("✅ Loaded debug context (%d bytes)\n", len(data.DebugContent))
 
 	// tasks.json
 	tasksJSONPath := filepath.Join(doingDir, "tasks.json")
 	if _, err := os.Stat(tasksJSONPath); err == nil {
-		tasksJSON, err := executor.LoadTasksJSON(tasksJSONPath)
+		tasksJSON, err := workspace.LoadTasksJSON(tasksJSONPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load tasks.json: %w", err)
 		}
@@ -143,12 +142,12 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 		fmt.Println("⚠ No task*.md files found in plan directory")
 	}
 
-	// act-path.md paths
-	actPathPattern := filepath.Join(doingDir, "tasks", "*", "act-path.md")
-	actPathFiles, err := filepath.Glob(actPathPattern)
+	// runtime trace files (replaces act-path.md)
+	tracePattern := filepath.Join(doingDir, "tasks", "*", "trace.md")
+	traceFiles, err := filepath.Glob(tracePattern)
 	if err == nil {
-		data.ActPathFiles = actPathFiles
-		fmt.Printf("✅ Found %d act-path.md files\n", len(actPathFiles))
+		data.ActPathFiles = traceFiles
+		fmt.Printf("✅ Found %d runtime trace files\n", len(traceFiles))
 	}
 
 	return data, nil

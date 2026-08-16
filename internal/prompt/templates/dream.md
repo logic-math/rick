@@ -41,10 +41,10 @@
 | 文件 | 说明 |
 |------|------|
 | `jobs/{job_id}/doing/debug/bug*.md` | 调试记录（frontmatter 摘要） |
-| `jobs/{job_id}/doing/tasks/*/act-path.md` | 工具调用轨迹 |
+| `jobs/{job_id}/doing/tasks/*/runtime-trace.md` | 工具调用轨迹 |
 | `jobs/{job_id}/learning/SUMMARY.md` | learning 阶段摘要 |
 
-**降级策略**：act-path 缺失时以 SUMMARY.md 为主要信号源；三者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。
+**降级策略**：runtime-trace 缺失时以 SUMMARY.md 为主要信号源；三者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。
 
 ---
 

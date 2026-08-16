@@ -18,7 +18,7 @@
 
 - **任务详情**（task*.md）:
 {{task_md_files}}
-- **执行轨迹**（act-path.md）:
+- **执行轨迹**（runtime-trace.md）:
 {{act_path_files}}
 
 ### 可用的项目 Loops

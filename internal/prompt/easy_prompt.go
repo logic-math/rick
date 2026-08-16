@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/sunquan/rick/internal/parser"
 )
 
 // GenerateEasyPromptFile generates the easy mode interactive prompt using the shared doing.md template.
@@ -82,10 +80,9 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	builder.SetVariable("debug_context", debugContext)
 	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, debugSkillFile))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
+	builder.SetVariable("orchestration_section", "")
 	builder.SetVariable("rick_bin_path", rickBinPath)
-	builder.SetVariable("check_command", "easy_check")
 	builder.SetVariable("job_id", jobID)
 
 	mainContent, err := builder.Build()
@@ -130,10 +127,9 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	builder.SetVariable("debug_context", "暂无（首次会话）")
 	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	builder.SetVariable("check_step_header", "\n---\n\n## 第三步：格式检查")
 	builder.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
+	builder.SetVariable("orchestration_section", "")
 	builder.SetVariable("rick_bin_path", rickBinPath)
-	builder.SetVariable("check_command", "easy_check")
 	builder.SetVariable("job_id", "job_N")
 
 	return builder.Build()
@@ -326,7 +322,7 @@ func loadDebugContextLocal(doingDir string) string {
 				if err != nil {
 					continue
 				}
-				summary, status := parser.ExtractBugFrontmatter(string(data))
+				summary, status := extractBugFrontmatter(string(data))
 				sb.WriteString(fmt.Sprintf("- [%s] summary: %s | status: %s\n", name, summary, status))
 			}
 			if result := sb.String(); result != "" {
@@ -340,6 +336,37 @@ func loadDebugContextLocal(doingDir string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// extractBugFrontmatter parses YAML frontmatter (between --- markers) and
+// extracts summary and status fields (the thin replacement for the deleted
+// internal/parser.ExtractBugFrontmatter).
+func extractBugFrontmatter(content string) (summary, status string) {
+	lines := strings.Split(content, "\n")
+	inFrontmatter := false
+	started := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if !started {
+				inFrontmatter = true
+				started = true
+				continue
+			}
+			if inFrontmatter {
+				break
+			}
+		}
+		if !inFrontmatter {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "summary:") {
+			summary = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "summary:")), `"'`)
+		} else if strings.HasPrefix(trimmed, "status:") {
+			status = strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "status:")), `"'`)
+		}
+	}
+	return summary, status
 }
 
 // readFileOrDefault reads a file and returns its content, or the default string if absent.

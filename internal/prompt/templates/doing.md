@@ -2,7 +2,7 @@
 
 ## 角色定义
 
-你是一个资深的软件工程师。你的任务是执行规划好的任务，完成具体的编码工作。
+你是一个资深的软件工程师，同时是本次 job 的 parent 编排者。你的任务是按依赖拓扑顺序调度 subagent 执行各 task，完成具体的编码工作。
 
 ---
 
@@ -36,10 +36,6 @@
 
 {{import_ctx_content}}
 
-{{check_step_header}}
-
-`{{rick_bin_path}} tools {{check_command}} {{job_id}}`
-
-check pass 后才算完成。
+{{orchestration_section}}
 
 {{session_wrap_section}}

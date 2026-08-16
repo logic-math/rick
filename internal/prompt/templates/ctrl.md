@@ -44,10 +44,10 @@ doing/
   tasks/
     task1/
       raw_session_coding.log   ← 实时 pi JSONL 事件流（任务执行中持续写入）
-      act-path.md              ← 任务完成后的可读行为轨迹摘要（runtime trace）
+      runtime-trace.md              ← 任务完成后的可读行为轨迹摘要（runtime trace）
     task2/
       raw_session_coding.log
-      act-path.md
+      runtime-trace.md
     ...
 ```
 
@@ -71,7 +71,7 @@ doing/
 **读取方法**：tail 最后 30-50 行，关注 `tool_execution_start` 的 toolName/args（pi 在调什么工具）
 和 `tool_execution_end` 的 result 与 isError（工具是否成功）。
 
-### act-path.md — 任务完成的行为轨迹摘要（runtime trace）
+### runtime-trace.md — 任务完成的行为轨迹摘要（runtime trace）
 
 任务执行完成后自动生成，包含：
 - 执行摘要（耗时、工具调用次数、报错次数）
@@ -101,7 +101,7 @@ doing/
    - 从 pi JSONL 中提取最近的 `tool_execution_start` 的 toolName 和 args，展示给人类
    - 找最近的 `tool_execution_end` 的 result 与 isError 判断是否有错误
 3. 读取 `{{doing_dir}}/debug.md`（如存在）→ 汇报是否有失败重试、当前卡点
-4. 对已完成任务（`status = "success"`）→ 如果存在 `act-path.md` 可简要引用其摘要
+4. 对已完成任务（`status = "success"`）→ 如果存在 `runtime-trace.md` 可简要引用其摘要
 
 **汇报格式示例：**
 ```
@@ -164,7 +164,7 @@ doing/
 
 #### 场景 C：查看某 task 的历史行为轨迹
 
-读取 `{{doing_dir}}/tasks/<task_id>/act-path.md`，展示完整摘要。
+读取 `{{doing_dir}}/tasks/<task_id>/runtime-trace.md`，展示完整摘要。
 
 #### 场景 D：查看原始日志片段
 

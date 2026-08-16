@@ -5,27 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sunquan/rick/internal/parser"
 )
 
-// TestIntegration_RFC001 covers all assertions for job_9 task1~task4 changes.
-// Each sub-test maps to a specific key result from the task specification.
+// TestIntegration_RFC001 covers the surviving RFC001 assertions (template
+// structure and plan prompt injection). The doing-prompt/context-manager
+// assertions were removed with the parser decoupling in task8.
 func TestIntegration_RFC001(t *testing.T) {
 	pm := NewPromptManager("")
-	cm := NewContextManager("job_9")
-
-	task := &parser.Task{
-		ID:           "task1",
-		Name:         "RFC001 Test Task",
-		Dependencies: []string{},
-		Goal:         "Verify RFC001 changes",
-		KeyResults:   []string{"KR1", "KR2"},
-		TestMethod:   "Run tests",
-	}
-	cm.LoadTask(task)
-
-	// ─── task1: learning input refactor ──────────────────────────────────────
 
 	t.Run("task1/learning_prompt_contains_task_name", func(t *testing.T) {
 		tmpl, err := pm.LoadTemplate("learning")
@@ -41,16 +27,11 @@ func TestIntegration_RFC001(t *testing.T) {
 	})
 
 	t.Run("task1/learning_prompt_no_hardcoded_stub_strings", func(t *testing.T) {
-		// The old learning_prompt.go had four stub functions that returned
-		// hardcoded Chinese placeholder text. Verify they are gone.
 		tmpl, err := pm.LoadTemplate("learning")
 		if err != nil {
 			t.Fatalf("load learning template: %v", err)
 		}
-		forbidden := []string{
-			"本周期内新增",
-			"本周期内的代码改进",
-		}
+		forbidden := []string{"本周期内新增", "本周期内的代码改进"}
 		for _, s := range forbidden {
 			if strings.Contains(tmpl.Content, s) {
 				t.Errorf("learning template must not contain hardcoded stub string %q", s)
@@ -69,8 +50,6 @@ func TestIntegration_RFC001(t *testing.T) {
 	})
 
 	t.Run("task1/buildLearningPrompt_contains_task_md_content", func(t *testing.T) {
-		// Now task*.md are injected as paths, not content.
-		// Verify the task file path appears in the prompt.
 		tmpDir := t.TempDir()
 		planDir := filepath.Join(tmpDir, "plan")
 		if err := os.MkdirAll(planDir, 0755); err != nil {
@@ -80,7 +59,6 @@ func TestIntegration_RFC001(t *testing.T) {
 		if err := os.WriteFile(taskFile, []byte("# 任务名称\n实现登录接口\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-
 		prompt, err := buildLearningPromptForTest(t, "job_test", taskFile, tmpDir)
 		if err != nil {
 			t.Fatalf("buildLearningPromptForTest: %v", err)
@@ -90,10 +68,7 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	// ─── task2: skills index ──────────────────────────────────────────────────
-
 	t.Run("task2/plan_prompt_contains_loops_context", func(t *testing.T) {
-		// loops_context is now injected from .rick/loops/ instead of SPEC.md skills
 		tmpDir := t.TempDir()
 		loopsDir := filepath.Join(tmpDir, "loops")
 		if err := os.MkdirAll(loopsDir, 0755); err != nil {
@@ -103,7 +78,6 @@ func TestIntegration_RFC001(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(loopsDir, "test_loop.md"), []byte(loopContent), 0644); err != nil {
 			t.Fatal(err)
 		}
-
 		promptContent, err := GeneratePlanPrompt("需求描述", "/tmp/plan", tmpDir)
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
@@ -113,19 +87,8 @@ func TestIntegration_RFC001(t *testing.T) {
 		}
 	})
 
-	// ─── task3: tools injection ───────────────────────────────────────────────
-
 	t.Run("task3/plan_prompt_no_tools_injection", func(t *testing.T) {
-		// tools are no longer injected directly into plan prompt (moved to SPEC.md 控制方法)
 		tmpDir := t.TempDir()
-		toolsDir := filepath.Join(tmpDir, "tools")
-		if err := os.MkdirAll(toolsDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(toolsDir, "plan_tool.py"), []byte("# Description: 规划工具\nprint('plan')\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-
 		orig, _ := os.Getwd()
 		if err := os.Chdir(tmpDir); err != nil {
 			t.Fatal(err)
@@ -136,39 +99,13 @@ func TestIntegration_RFC001(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
-		// tools are no longer auto-injected into plan prompt
 		if strings.Contains(promptContent, "{{tools_list}}") {
 			t.Error("plan prompt must not contain unreplaced {{tools_list}} variable")
-		}
-	})
-
-	t.Run("task3/doing_prompt_no_tools_section_when_no_tools", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		// No tools/ directory
-
-		orig, _ := os.Getwd()
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
-		defer os.Chdir(orig)
-
-		promptFile, _, err := GenerateDoingPromptFile(task, 0, cm, pm, t.TempDir())
-		if err != nil {
-			t.Fatalf("GenerateDoingPromptFile: %v", err)
-		}
-
-		data, err := os.ReadFile(promptFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(data), "可用的项目 Tools") {
-			t.Error("doing prompt must not contain tools section when tools/ does not exist")
 		}
 	})
 
 	t.Run("task3/plan_prompt_no_tools_section_when_no_tools", func(t *testing.T) {
 		tmpDir := t.TempDir()
-
 		orig, _ := os.Getwd()
 		if err := os.Chdir(tmpDir); err != nil {
 			t.Fatal(err)
@@ -179,16 +116,12 @@ func TestIntegration_RFC001(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GeneratePlanPrompt: %v", err)
 		}
-		// tools_list variable should be replaced with empty string
 		if strings.Contains(promptContent, "{{tools_list}}") {
 			t.Error("plan prompt must not contain unreplaced {{tools_list}} variable")
 		}
 	})
 
-	// ─── task4: job-level OKR ─────────────────────────────────────────────────
-
 	t.Run("task4/plan_prompt_no_global_okr_content", func(t *testing.T) {
-		// plan template should not contain {{okr_content}} (global OKR removed)
 		tmpl, err := pm.LoadTemplate("plan")
 		if err != nil {
 			t.Fatalf("load plan template: %v", err)
@@ -199,42 +132,12 @@ func TestIntegration_RFC001(t *testing.T) {
 	})
 
 	t.Run("task5/plan_prompt_no_okr_md_generation", func(t *testing.T) {
-		// task5: plan template must not instruct Claude to generate OKR.md
 		tmpl, err := pm.LoadTemplate("plan")
 		if err != nil {
 			t.Fatalf("load plan template: %v", err)
 		}
 		if strings.Contains(tmpl.Content, "必须生成") && strings.Contains(tmpl.Content, "OKR.md") {
 			t.Error("plan template must not contain instruction to generate OKR.md (removed in task5)")
-		}
-	})
-
-	t.Run("task4/doing_prompt_contains_loops_context_not_okr", func(t *testing.T) {
-		// OKR injection was removed from doing prompt; loops_context is injected instead
-		cm4 := NewContextManager("job_9")
-		cm4.LoadTask(task)
-		cm4.LoadOKRFromContent("# Job OKR\n## O1: 完成认证模块\n- KR1: 登录接口通过测试")
-
-		promptContent, err := GenerateDoingPrompt(task, 0, cm4, pm)
-		if err != nil {
-			t.Fatalf("GenerateDoingPrompt: %v", err)
-		}
-		if strings.Contains(promptContent, "{{job_okr_content}}") {
-			t.Error("doing prompt must not contain unreplaced {{job_okr_content}} variable")
-		}
-		if !strings.Contains(promptContent, "可用的项目 Loops") {
-			t.Error("doing prompt must contain '可用的项目 Loops' from loops_context injection")
-		}
-	})
-
-	t.Run("task4/doing_prompt_no_error_when_job_okr_missing", func(t *testing.T) {
-		cmNoOKR := NewContextManager("job_9")
-		cmNoOKR.LoadTask(task)
-		// No OKR loaded
-
-		_, err := GenerateDoingPrompt(task, 0, cmNoOKR, pm)
-		if err != nil {
-			t.Errorf("GenerateDoingPrompt must not error when job OKR is missing: %v", err)
 		}
 	})
 }
@@ -253,7 +156,7 @@ func buildLearningPromptForTest(t *testing.T, jobID, taskMDPath, tmpDir string) 
 	builder.SetVariable("rick_bin_path", "./bin/rick")
 	builder.SetVariable("task_execution_results", "| task1 | Test | success | abc12345 | 1 |")
 	builder.SetVariable("debug_content", "（本次 job 无 debug 记录）")
-	builder.SetVariable("act_path_files", "  （无 act-path.md 文件）")
+	builder.SetVariable("act_path_files", "  （无 runtime trace 文件）")
 	builder.SetVariable("loops_context", "暂无可用的项目 Loops")
 	builder.SetVariable("loops_dir", filepath.Join(tmpDir, "loops"))
 	builder.SetVariable("skills_dir", filepath.Join(tmpDir, "skills"))

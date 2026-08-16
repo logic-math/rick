@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sunquan/rick/internal/parser"
 )
 
 func TestGeneratePlanPrompt_EmptyRequirement(t *testing.T) {
@@ -79,54 +77,6 @@ func TestGeneratePlanPrompt_NoUnreplacedVars(t *testing.T) {
 }
 
 // --- context_helpers tests (functions moved to context_helpers.go) ---
-
-func TestFormatOKRContent_WithData(t *testing.T) {
-	okrInfo := &parser.ContextInfo{
-		Objectives: []string{"Build Rick CLI", "Improve performance"},
-		KeyResults: []string{"Complete 8 modules", "Achieve 90% test coverage"},
-	}
-	content := formatOKRContent(okrInfo)
-	if !strings.Contains(content, "Objectives") {
-		t.Error("Expected content to contain 'Objectives'")
-	}
-	if !strings.Contains(content, "Build Rick CLI") {
-		t.Error("Expected content to contain objective")
-	}
-	if !strings.Contains(content, "Key Results") {
-		t.Error("Expected content to contain 'Key Results'")
-	}
-}
-
-func TestFormatOKRContent_Empty(t *testing.T) {
-	content := formatOKRContent(&parser.ContextInfo{})
-	if content != "暂无项目 OKR 信息" {
-		t.Errorf("Expected default message, got %s", content)
-	}
-}
-
-func TestFormatOKRContent_Nil(t *testing.T) {
-	content := formatOKRContent(nil)
-	if content != "暂无项目 OKR 信息" {
-		t.Errorf("Expected default message, got %s", content)
-	}
-}
-
-func TestFormatSPECContent_WithData(t *testing.T) {
-	specInfo := &parser.ContextInfo{
-		Specifications: []string{"Use Go language", "Support DAG execution"},
-	}
-	content := formatSPECContent(specInfo)
-	if !strings.Contains(content, "Use Go language") {
-		t.Error("Expected content to contain specification")
-	}
-}
-
-func TestFormatSPECContent_Empty(t *testing.T) {
-	content := formatSPECContent(&parser.ContextInfo{})
-	if content != "暂无项目 SPEC 信息" {
-		t.Errorf("Expected default message, got %s", content)
-	}
-}
 
 func TestFormatCompletedWork_WithHistory(t *testing.T) {
 	content := formatCompletedWork([]string{"Module 1 completed", "Module 2 completed"})

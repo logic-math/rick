@@ -1,6 +1,6 @@
-# skill:gen-skill（从 act-path 提取技能）
+# skill:gen-skill（从 runtime-trace 提取技能）
 
-从 act-path 日志中观察到的 agent 执行模式中提取可复用技能时使用。
+从 runtime-trace 日志中观察到的 agent 执行模式中提取可复用技能时使用。
 
 ## 目录结构规范
 
@@ -43,10 +43,10 @@
 - 在相关的地方引用实际代码模式
 - 如有辅助脚本，注明调用方式（如 `python3 .rick/skills/{name}_skill/helper.py`）
 
-## 从 act-path 提取协议
+## 从 runtime-trace 提取协议
 
 ```
-1. 读取已完成任务的 act-path-{taskID}.md
+1. 读取已完成任务的 runtime-trace-{taskID}.md
 2. 识别重复出现的工具调用模式（3次以上的相似序列）
 3. 找出"出错→修复"序列（哪里出了问题以及如何解决的）
 4. 判断该模式是否可泛化（是否适用于这个特定任务之外）

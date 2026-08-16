@@ -2,7 +2,7 @@
 
 ## 触发场景
 
-plan/doing/learning_check 命令失败，需要理解失败原因或扩展新检查规则时使用。
+learning_check / dream_check 命令失败，需要理解失败原因或扩展新检查规则时使用。（doing 门禁已下沉为 rick-gates 确定性脚本，plan_check/doing_check 已删除。）
 
 ## 预期效果
 
@@ -12,50 +12,40 @@ plan/doing/learning_check 命令失败，需要理解失败原因或扩展新检
 
 ## 核心内容
 
-### 三个 check 命令和各自验证内容
+### check 命令和各自验证内容
 
 | 命令 | 验证内容 | 通过条件 |
 |------|--------|--------|
-| `rick tools plan_check job_N` | tasks.json 存在；tasks/*.md 格式正确 | exit code 0，输出 `✅ PASS` |
-| `rick tools doing_check job_N` | tasks.json 可解析；debug/bug*.md 格式 | exit code 0，输出 `✅ PASS` |
 | `rick tools learning_check job_N` | SUMMARY.md 非空且含 `# Job` 标题 | exit code 0，输出 `✅ PASS` |
+| `rick tools dream_check job_N` | dream_run_*_log.md 五要素格式 | exit code 0，输出 `✅ PASS` |
+| `python3 .rick/skills/rick-gates/helper.py <doing_dir>` | tasks.json 可解析 / 无 zombie running / success 有 commit_hash | exit code 0 |
 
 ### 手动运行
 
 ```bash
 # 优先使用本地构建版（含当前代码）
-./bin/rick tools doing_check job_N
-./bin/rick tools plan_check job_N
 ./bin/rick tools learning_check job_N
+./bin/rick tools dream_check job_N
+python3 .rick/skills/rick-gates/helper.py .rick/jobs/job_N/doing
 ```
 
 ### check 失败时的修复流程
 
 1. 读取失败输出，定位具体 check 项
-2. 修复对应文件（tasks.json / debug/bug*.md / SUMMARY.md）
+2. 修复对应文件（SUMMARY.md / dream log / tasks.json）
 3. 如果是 tasks.json 状态问题 → 参考 [mark_task_success_skill](../mark_task_success_skill/skill.md)
 4. 修复后重新提交 + 再次运行 check
 
-### doing_check 常见失败原因
+### rick-gates 门禁常见失败原因
 
 | 失败信息 | 原因 | 修复 |
 |---------|------|------|
-| `task status != success` | tasks.json 中 task 未标记完成 | 运行 `mark_task_success.py` |
-| `commit_hash is empty` | tasks.json 中缺少 commit_hash | 补充 git rev-parse HEAD 的结果 |
-| `debug format error` | bug*.md frontmatter 不完整 | 检查 frontmatter 含 title/status/summary |
+| `missing commit_hash` | success 任务缺少 commit_hash | 补写 git rev-parse HEAD 的结果 |
+| `zombie running` | tasks.json 中遗留 running 任务 | 将卡住任务改为 failed 或补全 commit |
+| `tasks.json 不可解析` | tasks.json 非法 JSON | 修复 JSON 语法 |
 
 ### 扩展新 check 规则
 
-在对应的 `internal/cmd/tools_*_check.go` 文件的 `run*Check()` 函数末尾追加：
+在对应的 `internal/cmd/tools_learning_check.go` / `tools_dream_check.go` 的 `run*Check()` 函数末尾追加检查项，并同步更新其 fix prompt。
 
-```go
-// 新增：检查某文件存在性
-xPath := filepath.Join(jobDir, "X.md")
-if _, err := os.Stat(xPath); os.IsNotExist(err) {
-    errors = append(errors, fmt.Sprintf("X.md not found: %s", xPath))
-}
-```
-
-同步更新 `write*CheckFixPrompt` 函数，加入新检查项的修复说明。
-
-构建后验证：`./scripts/build.sh && ./bin/rick tools doing_check job_N`
+构建后验证：`./scripts/build.sh && ./bin/rick tools learning_check job_N`
