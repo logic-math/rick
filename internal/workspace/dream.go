@@ -10,12 +10,19 @@ import (
 )
 
 // SelectPendingJobs returns up to jobNum completed jobs not yet processed by
+// dream. It is the exported entry point used by the handler orchestration;
+// the deterministic scan/filtering logic lives in selectPendingJobs.
+func SelectPendingJobs(rickDir string, jobNum int) []string {
+	return selectPendingJobs(rickDir, jobNum)
+}
+
+// selectPendingJobs returns up to jobNum completed jobs not yet processed by
 // dream (migrated from cmd.selectPendingJobs). The scan/filtering stays in Go:
 // it is the deterministic input filter that decides which jobs dream should
 // process.
-func SelectPendingJobs(rickDir string, jobNum int) []string {
-	completed := DiscoverCompletedJobs(rickDir)
-	processed := GetDreamProcessedJobs(rickDir)
+func selectPendingJobs(rickDir string, jobNum int) []string {
+	completed := discoverCompletedJobs(rickDir)
+	processed := getDreamProcessedJobs(rickDir)
 
 	var pending []string
 	for _, id := range completed {
@@ -31,9 +38,16 @@ func SelectPendingJobs(rickDir string, jobNum int) []string {
 }
 
 // GetDreamProcessedJobs returns the set of job IDs that already have a
+// dream_run_{job_id}_log.md file in .rick/dream/. Exported wrapper for
+// getDreamProcessedJobs.
+func GetDreamProcessedJobs(rickDir string) map[string]bool {
+	return getDreamProcessedJobs(rickDir)
+}
+
+// getDreamProcessedJobs returns the set of job IDs that already have a
 // dream_run_{job_id}_log.md file in .rick/dream/ (migrated from
 // cmd.getDreamProcessedJobs).
-func GetDreamProcessedJobs(rickDir string) map[string]bool {
+func getDreamProcessedJobs(rickDir string) map[string]bool {
 	processed := make(map[string]bool)
 	dreamDir := filepath.Join(rickDir, DreamDirName)
 	entries, err := os.ReadDir(dreamDir)
@@ -84,9 +98,16 @@ func loadTasksJSONStatuses(path string) (*thinTasksJSON, error) {
 }
 
 // DiscoverCompletedJobs scans .rick/jobs/*/doing/tasks.json and returns jobs
+// where all tasks have status "success", sorted by job number ascending.
+// Exported wrapper for discoverCompletedJobs.
+func DiscoverCompletedJobs(rickDir string) []string {
+	return discoverCompletedJobs(rickDir)
+}
+
+// discoverCompletedJobs scans .rick/jobs/*/doing/tasks.json and returns jobs
 // where all tasks have status "success", sorted by job number ascending
 // (migrated from cmd.discoverCompletedJobs).
-func DiscoverCompletedJobs(rickDir string) []string {
+func discoverCompletedJobs(rickDir string) []string {
 	pattern := filepath.Join(rickDir, JobsDirName, "job_*", DoingDirName, "tasks.json")
 	files, err := filepath.Glob(pattern)
 	if err != nil {
@@ -118,14 +139,20 @@ func DiscoverCompletedJobs(rickDir string) []string {
 	}
 
 	sort.Slice(completed, func(i, j int) bool {
-		return JobNumber(completed[i]) < JobNumber(completed[j])
+		return jobNumber(completed[i]) < jobNumber(completed[j])
 	})
 	return completed
 }
 
-// JobNumber extracts the numeric part from "job_N" (migrated from
-// cmd.jobNumber). Returns 0 for malformed IDs.
+// JobNumber extracts the numeric part from "job_N". Exported wrapper for
+// jobNumber.
 func JobNumber(jobID string) int {
+	return jobNumber(jobID)
+}
+
+// jobNumber extracts the numeric part from "job_N" (migrated from
+// cmd.jobNumber). Returns 0 for malformed IDs.
+func jobNumber(jobID string) int {
 	n, _ := strconv.Atoi(strings.TrimPrefix(jobID, "job_"))
 	return n
 }
