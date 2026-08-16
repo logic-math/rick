@@ -1,0 +1,155 @@
+{
+  "version": "1.0",
+  "created_at": "2026-08-17T00:59:46.783995764+08:00",
+  "updated_at": "2026-08-17T01:10:39.613502+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "定义 spec 规范与「spec → 开发计划 → 功能等价实现」验收标准",
+      "status": "success",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T01:10:39.613502+08:00",
+      "commit_hash": "0e5abf97ba8bf785b939d39a228e0b0be6b7af4a"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "产出 rick 第一份 spec（四层架构 + 5 模块 + env 四职责契约）",
+      "status": "pending",
+      "dependencies": [
+        "task1"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "重构 runtime 模块（pi 调用逻辑收口到 runtime 层）",
+      "status": "pending",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "重构 builder 三件（templates + pibuilder + xxxxbuilder），注入路径而非内容",
+      "status": "pending",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "落地 env 模块（四职责：pi + 生态扩展 + rick 定制 + 就绪 check）",
+      "status": "pending",
+      "dependencies": [
+        "task2",
+        "task4"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "落地 handler 调度聚合层并让 cli 变薄（plan/doing/easy）",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task4",
+        "task5"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task9",
+      "task_name": "注册 think/research/exporter 为 pi 自定义 agent（经 env 职责 3 落盘）",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task4",
+        "task5"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "完成 handler 覆盖 human-loop/ctrl/dream/learning 并让 cli 全量变薄",
+      "status": "pending",
+      "dependencies": [
+        "task6"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task8",
+      "task_name": "做薄 cutover：下沉 doing 调度与门禁到 pi，并删除全部冗余 Go 包",
+      "status": "pending",
+      "dependencies": [
+        "task3",
+        "task4",
+        "task5",
+        "task6",
+        "task7"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task10",
+      "task_name": "让 pibuilder 产出单文件内聚的 pi 定制化规范产物",
+      "status": "pending",
+      "dependencies": [
+        "task5",
+        "task8"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task11",
+      "task_name": "把自然语言 subagent 触发词等价迁移为 pi 显式触发语法",
+      "status": "pending",
+      "dependencies": [
+        "task5",
+        "task8",
+        "task9"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    },
+    {
+      "task_id": "task12",
+      "task_name": "三个 O 端到端验收 + README/wiki 文档同步",
+      "status": "pending",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task8",
+        "task9",
+        "task10",
+        "task11"
+      ],
+      "attempts": 0,
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+    }
+  ]
+}
