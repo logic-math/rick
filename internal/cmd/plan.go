@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -142,7 +142,7 @@ func executePlanWorkflow(requirement string) error {
 	}
 
 	// Generate plan prompt and save to jobPlanDir/prompts/
-	planPromptFile, _, err := prompt.GeneratePlanPromptFile(requirement, jobPlanDir, rickDir)
+	planPromptFile, _, err := builder.NewPIBuilder().SavePlanPrompt(requirement, jobPlanDir, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate plan prompt: %w", err)
 	}
@@ -196,7 +196,7 @@ func reEnterPlanWorkflow(existingJobID string, requirement string) error {
 	fmt.Printf("Job ID: %s\n", existingJobID)
 	fmt.Printf("Plan directory: %s\n", jobPlanDir)
 
-	planPromptFile, _, err := prompt.GeneratePlanPromptFile(requirement, jobPlanDir, rickDir)
+	planPromptFile, _, err := builder.NewPIBuilder().SavePlanPrompt(requirement, jobPlanDir, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate plan prompt: %w", err)
 	}
@@ -226,7 +226,10 @@ func runPlanDryRun() error {
 	}
 
 	jobPlanDir := filepath.Join(rickDir, "jobs", "job_N", "plan")
-	promptContent, err := prompt.GeneratePlanPrompt("dry-run requirement", jobPlanDir, rickDir)
+	_, promptContent, err := builder.NewPIBuilder().BuildPlan("dry-run requirement", map[string]string{
+		"rick_dir":     rickDir,
+		"job_plan_dir": jobPlanDir,
+	})
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
 		return nil

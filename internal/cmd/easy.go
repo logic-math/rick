@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -52,7 +52,12 @@ func runEasyDryRun(requirement, ctxPath string) error {
 		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
 		return nil
 	}
-	content, err := prompt.GenerateEasyPrompt(requirement, rickDir, ctxPath)
+	_, content, err := builder.NewPIBuilder().BuildEasy(requirement, map[string]string{
+		"rick_dir":  rickDir,
+		"doing_dir": filepath.Join(rickDir, "jobs", "job_N", "doing"),
+		"ctx_path":  ctxPath,
+		"job_id":    "job_N",
+	})
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
 		return nil
@@ -180,7 +185,7 @@ func startEasySession(jobID, requirement, rickDir string, cfg *config.Config, ct
 		return fmt.Errorf("failed to save session ID: %w", err)
 	}
 
-	mainFile, _, err := prompt.GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath)
+	mainFile, _, _, err := builder.NewPIBuilder().SaveEasyPrompt(jobID, requirement, rickDir, ctxPath)
 	if err != nil {
 		return fmt.Errorf("failed to generate easy prompt: %w", err)
 	}

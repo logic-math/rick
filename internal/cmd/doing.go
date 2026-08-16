@@ -8,11 +8,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/git"
 	"github.com/sunquan/rick/internal/parser"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -563,11 +563,7 @@ func runDoingDryRun(jobID string) error {
 		}
 	}
 
-	contextMgr := prompt.NewContextManager("doing")
-
-	promptMgr := prompt.NewPromptManager("")
-
-	promptFile, _, err := prompt.GenerateDoingPromptFile(task, 0, contextMgr, promptMgr, doingDir, rickDir)
+	promptFile, _, _, err := builder.NewPIBuilder().SaveDoingPrompt(task.ID, doingDir, planDir, rickDir, jobID, "doing_check")
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate prompt: %v\n", err)
 		return nil

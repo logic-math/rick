@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -102,7 +101,7 @@ func runLearningDryRun(jobID string) error {
 	doingDir := filepath.Join(jobDir, "doing")
 	data.DebugContent = executor.LoadDebugContext(doingDir)
 
-	promptsDir, _ := prompt.EnsurePromptsDir(learningDir)
+	promptsDir := ""
 	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate learning prompt: %v\n", err)
@@ -219,12 +218,7 @@ func callAgentForAnalysis(data *ExecutionData) error {
 
 	fmt.Printf("✅ Created learning directory: %s\n\n", learningDir)
 
-	promptsDir, err := prompt.EnsurePromptsDir(learningDir)
-	if err != nil {
-		return fmt.Errorf("failed to create prompts dir: %w", err)
-	}
-
-	promptFile, err := buildLearningPrompt(data, learningDir, promptsDir)
+	promptFile, err := buildLearningPrompt(data, learningDir, "")
 	if err != nil {
 		return fmt.Errorf("failed to build learning prompt: %w", err)
 	}
@@ -254,115 +248,33 @@ func callAgentForAnalysis(data *ExecutionData) error {
 // buildLearningPrompt builds learning prompt and saves to promptsDir/learning_prompt.md.
 // Returns the prompt file path; all files are persistent, no cleanup needed.
 func buildLearningPrompt(data *ExecutionData, learningDir, promptsDir string) (string, error) {
-	promptMgr := prompt.NewPromptManager("")
-
-	template, err := promptMgr.LoadTemplate("learning")
-	if err != nil {
-		return "", fmt.Errorf("failed to load learning template: %w", err)
+	lp := builder.LearningParams{
+		JobID:        data.JobID,
+		RickDir:      data.RickDir,
+		LearningDir:  learningDir,
+		PromptsDir:   promptsDir,
+		DebugContent: data.DebugContent,
+		TaskMDPaths:  data.TaskMDPaths,
+		ActPathFiles: data.ActPathFiles,
 	}
-
-	// Resolve paths for skill variable substitution
-	loopsDir := filepath.Join(data.RickDir, "loops")
-	skillsDir := filepath.Join(data.RickDir, "skills")
-	projectRoot, _ := os.Getwd()
-	rickBinPath := filepath.Join(projectRoot, "bin", "rick")
-
-	genSkillFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_skill.md", "gen-skill")
-	if err != nil {
-		return "", fmt.Errorf("failed to write gen-skill: %w", err)
+	if data.RickDir != "" && data.JobID != "" {
+		lp.DebugDir = filepath.Join(data.RickDir, "jobs", data.JobID, "doing", "debug")
 	}
-	genLoopFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_loop.md", "gen-loop")
-	if err != nil {
-		return "", fmt.Errorf("failed to write gen-loop: %w", err)
-	}
-	genDomainFile, err := prompt.WriteSkillFile(promptsDir, "skill_gen_domain.md", "gen-domain")
-	if err != nil {
-		return "", fmt.Errorf("failed to write gen-domain: %w", err)
-	}
-
-	domainDir := filepath.Join(data.RickDir, "domain")
-	learningLoopFile, err := prompt.WriteSkillFileWithVars(promptsDir, "learning_loop.md", "learning_loop", map[string]string{
-		"job_id":          data.JobID,
-		"learning_dir":    learningDir,
-		"loops_dir":       loopsDir,
-		"skills_dir":      skillsDir,
-		"domain_dir":      domainDir,
-		"rick_bin_path":   rickBinPath,
-		"gen_skill_path":  genSkillFile,
-		"gen_loop_path":   genLoopFile,
-		"gen_domain_path": genDomainFile,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to write learning_loop skill: %w", err)
-	}
-
-	builder := prompt.NewPromptBuilder(template)
-
-	builder.SetVariable("job_id", data.JobID)
-	builder.SetVariable("loops_context", prompt.LoadLoopsContext(loopsDir))
-	builder.SetVariable("learning_loop_path", learningLoopFile)
-
-	// debug.md — embed content directly
-	if data.DebugContent != "" {
-		builder.SetVariable("debug_content", data.DebugContent)
-	} else {
-		builder.SetVariable("debug_content", "（本次 job 无 debug.md 记录）")
-	}
-
-	// task*.md paths
-	if len(data.TaskMDPaths) > 0 {
-		var sb strings.Builder
-		for _, p := range data.TaskMDPaths {
-			sb.WriteString(fmt.Sprintf("  - `%s`\n", p))
-		}
-		builder.SetVariable("task_md_files", strings.TrimRight(sb.String(), "\n"))
-	} else {
-		builder.SetVariable("task_md_files", "  （无 task*.md 文件）")
-	}
-
-	// act-path.md paths
-	if len(data.ActPathFiles) > 0 {
-		var sb strings.Builder
-		for _, p := range data.ActPathFiles {
-			sb.WriteString(fmt.Sprintf("  - `%s`\n", p))
-		}
-		builder.SetVariable("act_path_files", strings.TrimRight(sb.String(), "\n"))
-	} else {
-		builder.SetVariable("act_path_files", "  （无 act-path.md 文件）")
-	}
-
-	// task execution results table
-	var taskResults strings.Builder
 	if data.TasksJSON != nil {
-		taskResults.WriteString("| Task ID | 任务名称 | 状态 | Commit Hash | 重试次数 |\n")
-		taskResults.WriteString("|---------|---------|------|-------------|----------|\n")
 		for _, task := range data.TasksJSON.Tasks {
-			commitHash := task.CommitHash
-			if commitHash == "" {
-				commitHash = "N/A"
-			} else if len(commitHash) > 8 {
-				commitHash = commitHash[:8]
-			}
-			taskResults.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %d |\n",
-				task.TaskID, task.TaskName, task.Status, commitHash, task.Attempts))
+			lp.TaskResults = append(lp.TaskResults, builder.LearningResult{
+				TaskID:     task.TaskID,
+				TaskName:   task.TaskName,
+				Status:     task.Status,
+				CommitHash: task.CommitHash,
+				Attempts:   task.Attempts,
+			})
 		}
-	} else {
-		taskResults.WriteString("无任务元信息\n")
 	}
-	builder.SetVariable("task_execution_results", taskResults.String())
 
-	builder.SetVariable("rick_bin_path", rickBinPath)
-
-	draftDir, err := workspace.GetDraftDir()
+	promptFile, _, err := builder.NewPIBuilder().SaveLearningPrompt(lp)
 	if err != nil {
-		draftDir = ""
+		return "", fmt.Errorf("failed to build learning prompt: %w", err)
 	}
-	builder.SetVariable("draft_dir", draftDir)
-
-	promptFile := filepath.Join(promptsDir, "learning_prompt.md")
-	if err := builder.SaveToFile(promptFile); err != nil {
-		return "", fmt.Errorf("failed to save learning prompt: %w", err)
-	}
-
 	return promptFile, nil
 }

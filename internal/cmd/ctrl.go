@@ -5,8 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -35,7 +35,7 @@ func runCtrlDryRun() error {
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
-	promptFile, err := prompt.GenerateCtrlPromptFile(jID, rickDir)
+	promptFile, _, err := builder.NewPIBuilder().SaveCtrlPrompt(jID, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate ctrl prompt: %w", err)
 	}
@@ -59,7 +59,7 @@ func runCtrl(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
-	promptFile, err := prompt.GenerateCtrlPromptFile(jID, rickDir)
+	promptFile, _, err := builder.NewPIBuilder().SaveCtrlPrompt(jID, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate ctrl prompt: %w", err)
 	}

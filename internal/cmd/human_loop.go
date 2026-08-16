@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -49,10 +49,13 @@ func NewHumanLoopCmd() *cobra.Command {
 				}
 			}
 
-			promptMgr := prompt.NewPromptManager()
+			pb := builder.NewPIBuilder()
 
 			if GetDryRun() {
-				content, err := prompt.GenerateHumanLoopPrompt(topic, rfcDir, draftDir, promptMgr)
+				_, content, err := pb.BuildHumanLoop(topic, map[string]string{
+					"rfc_dir":   rfcDir,
+					"draft_dir": draftDir,
+				})
 				if err != nil {
 					return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 				}
@@ -65,7 +68,7 @@ func NewHumanLoopCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			mainFile, _, _, _, err := prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, promptMgr)
+			mainFile, _, _, _, _, err := pb.SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir)
 			if err != nil {
 				return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 			}

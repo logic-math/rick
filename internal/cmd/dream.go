@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
-	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -49,7 +49,10 @@ func runDreamDryRun(jobNum int) error {
 	jobIDs := selectPendingJobs(rickDir, jobNum)
 	fmt.Printf("[DRY-RUN] Pending jobs (%d): %v\n", len(jobIDs), jobIDs)
 
-	content, err := prompt.GenerateDreamPrompt(jobIDs, rickDir)
+	_, content, err := builder.NewPIBuilder().BuildDream(map[string]string{
+		"rick_dir": rickDir,
+		"job_ids":  strings.Join(jobIDs, ","),
+	})
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to generate dream prompt: %v\n", err)
 		return nil
@@ -83,7 +86,7 @@ func dreamWorkflow(jobNum int, background bool) error {
 
 	fmt.Printf("Processing %d job(s): %s\n", len(jobIDs), strings.Join(jobIDs, ", "))
 
-	promptFile, _, err := prompt.GenerateDreamPromptFile(jobIDs, rickDir)
+	promptFile, _, err := builder.NewPIBuilder().SaveDreamPrompt(jobIDs, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate dream prompt: %w", err)
 	}
