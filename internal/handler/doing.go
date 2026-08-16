@@ -19,7 +19,12 @@ import (
 // settles. rick's retry loop is only a safety net: it regenerates an
 // orchestration of the remaining pending tasks on each attempt, bounded by
 // cfg.MaxRetries.
-func Doing(jobID string, opts Options) error {
+//
+// rt is the agent runtime (DIP composition root in cmd constructs the concrete
+// implementation and injects it here). Handler depends on the Runtime interface
+// only, so a future dsh runtime only needs a new impl + registration without
+// touching this orchestrator.
+func Doing(jobID string, opts Options, rt runtime.Runtime) error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -60,7 +65,9 @@ func Doing(jobID string, opts Options) error {
 		maxRetries = 3
 	}
 
-	piRuntime := runtime.NewPiRuntime(cfg.PiPath, cfg.PiExtraArgs...)
+	if rt == nil {
+		return fmt.Errorf("runtime is nil (composition root must inject a Runtime)")
+	}
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if opts.Verbose {
@@ -74,13 +81,20 @@ func Doing(jobID string, opts Options) error {
 			return fmt.Errorf("failed to build doing prompt: %w", err)
 		}
 
-		_, _, err = piRuntime.Run(method, promptFile, cfg)
+		sessionID, _, err := rt.Run(method, promptFile, cfg)
 		if err != nil {
 			fmt.Printf("[WARN] pi run did not settle (attempt %d/%d): %v\n", attempt, maxRetries, err)
 			if attempt < maxRetries {
 				continue
 			}
 			return fmt.Errorf("pi run failed after %d attempts: %w", maxRetries, err)
+		}
+
+		// Persist the pi session ID to the job directory (handler 持久化契约)。
+		if sessionID != "" {
+			if err := saveSessionID(doingDir, sessionID); err != nil {
+				fmt.Printf("[WARN] failed to persist session_id: %v\n", err)
+			}
 		}
 
 		// Deterministic gate after the session settles (agent_settled).

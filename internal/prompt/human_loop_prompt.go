@@ -26,6 +26,7 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	builder.SetVariable("research_agent_path", "<draft>/loops/loop_N/prompts/research.md")
 	builder.SetVariable("exporter_agent_path", "<draft>/loops/loop_N/prompts/exporter.md")
 	builder.SetVariable("max_retries", "5")
+	builder.SetVariable("max_backflows", "3")
 
 	content, err := builder.Build()
 	if err != nil {

@@ -4,7 +4,9 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/handler"
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 func NewDoingCmd() *cobra.Command {
@@ -71,8 +73,15 @@ func NewDoingCmd() *cobra.Command {
 				fmt.Printf("[INFO] Executing job: %s\n", jobID)
 			}
 
-			// Execute doing workflow
-			if err := handler.Doing(jobID, opts); err != nil {
+			// Execute doing workflow. The composition root constructs the concrete
+			// pi runtime and injects it into the handler (DIP: handler depends on
+			// the Runtime interface only).
+			cfg, err := config.LoadConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			rt := runtime.NewPiRuntime(cfg.PiPath, cfg.PiExtraArgs...)
+			if err := handler.Doing(jobID, opts, rt); err != nil {
 				return err
 			}
 

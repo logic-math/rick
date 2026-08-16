@@ -22,7 +22,7 @@ func TestDoing_NoJobDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Doing("job_test", Options{})
+	err = Doing("job_test", Options{}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing job dir")
 	}
@@ -43,7 +43,7 @@ func TestDoing_NoPlanDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Doing("job_test", Options{})
+	err = Doing("job_test", Options{}, nil)
 	if err == nil {
 		t.Fatal("expected error for missing plan dir")
 	}
@@ -64,7 +64,7 @@ func TestDoing_NoTasks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Doing("job_test", Options{})
+	err = Doing("job_test", Options{}, nil)
 	if err == nil {
 		t.Fatal("expected error for no tasks")
 	}
