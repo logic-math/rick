@@ -5,6 +5,7 @@
 | 文件 | 内容 |
 |------|------|
 | `spec.md` | spec 规范：结构化自然语言工程实现契约（四要素模板 + spec → 开发计划 → 功能等价实现的验收标准） |
+| `rick-spec.md` | rick 项目第一份 spec 实例（四层架构 + 5 模块 + env 四职责 + 扩展 seam + 验收标准） |
 | `architecture.md` | 技术栈、模块划分、DIP 组合根模式、act-path/agent/dream 模块设计 |
 | `commands.md` | 所有 rick 命令规范（doing/plan/learning/dream/ctrl/human-loop）+ NDJSON 解析规范 |
 | `go-patterns.md` | Go 编码规范（Cobra flag/variadic/embed.FS/包内共享/接口签名/配置污染防护） |
