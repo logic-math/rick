@@ -27,7 +27,7 @@
 ```
 status 字段取值：
   pending   — 等待执行
-  running   — 正在执行（Claude 后台运行中）
+  running   — 正在执行（pi 后台运行中）
   success   — 执行成功，已 git commit
   failed    — 本次尝试失败，等待重试
   retrying  — 重试中
@@ -43,32 +43,35 @@ status 字段取值：
 doing/
   tasks/
     task1/
-      raw_session_coding.log   ← 实时 NDJSON 流式日志（任务执行中持续写入）
-      act-path.md              ← 任务完成后自动生成的可读摘要
+      raw_session_coding.log   ← 实时 pi JSONL 事件流（任务执行中持续写入）
+      act-path.md              ← 任务完成后的可读行为轨迹摘要（runtime trace）
     task2/
       raw_session_coding.log
       act-path.md
     ...
 ```
 
-### raw_session_coding.log — 实时 NDJSON 日志
+### raw_session_coding.log — 实时 pi JSONL 事件流
 
-每行是一个 JSON 对象，格式如下：
+每行是一个 JSON 对象（pi `--mode json` 事件流），字段为 **camelCase**。关键事件类型：
 
 ```
-type = "system"     → 会话初始化，包含 session_id
-type = "assistant"  → Claude 的行为，message.content[] 包含：
-                        type="tool_use"    工具调用（name=工具名，input=参数）
-                        type="text"        Claude 的文字输出
-type = "user"       → 工具执行结果，message.content[] 包含：
-                        type="tool_result" 工具返回值，is_error=true 表示失败
-type = "result"     → 会话结束汇总（duration_ms=耗时，is_error=是否失败）
+{"type":"session","id":"..."}   → 会话初始化，id = session ID
+{"type":"message_end","message":{"role":"assistant","content":[...]}}
+                                → 一轮消息结束；user 与 assistant 轮次都会发，
+                                  取最终回复须过滤 message.role == "assistant"
+{"type":"tool_execution_start","toolCallId":"...","toolName":"...","args":{...}}
+                                → 工具调用开始（toolName=工具名，args=参数）
+{"type":"tool_execution_end","toolCallId":"...","result":...,"isError":false}
+                                → 工具调用结束（result 可能是 JSON 对象非字符串，
+                                  isError=true 表示失败）
+{"type":"agent_settled", ...}   → 终止信号（pi 不再输出内容，本次运行收尾）
 ```
 
-**读取方法**：tail 最后 30-50 行，关注 `tool_use` 的 name/input（Claude 在调什么工具）
-和 `tool_result` 的内容与 is_error（工具是否成功）。
+**读取方法**：tail 最后 30-50 行，关注 `tool_execution_start` 的 toolName/args（pi 在调什么工具）
+和 `tool_execution_end` 的 result 与 isError（工具是否成功）。
 
-### act-path.md — 任务完成摘要
+### act-path.md — 任务完成的行为轨迹摘要（runtime trace）
 
 任务执行完成后自动生成，包含：
 - 执行摘要（耗时、工具调用次数、报错次数）
@@ -95,8 +98,8 @@ type = "result"     → 会话结束汇总（duration_ms=耗时，is_error=是�
 启动后**立即**执行：
 1. 读取 `{{tasks_json_path}}`，生成任务状态表格
 2. 找到 `status = "running"` 的任务 → 读取其 `raw_session_coding.log` 最后 40 行
-   - 从 NDJSON 中提取最近的 `tool_use` 名称和输入，展示给人类
-   - 找最近的 `tool_result` 判断是否有错误
+   - 从 pi JSONL 中提取最近的 `tool_execution_start` 的 toolName 和 args，展示给人类
+   - 找最近的 `tool_execution_end` 的 result 与 isError 判断是否有错误
 3. 读取 `{{doing_dir}}/debug.md`（如存在）→ 汇报是否有失败重试、当前卡点
 4. 对已完成任务（`status = "success"`）→ 如果存在 `act-path.md` 可简要引用其摘要
 
@@ -125,7 +128,7 @@ type = "result"     → 会话结束汇总（duration_ms=耗时，is_error=是�
 
 **异常判断标准**：
 - 某 task `attempts` ≥ 2：重试多次，可能遇到顽固问题，建议人类查看
-- running task 日志最后 30 行全是 `tool_result` is_error=true：连续报错，建议干预
+- running task 日志最后 30 行全是 `tool_execution_end` isError=true：连续报错，建议干预
 - debug.md 最新条目 进展=❌ 未解决：存在未修复问题
 
 ### 3. 手动刷新
@@ -166,7 +169,7 @@ type = "result"     → 会话结束汇总（duration_ms=耗时，is_error=是�
 #### 场景 D：查看原始日志片段
 
 读取 `{{doing_dir}}/tasks/<task_id>/raw_session_coding.log`，
-解析 NDJSON，按时间顺序展示工具调用序列（工具名 + 输入摘要 + 结果状态）。
+解析 pi JSONL，按时间顺序展示工具调用序列（toolName + args 摘要 + result/isError 状态）。
 
 ---
 

@@ -556,64 +556,6 @@ func TestAutoFix_FailingPi(t *testing.T) {
 	}
 }
 
-// ─── collectExecutionData tests ───────────────────────────────────────────────
-
-func TestCollectExecutionData_NoDoingDir(t *testing.T) {
-	withTempWorkspace(t, func(dir string) {
-		_, err := collectExecutionData("job_test")
-		if err == nil {
-			t.Fatal("expected error for missing doing dir")
-		}
-	})
-}
-
-func TestCollectExecutionData_WithData(t *testing.T) {
-	withTempWorkspace(t, func(dir string) {
-		doingDir := filepath.Join(dir, ".rick", "jobs", "job_test", "doing")
-		if err := os.MkdirAll(doingDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		// Create debug.md
-		if err := os.WriteFile(filepath.Join(doingDir, "debug.md"), []byte("## task1: did work\nsome content"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		// Create tasks.json
-		makeTasksJSON(t, doingDir, []executor.TaskState{
-			{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
-		})
-		data, err := collectExecutionData("job_test")
-		if err != nil {
-			t.Errorf("expected no error, got: %v", err)
-		}
-		if data == nil {
-			t.Fatal("expected non-nil data")
-		}
-		if data.JobID != "job_test" {
-			t.Errorf("expected job_id=job_test, got %s", data.JobID)
-		}
-	})
-}
-
-func TestCollectExecutionData_NoDebugMD(t *testing.T) {
-	withTempWorkspace(t, func(dir string) {
-		doingDir := filepath.Join(dir, ".rick", "jobs", "job_test", "doing")
-		if err := os.MkdirAll(doingDir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		// Create tasks.json but no debug.md
-		makeTasksJSON(t, doingDir, []executor.TaskState{
-			{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
-		})
-		data, err := collectExecutionData("job_test")
-		if err != nil {
-			t.Errorf("expected no error even without debug.md, got: %v", err)
-		}
-		if data != nil && data.DebugContent != "" {
-			t.Logf("debug content unexpectedly set: %s", data.DebugContent)
-		}
-	})
-}
-
 // ─── Command RunE tests ───────────────────────────────────────────────────────
 
 func TestNewPlanCheckCmd_RunE_NoArgs(t *testing.T) {

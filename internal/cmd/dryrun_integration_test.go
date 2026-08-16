@@ -89,7 +89,7 @@ func TestDryRun_LearningPrintsPrompt(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	err = runLearningDryRun("job_test")
+	err = handler.LearningDryRun("job_test")
 	w.Close()
 
 	var buf bytes.Buffer
@@ -98,7 +98,7 @@ func TestDryRun_LearningPrintsPrompt(t *testing.T) {
 	os.Stdout = old
 
 	if err != nil {
-		t.Fatalf("runLearningDryRun() returned error: %v", err)
+		t.Fatalf("handler.LearningDryRun() returned error: %v", err)
 	}
 
 	if !strings.Contains(output, "[DRY-RUN]") {

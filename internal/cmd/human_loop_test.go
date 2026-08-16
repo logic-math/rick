@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,12 +88,20 @@ func TestHumanLoopDryRunContainsDraftDir(t *testing.T) {
 	defer func() { dryRun = origDryRun }()
 	dryRun = true
 
-	var buf strings.Builder
+	// Capture stdout: handler.HumanLoopDryRun prints via fmt.Print (os.Stdout),
+	// not the cobra command's output writer.
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
 	cmd := NewHumanLoopCmd()
 	cmd.SetArgs([]string{"测试主题"})
-	cmd.SetOut(&buf)
+	err = cmd.Execute()
+	w.Close()
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	os.Stdout = old
 
-	if err := cmd.Execute(); err != nil {
+	if err != nil {
 		t.Fatalf("human-loop dry-run failed: %v", err)
 	}
 
