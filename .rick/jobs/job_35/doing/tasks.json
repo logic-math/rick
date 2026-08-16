@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T01:16:37.404076+08:00",
+  "updated_at": "2026-08-17T01:53:43.005217+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -17,25 +17,27 @@
     {
       "task_id": "task2",
       "task_name": "产出 rick 第一份 spec（四层架构 + 5 模块 + env 四职责契约）",
+      "task_file": "task2.md",
       "status": "success",
       "dependencies": [
         "task1"
       ],
       "attempts": 0,
+      "commit_hash": "c58178087c0a5ae00fbad8b13e3346f83fb2340f",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T01:16:37.404076+08:00",
-      "commit_hash": "a59f9c10c5460e611c50999c2d009de7287911a5"
+      "updated_at": "2026-08-17T01:17:11.175159236+08:00"
     },
     {
       "task_id": "task4",
       "task_name": "重构 runtime 模块（pi 调用逻辑收口到 runtime 层）",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task2"
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T01:53:43.005217+08:00",
+      "commit_hash": "305dd9f7df5aaa93aa742c7e10022df7cca73155"
     },
     {
       "task_id": "task5",
