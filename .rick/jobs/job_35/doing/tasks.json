@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T01:53:43.005217+08:00",
+  "updated_at": "2026-08-17T02:27:19.912177+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -30,25 +30,27 @@
     {
       "task_id": "task4",
       "task_name": "重构 runtime 模块（pi 调用逻辑收口到 runtime 层）",
+      "task_file": "task4.md",
+      "status": "success",
+      "dependencies": [
+        "task2"
+      ],
+      "attempts": 0,
+      "commit_hash": "c900b1b17945e9d392088427461ec9721bd490f2",
+      "created_at": "2026-08-17T00:59:46.783995764+08:00",
+      "updated_at": "2026-08-17T01:54:14.532099601+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "重构 builder 三件（templates + pibuilder + xxxxbuilder），注入路径而非内容",
       "status": "success",
       "dependencies": [
         "task2"
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T01:53:43.005217+08:00",
-      "commit_hash": "305dd9f7df5aaa93aa742c7e10022df7cca73155"
-    },
-    {
-      "task_id": "task5",
-      "task_name": "重构 builder 三件（templates + pibuilder + xxxxbuilder），注入路径而非内容",
-      "status": "pending",
-      "dependencies": [
-        "task2"
-      ],
-      "attempts": 0,
-      "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T02:27:19.912177+08:00",
+      "commit_hash": "3e9f19c14e2baeac20b18f06baa938d99feff86a"
     },
     {
       "task_id": "task3",
