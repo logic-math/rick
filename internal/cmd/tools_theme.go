@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"embed"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/sunquan/rick/internal/env"
 	"github.com/sunquan/rick/internal/runtime"
 )
-
-//go:embed themes/*.json
-var embeddedThemes embed.FS
 
 // knownTheme maps a selectable theme name to the npm package that provides it
 // ("" = pi built-in; embedded = rick-shipped custom theme file written into the
@@ -23,6 +20,9 @@ var embeddedThemes embed.FS
 // agent dir, so the choices listed here are exactly the ones rick can guarantee
 // (it installs the providing package into ~/.rick/pi on demand). Custom themes
 // dropped into ~/.rick/pi/agent/themes/*.json are discovered and listed too.
+//
+// The embedded theme JSON lives in internal/env/themes/ and is written by
+// env.WriteEmbeddedTheme; this struct only carries the embed path mapping.
 type knownTheme struct {
 	name     string
 	pkg      string
@@ -99,7 +99,7 @@ func runThemeList(w io.Writer) error {
 	if err := runtime.EnsureAgentDir(); err != nil {
 		return fmt.Errorf("create agent dir: %w", err)
 	}
-	cur := currentTheme()
+	cur := env.CurrentTheme()
 	if cur == "" {
 		cur = "(none — pi default)"
 	}
@@ -110,7 +110,7 @@ func runThemeList(w io.Writer) error {
 		switch {
 		case t.embedded != "":
 			state = "builtin (rick)"
-		case t.pkg != "" && !piListContains(filepath.Base(t.pkg)):
+		case t.pkg != "" && !env.PiListContains(filepath.Base(t.pkg)):
 			state = "not installed"
 		}
 		marker := " "
@@ -184,42 +184,34 @@ func runThemeSet(name string, w io.Writer) error {
 
 	// Make sure the managed settings.json exists first (bootstrap adds
 	// hideThinkingBlock=true), then the theme source, then activate.
-	if err := bootstrapAgentSettings(); err != nil {
+	if err := env.BootstrapAgentSettings(); err != nil {
 		return err
 	}
 	if embedded != "" {
 		// rick-shipped theme: write the embedded JSON into the managed themes
 		// dir, where pi discovers it automatically (agentDir/themes/*.json).
-		data, err := embeddedThemes.ReadFile(embedded)
-		if err != nil {
-			return fmt.Errorf("read embedded theme %s: %w", embedded, err)
-		}
-		themesDir := filepath.Join(runtime.AgentDir(), "themes")
-		if err := os.MkdirAll(themesDir, 0755); err != nil {
-			return fmt.Errorf("create themes dir: %w", err)
-		}
-		if err := os.WriteFile(filepath.Join(themesDir, name+".json"), data, 0644); err != nil {
-			return fmt.Errorf("write theme %s.json: %w", name, err)
+		if err := env.WriteEmbeddedTheme(embedded); err != nil {
+			return err
 		}
 	}
 	if pkg != "" {
-		if !piListContains(filepath.Base(pkg)) {
+		if !env.PiListContains(filepath.Base(pkg)) {
 			fmt.Fprintf(w, "⚠️  installing theme package %s ...\n", pkg)
-			piCmd := piCommand("install", "npm:"+pkg)
+			piCmd := env.PiCommand("install", "npm:"+pkg)
 			piCmd.Stdout = os.Stdout
 			piCmd.Stderr = os.Stderr
 			if err := piCmd.Run(); err != nil {
 				return fmt.Errorf("pi install npm:%s: %w", pkg, err)
 			}
-			if !piListContains(filepath.Base(pkg)) {
+			if !env.PiListContains(filepath.Base(pkg)) {
 				return fmt.Errorf("%s still not listed after install", pkg)
 			}
 		}
 	}
-	if err := setTheme(name); err != nil {
+	if err := env.SetTheme(name); err != nil {
 		return err
 	}
-	if got := currentTheme(); got != name {
+	if got := env.CurrentTheme(); got != name {
 		return fmt.Errorf("verification failed: theme is %q, want %q", got, name)
 	}
 	fmt.Fprintf(w, "✅ theme active: %s\n", name)

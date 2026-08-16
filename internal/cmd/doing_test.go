@@ -236,21 +236,21 @@ func TestPrintExecutionSummary(t *testing.T) {
 		FailedTasks:     0,
 		TaskResults: []*executor.RetryResult{
 			{
-				TaskID:       "task1",
-				TaskName:     "Task 1",
-				Status:       "success",
+				TaskID:        "task1",
+				TaskName:      "Task 1",
+				Status:        "success",
 				TotalAttempts: 1,
 			},
 			{
-				TaskID:       "task2",
-				TaskName:     "Task 2",
-				Status:       "success",
+				TaskID:        "task2",
+				TaskName:      "Task 2",
+				Status:        "success",
 				TotalAttempts: 1,
 			},
 			{
-				TaskID:       "task3",
-				TaskName:     "Task 3",
-				Status:       "success",
+				TaskID:        "task3",
+				TaskName:      "Task 3",
+				Status:        "success",
 				TotalAttempts: 1,
 			},
 		},
@@ -269,9 +269,9 @@ func TestPrintExecutionSummaryWithFailures(t *testing.T) {
 		FailedTasks:     1,
 		TaskResults: []*executor.RetryResult{
 			{
-				TaskID:       "task1",
-				TaskName:     "Task 1",
-				Status:       "success",
+				TaskID:        "task1",
+				TaskName:      "Task 1",
+				Status:        "success",
 				TotalAttempts: 1,
 			},
 			{
@@ -282,9 +282,9 @@ func TestPrintExecutionSummaryWithFailures(t *testing.T) {
 				LastError:     "Connection timeout",
 			},
 			{
-				TaskID:       "task3",
-				TaskName:     "Task 3",
-				Status:       "success",
+				TaskID:        "task3",
+				TaskName:      "Task 3",
+				Status:        "success",
 				TotalAttempts: 1,
 			},
 		},
@@ -478,11 +478,11 @@ func TestExecuteDoingWorkflow_ResumesFromTasksJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use a mock claude that exits 0 but never creates a test script,
+	// Use a mock pi that exits 0 but never creates a test script,
 	// so task2 will fail — but task1 must be skipped entirely.
 	mockDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(mockDir, "claude")
+	mockPath := filepath.Join(mockDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -508,12 +508,12 @@ func TestExecuteDoingWorkflow_ResumesFromTasksJSON(t *testing.T) {
 	}
 }
 
-// TestExecuteDoingWorkflow_WithMockClaude tests executeDoingWorkflow with mock claude
-func TestExecuteDoingWorkflow_WithMockClaude(t *testing.T) {
-	// Create mock claude that exits 0 but creates no test script
+// TestExecuteDoingWorkflow_WithMockPi tests executeDoingWorkflow with mock pi
+func TestExecuteDoingWorkflow_WithMockPi(t *testing.T) {
+	// Create mock pi that exits 0 but creates no test script
 	mockDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(mockDir, "claude")
+	mockPath := filepath.Join(mockDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}

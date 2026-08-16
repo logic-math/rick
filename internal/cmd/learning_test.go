@@ -160,11 +160,11 @@ func TestBuildLearningPromptInjectsDraftDir(t *testing.T) {
 	}
 }
 
-// TestExecuteLearningWorkflow_WithMockClaude tests executeLearningWorkflow with mock claude
-func TestExecuteLearningWorkflow_WithMockClaude(t *testing.T) {
+// TestExecuteLearningWorkflow_WithMockPi tests executeLearningWorkflow with mock pi
+func TestExecuteLearningWorkflow_WithMockPi(t *testing.T) {
 	mockDir := t.TempDir()
 	mockScript := "#!/bin/sh\nexit 0\n"
-	mockPath := filepath.Join(mockDir, "claude")
+	mockPath := filepath.Join(mockDir, "pi")
 	if err := os.WriteFile(mockPath, []byte(mockScript), 0755); err != nil {
 		t.Fatal(err)
 	}

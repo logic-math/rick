@@ -2,10 +2,13 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sunquan/rick/internal/env"
 )
 
 // fakePiWithList installs a fake pi on PATH whose `list` reads a list file and
@@ -29,6 +32,41 @@ esac
 	}
 	t.Setenv("PATH", dir)
 	t.Setenv("FAKE_PI_LIST", listFile)
+}
+
+// setupPiSettings writes the rick-managed settings.json (~/.rick/pi/agent)
+// with the given theme (or no theme if ""), pointing HOME at a temp dir.
+func setupPiSettings(t *testing.T, theme string) string {
+	t.Helper()
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	s := map[string]any{"theme": theme, "packages": []string{"npm:pi-subagents"}}
+	if theme == "" {
+		delete(s, "theme")
+	}
+	data, _ := json.MarshalIndent(s, "", "  ")
+	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	return home
+}
+
+// readManagedSettings reads the managed settings.json into a map.
+func readManagedSettings(t *testing.T) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(env.PiSettingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 func TestRunThemeList_ShowsCurrentAndOptions(t *testing.T) {
@@ -66,7 +104,7 @@ func TestRunThemeSet_AutoInstallsProvidingPackage(t *testing.T) {
 	if err := runThemeSet("gh-dark", &buf); err != nil {
 		t.Fatalf("runThemeSet: %v", err)
 	}
-	if got := currentTheme(); got != "gh-dark" {
+	if got := env.CurrentTheme(); got != "gh-dark" {
 		t.Errorf("theme should be gh-dark, got %q", got)
 	}
 	// hideThinkingBlock must survive the theme switch (bootstrap + setTheme).
@@ -99,7 +137,7 @@ func TestRunThemeSet_BuiltinNoInstall(t *testing.T) {
 	if err := runThemeSet("light", &buf); err != nil {
 		t.Fatalf("runThemeSet(light): %v", err)
 	}
-	if got := currentTheme(); got != "light" {
+	if got := env.CurrentTheme(); got != "light" {
 		t.Errorf("theme should be light, got %q", got)
 	}
 	// built-in themes need no package install.
@@ -146,7 +184,7 @@ func TestRunThemeSet_CustomThemeFromManagedDir(t *testing.T) {
 	if err := runThemeSet("gruvbox", &buf); err != nil {
 		t.Fatalf("runThemeSet(gruvbox): %v", err)
 	}
-	if got := currentTheme(); got != "gruvbox" {
+	if got := env.CurrentTheme(); got != "gruvbox" {
 		t.Errorf("theme should be gruvbox, got %q", got)
 	}
 	// no package install for custom themes.
@@ -187,7 +225,7 @@ func TestRunThemeSet_EmbeddedRickTheme(t *testing.T) {
 	if err := runThemeSet("gh-light", &buf); err != nil {
 		t.Fatalf("runThemeSet(gh-light): %v", err)
 	}
-	if got := currentTheme(); got != "gh-light" {
+	if got := env.CurrentTheme(); got != "gh-light" {
 		t.Errorf("theme should be gh-light, got %q", got)
 	}
 	// The embedded theme JSON must be written into the managed themes dir
