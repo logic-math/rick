@@ -539,6 +539,9 @@ exit 0
 	if err := deployRickCustomizations(src); err != nil {
 		t.Fatalf("deployRickCustomizations: %v", err)
 	}
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents: %v", err)
+	}
 
 	ok, missing := IsPIReady()
 	if !ok || len(missing) != 0 {
@@ -574,13 +577,128 @@ func TestCheckRickHooks_Missing(t *testing.T) {
 	}
 }
 
-// TestCheckRickAgents_NoRequiredAgents verifies the task3 no-op contract:
-// with no required agents registered yet, the check is ready.
-func TestCheckRickAgents_NoRequiredAgents(t *testing.T) {
+// TestCheckRickAgents_Missing verifies the not-ready boundary: with no agents
+// deployed yet, CheckRickAgents reports all three required agents missing.
+func TestCheckRickAgents_Missing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	if m := CheckRickAgents(); len(m) != 0 {
-		t.Errorf("CheckRickAgents should be ready with no required agents, got %v", m)
+	m := CheckRickAgents()
+	if len(m) != 3 {
+		t.Errorf("CheckRickAgents should report 3 missing agents, got %v", m)
 	}
+	for _, name := range []string{"think", "research", "exporter"} {
+		if !containsString(m, name) {
+			t.Errorf("CheckRickAgents missing %q in report %v", name, m)
+		}
+	}
+}
+
+// TestCheckRickAgents_Ready verifies the ready boundary: after deployRickAgents,
+// CheckRickAgents returns empty.
+func TestCheckRickAgents_Ready(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents: %v", err)
+	}
+	if m := CheckRickAgents(); len(m) != 0 {
+		t.Errorf("CheckRickAgents should be ready after deploy, got %v", m)
+	}
+}
+
+// TestDeployRickAgents verifies 职责 3 的 agent 定制：3 文件落盘 + frontmatter
+// 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义。
+func TestDeployRickAgents(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
+
+	// 正常路径：3 文件落盘 + frontmatter + 非空正文。
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents: %v", err)
+	}
+	wantTools := map[string][]string{
+		"think":    {"find", "grep", "ls", "read"},
+		"research": {"bash", "fetch_content", "find", "grep", "ls", "read", "web_search"},
+		"exporter": {"bash", "read", "write"},
+	}
+	for name, tools := range wantTools {
+		data, err := os.ReadFile(filepath.Join(agentsDir, name+".md"))
+		if err != nil {
+			t.Errorf("%s.md not deployed: %v", name, err)
+			continue
+		}
+		content := string(data)
+		if !strings.Contains(content, "name: "+name) {
+			t.Errorf("%s.md missing name: %s", name, name)
+		}
+		if !strings.Contains(content, "rick-managed: true") {
+			t.Errorf("%s.md missing rick-managed: true", name)
+		}
+		if !strings.Contains(content, "skill:"+name) {
+			t.Errorf("%s.md missing skill:%s wiki body", name, name)
+		}
+		for _, tool := range tools {
+			if !strings.Contains(content, tool) {
+				t.Errorf("%s.md frontmatter missing tool %q", name, tool)
+			}
+		}
+	}
+
+	// 幂等：再跑一次内容逐字节不变。
+	before := map[string]string{}
+	for name := range wantTools {
+		data, _ := os.ReadFile(filepath.Join(agentsDir, name+".md"))
+		before[name] = string(data)
+	}
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents (idempotent rerun): %v", err)
+	}
+	for name, orig := range before {
+		data, _ := os.ReadFile(filepath.Join(agentsDir, name+".md"))
+		if string(data) != orig {
+			t.Errorf("%s.md changed after idempotent rerun", name)
+		}
+	}
+
+	// 覆盖语义：无 rick 标记的同名文件不被覆盖。
+	thinkPath := filepath.Join(agentsDir, "think.md")
+	userContent := "---\nname: think\ndescription: user custom agent\ntools: read\n---\nUSER CUSTOM BODY\n"
+	if err := os.WriteFile(thinkPath, []byte(userContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents (no-marker): %v", err)
+	}
+	if got, _ := os.ReadFile(thinkPath); string(got) != userContent {
+		t.Errorf("think.md without rick-managed: true should not be overwritten")
+	}
+
+	// 覆盖语义：含 rick 标记的陈旧文件被覆盖为最新 wiki 正文。
+	researchPath := filepath.Join(agentsDir, "research.md")
+	stale := "---\nname: research\ndescription: stale\ntools: read\ndefaultContext: fresh\nrick-managed: true\n---\nSTALE BODY\n"
+	if err := os.WriteFile(researchPath, []byte(stale), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := deployRickAgents(); err != nil {
+		t.Fatalf("deployRickAgents (marker overwrite): %v", err)
+	}
+	got, _ := os.ReadFile(researchPath)
+	if strings.Contains(string(got), "STALE BODY") {
+		t.Errorf("research.md with rick-managed: true should be overwritten")
+	}
+	if !strings.Contains(string(got), "skill:research") {
+		t.Errorf("research.md after overwrite missing skill:research body")
+	}
+}
+
+// containsString reports whether list contains s（测试本地 helper，避免与生产
+// ContainsString 混淆）。
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // TestRuntimeEnv_Seam verifies piEnv satisfies RuntimeEnv and its methods

@@ -13,9 +13,8 @@ import (
 //
 //   - rick-gates hook 扩展：<repo>/.rick/skills/rick-gates/ → AgentDir()/extensions/rick-gates/
 //   - rick skills：<repo>/.rick/skills/*_skill/            → AgentDir()/skills/<name>/
-//
-// think/research/exporter agent frontmatter 不在此落盘（task9 经职责 3 写入
-// AgentDir()/agents/），避免本 task 的占位文件被 task9 幂等复制跳过。
+//   - rick agents：embedded templates/skills/{think,research,exporter}.md
+//     → AgentDir()/agents/{name}.md（task9，frontmatter + wiki 正文）
 //
 // 幂等：重复运行会重写目标文件（内容一致），不产生重复项。
 func DeployRickCustomizations() error {
@@ -23,7 +22,10 @@ func DeployRickCustomizations() error {
 	if err != nil {
 		return fmt.Errorf("locate rick dir: %w", err)
 	}
-	return deployRickCustomizations(filepath.Join(rickDir, "skills"))
+	if err := deployRickCustomizations(filepath.Join(rickDir, "skills")); err != nil {
+		return err
+	}
+	return deployRickAgents()
 }
 
 // deployRickCustomizations 从给定 skills 源目录复制 rick 定制，便于单测注入临时源目录。

@@ -7,10 +7,10 @@ import (
 	"github.com/sunquan/rick/internal/runtime"
 )
 
-// requiredRickAgents 是 rick 自定义 agent 的清单（对应 AgentDir()/agents/<name>）。
-// task3 保持为空：think/research/exporter 由 task9 经职责 3 落盘并在此注册。
-// 空清单下 CheckRickAgents 恒为就绪（无必需 agent）。
-var requiredRickAgents = []string{}
+// requiredRickAgents 是 rick 自定义 agent 的清单（对应 AgentDir()/agents/<name>.md）。
+// think/research/exporter 由 env 职责 3 落盘（task9）并在此注册为就绪 check 的
+// 必需项：任一文件缺失即报未就绪。
+var requiredRickAgents = []string{"think", "research", "exporter"}
 
 // IsPIReady 汇总所有功能点就绪判定，返回 (ok, missing)。ok=true 且 missing 为空
 // 表示 pi 环境就绪。纯「功能点就绪」，不含任何 session 校验（session 归 runtime）。
@@ -47,12 +47,12 @@ func CheckEcosystemExtensions() []string {
 	return VerifyExtensions()
 }
 
-// CheckRickAgents 检查 rick 自定义 agent（think/research/exporter）是否落盘。
-// task3 无必需 agent，恒为就绪；task9 注册后检查对应文件。
+// CheckRickAgents 检查 rick 自定义 agent（think/research/exporter）是否落盘到
+// AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回缺失 agent 名。
 func CheckRickAgents() []string {
 	var missing []string
 	for _, name := range requiredRickAgents {
-		if !runtime.FileExists(filepath.Join(runtime.AgentDir(), "agents", name)) {
+		if !runtime.FileExists(filepath.Join(runtime.AgentDir(), "agents", name+".md")) {
 			missing = append(missing, name)
 		}
 	}
