@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T02:56:27.297857+08:00",
+  "updated_at": "2026-08-17T03:13:45.444973+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -56,20 +56,21 @@
     {
       "task_id": "task3",
       "task_name": "落地 env 模块（四职责：pi + 生态扩展 + rick 定制 + 就绪 check）",
+      "task_file": "task3.md",
       "status": "success",
       "dependencies": [
         "task2",
         "task4"
       ],
       "attempts": 0,
+      "commit_hash": "d82fe83eb57b32c9c7fa8f5cfd3d6388f8323314",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T02:56:27.297857+08:00",
-      "commit_hash": "d609565694ca8aa12334f890b78096ed226ae687"
+      "updated_at": "2026-08-17T02:57:10.535302764+08:00"
     },
     {
       "task_id": "task6",
       "task_name": "落地 handler 调度聚合层并让 cli 变薄（plan/doing/easy）",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task3",
         "task4",
@@ -77,7 +78,8 @@
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T03:13:45.444973+08:00",
+      "commit_hash": "c9d747010ffbb5b3808487a586d190f9c4398f96"
     },
     {
       "task_id": "task9",
