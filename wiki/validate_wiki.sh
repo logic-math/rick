@@ -31,17 +31,19 @@ REQUIRED_DOCS=(
     "README.md"
     "architecture.md"
     "runtime-flow.md"
-    "dag-execution.md"
     "prompt-system.md"
     "testing.md"
     "installation.md"
+    "CONTRIBUTING.md"
     "modules/cmd.md"
-    "modules/workspace.md"
-    "modules/parser.md"
-    "modules/executor.md"
+    "modules/handler.md"
+    "modules/env.md"
+    "modules/builder.md"
+    "modules/runtime.md"
     "modules/prompt.md"
-    "modules/git.md"
+    "modules/workspace.md"
     "modules/config.md"
+    "modules/human-loop.md"
 )
 
 for doc in "${REQUIRED_DOCS[@]}"; do
@@ -117,15 +119,10 @@ echo "💻 代码示例检查"
 echo "-----------------------------------"
 CODE_REFS=0
 while IFS= read -r file; do
-    # 统计 Go 代码块
-    go_blocks=$(grep -c '```go' "$file" 2>/dev/null || echo "0")
-    bash_blocks=$(grep -c '```bash' "$file" 2>/dev/null || echo "0")
-    json_blocks=$(grep -c '```json' "$file" 2>/dev/null || echo "0")
-
-    # 确保变量是数字
-    go_blocks=${go_blocks:-0}
-    bash_blocks=${bash_blocks:-0}
-    json_blocks=${json_blocks:-0}
+    # 统计 Go/Bash/JSON 代码块（grep -c 无匹配时退出码 1，需 || true 防止 set -e 终止）
+    go_blocks=$(grep -c '```go' "$file" 2>/dev/null || true); go_blocks=${go_blocks:-0}
+    bash_blocks=$(grep -c '```bash' "$file" 2>/dev/null || true); bash_blocks=${bash_blocks:-0}
+    json_blocks=$(grep -c '```json' "$file" 2>/dev/null || true); json_blocks=${json_blocks:-0}
 
     total=$((go_blocks + bash_blocks + json_blocks))
     if [ $total -gt 0 ]; then

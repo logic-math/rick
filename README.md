@@ -64,6 +64,72 @@ Rick 不直接调用大模型，而是把 [pi](https://pi.dev)（`@earendil-work
 
 ---
 
+## 架构：三层金字塔（rick 做薄）
+
+Rick 的源码按**三层金字塔**组织（`cmd` 入口 → `handler` 调度 → `env/builder/runtime` 执行，`pi/workspace/config` 为基础设施）。完整契约见 `.rick/domain/rick-spec.md`（模块边界 / 职责 / 接口契约 / 验收标准四要素），规范见 `.rick/domain/spec.md`。
+
+```mermaid
+flowchart TD
+    subgraph L1["第一层 入口"]
+        CLI["internal/cmd<br/>路由命令 / 解析参数"]
+    end
+    subgraph L2["第二层 调度聚合"]
+        HANDLER["internal/handler<br/>编排 env → builder → runtime"]
+    end
+    subgraph L3["第三层 执行"]
+        ENV["internal/env<br/>环境就绪"]
+        BUILDER["internal/builder<br/>拼提示词"]
+        RUNTIME["internal/runtime<br/>拉起 pi"]
+    end
+    subgraph L4["第四层 基础设施"]
+        PI["pi（唯一 runtime，dsh 预留）"]
+        WS["workspace / config"]
+    end
+
+    CLI --> HANDLER
+    HANDLER --> ENV
+    HANDLER --> BUILDER
+    HANDLER --> RUNTIME
+    ENV --> PI
+    BUILDER --> PI
+    RUNTIME --> PI
+```
+
+**逐级往下**：上层调下层，下层不回调上层。重构后已删除 6 个冗余包（`internal/{executor,parser,actpath,logging,git,agent}`）——它们各自的职责下沉到了 pi。
+
+### env 四职责
+
+`internal/env` 保证 rick 在当前机器的运行环境就绪，四职责：
+
+1. 安装/更新 pi agent
+2. 安装/更新 pi 生态扩展/插件/skill
+3. 安装/更新 rick 自有 hook/skill/agent 定制
+4. 提供 pi 功能点就绪 check（不含 session，session 归 runtime）
+
+### 下沉策略（rick 做薄）
+
+rick 收敛为引导程序（env 保证 pi 就绪 → builder 拼提示词 → runtime 拉 pi），dag 调度与门禁不再由 rick 维护：
+
+| 旧职责 | 下沉去向 |
+|--------|----------|
+| dag 调度（executor） | pi `workflowScript` 编排（`runs.run` + `await` 按依赖拓扑顺序执行） |
+| 门禁（doing_check） | pi hook（rick-gates 扩展）+ 确定性脚本 `.rick/skills/rick-gates/helper.py` |
+| think/research/exporter | pi 自定义 agent（经 env 职责 3 落盘 `agents/{name}.md`） |
+
+### 单一 runtime + 扩展 seam
+
+当前 pi 是唯一 runtime，为将来 dsh 预留三扩展 seam + 一个 config 字段：`Runtime` / `RuntimeEnv` / `RuntimeBuilder` 接口 + `config.runtime`（默认 `pi`）。新增 runtime 只实现并注册 `dshRuntime/dshEnv/dshBuilder`，cli/handler/方法层 templates 不改。
+
+## spec 信息内核
+
+`spec` 是 rick 的**信息内核**——结构化自然语言描述的工程实现契约（四要素：模块边界 / 职责 / 接口契约 / 验收标准）。只要 spec 无歧义地描述验收标准，丢弃一切源码即可 AI coding 出**功能等价**的 rick。
+
+- 规范层：`.rick/domain/spec.md`（spec 是什么 + 四要素模板 + 验收标准）
+- 实例层：`.rick/domain/rick-spec.md`（rick 的第一份 spec，四要素逐节填写）
+- 功能等价 = 通过所有功能验收（`go test ./...` 全绿 + 集成测试全绿 + 构建成功 + dry-run 无未替换变量 + 各 check pass）
+
+---
+
 ---
 
 ## 双维度知识体系
@@ -130,7 +196,7 @@ rick dream
 **工作流**：
 1. `rick plan` 生成 `plan/task*.md` + `tasks.json`
 2. `rick doing` 逐任务执行 Sub Agent 工作流（ANALYZE → RED → GREEN → REFACTOR → COMMIT），每轮 task 通过测试后自动 commit
-3. `rick tools doing_check` 校验执行结果
+3. 门禁脚本（`.rick/skills/rick-gates/helper.py`）校验执行结果（成功任务必须有 commit_hash、无遗留 running）
 4. `rick learning` 提取经验写入 loops/skills/domain
 5. 定期 `rick dream` 跨 job 反思，进化知识体系
 
@@ -195,10 +261,11 @@ rick doing --easy "修复 Redis 连接池泄漏"
 ```
 
 **产出**：
-- `.rick/jobs/job_N/doing/debug/bug*.md`（问题记录）
-- `.rick/jobs/job_N/doing/act-path.md`（行为轨迹）
-- `.rick/jobs/job_N/doing/tasks.json`（任务状态更新）
-- 自动 git commit（每个 task 完成后）
+- `.rick/jobs/job_N/doing/debug/bug*.md`（问题记录，pi worker 执行中写入）
+- `.rick/jobs/job_N/doing/tasks.json`（任务状态更新，pi worker 回传 commit_hash）
+- `.rick/jobs/job_N/doing/session_id`（pi 会话 UUID）
+- `.rick/jobs/job_N/doing/prompts/`（持久化的 prompt 文件）
+- 自动 git commit（每个 task 完成后，pi worker 执行）
 
 ---
 
@@ -324,8 +391,8 @@ rick ctrl --job job_5
 |------|------|
 | A：追加指令 | 在 `plan/task<N>.md` 末尾追加 `## 干预指令 (Intervention)` 章节 |
 | B：重置 task | 将 status 改为 `pending`，清空 error 字段 |
-| C：查看轨迹 | 读取 `doing/act-path.md` |
-| D：查看原始日志 | 读取 `doing/raw_session_coding.log` |
+| C：查看轨迹 | 读取 `doing/tasks/<task_id>/runtime-trace.md` |
+| D：查看原始日志 | 读取 `doing/tasks/<task_id>/raw_session_coding.log` |
 
 **变更约束**：只能修改 `doing/` 和 `plan/` 下的文件。若目标 task 正在运行（`running`），重置无效，需先 Ctrl+C 停止 doing。
 
@@ -446,7 +513,9 @@ sequenceDiagram
 │   ├── {name}_skill/
 │   │   └── skill.md
 │   └── deprecated/     # 淘汰（连续 3 次 dream 未引用）
-├── domain/             # 价值维度：事实信息
+├── domain/             # 价值维度：事实信息（含 spec 信息内核）
+│   ├── spec.md         # spec 规范：四要素模板 + 验收标准
+│   ├── rick-spec.md    # rick 第一份 spec 实例（三层金字塔 + env 四职责契约）
 │   ├── architecture.md
 │   ├── commands.md
 │   ├── go-patterns.md
@@ -463,9 +532,12 @@ sequenceDiagram
 │       └── doing/
 │           ├── debug/      # bug*.md 问题记录
 │           ├── tasks.json  # 任务状态
-│           ├── act-path.md # 行为轨迹
 │           ├── session_id  # easy 模式会话 ID
-│           └── prompts/    # 持久化 prompt 文件
+│           ├── prompts/    # 持久化 prompt 文件
+│           └── tasks/      # 每 task 执行轨迹（pi 产生）
+│               └── {task_id}/
+│                   ├── raw_session_coding.log  # pi JSONL 事件流
+│                   └── runtime-trace.md        # 行为轨迹摘要
 └── dream/              # 工作区：dream 运行日志
     └── dream_run_{job_id}_log.md
 ```
@@ -479,6 +551,7 @@ sequenceDiagram
 ```json
 {
   "max_retries": 5,
+  "runtime": "pi",
   "pi_path": "",
   "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-pro", "--api-key", "sk-..."],
   "default_workspace": "",
@@ -492,6 +565,7 @@ sequenceDiagram
 | 配置项 | 说明 |
 |--------|------|
 | `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
+| `runtime` | 当前 agent runtime 标识（默认 `pi`，为将来 dsh 预留扩展 seam） |
 | `pi_path` | pi CLI 路径（空则使用 PATH 中的 `pi`） |
 | `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-pro","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
 | `default_workspace` | 默认工作区路径 |
@@ -505,6 +579,7 @@ sequenceDiagram
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 3.1.5 | 2026-08 | rick 主题 → VSCode Dark+ 配色；默认模型 deepseek-v4-pro；命令绿/链接蓝主题体系；自闭环 pi 运行时（~/.rick/pi 隔离） |
+| 3.2.0 | 2026-08 | 三层金字塔重构：做薄 rick，dag 调度/门禁/agent 下沉 pi；spec 信息内核（spec.md + rick-spec.md） |
 | 2.10.9 | 2026-07 | 重构 human-loop：sense subagent + loop_N 会话目录 |
 | 2.10.x | 2026-07 | draft 基础设施、learning 注入 draft_dir、human-loop 三阶段模板 |
 | 2.9.10 | 2026-06 | 删除 easy auto-trigger learning，等人类显式触发 |
