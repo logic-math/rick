@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -72,7 +72,7 @@ func runCtrl(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Job: %s\n", jID)
 	fmt.Println("🎮 Starting ctrl interactive session...")
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
+	if err := runtime.CallCLI(GetVerbose(), cfg, promptFile, runtime.ModeInteractive); err != nil {
 		return fmt.Errorf("ctrl session failed: %w", err)
 	}
 

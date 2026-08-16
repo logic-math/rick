@@ -207,7 +207,7 @@ func TestExecuteLearningWorkflow_WithMockClaude(t *testing.T) {
 
 	// Isolate HOME and point pi_path at the mock binary so the workflow calls
 	// the mock directly — never the real managed runtime or PATH pi (learning
-	// drives piagent.CallCLI, not the legacy claude CLI).
+	// drives runtime.CallCLI, not the legacy claude CLI).
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfgDir := filepath.Join(home, ".rick")

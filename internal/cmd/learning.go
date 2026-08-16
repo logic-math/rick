@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -239,7 +239,7 @@ func callAgentForAnalysis(data *ExecutionData) error {
 	fmt.Println("📌 pi 将在 learning 目录下生成文档（等待人工审核后合并）")
 	fmt.Println()
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
+	if err := runtime.CallCLI(GetVerbose(), cfg, promptFile, runtime.ModeInteractive); err != nil {
 		return fmt.Errorf("pi CLI 执行失败: %w", err)
 	}
 

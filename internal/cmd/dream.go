@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -95,12 +95,12 @@ func dreamWorkflow(jobNum int, background bool) error {
 
 	if background {
 		fmt.Println("🤖 Starting pi (background mode)...")
-		if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModePrint); err != nil {
+		if err := runtime.CallCLI(GetVerbose(), cfg, promptFile, runtime.ModePrint); err != nil {
 			return fmt.Errorf("pi failed: %w", err)
 		}
 	} else {
 		fmt.Println("🤖 Starting pi (interactive mode)...")
-		if err := piagent.CallCLI(GetVerbose(), cfg, promptFile, piagent.ModeInteractive); err != nil {
+		if err := runtime.CallCLI(GetVerbose(), cfg, promptFile, runtime.ModeInteractive); err != nil {
 			return fmt.Errorf("pi failed: %w", err)
 		}
 	}

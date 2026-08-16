@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/parser"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -61,7 +61,7 @@ Exit codes:
 				}
 
 				// Auto-fix: ensure pi binary is available
-				if _, findErr := piagent.FindBinary(nil); findErr != nil {
+				if _, findErr := runtime.FindBinary(nil); findErr != nil {
 					// No pi available; skip auto-fix
 					break
 				}
@@ -72,7 +72,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := piagent.CallCLI(GetVerbose(), nil, promptFile, piagent.ModePrint); fixErr != nil {
+				if fixErr := runtime.CallCLI(GetVerbose(), nil, promptFile, runtime.ModePrint); fixErr != nil {
 					break
 				}
 			}
@@ -199,7 +199,7 @@ func fileHasMeaningfulContent(path string) bool {
 	return meaningful >= 10
 }
 
-// (All agent invocation goes through piagent.CallCLI / piagent.FindBinary.)
+// (All agent invocation goes through runtime.CallCLI / runtime.FindBinary.)
 
 // writePlanCheckFixPrompt writes a prompt file asking pi to fix the plan check errors.
 // Returns the path to the temporary prompt file.

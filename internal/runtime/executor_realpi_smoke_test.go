@@ -2,12 +2,12 @@
 
 // Smoke tests against the REAL pi binary (gated behind the `realpi` build tag
 // — not run by default; they exec a real LLM which needs a provider API key).
-// Run manually: go test -tags realpi ./internal/agent/piagent/...
+// Run manually: go test -tags realpi ./internal/runtime/...
 //
 // Provider/model/key are injected via pi's env vars (PI_PROVIDER/PI_MODEL/PI_API_KEY),
 // so rick's code path under test is the real Execute() (pi --mode json) — no test-
 // specific flags. This mirrors how a user configures pi in their shell.
-package piagent
+package runtime
 
 import (
 	"os"
@@ -24,7 +24,7 @@ func skipIfNoPi(t *testing.T) {
 	}
 }
 
-// TestRealPi_Smoke executes the genuine pi binary via piagent.Execute and
+// TestRealPi_Smoke executes the genuine pi binary via runtime.Execute and
 // confirms rick correctly execs pi + parses the real JSONL event stream. With no
 // provider configured pi errors fast (403) but still emits a well-formed stream,
 // so the session parses with a non-empty ID.

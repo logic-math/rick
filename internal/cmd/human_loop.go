@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -76,7 +76,7 @@ func NewHumanLoopCmd() *cobra.Command {
 				fmt.Printf("[INFO] rfc directory: %s\n", rfcDir)
 			}
 
-			if err := piagent.CallCLI(GetVerbose(), cfg, mainFile, piagent.ModeInteractive); err != nil {
+			if err := runtime.CallCLI(GetVerbose(), cfg, mainFile, runtime.ModeInteractive); err != nil {
 				return fmt.Errorf("failed to start pi CLI: %w", err)
 			}
 

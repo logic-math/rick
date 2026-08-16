@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sunquan/rick/internal/agent/piagent"
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 // tokyoNightPkg is the npm spec of the Tokyo Night theme+extension package.
@@ -71,7 +71,7 @@ func runInitPi() error {
 	// (keeps rick's guidance simple and respects the user's environment). When
 	// the managed runtime already exists, the environment is assumed ready and
 	// this check is skipped.
-	if !piagent.FileExists(piagent.RuntimeBin()) {
+	if !runtime.FileExists(runtime.RuntimeBin()) {
 		if err := requireNodeForPiInstall(); err != nil {
 			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 			return err
@@ -107,7 +107,7 @@ func runInitPi() error {
 		fmt.Fprintf(os.Stderr, "⚠️  managed agent dir: %v\n", err)
 		fmt.Fprintf(os.Stderr, "   rick will still run, but pi config isolation may be incomplete.\n")
 	} else {
-		fmt.Printf("✅ pi agent dir ready: %s (hideThinkingBlock=true)\n", piagent.AgentDir())
+		fmt.Printf("✅ pi agent dir ready: %s (hideThinkingBlock=true)\n", runtime.AgentDir())
 	}
 
 	// Step 2: subagent extension registered (install if missing). Non-fatal.
@@ -188,8 +188,8 @@ func verifyExtensions() []string {
 // when missing, and seeds rick's default theme when no theme is set. Non-fatal
 // on failure (callers warn and continue).
 func bootstrapAgentSettings() error {
-	if err := piagent.EnsureAgentDir(); err != nil {
-		return fmt.Errorf("create agent dir %s: %w", piagent.AgentDir(), err)
+	if err := runtime.EnsureAgentDir(); err != nil {
+		return fmt.Errorf("create agent dir %s: %w", runtime.AgentDir(), err)
 	}
 	path := piSettingsPath()
 	if _, err := os.Stat(path); err == nil {
@@ -248,7 +248,7 @@ func ensureRickTheme() error {
 	if err != nil {
 		return fmt.Errorf("read embedded rick theme: %w", err)
 	}
-	themesDir := filepath.Join(piagent.AgentDir(), "themes")
+	themesDir := filepath.Join(runtime.AgentDir(), "themes")
 	if err := os.MkdirAll(themesDir, 0755); err != nil {
 		return fmt.Errorf("create themes dir: %w", err)
 	}
@@ -413,18 +413,18 @@ func piCommand(args ...string) *exec.Cmd {
 	// the runtime is installed). All pi subprocesses get AgentEnv so config
 	// stays isolated under ~/.rick/pi/agent.
 	bin := "pi"
-	if rb := piagent.RuntimeBin(); piagent.FileExists(rb) {
+	if rb := runtime.RuntimeBin(); runtime.FileExists(rb) {
 		bin = rb
 	}
 	cmd := exec.Command(bin, args...)
-	cmd.Env = piagent.AgentEnv()
+	cmd.Env = runtime.AgentEnv()
 	return cmd
 }
 
 // piSettingsPath returns the rick-managed settings.json
 // (~/.rick/pi/agent/settings.json). Respects $HOME and RICK_PI_AGENT_DIR (tests).
 func piSettingsPath() string {
-	return piagent.SettingsPath()
+	return runtime.SettingsPath()
 }
 
 // legacyPiSettingsPath returns the pre-isolation settings.json
@@ -445,7 +445,7 @@ func legacyPiSettingsPath() string {
 // true iff pi was installed this call. Returns an error only if pi is still
 // missing.
 func ensurePI() (string, bool, error) {
-	if bin := piagent.RuntimeBin(); piagent.FileExists(bin) {
+	if bin := runtime.RuntimeBin(); runtime.FileExists(bin) {
 		return bin, false, nil
 	}
 	// Prefer matching the version of an existing global pi (preserves known
@@ -454,7 +454,7 @@ func ensurePI() (string, bool, error) {
 	if p, err := exec.LookPath("pi"); err == nil {
 		version = piVersion(p)
 	}
-	fmt.Printf("⚠️  rick's managed pi runtime missing — installing self-contained pi under %s", piagent.RuntimeDir())
+	fmt.Printf("⚠️  rick's managed pi runtime missing — installing self-contained pi under %s", runtime.RuntimeDir())
 	if version != "" {
 		fmt.Printf(" (matching global v%s)", version)
 	}
@@ -462,8 +462,8 @@ func ensurePI() (string, bool, error) {
 	if err := installManagedPI(version); err != nil {
 		return "", false, fmt.Errorf("install managed pi: %w", err)
 	}
-	bin := piagent.RuntimeBin()
-	if !piagent.FileExists(bin) {
+	bin := runtime.RuntimeBin()
+	if !runtime.FileExists(bin) {
 		return "", false, fmt.Errorf("managed pi still missing after install: %s", bin)
 	}
 	return bin, true, nil
@@ -475,7 +475,7 @@ func ensurePI() (string, bool, error) {
 // latest; a failed pinned install falls back to latest (registry may have
 // dropped the exact version).
 func installManagedPI(version string) error {
-	prefix := piagent.RuntimeDir()
+	prefix := runtime.RuntimeDir()
 	if err := os.MkdirAll(prefix, 0755); err != nil {
 		return fmt.Errorf("create runtime dir: %w", err)
 	}

@@ -45,6 +45,7 @@ func GetDefaultConfig() *Config {
 
 	return &Config{
 		MaxRetries:       5,
+		Runtime:          "pi",
 		PiPath:           "",
 		DefaultWorkspace: filepath.Join(home, rickDirName),
 		Git: GitConfig{
@@ -90,6 +91,12 @@ func LoadConfig() (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// json.Unmarshal does not backfill defaults, so normalize an empty runtime
+	// back to the default "pi".
+	if cfg.Runtime == "" {
+		cfg.Runtime = "pi"
 	}
 
 	return &cfg, nil

@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -156,7 +156,7 @@ func executePlanWorkflow(requirement string) error {
 		fmt.Println("[INFO] Calling pi for planning...")
 	}
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, planPromptFile, piagent.ModeInteractive); err != nil {
+	if err := runtime.CallCLI(GetVerbose(), cfg, planPromptFile, runtime.ModeInteractive); err != nil {
 		return fmt.Errorf("failed to call pi: %w", err)
 	}
 
@@ -205,7 +205,7 @@ func reEnterPlanWorkflow(existingJobID string, requirement string) error {
 		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	if err := piagent.CallCLI(GetVerbose(), cfg, planPromptFile, piagent.ModeInteractive); err != nil {
+	if err := runtime.CallCLI(GetVerbose(), cfg, planPromptFile, runtime.ModeInteractive); err != nil {
 		return fmt.Errorf("failed to call pi: %w", err)
 	}
 
@@ -243,4 +243,4 @@ func generateJobID() string {
 	return fmt.Sprintf("job_%d", time.Now().Unix())
 }
 
-// (All agent invocation goes through piagent.CallCLI — the unified CLI abstraction.)
+// (All agent invocation goes through runtime.CallCLI — the unified CLI abstraction.)

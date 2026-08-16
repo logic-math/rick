@@ -1,4 +1,4 @@
-package piagent
+package runtime
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"github.com/sunquan/rick/internal/agent"
 )
 
-// End-to-end test: piagent.Execute() execs a mock pi binary that emits a real
+// End-to-end test: runtime.Execute() execs a mock pi binary that emits a real
 // pi `--mode json` event stream (calibrated against pi v0.84.1 output), and the
 // full rick-side pipeline — exec → parseStream → AgentSession → actpath — must
 // work. Only the LLM is mocked; every line of rick's pi integration runs for real.

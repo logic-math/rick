@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sunquan/rick/internal/agent/piagent"
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 //go:embed themes/*.json
@@ -96,7 +96,7 @@ Examples:
 // runThemeList prints the active theme and every selectable theme with its
 // install state. Exit code 0 regardless (listing is informational).
 func runThemeList(w io.Writer) error {
-	if err := piagent.EnsureAgentDir(); err != nil {
+	if err := runtime.EnsureAgentDir(); err != nil {
 		return fmt.Errorf("create agent dir: %w", err)
 	}
 	cur := currentTheme()
@@ -134,7 +134,7 @@ func runThemeList(w io.Writer) error {
 // customThemeNames lists theme names from rick's managed themes dir
 // (~/.rick/pi/agent/themes/*.json), which pi discovers automatically.
 func customThemeNames() []string {
-	dir := filepath.Join(piagent.AgentDir(), "themes")
+	dir := filepath.Join(runtime.AgentDir(), "themes")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -194,7 +194,7 @@ func runThemeSet(name string, w io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("read embedded theme %s: %w", embedded, err)
 		}
-		themesDir := filepath.Join(piagent.AgentDir(), "themes")
+		themesDir := filepath.Join(runtime.AgentDir(), "themes")
 		if err := os.MkdirAll(themesDir, 0755); err != nil {
 			return fmt.Errorf("create themes dir: %w", err)
 		}

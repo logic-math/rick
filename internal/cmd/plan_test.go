@@ -91,9 +91,9 @@ func TestPlanCmdWithEmptyRequirement(t *testing.T) {
 	}
 }
 
-// (The callClaudeCodeCLI mock-binary argv tests moved to the piagent package
+// (The callClaudeCodeCLI mock-binary argv tests moved to the runtime package
 // as TestCallCLI_MockBinaryArgv / TestCallCLI_FailingBinary, covering the
-// piagent.CallCLI subprocess plumbing that replaced callClaudeCodeCLI.)
+// runtime.CallCLI subprocess plumbing that replaced callClaudeCodeCLI.)
 
 // TestPlanCmdWithJobFlagDryRun tests plan command with --job flag in dry-run mode
 func TestPlanCmdWithJobFlagDryRun(t *testing.T) {

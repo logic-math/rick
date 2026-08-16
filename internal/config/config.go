@@ -3,6 +3,7 @@ package config
 // Config represents the global configuration for Rick CLI
 type Config struct {
 	MaxRetries       int             `json:"max_retries"`
+	Runtime          string          `json:"runtime"`
 	PiPath           string          `json:"pi_path"`
 	PiExtraArgs      []string        `json:"pi_extra_args,omitempty"`
 	DefaultWorkspace string          `json:"default_workspace"`

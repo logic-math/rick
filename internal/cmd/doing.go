@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
 	"github.com/sunquan/rick/internal/git"
 	"github.com/sunquan/rick/internal/parser"
 	"github.com/sunquan/rick/internal/prompt"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -201,7 +201,7 @@ func executeDoingWorkflow(jobID string) error {
 			execConfig.MaxRetries, execConfig.TimeoutSeconds)
 	}
 
-	piExec := piagent.NewExecutor(cfg.PiPath, cfg.PiExtraArgs...)
+	piExec := runtime.NewExecutor(cfg.PiPath, cfg.PiExtraArgs...)
 	exec, err := executor.NewExecutor(tasks, execConfig, doingDir, jobID, piExec, existingTasksJSON)
 	if err != nil {
 		return fmt.Errorf("failed to create executor: %w", err)

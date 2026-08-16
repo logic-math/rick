@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 // TestHumanLoopCreatesDraftDirs tests that running human-loop creates draft directories
@@ -195,13 +195,13 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 		t.Error("rfc directory was not created under draft")
 	}
 
-	// Test piagent.CallCLI with mock (interactive mode)
+	// Test runtime.CallCLI with mock (interactive mode)
 	promptFile := filepath.Join(tmpDir, "prompt.md")
 	if err := os.WriteFile(promptFile, []byte("# Test human-loop prompt"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModeInteractive); err != nil {
-		t.Errorf("piagent.CallCLI with mock failed: %v", err)
+	if err := runtime.CallCLI(false, cfg, promptFile, runtime.ModeInteractive); err != nil {
+		t.Errorf("runtime.CallCLI with mock failed: %v", err)
 	}
 }

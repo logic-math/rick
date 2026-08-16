@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sunquan/rick/internal/agent/piagent"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/executor"
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 func containsStr(s, substr string) bool {
@@ -558,9 +558,9 @@ func setupGitRepo(t *testing.T) string {
 
 func TestFindPiBinary(t *testing.T) {
 	// Just verify the function runs without panic
-	path, err := piagent.FindBinary(nil)
+	path, err := runtime.FindBinary(nil)
 	if err != nil {
-		t.Logf("piagent.FindBinary returned error (pi not in PATH): %v", err)
+		t.Logf("runtime.FindBinary returned error (pi not in PATH): %v", err)
 	} else if path == "" {
 		t.Error("expected non-empty path when pi is found")
 	}
@@ -578,7 +578,7 @@ func TestAutoFix_MockPi(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{PiPath: mockPath}
-	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModePrint); err != nil {
+	if err := runtime.CallCLI(false, cfg, promptFile, runtime.ModePrint); err != nil {
 		t.Errorf("expected no error with mock pi, got: %v", err)
 	}
 }
@@ -595,7 +595,7 @@ func TestAutoFix_FailingPi(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{PiPath: mockPath}
-	if err := piagent.CallCLI(false, cfg, promptFile, piagent.ModePrint); err == nil {
+	if err := runtime.CallCLI(false, cfg, promptFile, runtime.ModePrint); err == nil {
 		t.Error("expected error with failing pi binary")
 	}
 }

@@ -17,6 +17,48 @@ func TestGetDefaultConfig(t *testing.T) {
 	if cfg.DefaultWorkspace == "" {
 		t.Error("expected DefaultWorkspace to be set")
 	}
+
+	if cfg.Runtime != "pi" {
+		t.Errorf("expected default Runtime=pi, got %q", cfg.Runtime)
+	}
+}
+
+// TestLoadConfig_RuntimeDefault verifies the runtime normalization: an empty
+// (or absent) `runtime` field in the on-disk config is normalized to "pi" by
+// LoadConfig (json.Unmarshal does not backfill defaults).
+func TestLoadConfig_RuntimeDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	testConfigPath := filepath.Join(tmpDir, "config.json")
+
+	oldGetConfigPath := getConfigPath
+	getConfigPath = func() (string, error) {
+		return testConfigPath, nil
+	}
+	defer func() { getConfigPath = oldGetConfigPath }()
+
+	// Empty config (no runtime field) → normalized to "pi".
+	if err := os.WriteFile(testConfigPath, []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Runtime != "pi" {
+		t.Errorf("empty config: want Runtime=pi, got %q", cfg.Runtime)
+	}
+
+	// Explicit runtime value is preserved.
+	if err := os.WriteFile(testConfigPath, []byte(`{"runtime":"dsh"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Runtime != "dsh" {
+		t.Errorf("explicit runtime: want dsh, got %q", cfg.Runtime)
+	}
 }
 
 func TestLoadConfigFileNotExists(t *testing.T) {

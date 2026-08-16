@@ -1,4 +1,4 @@
-// Package piagent integrates rick with the pi coding agent (https://pi.dev).
+// Package runtime wraps rick's agent runtime calls (pi today, dsh later).
 //
 // pi is a Node.js/TypeScript coding agent (@earendil-works/pi-coding-agent) that
 // rick shells out to as its agent runtime. rick acts as a bootloader: it
@@ -11,7 +11,7 @@
 // research-7-N4): fields are camelCase, termination is the `agent_settled` event
 // (no `result` line), tool calls are `tool_execution_start`/`tool_execution_end`
 // events (not content blocks), and pi emits no duration (rick self-times).
-package piagent
+package runtime
 
 import (
 	"bufio"
@@ -138,6 +138,18 @@ func (s *piSession) FinalMessageLine() int       { return s.finalMessageLine }
 func (s *piSession) RawLogPath() string          { return s.rawLogPath }
 
 func (s *piSession) GetRawLogPath() string { return s.rawLogPath }
+
+// isSessionReady reports whether a parsed pi session is ready to serve as the
+// runtime's result: a non-empty session ID plus the agent_settled termination
+// signal. It is deliberately extracted (and not yet wired into Execute) so the
+// readiness contract is explicit and independently testable. Note that a
+// session without agent_settled is not an error — parseStream still returns the
+// partial session with fallback timing — so callers decide readiness, not the
+// parser.
+func isSessionReady(sessionID string, settled bool) bool {
+	return sessionID != "" && settled
+}
+
 func (s *piSession) GetErrorCount() int {
 	count := 0
 	for _, tc := range s.toolCalls {

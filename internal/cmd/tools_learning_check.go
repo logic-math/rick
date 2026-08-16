@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/sunquan/rick/internal/agent/piagent"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -68,7 +68,7 @@ Exit codes:
 					break
 				}
 
-				if _, findErr := piagent.FindBinary(nil); findErr != nil {
+				if _, findErr := runtime.FindBinary(nil); findErr != nil {
 					break
 				}
 
@@ -78,7 +78,7 @@ Exit codes:
 				}
 				defer os.Remove(promptFile)
 
-				if fixErr := piagent.CallCLI(GetVerbose(), nil, promptFile, piagent.ModePrint); fixErr != nil {
+				if fixErr := runtime.CallCLI(GetVerbose(), nil, promptFile, runtime.ModePrint); fixErr != nil {
 					break
 				}
 			}
