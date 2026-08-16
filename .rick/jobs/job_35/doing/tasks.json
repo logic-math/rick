@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T05:06:44.818648+08:00",
+  "updated_at": "2026-08-17T05:30:43.181726+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -130,20 +130,21 @@
     {
       "task_id": "task10",
       "task_name": "让 pibuilder 产出单文件内聚的 pi 定制化规范产物",
+      "task_file": "task10.md",
       "status": "success",
       "dependencies": [
         "task5",
         "task8"
       ],
       "attempts": 0,
+      "commit_hash": "9bb4a52e90a668d39e085ee0d00970f58dc1c6dd",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T05:06:44.818648+08:00",
-      "commit_hash": "9058bee3cc5dd50d8287a2bee02647b46a625052"
+      "updated_at": "2026-08-17T05:07:20.631971441+08:00"
     },
     {
       "task_id": "task11",
       "task_name": "把自然语言 subagent 触发词等价迁移为 pi 显式触发语法",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task5",
         "task8",
@@ -151,7 +152,8 @@
       ],
       "attempts": 0,
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T00:59:46.783995764+08:00"
+      "updated_at": "2026-08-17T05:30:43.181726+08:00",
+      "commit_hash": "386262be21be74e117466df8026ec90835eaeb00"
     },
     {
       "task_id": "task12",
