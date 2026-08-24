@@ -9,3 +9,5 @@ debug.md
 .pi/
 
 .idea/
+# 会话原始日志含敏感配置（config dump），不入库
+raw_session_coding.log
