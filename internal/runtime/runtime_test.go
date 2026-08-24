@@ -57,7 +57,7 @@ func TestPiRuntimeRun_AppendSystemPrompt(t *testing.T) {
 		"prev=\"\"\n" +
 		"method=\"\"\n" +
 		"for a in \"$@\"; do\n" +
-		"  if [ \"$prev\" = \"--append-system-prompt\" ]; then method=\"$a\"; fi\n" +
+		"  if [ -z \"$method\" ] && [ \"$prev\" = \"--append-system-prompt\" ]; then method=\"$a\"; fi\n" +
 		"  prev=\"$a\"\n" +
 		"done\n" +
 		"if [ -n \"$method\" ]; then\n" +
@@ -98,15 +98,23 @@ func TestPiRuntimeRun_AppendSystemPrompt(t *testing.T) {
 	}
 	methodFile := ""
 	for i := 0; i+1 < len(argv); i++ {
-		if argv[i] == "--append-system-prompt" {
-			methodFile = argv[i+1]
+		if argv[i] == "--append-system-prompt" && methodFile == "" {
+			methodFile = argv[i+1] // 第一个 append = method 临时文件（v4.4.5 起第二个是 promptFile）
 		}
 	}
 	if methodFile == "" {
 		t.Fatalf("argv missing --append-system-prompt <methodFile>: %v", argv)
 	}
-	if len(argv) == 0 || argv[len(argv)-1] != promptFile {
-		t.Errorf("argv last arg: want promptFile %q, got %v", promptFile, argv)
+	// v4.4.5: promptFile 也走 --append-system-prompt（协议常驻系统提示词），
+	// user 消息是 bootstrap 触发。
+	promptInjected := false
+	for i := 0; i+1 < len(argv); i++ {
+		if argv[i] == "--append-system-prompt" && argv[i+1] == promptFile {
+			promptInjected = true
+		}
+	}
+	if !promptInjected {
+		t.Errorf("argv missing --append-system-prompt %q: %v", promptFile, argv)
 	}
 
 	// methodText was written to the temp method file…

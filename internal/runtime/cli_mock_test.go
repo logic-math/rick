@@ -38,12 +38,12 @@ func TestCallCLI_MockBinaryArgv(t *testing.T) {
 		if err := os.WriteFile(promptFile, []byte("# prompt"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		// Interactive: pi --session <id> <promptFile> (no -p)
+		// v4.4.5: pi --session <id> --append-system-prompt <promptFile> <bootstrap>
 		if err := CallCLI(false, cfg, promptFile, ModeInteractive, "--session", "abc"); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		lines := readArgv(t, argsFile)
-		want := []string{"--session", "abc", promptFile}
+		want := []string{"--session", "abc", "--append-system-prompt", promptFile, bootstrapMessage}
 		assertArgv(t, lines, want)
 	})
 
@@ -66,7 +66,7 @@ func TestCallCLI_MockBinaryArgv(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		lines := readArgv(t, argsFile)
-		want := []string{"-p", promptFile}
+		want := []string{"-p", "--append-system-prompt", promptFile, bootstrapMessage}
 		assertArgv(t, lines, want)
 	})
 }

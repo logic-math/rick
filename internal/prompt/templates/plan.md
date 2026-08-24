@@ -67,9 +67,15 @@ task1, task2  （无依赖则留空）
 2. ...
 
 # 测试方法
+（worker 自测指引——过程性验证；层验收由门禁的模块集成测试承担）
 1. [正常路径测试：前置条件 + 输入 + 操作 + 预期输出]
 2. [边界用例：空输入/最大值/非法值等边界情况]
 3. [异常路径：错误处理、回滚行为验证]
+
+# 写域
+[本 task 允许创建/修改的路径清单，每行一个；目录以 / 结尾（前缀语义），
+ 精确文件写全名。doing 阶段同层并行 task 的写域必须两两不相交——
+ 缺失写域声明的 task 不能与其他 task 同层并行]
 ```
 
 ---
@@ -109,27 +115,34 @@ task1, task2  （无依赖则留空）
 
 3. **探索项目**：探索业务项目的源码，了解足够的事实信息；读取 `.rick/loops/` 和 `.rick/skills/` 了解项目已有工作流和技能
 
-4. **grilling 追问**：加载 skill:grilling（路径：`{{grilling_skill_path}}`），对用户需求逐问追问，给出推荐答案，将需求澄清到具体可落实的代码路径或工具调用级别，达到终止条件后再继续
+4. **grilling 追问（设计树动态下钻）**：加载并**完整执行 skill:grilling**（唯一编排协议源：OKR 设计树 + 五步下钻循环 + 调研分工 + research 派发语法 + 每层终止条件——一切以其为准，本步不重复协议）：`{{grilling_skill_path}}`。**执行锚点（防漂移）**：先 read skill 全文；**必须按 L1→L5 loop 逐步推进**——第一动作 = 建立设计树根层（O + KR 集）并落盘。落盘约定：设计树 `{{job_plan_dir}}/grilling/design-tree.md`（活文档）；research 简报 `{{job_plan_dir}}/grilling/research-L{N}.md`（skill 内已注入该目录）。收敛后输出分层决策摘要（叶子层四维度 → Step 6 实现流水线的输入）。
 
 5. **方案设计**：在已有 domain 事实、loops/skills 约束下给出技术方案，说明主要决策点
 
-6. **任务分解**：模块化分解，验证无循环依赖，确认可拓扑排序
+6. **实现流水线设计**（本阶段核心产出之二，与设计树对应：一个设计一个实现）：**加载并按 skill:pipeline 执行**（路径：`{{pipeline_skill_path}}`）——分层 DAG、`# 写域` 声明、每层门禁（检查逻辑 + 确定性代码双产物）、`plan/pipeline.md` 执行契约。三条硬规则：
+   - **并行优先分层**：只有**真实依赖**（数据/接口契约前置）才分层；无真实依赖的 task 必须放同一层——同层内尽量多拆写域独立的可并行 task，最大化 DAG 执行并行度。判断「依赖」时警惕假依赖（顺手依赖、时序偏好）——能用写域隔离解决的就不要串行
+   - **门禁检查逻辑先行**：每层门禁产出两个文件——`plan/gates/gate{N}.md`（**检查逻辑说明**：逐条断言的检查对象/判定标准/依赖前提，human 看的是这个）+ `plan/gates/gate{N}.py`（确定性实现）。**呈现 human 确认的是检查逻辑**（断言是否合理、是否覆盖层验收、是否可达成），逻辑确认后才定稿代码——而不是让人审代码
+   - 验证无循环依赖、可拓扑分层、写域两两不相交（多维评审复查）
 
-7. **六维评审**（用 `subagent({ workflowScript: ... })` + `runs.all` 并行派发 6 个 `agent:'reviewer'`，`context: "fresh"`，只读评审；结果返回后由你（parent）综合修正 task 文件）：
+7. **多维评审**（用 `subagent({ workflowScript: ... })` + `runs.all` 并行派发 8 个 `agent:'reviewer'`，`context: "fresh"`，只读评审；结果返回后由你（parent）综合修正 task 文件）：
    - agent:'reviewer' #1（一致性检查）—— 任务目标与每个 task{n}.md 的任务目标对齐，确认每个 task 的交付物都能推进对应的 KR
    - agent:'reviewer' #2（loops/skills 利用检查）—— 检查 `.rick/loops/` 和 `.rick/skills/` 中已有的工作流与技能是否在合适的 task 中被引用和使用
    - agent:'reviewer' #3（依赖关系完整性）—— 确认所有 task 依赖的库、接口、数据结构在项目中已存在或在前置 task 中会被创建
    - agent:'reviewer' #4（执行风险推演）—— 阅读项目源码，逐 task 模拟真实执行过程：AI agent 会读哪些文件、调哪些接口、遇到哪些编译错误或运行时异常？暴露可能导致任务失败的风险点与卡点，在 task.md 中提前补充约束说明或修正任务描述
-   - agent:'reviewer' #5（测试用例完整性）—— 参考 skill:tdd（`{{tdd_skill_path}}`）和 skill:testing-anti-patterns（`{{testing_anti_patterns_path}}`），检查每个 task 的测试方法是否覆盖四要素（前置条件/输入参数/操作序列/预期输出），同时验证无测试反模式（如测试 mock 行为、仅用于测试的生产方法等）
+   - agent:'reviewer' #5（测试设计完整性）—— 双层检查：①每个 task 的 `# 测试方法` 是自测指引（覆盖四要素，供 worker 过程性自测）；②每层门禁的**模块集成测试**真正覆盖该层模块的集成面（接口契约/模块间协作/边界）且无测试反模式（参考 skill:tdd `{{tdd_skill_path}}` 与 skill:testing-anti-patterns `{{testing_anti_patterns_path}}`）
    - agent:'reviewer' #6（端到端验证设计）—— 以用户视角设计可复用的验收测试方法：明确用户操作入口、预期的可观测输出、异常路径的兜底验证，确保交付产物质量可被客观检验
+   - agent:'reviewer' #7（写域与门禁检查）—— 逐层检查：①同层 task 的 `# 写域` 声明两两不相交（目录前缀/文件相等均算冲突）；②每个 task 都有写域声明（同层多 task 时缺失=缺陷）；③`plan/gates/gate{N}.py` 每层存在且可执行（`python3 gate{N}.py` 能跑通，不 import 不存在的东西），门禁断言与该层 task 的关键结果对应、集成测试覆盖模块集成面；④pipeline.md 分层与 task.md 依赖关系一致；⑤**分层并行度**：无真实依赖的 task 是否被错误串行（假依赖）——能同层并行的应同层
+   - agent:'reviewer' #8（门禁自洽性检查）—— 逐层检查门禁断言逻辑：①**互相矛盾**（两条断言不可能同时满足，如「输出必须 ≤10 行」与「必须包含全部 15 个用例的输出」）；②**永远无法通过的红门禁**（断言依赖该层不存在的产物/引用未创建的文件路径/验收标准超出该层交付范围/条件恒假）——永远红 = 流水线死锁，比缺门禁更糟；③**可达成性**（该层 task 全部完成且符合关键结果时，门禁必然转绿——用「假设实现正确」推演一遍）；④检查逻辑（gate{N}.md）与代码（gate{N}.py）一致
 
    触发语法示例（并行评审 fanout，reviewer 只读、不修改文件）：
    ```text
-   subagent({ workflowScript: "const r = await runs.all([{ key: 'review1', agent: 'reviewer', task: '一致性检查：任务目标与每个 task.md 对齐' }, { key: 'review2', agent: 'reviewer', task: 'loops/skills 利用检查' }, { key: 'review3', agent: 'reviewer', task: '依赖关系完整性' }, { key: 'review4', agent: 'reviewer', task: '执行风险推演' }, { key: 'review5', agent: 'reviewer', task: '测试用例完整性' }, { key: 'review6', agent: 'reviewer', task: '端到端验证设计' }]); return r.map(x => x.output)" })
+   subagent({ workflowScript: "const r = await runs.all([{ key: 'review1', agent: 'reviewer', task: '一致性检查：任务目标与每个 task.md 对齐' }, { key: 'review2', agent: 'reviewer', task: 'loops/skills 利用检查' }, { key: 'review3', agent: 'reviewer', task: '依赖关系完整性' }, { key: 'review4', agent: 'reviewer', task: '执行风险推演' }, { key: 'review5', agent: 'reviewer', task: '测试设计完整性' }, { key: 'review6', agent: 'reviewer', task: '端到端验证设计' }, { key: 'review7', agent: 'reviewer', task: '写域与门禁检查 + 分层并行度' }, { key: 'review8', agent: 'reviewer', task: '门禁自洽性：断言矛盾/永远红/可达成性推演' }]); return r.map(x => x.output)", timeoutMs: 3600000 })
    ```
 
-   **评审后**：你（parent）综合 6 份评审结论，逐条修正 task 文件（单写者：只有你写 task 文件，reviewer 只读）。
+   **全局派发规范**（与 human-loop 收敛一致）：所有 `subagent({ workflowScript: ... })` 派发必须带 `timeoutMs: 3600000`（上游模型单轮 TTFB 可达 8 分钟，pi 默认 30 分钟会在交付前掐死子运行）；reviewer 只读，task 文件单写者归 parent。
 
-8. **格式检查**：逐 task 确认格式完整（# 依赖关系 / # 任务名称 / # 任务目标 / # 关键结果 / # 测试方法），依赖引用存在且无循环依赖；不合格则修复后重新检查，直至通过
+   **评审后**：你（parent）综合 8 份评审结论，逐条修正 task 文件与门禁（检查逻辑 + 代码；单写者：只有你写 task/gate/pipeline 文件，reviewer 只读）。
+
+8. **格式检查**：逐 task 确认格式完整（# 依赖关系 / # 任务名称 / # 任务目标 / # 关键结果 / # 测试方法 / # 写域），依赖引用存在且无循环依赖，同层写域两两不相交，`plan/gates/gate{N}.md`（检查逻辑）与 `gate{N}.py`（实现）双产物齐备且一致，`plan/pipeline.md` 齐备；不合格则修复后重新检查，直至通过
 
 9. **输出**：按 task.md 格式保存到 `{{job_plan_dir}}/task{N}.md`

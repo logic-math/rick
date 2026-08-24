@@ -4,7 +4,8 @@
 
 | 路径 | 说明 |
 |------|------|
-| `.rick/RFC/` | human-loop 会话产出，由 `GetRFCDir()` 管理，`rick human-loop` 执行时自动创建 |
+| `.rick/draft/` | 个人判断记录（价值维度）：`rfc/`（human-loop 会话 RFC 产出）、`loops/loop_N/`（每轮会话目录，含 prompts/ + briefs/ + judgment.md）、`concepts/`、`human-learning/`、`loops.md`/`progress.md`；由 `GetDraftDir()` 管理，`rick human-loop` 执行时自动创建 |
+| `.rick/draft/rfc/` | human-loop 会话 RFC 产出（原 `.rick/RFC/` 已被 v2.10 迁移，`GetRFCDir()` 现返回此路径） |
 | `.rick/jobs/job_N/` | 每次 job 的工作目录，包含 plan/doing/learning 三个子目录 |
 | `.rick/jobs/job_N/plan/OKR.md` | job 级 OKR，由 plan 阶段 Claude 生成，doing/learning 阶段读取 |
 | `.rick/loops/` | loop 文件（`{name}-loop.md`），dream 阶段产出和维护 |
@@ -43,9 +44,16 @@ summary: "一句话根因 + 状态"
 
 测试时直接用 `./bin/rick`，无需安装。
 
+### 版本号规则
+
+- 版本号定义在 `cmd/rick/main.go` 的 `const VERSION`，语义化三段式 `major.minor.patch`
+- **每修复一个 fix，patch（最小段）就 +1**（如 4.0.0 → 4.0.1）
+- 改完 `cmd/rick/main.go` 后必须 `go build -o bin/rick ./cmd/rick` 重新编译，否则 `rick --version` 仍是旧版本
+
 ### Git 工作流
 
 - 每个 task 完成后独立 commit，message 包含 task ID（如 `feat(task3): ...`）
+- **大改动 commit 后必须 `git status` 验证无遗漏文件**（job_28 教训：git add 参数列表中的文件可能未被 add 成功，只看 commit 成功消息会漏文件；think.md 因此漏 commit 一次）
 - learning 产出经人工审核后手动合并到 `.rick/`（逐文件审核，`git add .rick/ && git commit`）
 
 ### 持续集成

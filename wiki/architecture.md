@@ -144,3 +144,33 @@ rick 收敛为引导程序，dag 调度与门禁不再由 rick 维护：
 | 价值 | `draft/` | 个人判断（human-loop 思考记录、RFC） | human-loop 产出 |
 
 `domain` 可被代码验证；`draft` 是人类主观判断。判断一旦被代码事实固化，可迁移到 `domain`；`domain` 过时部分由 `dream` 清理。
+
+---
+
+## v4.4 架构升级：确定性门禁体系 + skill 单源复用
+
+### 确定性门禁三件套（rick-gates hook）
+
+所有确定性逻辑收口到 pi extension（`~/.rick/pi/agent/extensions/rick-gates/index.ts`），Go 侧保持薄：
+
+| 工具 | 职责 | 触发点 |
+|------|------|--------|
+| `grilling_gate` | 追问产出物校验（design-tree OKR/分层/research 简报/提问痕迹） | grilling 声明完成后 |
+| `pipeline_gate` | 流水线结构校验（分层 DAG/写域互斥/gate 存在） | doing 派发前 |
+| `level_complete` | 层门禁验收提交（跑 human 门禁 → 绿 → 单次 commit → tasks.json 批量写） | 每层 impl 完成后 |
+
+**原则**：worker 不碰 git；tasks.json 只由 hook 写；门禁（gate{N}.py 及其集成测试）是 human 确认的层验收唯一标准，agent 不得修改。
+
+### skill 单源复用
+
+- 每个 cmd 模板 = loop 外壳（编排节奏 + skill 路径注入）；可复用操作步骤由 skill 承载
+- section builder 收敛：prompt 包唯一实现（BuildGrillingSection/BuildRequirementSection/BuildSessionWrapSection/BuildCtxSection/LoadDoingLoopContent），builder 全委托——dry-run 与真实路径跑同一函数
+- 探针法验证：改 skill 一处（插入/删除注释标记），全部 cmd 的渲染同步变化
+
+### 阶段提示词 = 系统提示词（compaction 持久）
+
+`--append-system-prompt <promptFile>` 注入协议全文（pi 自动检测文件路径读取内容），初始 user 消息只是启动触发——长会话 compaction 不丢协议。
+
+### 会话恢复（--resume）
+
+`pi --session-id <uuid>` 幂等原语（不存在则创建，存在则恢复）：各阶段启动时落盘 session_id（plan→plan/、human-loop→loop_N/、doing→doing/），`--resume` 读同一 id 恢复完整上下文。

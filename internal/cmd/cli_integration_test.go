@@ -121,3 +121,26 @@ func TestCLIIntegrationCommandJobFlag(t *testing.T) {
 	}
 }
 
+
+// TestCLIIntegrationUpdatePiCommandExists tests that tools update-pi exists and
+// responds to --help (v4.1.0 feature: pi runtime / extensions / models update).
+func TestCLIIntegrationUpdatePiCommandExists(t *testing.T) {
+	rootCmd := NewRootCmd("0.1.0")
+
+	rootCmd.SetArgs([]string{"tools", "update-pi", "--help"})
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tools update-pi --help failed: %v", err)
+	}
+
+	output := out.String()
+	if output == "" {
+		t.Errorf("expected update-pi help output, but got none")
+	}
+	for _, want := range []string{"update-pi", "pi-subagents", "extensions"} {
+		if !bytes.Contains([]byte(output), []byte(want)) {
+			t.Errorf("update-pi help should mention %q", want)
+		}
+	}
+}

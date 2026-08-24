@@ -37,46 +37,26 @@ status 字段取值：
 
 ### 任务日志目录结构
 
-每个 task 执行时在 `{{doing_dir}}/tasks/{task_id}/` 下生成两类文件：
+doing 的原生行为轨迹有两个来源（**不再有提取/摘要逻辑**，ctrl/dream/learning 直接读原始轨迹）：
 
 ```
-doing/
-  tasks/
-    task1/
-      raw_session_coding.log   ← 实时 pi JSONL 事件流（任务执行中持续写入）
-      runtime-trace.md              ← 任务完成后的可读行为轨迹摘要（runtime trace）
-    task2/
-      raw_session_coding.log
-      runtime-trace.md
-    ...
+1. pi 会话 JSONL（doing parent + 各 worker 的完整轨迹）
+   ~/.rick/pi/agent/sessions/--<cwd 路径替换斜杠>--/<时间戳>_<sessionId>.jsonl
+   每行一条记录：message（user/assistant/toolCall/toolResult）、timestamp 等。
+   {{doing_dir}}/session_id 记录 doing parent 会话 ID——定位最新会话文件用
+   `ls -t ~/.rick/pi/agent/sessions/--*--/*.jsonl | head -5` 对照时间即可
+
+2. subagent artifacts（每个 worker 的输入/输出/转录/元数据）
+   <cwd>/.pi/subagents/artifacts/<runId>_<agent>_0_{input.md, output.md, transcript.jsonl, meta.json}
+   - meta.json：runId/agent/task/exitCode/durationMs/usage（turns、token、cost）/error
+   - transcript.jsonl：worker 内部完整行为轨迹（工具调用、thinking、文本）
+   - output.md：worker 最终输出
 ```
 
-### raw_session_coding.log — 实时 pi JSONL 事件流
-
-每行是一个 JSON 对象（pi `--mode json` 事件流），字段为 **camelCase**。关键事件类型：
-
-```
-{"type":"session","id":"..."}   → 会话初始化，id = session ID
-{"type":"message_end","message":{"role":"assistant","content":[...]}}
-                                → 一轮消息结束；user 与 assistant 轮次都会发，
-                                  取最终回复须过滤 message.role == "assistant"
-{"type":"tool_execution_start","toolCallId":"...","toolName":"...","args":{...}}
-                                → 工具调用开始（toolName=工具名，args=参数）
-{"type":"tool_execution_end","toolCallId":"...","result":...,"isError":false}
-                                → 工具调用结束（result 可能是 JSON 对象非字符串，
-                                  isError=true 表示失败）
-{"type":"agent_settled", ...}   → 终止信号（pi 不再输出内容，本次运行收尾）
-```
-
-**读取方法**：tail 最后 30-50 行，关注 `tool_execution_start` 的 toolName/args（pi 在调什么工具）
-和 `tool_execution_end` 的 result 与 isError（工具是否成功）。
-
-### runtime-trace.md — 任务完成的行为轨迹摘要（runtime trace）
-
-任务执行完成后自动生成，包含：
-- 执行摘要（耗时、工具调用次数、报错次数）
-- 行为轨迹表（每次工具调用的行号、工具名、输入）
-- Agent 最终输出
+**读取方法**：
+- 进度与卡点：`ls -t <cwd>/.pi/subagents/artifacts/*_meta.json | head` → 逐个 `python3 -c "import json;..."` 读 agent/task/durationMs/exitCode/error
+- worker 内部在干什么：tail 对应 transcript.jsonl 最后 30-50 行，关注 toolName/args（在调什么）与 isError（是否失败）
+- doing parent 在干什么：定位 session_id 对应的 jsonl，tail 最后 40 行
 
 ### debug.md — 问题与重试记录
 
@@ -97,11 +77,11 @@ doing/
 
 启动后**立即**执行：
 1. 读取 `{{tasks_json_path}}`，生成任务状态表格
-2. 找到 `status = "running"` 的任务 → 读取其 `raw_session_coding.log` 最后 40 行
-   - 从 pi JSONL 中提取最近的 `tool_execution_start` 的 toolName 和 args，展示给人类
-   - 找最近的 `tool_execution_end` 的 result 与 isError 判断是否有错误
+2. `ls -t <cwd>/.pi/subagents/artifacts/` → 读最新 3-5 个 `*_meta.json`：
+   哪个 agent（task{N}-test / task{N}-impl / worker）在跑、durationMs、exitCode、error
+   - 运行中的 task → tail 对应 transcript.jsonl 最后 40 行，展示最近工具调用（toolName + args 摘要）与错误
 3. 读取 `{{doing_dir}}/debug.md`（如存在）→ 汇报是否有失败重试、当前卡点
-4. 对已完成任务（`status = "success"`）→ 如果存在 `runtime-trace.md` 可简要引用其摘要
+4. 已完成任务（`status = "success"`）→ 从对应 meta.json 读 durationMs/usage 汇报耗时与成本
 
 **汇报格式示例：**
 ```
@@ -122,7 +102,7 @@ doing/
 
 开启方式：使用 `/loop 20m` 命令触发周期性监控循环。每次触发时执行：
 1. 读取 `{{tasks_json_path}}` 刷新状态
-2. 读取当前 running task 的 `raw_session_coding.log` 最后 40 行
+2. tail 当前运行 worker 的 transcript.jsonl 最后 40 行（定位：`ls -t <cwd>/.pi/subagents/artifacts/*_meta.json | head -3` 找运行中的 runId）
 3. 读取 `{{doing_dir}}/debug.md` 检查是否有新增失败记录
 4. 输出进度摘要，若发现异常（连续失败、长时间无进展）主动提醒人类干预
 
@@ -164,11 +144,11 @@ doing/
 
 #### 场景 C：查看某 task 的历史行为轨迹
 
-读取 `{{doing_dir}}/tasks/<task_id>/runtime-trace.md`，展示完整摘要。
+读取该 task 对应 worker 的 `*_meta.json`（durationMs/usage/error）与 `*_output.md`（产出摘要），展示完整信息。
 
 #### 场景 D：查看原始日志片段
 
-读取 `{{doing_dir}}/tasks/<task_id>/raw_session_coding.log`，
+tail 该 task 对应 worker 的 `*_transcript.jsonl` 最后 50 行，
 解析 pi JSONL，按时间顺序展示工具调用序列（toolName + args 摘要 + result/isError 状态）。
 
 ---

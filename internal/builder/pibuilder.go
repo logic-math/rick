@@ -152,23 +152,27 @@ func stripYAMLFrontmatter(s string) string {
 // 未导出的 skillsFS），strips YAML frontmatter, and substitutes the domain/debug-skill
 // paths. Missing skill returns error（非静默空内容）。
 func renderDoingLoop(domainDir, debugSkillPath string) (string, error) {
-	raw, err := prompt.ReadEmbeddedSkill("doing_loop")
-	if err != nil {
-		return "", err
-	}
-	content := stripYAMLFrontmatter(raw)
-	content = strings.ReplaceAll(content, "{{domain_dir}}", domainDir)
-	return strings.ReplaceAll(content, "{{debug_skill_path}}", debugSkillPath), nil
+	// 委托 prompt 包（单源 v4.4.13）；签名保持 (string, error) 兼容。
+	return prompt.LoadDoingLoopContent(domainDir, debugSkillPath), nil
 }
 
 // renderInlineSkills reads embedded skills via prompt.ReadEmbeddedSkill and renders
 // them as pi 可识别的结构化「skill 内联段」（单文件内聚）。Missing skill returns error.
 func renderInlineSkills(skills []string) (string, error) {
+	return renderInlineSkillsWithVars(skills, nil)
+}
+
+// renderInlineSkillsWithVars renders embedded skills with {{key}} substitution
+//（v4.4.12：grilling 含 {{grilling_workdir}}，内联路径同样要替换）。
+func renderInlineSkillsWithVars(skills []string, vars map[string]string) (string, error) {
 	var sb strings.Builder
 	for i, name := range skills {
 		content, err := prompt.ReadEmbeddedSkill(name)
 		if err != nil {
 			return "", err
+		}
+		for k, v := range vars {
+			content = strings.ReplaceAll(content, "{{"+k+"}}", v)
 		}
 		if i > 0 {
 			sb.WriteString("\n\n")
@@ -208,45 +212,21 @@ func resolvePromptsDir(doingDir string) (string, error) {
 }
 
 func buildRequirementSection(requirement string) string {
-	if requirement == "" {
-		return ""
-	}
-	return fmt.Sprintf("## 用户需求\n\n%s\n", requirement)
+	return prompt.BuildRequirementSection(requirement)
 }
 
 func buildGrillingSection(grillingFilePath, doingDir string) string {
-	writeBack := ""
-	if doingDir != "" {
-		writeBack = fmt.Sprintf("\n**Grilling 结束后**，将澄清结论追加到 `%s/requirement.md`（只追加，不替换）。\n", doingDir)
-	}
-	return fmt.Sprintf("## 第一步：Grilling 追问（需求澄清）\n\n在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。\n\n**加载并执行 skill:grilling**：`%s`%s\n", grillingFilePath, writeBack)
+	// v4.4.12: 编排协议单源——prompt 包是唯一实现（skill:grilling 是唯一协议源），
+	// pibuilder 的 dry-run 路径与 easy_prompt.go 的真实路径共用同一函数，杜绝双份漂移。
+	return prompt.BuildGrillingSection(grillingFilePath, doingDir)
 }
 
 func buildSessionWrapSection(learningLoopPath string) string {
-	return fmt.Sprintf(`---
-
-## 第四步：执行 Learning Loop
-
-⚠️ **必须等待人类明确说"执行 learning"后，才能启动 Learning Loop。禁止自动触发。**
-
-格式检查通过后，向人类汇报完成情况并停止，等待人类指令。
-人类确认后，启动子 Agent 执行 Learning Loop：
-
-`+"`%s`", learningLoopPath)
+	return prompt.BuildSessionWrapSection(learningLoopPath)
 }
 
 func buildCtxSection(ctxPath, localRickDir string) string {
-	if ctxPath == "" {
-		return ""
-	}
-	raw := prompt.LoadCoreSkills([]string{"import_ctx"})
-	if raw == "" {
-		return ""
-	}
-	content := stripYAMLFrontmatter(raw)
-	content = strings.ReplaceAll(content, "{{ctx_path}}", ctxPath)
-	content = strings.ReplaceAll(content, "{{local_rick_dir}}", localRickDir)
-	return content
+	return prompt.BuildCtxSection(ctxPath, localRickDir)
 }
 
 func readFileOrDefault(path, defaultVal string) string {
@@ -284,7 +264,9 @@ func (p *PIBuilder) BuildPlan(requirement string, params map[string]string) (met
 
 	// 单文件内聚：关键 skill 内容内联进主产物（而非散落路径引用）。缺内联源时
 	// 返回 error（非 panic、非静默产出空内容）。
-	inlineSkills, err := renderInlineSkills([]string{"grilling", "tdd-zh", "testing-anti-patterns-zh"})
+	inlineSkills, err := renderInlineSkillsWithVars([]string{"grilling", "tdd-zh", "testing-anti-patterns-zh", "pipeline"}, map[string]string{
+		"grilling_workdir": filepath.Join(jobPlanDir, "grilling"),
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to inline plan skills: %w", err)
 	}
@@ -299,6 +281,7 @@ func (p *PIBuilder) BuildPlan(requirement string, params map[string]string) (met
 	b.SetVariable("grilling_skill_path", "<tmp>/rick-plan-prompts/skill_grilling.md")
 	b.SetVariable("tdd_skill_path", "<tmp>/rick-plan-skill-tdd-zh-*.md")
 	b.SetVariable("testing_anti_patterns_path", "<tmp>/rick-plan-skill-testing-anti-patterns-zh-*.md")
+	b.SetVariable("pipeline_skill_path", "<tmp>/rick-plan-prompts/skill_pipeline.md")
 
 	instance, err = b.Build()
 	if err != nil {
@@ -379,7 +362,9 @@ func (p *PIBuilder) BuildEasy(requirement string, params map[string]string) (met
 	if err != nil {
 		return "", "", fmt.Errorf("failed to inline doing loop: %w", err)
 	}
-	inlineSkills, err := renderInlineSkills([]string{"grilling"})
+	inlineSkills, err := renderInlineSkillsWithVars([]string{"grilling"}, map[string]string{
+		"grilling_workdir": filepath.Join(doingDir, "grilling"),
+	})
 	if err != nil {
 		return "", "", fmt.Errorf("failed to inline easy skills: %w", err)
 	}
@@ -562,7 +547,9 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 		return "", "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
 	}
 
-	grillingFile, err := prompt.WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
+	grillingFile, err := prompt.WriteSkillFileWithVars(promptsDir, "skill_grilling.md", "grilling", map[string]string{
+		"grilling_workdir": filepath.Join(doingDir, "grilling"),
+	})
 	if err != nil {
 		return "", "", nil, err
 	}

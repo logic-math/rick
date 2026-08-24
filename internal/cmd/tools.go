@@ -20,6 +20,7 @@ then decides which commands to invoke to complete its work.
 
 Available subcommands:
   init-pi         Initialize pi (rick's agent runtime) + subagent extension
+  update-pi       Update pi runtime / extensions / model catalogs (+ quick checks)
   learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
   dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
 `,
@@ -29,6 +30,7 @@ Available subcommands:
 	}
 
 	toolsCmd.AddCommand(NewInitPiCmd())
+	toolsCmd.AddCommand(NewUpdatePiCmd())
 	toolsCmd.AddCommand(NewThemeCmd())
 	toolsCmd.AddCommand(NewLearningCheckCmd())
 	toolsCmd.AddCommand(NewDreamCheckCmd())

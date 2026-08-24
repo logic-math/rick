@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
@@ -142,12 +143,19 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 		fmt.Println("⚠ No task*.md files found in plan directory")
 	}
 
-	// runtime trace files (replaces act-path.md)
-	tracePattern := filepath.Join(doingDir, "tasks", "*", "trace.md")
-	traceFiles, err := filepath.Glob(tracePattern)
-	if err == nil {
-		data.ActPathFiles = traceFiles
-		fmt.Printf("✅ Found %d runtime trace files\n", len(traceFiles))
+	// v4.3 原生行为轨迹：不再有提取层（act-path.md/trace.md 均已废除）。
+	// 直接收集 pi 原生产物——subagent artifacts（worker meta/transcript/output）
+	// 与 doing parent 会话。
+	repoRoot := filepath.Dir(rickDir)
+	artifactsDir := filepath.Join(repoRoot, ".pi", "subagents", "artifacts")
+	if metas, err := filepath.Glob(filepath.Join(artifactsDir, "*_meta.json")); err == nil && len(metas) > 0 {
+		data.ActPathFiles = append(data.ActPathFiles, metas...)
+		fmt.Printf("✅ Found %d subagent artifact metas (native trajectory)\n", len(metas))
+	}
+	sessionIDFile := filepath.Join(doingDir, "session_id")
+	if sid, err := os.ReadFile(sessionIDFile); err == nil && len(strings.TrimSpace(string(sid))) > 0 {
+		data.ActPathFiles = append(data.ActPathFiles, fmt.Sprintf("session:%s", strings.TrimSpace(string(sid))))
+		fmt.Printf("✅ Found doing parent session: %s\n", strings.TrimSpace(string(sid)))
 	}
 
 	return data, nil

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-17T00:59:46.783995764+08:00",
-  "updated_at": "2026-08-17T06:01:04.789297+08:00",
+  "updated_at": "2026-08-17T06:11:22.308646425+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -159,6 +159,7 @@
     {
       "task_id": "task12",
       "task_name": "三个 O 端到端验收 + README/wiki 文档同步",
+      "task_file": "task12.md",
       "status": "success",
       "dependencies": [
         "task1",
@@ -169,9 +170,9 @@
         "task11"
       ],
       "attempts": 0,
+      "commit_hash": "a080458f8742f2b736de39463b37661bb503aeda",
       "created_at": "2026-08-17T00:59:46.783995764+08:00",
-      "updated_at": "2026-08-17T06:01:04.789297+08:00",
-      "commit_hash": "a758f6fae396ea85b019dd2d0eff29e7839a559b"
+      "updated_at": "2026-08-17T06:11:22.308641924+08:00"
     }
   ]
 }

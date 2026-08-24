@@ -55,20 +55,29 @@ func piPathOrDefault(cfg *config.Config) string {
 	return "pi"
 }
 
+// bootstrapMessage is the initial user message that kicks the agent off.
+// v4.4.5: 阶段提示词（plan/doing/easy/ctrl/human-loop/learning/dream）不再作为
+// 初始 user 消息（长会话 compaction 会压缩掉协议细节），而是通过
+// --append-system-prompt 常驻系统提示词（pi 对该参数自动检测文件路径并读取
+// 内容）；user 消息只做启动触发——协议在系统提示词里，永不压缩遗忘。
+const bootstrapMessage = "开始：按系统提示词中的 rick 协议立即执行你的职责。"
+
 // buildArgs assembles the pi argument list for a given mode. It is split out
 // from CallCLI so flag logic can be unit-tested without shelling out.
 //
 // extraArgs are pi flags passed through verbatim (e.g. "--session", "<id>" or
-// "--continue"). promptFile is appended last and omitted when empty (used by
-// easy.go's resume path, which passes only flags).
+// "--continue"). promptFile, when non-empty, is injected via
+// --append-system-prompt (system-prompt persistence across compaction) and the
+// bootstrap message becomes the initial user prompt; empty promptFile keeps
+// the legacy flag-only form (easy.go's resume path).
 func buildArgs(mode CLIMode, promptFile string, extraArgs ...string) []string {
-	args := make([]string, 0, len(extraArgs)+2)
+	args := make([]string, 0, len(extraArgs)+4)
 	if mode == ModePrint {
 		args = append(args, "-p")
 	}
 	args = append(args, extraArgs...)
 	if promptFile != "" {
-		args = append(args, promptFile)
+		args = append(args, "--append-system-prompt", promptFile, bootstrapMessage)
 	}
 	return args
 }

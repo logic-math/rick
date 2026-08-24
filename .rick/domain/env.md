@@ -26,3 +26,8 @@
 - 当前主题：**VSCode Dark+** 配色（bg #1e1e1e，keyword #c586c0，string #ce9178，comment #6a9955）
 - 源头：`internal/cmd/themes/rick.json`（embedded）；运行时激活副本：`~/.rick/pi/agent/themes/rick.json`
 - 版本 3.1.5；默认模型 deepseek-v4-pro（~/.rick/config.json pi_extra_args）
+
+## rick 自定义 agent 落盘（job_35 确认）
+
+- `~/.rick/pi/agent/agents/` — rick 自定义 agent（think/research/exporter）落盘目录，由 env 职责 3 `deployRickAgents` 幂等写入（YAML frontmatter + wiki 正文）
+- 自定义 agent 清单注册在 `internal/env/agents.go` 的 `rickAgents`，就绪 check 在 `CheckRickAgents`

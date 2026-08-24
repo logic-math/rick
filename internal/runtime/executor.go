@@ -19,6 +19,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -48,7 +50,14 @@ type piContent struct {
 
 // --- private session ---
 
+// progressFunc receives human-readable progress lines while the JSONL stream
+// is parsed (real-time feedback for rick doing: dispatches, tool calls,
+// completions). Lines are already formatted; the sink decides where they go
+// (stderr by default in Run). nil = silent.
+type progressFunc func(line string)
+
 type piSession struct {
+	progress         progressFunc
 	sessionID        string
 	toolCalls        []ToolCall
 	toolCallIDs      []string
@@ -89,14 +98,17 @@ func isSessionReady(sessionID string, settled bool) bool {
 
 // --- core parser ---
 
-func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
+func parseStream(r io.Reader, rawLogPath string, progress progressFunc) (*piSession, error) {
 	f, err := os.OpenFile(rawLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("open raw log %s: %w", rawLogPath, err)
 	}
 	defer f.Close()
 
-	sess := &piSession{rawLogPath: rawLogPath, startTime: time.Now()}
+	sess := &piSession{rawLogPath: rawLogPath, startTime: time.Now(), progress: progress}
+	if sess.progress != nil {
+		sess.progress("pi 会话已启动")
+	}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024*1024), 64*1024*1024)
 	lineNo := 0
@@ -126,6 +138,7 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 		case "agent_settled":
 			sess.settled = true
 			sess.duration = time.Since(sess.startTime)
+			sess.reportf("✓ 会话收敛（agent_settled，%s，%d 次工具调用）", sess.duration.Round(time.Second), len(sess.toolCalls))
 		case "message_end":
 			if ev.Message == nil {
 				continue
@@ -135,6 +148,8 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 			}
 			for _, c := range ev.Message.Content {
 				if c.Type == "text" && c.Text != "" {
+					// finalMessage 采集保留（trace 用）；不打实时行——assistant 自由文本
+					// 不固定（确定性进度走 tasks.json watcher + 工具事件）。
 					sess.finalMessage = truncate(c.Text, 200)
 					sess.finalMessageLine = lineNo
 				}
@@ -147,6 +162,7 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 				Line:  lineNo,
 			})
 			sess.toolCallIDs = append(sess.toolCallIDs, ev.ToolCallID)
+			sess.reportf("▶ %s %s", ev.ToolName, oneLine(toolCallSummary(ev.ToolName, ev.Args), 100))
 		case "tool_execution_end":
 			output := rawToString(ev.Result)
 			output = truncate(output, 300)
@@ -154,6 +170,11 @@ func parseStream(r io.Reader, rawLogPath string) (*piSession, error) {
 			if idx >= 0 {
 				sess.toolCalls[idx].Output = output
 				sess.toolCalls[idx].IsError = ev.IsError
+			}
+			if ev.IsError {
+				sess.reportf("✗ %s 失败: %s", ev.ToolName, oneLine(output, 160))
+			} else if ev.ToolName == "task_complete" || ev.ToolName == "level_complete" || ev.ToolName == "pipeline_gate" {
+				sess.reportf("✅ %s: %s", ev.ToolName, oneLine(output, 160))
 			}
 		}
 	}
@@ -185,6 +206,84 @@ func matchToolCall(sess *piSession, toolCallID string) int {
 		return len(sess.toolCalls) - 1
 	}
 	return -1
+}
+
+// reportf emits a progress line when a progress sink is attached.
+func (s *piSession) reportf(format string, args ...any) {
+	if s.progress != nil {
+		s.progress(fmt.Sprintf(format, args...))
+	}
+}
+
+// oneLine collapses a string to a single line trimmed to n runes.
+func oneLine(s string, n int) string {
+	s = truncate(s, n)
+	for i, r := range s {
+		if r == '\n' || r == '\r' {
+			return s[:i] + "…"
+		}
+	}
+	return s
+}
+
+// toolCallSummary extracts a short human hint from common tool args
+// (subagent workflowScript keys / bash command / read path).
+func toolCallSummary(name string, args json.RawMessage) string {
+	var m map[string]any
+	if err := json.Unmarshal(args, &m); err != nil {
+		return ""
+	}
+	switch name {
+	case "subagent":
+		if ws, ok := m["workflowScript"].(string); ok {
+			keys := extractRunKeys(ws)
+			if len(keys) > 0 {
+				return fmt.Sprintf("派发: %s", strings.Join(keys, ", "))
+			}
+			return oneLine(ws, 80)
+		}
+	case "bash":
+		if c, ok := m["command"].(string); ok {
+			return oneLine(c, 100)
+		}
+	case "read":
+		if p, ok := m["path"].(string); ok {
+			return oneLine(p, 100)
+		}
+	case "write":
+		if p, ok := m["path"].(string); ok {
+			return oneLine(p, 100)
+		}
+	case "task_complete", "level_complete", "pipeline_gate":
+		if b, err := json.Marshal(m); err == nil {
+			return oneLine(string(b), 100)
+		}
+	}
+	return ""
+}
+
+// extractRunKeys pulls runs.run('key', ...) / runs.all([{key:'k'…}]) keys out
+// of a workflowScript string — the worker identities being dispatched.
+func extractRunKeys(ws string) []string {
+	var keys []string
+	seen := map[string]bool{}
+	re := regexp.MustCompile(`key:\s*'([^']+)'`)
+	for _, m := range re.FindAllStringSubmatch(ws, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			keys = append(keys, m[1])
+		}
+	}
+	if len(keys) == 0 {
+		re2 := regexp.MustCompile(`runs\.run\('([^']+)'`)
+		for _, m := range re2.FindAllStringSubmatch(ws, -1) {
+			if !seen[m[1]] {
+				seen[m[1]] = true
+				keys = append(keys, m[1])
+			}
+		}
+	}
+	return keys
 }
 
 // rawToString unwraps a JSON RawMessage that may hold a JSON string or an

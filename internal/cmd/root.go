@@ -10,6 +10,7 @@ var (
 	verbose bool
 	dryRun  bool
 	jobID   string
+	resume  string
 )
 
 func NewRootCmd(version string) *cobra.Command {
@@ -30,6 +31,7 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode without making changes")
 	rootCmd.PersistentFlags().StringVar(&jobID, "job", "", "Specify job ID (e.g., job_1)")
+	rootCmd.PersistentFlags().StringVar(&resume, "resume", "", "Resume a previous pi session (plan/doing: job id; human-loop: loop_N; easy: job id)")
 
 	// Configure version flag
 	rootCmd.Flags().BoolP("version", "V", false, "Show version")
@@ -56,6 +58,12 @@ func GetVerbose() bool {
 // GetDryRun returns the dry-run flag value
 func GetDryRun() bool {
 	return dryRun
+}
+
+// GetResume returns the --resume flag value (session re-entry target: job id
+// for plan/doing, loop_N for human-loop, job id for easy).
+func GetResume() string {
+	return resume
 }
 
 // GetJobID returns the job ID flag value

@@ -27,6 +27,23 @@ func NewPlanCmd() *cobra.Command {
 				JobID:   GetJobID(),
 			}
 
+			// v4.4.9: --resume job_N 恢复之前的 plan 会话（等价 --job 重进 + session 恢复）。
+			if resumeTarget := GetResume(); resumeTarget != "" {
+				if GetDryRun() {
+					fmt.Printf("[DRY-RUN] Would resume plan session for job: %s\n", resumeTarget)
+					return nil
+				}
+				requirement := ""
+				if len(args) > 0 {
+					requirement = args[0]
+				}
+				if requirement == "" {
+					requirement = "恢复会话，继续完善此前的规划"
+				}
+				opts := handler.Options{Verbose: GetVerbose(), DryRun: GetDryRun(), JobID: resumeTarget}
+				return handler.ReEnterPlan(resumeTarget, requirement, opts)
+			}
+
 			// Check if --job flag is set to re-enter an existing job
 			if existingJobID := GetJobID(); existingJobID != "" {
 				if GetDryRun() {

@@ -56,6 +56,20 @@ func NewDoingCmd() *cobra.Command {
 				jobID = GetJobID()
 			}
 
+			// v4.4.9: --resume job_N → 交互式恢复 doing parent 会话（完整上下文：
+			// 此前的编排状态、worker 产出、debug 记录）。适用于人工接管/排查。
+			if resumeTarget := GetResume(); resumeTarget != "" {
+				if GetDryRun() {
+					fmt.Printf("[DRY-RUN] Would resume doing session for job: %s\n", resumeTarget)
+					return nil
+				}
+				if err := validateJobID(resumeTarget); err != nil {
+					return err
+				}
+				opts := handler.Options{Verbose: GetVerbose(), DryRun: GetDryRun(), JobID: resumeTarget}
+				return handler.ResumeDoing(resumeTarget, opts)
+			}
+
 			if GetDryRun() {
 				return handler.DoingDryRun(jobID)
 			}

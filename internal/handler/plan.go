@@ -80,7 +80,15 @@ func Plan(requirement string, opts Options) error {
 		fmt.Println("[INFO] Calling pi for planning...")
 	}
 
-	if err := runtime.CallCLI(opts.Verbose, cfg, planPromptFile, runtime.ModeInteractive); err != nil {
+	// v4.4.9: 会话持久化——首次生成 uuid（--session-id 创建），落盘 plan/session_id；
+	// 后续 `rick plan --resume job_N` 读同一 id 恢复完整会话。
+	sessionID, err := ensureSessionID(jobPlanDir)
+	if err != nil {
+		return fmt.Errorf("ensure plan session id: %w", err)
+	}
+	fmt.Printf("Session ID: %s\n", sessionID)
+
+	if err := runtime.CallCLI(opts.Verbose, cfg, planPromptFile, runtime.ModeInteractive, "--session-id", sessionID); err != nil {
 		return fmt.Errorf("failed to call pi: %w", err)
 	}
 
@@ -130,7 +138,15 @@ func ReEnterPlan(existingJobID string, requirement string, opts Options) error {
 		fmt.Printf("[INFO] Planning prompt saved to: %s\n", planPromptFile)
 	}
 
-	if err := runtime.CallCLI(opts.Verbose, cfg, planPromptFile, runtime.ModeInteractive); err != nil {
+	// v4.4.9: --resume 恢复——plan/session_id 存在则恢复同一 pi 会话（完整
+	// 历史与上下文：此前澄清过的设计树/流水线讨论都在）；无记录则新建并落盘。
+	sessionID, err := ensureSessionID(jobPlanDir)
+	if err != nil {
+		return fmt.Errorf("ensure plan session id: %w", err)
+	}
+	fmt.Printf("Session ID: %s\n", sessionID)
+
+	if err := runtime.CallCLI(opts.Verbose, cfg, planPromptFile, runtime.ModeInteractive, "--session-id", sessionID); err != nil {
 		return fmt.Errorf("failed to call pi: %w", err)
 	}
 

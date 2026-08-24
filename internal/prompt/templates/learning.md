@@ -20,6 +20,7 @@
 {{task_md_files}}
 - **执行轨迹**（runtime-trace.md）:
 {{act_path_files}}
+<!-- v4.3：act_path_files 现在列出原生行为轨迹（subagent artifacts meta.json 与 doing parent 会话 ID），无提取层 -->
 
 ### 可用的项目 Loops
 
@@ -32,6 +33,8 @@
 ---
 
 ## 执行 Loop
+
+> ⚠️ **domain 沉淀是 learning 的核心产出之一（不是附属）**：本次 job 踩过的坑（bugs.md 的「已知问题+精确解决命令」）、构建/测试命令事实（build.md）、环境事实（env.md）——这些是下次 job 的 Step 0 直接消费的先验知识。**没有 domain 沉淀 = 同样的坑下次 job 还会踩一遍**。执行 Loop 的 Step 5（gen-domain）不可跳过，无新事实也要显式说明原因。
 
 `{{learning_loop_path}}`
 
@@ -82,3 +85,15 @@ learning_check pass 后才算完成。
 
 如文件不存在，跳过此步骤。
 
+---
+
+## 完成后引导（呈现给 human）
+
+learning 完成后提示：
+
+```
+✅ job {job_id} learning 完成（SUMMARY + skills/loops + domain 已沉淀）
+
+多个 job 攒起来后可跑跨 job 全局反思（演化 loops/domain、合并重复 skills）：
+  rick dream
+```

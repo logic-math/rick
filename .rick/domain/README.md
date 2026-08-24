@@ -11,6 +11,7 @@
 | `go-patterns.md` | Go 编码规范（Cobra flag/variadic/embed.FS/包内共享/接口签名/配置污染防护） |
 | `testing-conventions.md` | 测试约定（go test 范围/mock命名/Mock Agent同步/JSON输出/断言精确性） |
 | `project-conventions.md` | 路径约定、工程实践、构建/发布流程、新架构说明 |
+| `build.md` | 构建/测试/门禁/提交命令事实（含 bin/rick 强制暂存坑） |
 
 ## 与 skills/loops 的关系
 

@@ -26,6 +26,10 @@ func NewEasyCmd() *cobra.Command {
 			if GetDryRun() {
 				return handler.EasyDryRun(requirement, ctxPath)
 			}
+			// v4.4.9: 全局 --resume 优先（与本地 --resume 同义）；本地保留兼容。
+			if GetResume() != "" {
+				resumeJobID = GetResume()
+			}
 			if resumeJobID != "" {
 				return handler.ResumeEasy(resumeJobID, opts)
 			}

@@ -34,7 +34,7 @@ func GenerateDreamPrompt(jobIDs []string, rickDir string) (string, error) {
 	}
 	actPathContent := loadActPaths(jobIDs, rickDir)
 	if actPathContent != "" {
-		content += "\n\n## 行为轨迹文件路径（按需读取）\n\n" + actPathContent
+		content += "\n\n## 原生行为轨迹数据源（按需读取；无摘要层，直接读原始轨迹）\n\n" + actPathContent
 	}
 	return content, nil
 }
@@ -103,7 +103,7 @@ func GenerateDreamPromptFile(jobIDs []string, rickDir string) (string, []string,
 	// Append act-path context for each job
 	actPathContent := loadActPaths(jobIDs, rickDir)
 	if actPathContent != "" {
-		content += "\n\n## 行为轨迹文件路径（按需读取）\n\n" + actPathContent
+		content += "\n\n## 原生行为轨迹数据源（按需读取；无摘要层，直接读原始轨迹）\n\n" + actPathContent
 	}
 
 	promptFile := filepath.Join(promptsDir, "dream_prompt.md")
@@ -161,25 +161,29 @@ func loadRunLogs(rickDir string) string {
 	return sb.String()
 }
 
+// loadActPaths 列出 job 的原生行为轨迹数据源（v4.3：不再有 act-path.md / trace.md
+// 提取层——直接暴露 pi 原生产物：subagent artifacts + 会话 jsonl）。
 func loadActPaths(jobIDs []string, rickDir string) string {
 	if len(jobIDs) == 0 || rickDir == "" {
 		return ""
 	}
 	var sb strings.Builder
+	repoRoot := filepath.Dir(rickDir)
 	for _, jobID := range jobIDs {
-		doingTasksDir := filepath.Join(rickDir, "jobs", jobID, "doing", "tasks")
-		entries, err := os.ReadDir(doingTasksDir)
-		if err != nil {
-			continue
+		// 1. subagent artifacts（worker 的 meta/transcript/output）
+		artifactsDir := filepath.Join(repoRoot, ".pi", "subagents", "artifacts")
+		if metas, err := filepath.Glob(filepath.Join(artifactsDir, "*_meta.json")); err == nil && len(metas) > 0 {
+			sb.WriteString(fmt.Sprintf("- `%s/*_meta.json`（%d 个 run 的元数据：agent/task/exitCode/durationMs/error）\n", artifactsDir, len(metas)))
+			sb.WriteString(fmt.Sprintf("- `%s/*_transcript.jsonl`（worker 完整行为轨迹）\n", artifactsDir))
 		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			actPath := filepath.Join(doingTasksDir, e.Name(), "act-path.md")
-			if _, err := os.Stat(actPath); err == nil {
-				sb.WriteString(fmt.Sprintf("- `%s`\n", actPath))
-			}
+		// 2. doing parent 会话（session_id 定位）
+		sessionIDFile := filepath.Join(rickDir, "jobs", jobID, "doing", "session_id")
+		if data, err := os.ReadFile(sessionIDFile); err == nil && len(strings.TrimSpace(string(data))) > 0 {
+			sb.WriteString(fmt.Sprintf("- doing parent 会话 ID：`%s`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）\n", strings.TrimSpace(string(data))))
+		}
+		// 3. debug 记录
+		if bugs, err := filepath.Glob(filepath.Join(rickDir, "jobs", jobID, "doing", "debug", "bug*.md")); err == nil && len(bugs) > 0 {
+			sb.WriteString(fmt.Sprintf("- `%s`（%d 条调试记录）\n", filepath.Dir(bugs[0]), len(bugs)))
 		}
 	}
 	return sb.String()

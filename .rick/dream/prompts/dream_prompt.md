@@ -4,9 +4,9 @@
 
 ## 角色定位
 
-- **范围**：仅允许修改 `.rick/loops/`（`/Users/sunquan/ai_coding/CODING/rick/.rick/loops`）和 `.rick/skills/`（`/Users/sunquan/ai_coding/CODING/rick/.rick/skills`）
+- **范围**：仅允许修改 `.rick/loops/`（`/workdir/sunquan20/AI_CODING/rick/.rick/loops`）、`.rick/skills/`（`/workdir/sunquan20/AI_CODING/rick/.rick/skills`）和 `.rick/domain/`（`/workdir/sunquan20/AI_CODING/rick/.rick/domain`）
 - **禁止**：修改任何业务源代码及其他 `.rick/` 目录
-- **输出**：更新 loops/skills；每个处理的 job 写入 `dream_run_{job_id}_log.md`
+- **输出**：更新 loops/skills/domain；每个处理的 job 写入 `dream_run_{job_id}_log.md`
 
 ---
 
@@ -14,16 +14,19 @@
 
 ## 可用的项目 Loops
 
-- **candidate-loop-1**：when implementing new features
-- **go-tdd-loop**："当需要对 Go 代码进行 TDD 迭代直到测试通过时触发"
+- **do-check-mark-success-loop**："当 doing_check 报错 task status != success 或 commit_hash 缺失时触发"
+- **protocol-redesign-loop**："当需要重构 AI agent 的多阶段协议(如人机协作流程、任务执行流程),涉及阶段合并/拆分/反向回流/批判层重设计时触发"
+- **readme-wiki-sync-loop**："当需要编写或重构 README.md、wiki/（用户面向文档）等描述性资料时触发"
+- **tdd-red-green-refactor-loop**："当测试已存在且处于 FAIL 状态，需要通过迭代实现让其变绿时触发（前提：先写测试、当前测试 FAIL、目标是收敛到绿）"
 
 
 ## 待处理 Jobs
 
-- job_17
-- job_18
-- job_19
-- job_22
+- job_24
+- job_25
+- job_26
+- job_27
+- job_28
 
 
 ## 已有 Run Logs
@@ -264,6 +267,128 @@
 3. **P0 合并+清理**：`tc.md` 四要素内容合并进 `tdd-zh.md` 后删除；`tdd.md`、`tdd/testing-anti-patterns.md` 英文版直接 `git rm`；已记录至 RFC-refactor-2（§2.1 含具体合并方案）
 
 
+### dream_run_job_17_log.md
+
+# Dream Run: job_17
+
+## 处理时间
+
+2026-07-02
+
+## 处理概述
+
+- **Job 状态**: 已完成反思
+- **数据来源**: act-path（task1~task4，共 4 tasks）；无 debug/ 目录，无 SUMMARY.md
+- **act-path 信号**: task1~task4 各有 1 次报错，合计 4 次，均为 doing_check 状态未更新
+
+## 反思发现
+
+1. **doing_check tasks.json 状态未同步（task1-4 全部）**：4 个 task 代码提交后未执行 `mark_task_success.py`，doing_check 报 `task status != success`。此模式在多个 job 中高频出现（job_17 全部 4 个 task），是本次 dream 创建 `do-check-mark-success-loop` 的直接证据。
+2. **本 job 工作内容**（从 act-path 推断）：job_17 涉及 skill 文件编写和 template 变量注入相关工作（act-path 中读取了 tdd-zh.md、tc.md、manager_test.go 等）；task1 26 次工具调用，较为复杂。
+3. **跨 job 共性确认**：job_17 与 job_18/22 均出现相同 doing_check 失败模式，验证了 `do-check-mark-success-loop` 的必要性。
+
+## 变更记录
+
+### Loops 变更
+- 新增: `do-check-mark-success-loop.md`（本 job task1-4 全部报错均为此模式，是主要证据来源）
+- 升级: `example_loop.md` → 重命名为 `tdd-red-green-refactor-loop.md`，frontmatter name 同步更新
+- 淘汰: `candidate_loop_1.md` → 移至 `deprecated/`（stub 文件，无实际内容）
+
+### Skills 变更
+- 新增: `test_script_practices_skill`（含 8 个陷阱清单，涵盖 job_17 中 binary 版本问题等）
+- 新增: `mark_task_success_skill`（含 mark_task_success.py + build_rick.py 辅助脚本）
+- 新增: `check_mechanism_skill`
+- 新增: `verify_go_changes_skill`
+- 新增: `template_injection_skill`
+- 新增: `global_ref_sync_skill`
+- 新增: `zero_retry_task_design_skill`
+- 新增: `dag_task_decomposition_skill`
+- 新增: `failure_feedback_skill`
+- 淘汰: `candidate_skill_1.md` → 移至 `deprecated/`（stub 文件）
+
+### 全局重构变更（本次 dream 专项）
+- 删除: `.rick/wiki/`（所有 20 个 wiki 文件，知识已迁移到 skills）
+- 删除: `.rick/tools/`（所有 7 个 Python 脚本，已迁移到对应 skill 目录）
+- 删除: `.rick/SPEC.md`（知识已分散到各 skill 和 loop 文件）
+- 删除: `.rick/OKR.md`（job 级 OKR 由 plan 阶段生成，全局 OKR 已废弃）
+
+## 下次建议关注
+
+1. 观察 `do-check-mark-success-loop` 在 job_23+ 中的实际触发情况，验证 trigger 条件是否足够清晰
+2. `test_script_practices_skill` 中引用了 `.rick/skills/mark_task_success_skill/build_rick.py`，需确认 future task.py 改用新路径（不再引用 `.rick/tools/`）
+
+
+### dream_run_job_18_log.md
+
+# Dream Run: job_18
+
+## 处理时间
+
+2026-07-02
+
+## 处理概述
+
+- **Job 状态**: 已完成反思
+- **数据来源**: act-path（task1~task4，共 4 tasks）；无 debug/ 目录，无 SUMMARY.md
+- **act-path 信号**: task1 1次报错，task2 1次报错，task3~4 零报错
+
+## 反思发现
+
+1. **skill 文件修改 + template 变量注入模式（task1/2）**：job_18 的主要工作是将 `sense_skill_path` 替换为 `grilling_skill_path`，需要在多个模板文件中同步修改变量名。task2 报错 1 次（路径注入未同步），是 `global_ref_sync_skill`（先全局 grep 找引用）和 `template_injection_skill` 的来源证据之一。
+2. **task3/4 零报错**：静态文件操作（写 skill.md、更新 README）零重试，验证了零重试任务设计的有效性。
+3. **RFC 驱动开发模式（task1）**：act-path 显示 task1 先读取 `.rick/RFC/grilling-integration-2026-06-26.md`，再通过 sub-agent 探索代码结构，最后实施。RFC 前置读取是避免重试的关键。
+
+## 变更记录
+
+（与 job_17 log 相同，本次 dream 批量处理，变更集中记录在 job_17 log 中）
+
+### Loops 变更
+- 无独立于 job_17 的额外变更
+
+### Skills 变更
+- `template_injection_skill`：job_18 task2 的 grilling_skill_path 注入是触发场景来源
+- `global_ref_sync_skill`：job_18 task2 的变量名全局替换是典型应用场景
+
+## 下次建议关注
+
+1. `grilling` skill 的干预质量在后续 easy job 中值得观察
+2. RFC 驱动开发的模式值得在 zero_retry_task_design_skill 中补充为"预读 RFC/文档"的第0步
+
+
+### dream_run_job_19_log.md
+
+# Dream Run: job_19
+
+## 处理时间
+
+2026-07-02
+
+## 处理概述
+
+- **Job 状态**: 已完成反思
+- **数据来源**: 无 tasks/ 目录（job_19 为纯 RFC 写作任务，无 doing 执行记录）
+- **降级策略**: 基于已有 loops/skills 进行全局反思，不跳过
+
+## 反思发现
+
+1. **job_19 是纯 RFC 任务**：没有 tasks.json 和 act-path，说明本 job 是 human-loop 会话或纯文档类任务，不涉及代码执行。此类任务天然零报错，不产生可提炼的 loop/skill 信号。
+2. **RFC 文档的后续价值**：job_19 的 RFC 产出（推测为架构设计类文档）在 job_22 的 act-path 中被读取（`RFC-001-context-architecture.md`），说明 RFC 对后续 doing 任务有指导价值。
+3. **全局反思：loops/skills 架构首次完整建立**：本次 dream 以 job_17/18/19/22 为触发，完成了从 wiki/tools/SPEC.md 到 loops+skills 的全量迁移，是架构转型的里程碑。
+
+## 变更记录
+
+### Loops 变更
+- 无（job_19 无执行信号）
+
+### Skills 变更
+- 无（job_19 无执行信号）
+
+## 下次建议关注
+
+1. 评估 RFC 文档是否需要独立的 skill（`rfc-driven-development-skill`），引导 agent 在 doing 前先读 RFC
+2. 纯文档类 job 的 dream 处理策略是否需要标准化
+
+
 ### dream_run_job_1_log.md
 
 # Dream Run: job_1
@@ -299,6 +424,54 @@
 ## 下次建议关注
 1. 检查 wiki 文档与最新代码实现的一致性（task4/7 路径已通过实际提交修正）
 2. 评估 `doc_engineering_three_phases.md` 与 `documentation_engineering.md` 是否需要合并
+
+
+### dream_run_job_22_log.md
+
+# Dream Run: job_22
+
+## 处理时间
+
+2026-07-02
+
+## 处理概述
+
+- **Job 状态**: 已完成反思
+- **数据来源**: act-path（task1~task9，共 9 tasks，无 task8）；无 debug/ 目录，无 SUMMARY.md
+- **act-path 信号**: task1/2/3 零报错；task4~7/9 共 3 次报错
+
+## 反思发现
+
+1. **job_22 是架构重构 job**：act-path 显示 task1 创建了 `.rick/loops/` 和 `.rick/skills/` 目录（`mkdir -p`），task2 创建了 `candidate_loop_1.md` 和 `example_loop.md`。这正是 loops/skills 新架构的起点。本次 dream 将这些"candidate"升级为正式 skill 目录结构。
+2. **RFC-001 驱动**：task1 首先读取 `RFC-001-context-architecture.md`，确认了 RFC 前置读取模式的普遍性。
+3. **doing.md 模板变量注入（task4/5）**：将 `{{job_okr_content}}` 替换为 `## 可用的项目 Loops
+
+- **do-check-mark-success-loop**："当 doing_check 报错 task status != success 或 commit_hash 缺失时触发"
+- **protocol-redesign-loop**："当需要重构 AI agent 的多阶段协议(如人机协作流程、任务执行流程),涉及阶段合并/拆分/反向回流/批判层重设计时触发"
+- **readme-wiki-sync-loop**："当需要编写或重构 README.md、wiki/（用户面向文档）等描述性资料时触发"
+- **tdd-red-green-refactor-loop**："当测试已存在且处于 FAIL 状态，需要通过迭代实现让其变绿时触发（前提：先写测试、当前测试 FAIL、目标是收敛到绿）"
+`，属于全局变量名迁移，3 次报错均在模板变量同步阶段。`global_ref_sync_skill` 和 `template_injection_skill` 的触发场景直接来源于此。
+4. **task1~3 零报错**：创建静态目录/文件 + README 任务全部一次成功，验证了零重试任务设计的"单一职责+明确路径"原则。
+5. **embed.FS 涉及模板变更后必须 build**：task5/6/7 涉及 doing.md/plan.md 模板修改，每次修改后需 `./scripts/build.sh` 才能生效，这在 `verify_go_changes_skill` 中已明确。
+
+## 变更记录
+
+（与 job_17 log 相同，本次 dream 批量处理，变更集中记录在 job_17 log 中）
+
+### Loops 变更
+- `do-check-mark-success-loop`：task4~7/9 的 3 次 doing_check 报错是此 loop 的额外证据
+- `tdd-red-green-refactor-loop`：job_22 的 task 编写中有 Go TDD 场景，loop 触发场景得到验证
+
+### Skills 变更
+- `template_injection_skill`：task4/5 的 loops_context 变量注入是核心触发场景
+- `global_ref_sync_skill`：task4 的全局变量名替换是典型应用
+- `verify_go_changes_skill`：task5/6/7 的 embed.FS → build → dry-run 验证链是来源
+
+## 下次建议关注
+
+1. `loops_context` 变量注入（doing.md 模板的 loops/skills 感知）在后续 job 中的实际效果
+2. dream_prompt.md 中"可用的项目 Loops"列表需要保持与 `.rick/loops/` 目录同步（当前靠程序自动扫描）
+3. 本次全量删除 wiki/tools/SPEC.md/OKR.md 后，下一个 job 的 doing prompt 是否还有残留引用
 
 
 ### dream_run_job_5_log.md
@@ -412,7 +585,7 @@
 
 ---
 
-## Dream SOP（8 步）
+## Dream SOP（9 步）
 
 ### Step 1：初始化 — 确认待处理范围
 
@@ -440,7 +613,7 @@
 
 YOU MUST declare: `"I will use skill:sense for reflection."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/dream/prompts/skill_sense.md`，基于所有 job 数据深度反思：
+读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_sense.md`，基于所有 job 数据深度反思：
 
 1. **跨 job 共性问题**：相同类型错误在 ≥ 2 个 job 中出现 → 候选新 skill
 2. **跨 job 重复工作流**：≥ 2 个 job 执行了相同的步骤序列 → 候选新 loop 或升级已有 loop
@@ -455,46 +628,61 @@ YOU MUST declare: `"I will use skill:sense for reflection."`
 
 YOU MUST declare: `"I will use skill:gen-loop."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/dream/prompts/skill_gen_loop.md`，针对 Step 3 识别的 loop 相关信号：
+读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_loop.md`，针对 Step 3 识别的 loop 相关信号：
 
 **升级已有 loop（优先）**：
-- 检查 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/` 中是否有功能相似的已有 loop
+- 检查 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/` 中是否有功能相似的已有 loop
 - 有相似 → 直接升级（补充依赖准备、完善步骤、更新 skill 引用）
 - 无相似 → 按 gen-loop 格式创建新的 `{name}-loop.md`
 
 **写入规范**：
-- 新建：直接命名 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md`（无 `candidate_` 前缀，dream 产出经人类审核后直接生效）
+- 新建：直接命名 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/{name}-loop.md`（无 `candidate_` 前缀，dream 产出经人类审核后直接生效）
 - 升级：原地修改已有文件
 
 **淘汰过时 loop**：
-- 连续 3 次 dream 未被任何 job 匹配的 loop → 移至 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/deprecated/`
+- 连续 3 次 dream 未被任何 job 匹配的 loop → 移至 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/deprecated/`
 
 ---
 
-### Step 5：Skills 进化
+### Step 5：Domain 进化
+
+YOU MUST declare: `"I will use skill:gen-domain."`
+
+读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_domain.md`，基于所有 job 的执行记录提炼跨 job 的事实性知识：
+
+1. 读取各 job 的 `debug/bug*.md` 和 `learning/SUMMARY.md`，提取已确认的事实
+2. 将**跨 job 共性的已知问题与解法**追加到 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/bugs.md`
+3. 更新环境配置、构建命令等事实到对应文件
+4. 淘汰已不再适用的过时事实（注明淘汰原因）
+
+**父 Agent 验收**：`ls /workdir/sunquan20/AI_CODING/rick/.rick/domain/` 确认文件已更新。
+
+---
+
+### Step 6：Skills 进化
 
 YOU MUST declare: `"I will use skill:evolve-skills."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/dream/prompts/skill_evolve_skills.md`，结合 Step 3 信号执行进化决策：
+读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_evolve_skills.md`，结合 Step 3 信号执行进化决策：
 
 **升级已有 skill（优先）**：
 - 有相似 skill → 直接升级（补充触发场景、完善核心内容、更新辅助脚本）
 - 升级时同步更新 `{name}_skill/skill.md`，如有 .py 脚本也一并更新
 
 **新增 skill**：
-- 按 gen-skill 格式创建 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/skill.md`
+- 按 gen-skill 格式创建 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
 
 YOU MUST declare: `"I will use skill:gen-skill."`
 
-读取 `/Users/sunquan/ai_coding/CODING/rick/.rick/dream/prompts/skill_gen_skill.md`，按其格式（触发场景 / 预期效果 / 核心内容）创建新 skill。
+读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_skill.md`，按其格式（触发场景 / 预期效果 / 核心内容）创建新 skill。
 
 **淘汰过时 skill**：
-- 触发次数 = 0（连续 3 次 dream 未被引用）→ 移至 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/deprecated/`
+- 触发次数 = 0（连续 3 次 dream 未被引用）→ 移至 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/deprecated/`
 - 出错次数 ≥ 触发次数 / 2 → 评估是否删除或重写
 
 ---
 
-### Step 6：质量验证（3 个子 Agent 串行）
+### Step 7：质量验证（4 个子 Agent 串行）
 
 **每个子 Agent 完成后，父 Agent 根据结论修正，再启动下一个。**
 
@@ -502,15 +690,22 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 检查本次新增或修改的所有文件：
 
-1. **Loop 文件**：frontmatter 含 name/trigger/scope；有依赖准备节；每 Step 引用了 `.rick/{name}_skill/skill.md`；有产出评估节
+1. **Loop 文件**（Step 0-5 结构）：
+   - frontmatter 含 name / trigger / scope
+   - 有 Step 0（环境确认 + domain 搜索）
+   - 有 Step 1（Main Agent 确认全局目标）
+   - 有 Step 2（Main Agent 读取上下文）
+   - 有 Step 3（Sub Agent 工作流，且每个子步骤写明精确命令 + skill 引用）
+   - 有 Step 4（Main Agent 产出评估，含验证表格）
+   - 有 Step 5（停止标准，成功退出 + 优雅退出条件）
 2. **Skill 目录**：`{name}_skill/` 目录存在；`skill.md` 含触发场景 / 预期效果 / 核心内容三节
 
 **输出**：格式问题列表；全部合规则输出 ✅
 
 #### subagent_2：重复与合并检查
 
-1. 扫描 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops/` 所有 loop 文件，识别 trigger 相似度 > 80% 的条目
-2. 扫描 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills/` 所有 skill 目录，识别触发场景重叠的条目
+1. 扫描 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/` 所有 loop 文件，识别 trigger 相似度 > 80% 的条目
+2. 扫描 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/` 所有 skill 目录，识别触发场景重叠的条目
 3. 对重复条目给出合并方案
 
 **输出**：合并候选列表；无重复则输出 ✅
@@ -526,12 +721,30 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：仿真结果（✅/❌）+ 盲区列表；若有盲区则补充对应 loop/skill 条目
 
+#### subagent_4：Code ↔ Domain 一致性检查（持续轮询）
+
+检查业务代码与 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/` 中记录的事实是否一致：
+
+1. 读取 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/` 所有文件，提取所有事实条目（命令、路径、版本、API）
+2. 用 Read/Grep/Glob **主动查阅源码**，逐条验证事实是否仍然成立：
+   - 命令是否仍然有效（与源码/Makefile/scripts 一致）
+   - 路径是否仍然存在
+   - 版本要求是否与 go.mod/requirements.txt 一致
+   - API 参数是否与代码实现匹配
+3. **发现不一致** → 更新 domain 文件（不修改源码）
+4. **发现 domain 缺失但代码已有事实** → 补充到 domain
+
+**输出**：一致性报告（✅ 一致 / ⚠️ 已更新的条目列表）
+
+⚠️ **允许**：Read/Grep/Glob 查阅源码，写入 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/`  
+⚠️ **禁止**：修改业务源代码
+
 ---
 
-### Step 7：运行 dream_check
+### Step 8：运行 dream_check
 
 ```bash
-/Users/sunquan/ai_coding/CODING/rick/bin/rick tools dream_check
+/workdir/sunquan20/AI_CODING/rick/bin/rick tools dream_check
 ```
 
 - ✅ 通过 → 继续下一步
@@ -539,7 +752,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ---
 
-### Step 8：写入 Dream Log + 汇总
+### Step 9：写入 Dream Log + 汇总
 
 对本次处理的**每个** job，写入 `.rick/dream/dream_run_{job_id}_log.md`：
 
@@ -564,6 +777,11 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 - 升级: {list or 无}
 - 淘汰: {list or 无}
 
+### Domain 变更
+- 新增事实: {list or 无}
+- 更新事实: {list or 无}
+- 淘汰事实: {list or 无}
+
 ## 下次建议关注
 {1-3 条建议}
 ```
@@ -574,30 +792,19 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 ## 行为约束
 
-1. **严禁修改业务代码**：仅允许修改 `/Users/sunquan/ai_coding/CODING/rick/.rick/loops` 和 `/Users/sunquan/ai_coding/CODING/rick/.rick/skills`
+1. **严禁修改业务代码**：仅允许修改 `/workdir/sunquan20/AI_CODING/rick/.rick/loops`、`/workdir/sunquan20/AI_CODING/rick/.rick/skills` 和 `/workdir/sunquan20/AI_CODING/rick/.rick/domain`
 2. **升级优先于新建**：有相似 loop/skill 时，优先升级，不重复创建
 3. **直接命名，无 candidate 前缀**：dream 产出经人类审核后直接生效
-4. **skill 目录结构**：`/Users/sunquan/ai_coding/CODING/rick/.rick/skills/{name}_skill/skill.md`
-5. **loop 文件**：`/Users/sunquan/ai_coding/CODING/rick/.rick/loops/{name}-loop.md`
-6. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
-7. **三个子 Agent 串行**：Step 6 的三个子 Agent 串行执行，每个完成后修正再启动下一个
+4. **skill 目录结构**：`/workdir/sunquan20/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
+5. **loop 文件**：`/workdir/sunquan20/AI_CODING/rick/.rick/loops/{name}-loop.md`
+6. **domain 追加不覆盖**：domain 文件只追加新事实，不删除已确认的历史事实
+7. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
+8. **四个子 Agent 串行**：Step 7 的四个子 Agent 串行执行，每个完成后修正再启动下一个
 
 
 ## 行为轨迹文件路径（按需读取）
 
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_17/doing/tasks/task1/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_17/doing/tasks/task2/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_17/doing/tasks/task3/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_17/doing/tasks/task4/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_18/doing/tasks/task1/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_18/doing/tasks/task2/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_18/doing/tasks/task3/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_18/doing/tasks/task4/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task1/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task2/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task3/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task4/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task5/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task6/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task7/act-path.md`
-- `/Users/sunquan/ai_coding/CODING/rick/.rick/jobs/job_22/doing/tasks/task9/act-path.md`
+- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task1/act-path.md`
+- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task2/act-path.md`
+- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task3/act-path.md`
+- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task4/act-path.md`

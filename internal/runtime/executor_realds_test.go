@@ -26,7 +26,7 @@ func TestParseStream_RealDeepSeekToolCall(t *testing.T) {
 `
 	rawLog := "/tmp/rick_real_raw_test.log"
 	defer os.Remove(rawLog)
-	sess, err := parseStream(strings.NewReader(stream), rawLog)
+	sess, err := parseStream(strings.NewReader(stream), rawLog, nil)
 	if err != nil {
 		t.Fatalf("parseStream: %v", err)
 	}

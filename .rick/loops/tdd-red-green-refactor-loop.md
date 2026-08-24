@@ -24,7 +24,20 @@ trigger: "当测试已存在且处于 FAIL 状态，需要通过迭代实现让�
 - `go test`：运行单元测试，判断目标是否达成 —— 约束：只跑目标测试，不跑全量（`-run` 精确匹配）
 - `Read / Edit / Write`：读写源码文件 —— 约束：只修改与失败测试直接相关的文件
 - `git diff`：确认工作区状态 —— 约束：每轮修改前必须工作区干净
+- `git stash`：隔离 pre-existing 失败 —— 当目标测试失败原因不明时，先用 stash 判断失败是否由自己引入（见下方「失败溯源预检」）
 - 权限边界：禁止在迭代过程中 `git commit` 或修改测试文件本身（测试是 spec，不是实现）
+
+### 失败溯源预检（job_26 task4 验证，进入调试前必做）
+
+当目标测试 FAIL 且原因不明时，先确认失败是否为「本分支已存在的失败」而非本次改动引入：
+
+```bash
+git stash && go test ./internal/{pkg}/... -run "TestName" -v 2>&1 | tail -20 && git stash pop
+```
+
+- 若 **stash 后仍 FAIL** → 失败是 pre-existing（zombie task / 缺 commit_hash 等既有用例），与本次改动无关，不要为它分心，聚焦自己的目标测试
+- 若 **stash 后 PASS** → 失败由本次改动引入，按正常 RED→GREEN 流程修复
+- ⚠️ 约束：stash 前必须确认工作区改动可恢复（不要 stash 未 commit 的测试产物），pop 后立即 `git diff` 核对恢复完整
 
 ## embed.FS 模板变更（附加步骤）
 

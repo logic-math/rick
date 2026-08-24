@@ -615,11 +615,14 @@ func TestDeployRickAgents(t *testing.T) {
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents: %v", err)
 	}
+	// v4.1.1：三 agent 工具全量开放（含 subagent 保 fanout；不含 intercom/
+	// contact_supervisor——launcher 按需注入，显式列 intercom 会触发 strict 校验硬失败）。
 	wantTools := map[string][]string{
-		"think":    {"find", "grep", "ls", "read"},
-		"research": {"bash", "fetch_content", "find", "grep", "ls", "read", "web_search"},
-		"exporter": {"bash", "read", "write"},
+		"think":    {"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"},
+		"research": {"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"},
+		"exporter": {"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"},
 	}
+	noTools := []string{"intercom", "contact_supervisor"}
 	for name, tools := range wantTools {
 		data, err := os.ReadFile(filepath.Join(agentsDir, name+".md"))
 		if err != nil {
@@ -639,6 +642,16 @@ func TestDeployRickAgents(t *testing.T) {
 		for _, tool := range tools {
 			if !strings.Contains(content, tool) {
 				t.Errorf("%s.md frontmatter missing tool %q", name, tool)
+			}
+		}
+		// v4.0.12：三 agent 均显式放宽单运行超时（glm-5.3 慢 TTFB + 叶子扇出，默认 30min 会掐死交付前一刻）。
+		if !strings.Contains(content, "timeoutMs: 3600000") {
+			t.Errorf("%s.md frontmatter missing timeoutMs: 3600000", name)
+		}
+		// v4.1.1：intercom/contact_supervisor 不得出现在 frontmatter tools 里。
+		for _, banned := range noTools {
+			if strings.Contains(content, "tools: "+banned+",") || strings.Contains(content, ", "+banned+",") || strings.Contains(content, ", "+banned+"\n") {
+				t.Errorf("%s.md frontmatter tools must not list %q (launcher injects on demand; strict check fails otherwise)", name, banned)
 			}
 		}
 	}

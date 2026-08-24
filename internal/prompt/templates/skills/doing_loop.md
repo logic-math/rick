@@ -66,23 +66,19 @@ description: Doing Loop 执行协议；有匹配项目 Loop 时执行项目 Loop
    └─ parent 执行 Step 4 产出评估
 ```
 
-触发语法（单写者：同一 cwd 只允许一个 worker child 写代码；默认 `async: true`；`context: "fork"` 继承父会话）：
+触发语法（单写者：同一 cwd 只允许一个 worker child 写代码；默认 `async: true`；`context: "fork"` 继承父会话；必须带 `timeoutMs: 3600000`）：
 ```text
-subagent({ workflowScript: "return runs.run('doing-N', { agent: 'worker', task: '<任务目标 + debug/摘要 + 迭代编号 N>' })", async: true, context: "fork" })
+subagent({ workflowScript: "return runs.run('doing-N', { agent: 'worker', task: '<任务目标 + debug/摘要 + 迭代编号 N；完成时调 task_complete 工具>' })", async: true, context: "fork", timeoutMs: 3600000 })
 ```
 
 ### worker child：ANALYZE（理解需求）
 1. 声明：`"I will use skill:sense."`，按 S→E→N 分析（Symptoms / Evidence / Next）
 2. 读取 debug/ 摘要，避免重复踩坑
 
-### worker child：RED（先写失败测试）
+### worker child：自测驱动实现（TDD 方法，过程性）
 1. 声明：`"I will use skill:tdd for implementation."`
-2. 针对 `# 测试方法` 中每个场景编写测试
-3. 运行测试，**必须确认 FAIL**（证明测试有效，进入 GREEN 的前提）
-
-### worker child：GREEN（最小实现）
-1. 编写让测试通过的最小实现代码（不超出 task scope）
-2. 通过 → REFACTOR；失败 → DEBUG
+2. 按 `# 测试方法`（自测指引）驱动实现：可先写自测再实现（RED→GREEN），自测代码写在写域内随交付或跑通即弃——**不落盘共享测试目录，不生成专门测试脚本**（层验收由门禁的模块集成测试承担）
+3. 自测全绿 → REFACTOR；失败 → DEBUG
 
 ### worker child：DEBUG（遇红强制触发）
 
@@ -100,13 +96,11 @@ subagent({ workflowScript: "return runs.run('doing-N', { agent: 'worker', task: 
 1. 测试全绿后改善代码质量（命名、结构、去重）
 2. 运行全量测试确认无回归；回归失败 → DEBUG
 
-### worker child：COMMIT（收尾提交）
-1. `git add` + `git commit`（commit message 含 task ID）
-2. 确认门禁（rick-gates）通过：rick 侧会在 pi 会话结束后调用
-   `python3 .rick/skills/rick-gates/helper.py <doing_dir>` 校验
-   （tasks.json 可解析 / 无 zombie running / success 有 commit_hash）。
-3. 门禁失败 → 修复后由 rick 重试循环收敛，循环直到通过
-4. **worker child 完成**：输出本轮产出摘要（完成了哪些 KR、遗留了哪些问题），通知 parent 执行 Step 4
+### worker child：完成回执（worker 不碰 git）
+1. 自测全绿后**输出回执**：改动文件清单（限写域内）+ 自测结果摘要 + 遗留问题——**不执行任何 git 操作、不调用提交工具**
+2. 提交由 parent 在层检查点统一执行（`level_complete`：跑 human 确认的 gate{N}.py 模块集成测试 → 绿 → 单次 commit → tasks.json 批量写）
+3. rick 侧门禁（helper.py，会话结束后兜底校验 tasks.json 可解析/无 zombie/success 有 commit_hash）保持不变
+4. **worker child 完成**：回执即完成，通知 parent 执行 Step 4
 
 ---
 

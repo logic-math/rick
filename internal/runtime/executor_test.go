@@ -178,7 +178,7 @@ func mustParse(t *testing.T, stream string) *piSession {
 
 func mustParseAt(t *testing.T, stream, rawLogPath string) *piSession {
 	t.Helper()
-	sess, err := parseStream(strings.NewReader(stream), rawLogPath)
+	sess, err := parseStream(strings.NewReader(stream), rawLogPath, nil)
 	if err != nil {
 		t.Fatalf("parseStream: %v", err)
 	}

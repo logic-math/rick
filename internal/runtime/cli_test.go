@@ -9,21 +9,22 @@ import (
 )
 
 func TestBuildArgs_InteractiveWithFile(t *testing.T) {
+	// v4.4.5: promptFile → --append-system-prompt（系统提示词常驻）+ bootstrap user 消息
 	got := buildArgs(ModeInteractive, "/tmp/prompt.md")
-	want := []string{"/tmp/prompt.md"}
+	want := []string{"--append-system-prompt", "/tmp/prompt.md", bootstrapMessage}
 	assertArgs(t, got, want)
 }
 
 func TestBuildArgs_PrintWithFile(t *testing.T) {
 	got := buildArgs(ModePrint, "/tmp/prompt.md")
-	want := []string{"-p", "/tmp/prompt.md"}
+	want := []string{"-p", "--append-system-prompt", "/tmp/prompt.md", bootstrapMessage}
 	assertArgs(t, got, want)
 }
 
 func TestBuildArgs_InteractiveWithExtraArgs(t *testing.T) {
-	// easy.go session path: pi --session <id> <mainFile>
+	// easy.go session path: pi --session <id> --append-system-prompt main.md <bootstrap>
 	got := buildArgs(ModeInteractive, "main.md", "--session", "sess_123")
-	want := []string{"--session", "sess_123", "main.md"}
+	want := []string{"--session", "sess_123", "--append-system-prompt", "main.md", bootstrapMessage}
 	assertArgs(t, got, want)
 }
 

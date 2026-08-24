@@ -17,7 +17,9 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create prompts dir: %w", err)
 	}
-	grillingFile, err := WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
+	grillingFile, err := WriteSkillFileWithVars(promptsDir, "skill_grilling.md", "grilling", map[string]string{
+		"grilling_workdir": filepath.Join(doingDir, "grilling"),
+	})
 	if err != nil {
 		return "", nil, err
 	}
@@ -72,15 +74,15 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("task_info_section", "")
-	builder.SetVariable("requirement", buildRequirementSection(requirement))
-	builder.SetVariable("grilling_section", buildGrillingSection(grillingFile, doingDir))
-	builder.SetVariable("import_ctx_content", buildCtxSection(ctxPath, rickDir))
+	builder.SetVariable("requirement", BuildRequirementSection(requirement))
+	builder.SetVariable("grilling_section", BuildGrillingSection(grillingFile, doingDir))
+	builder.SetVariable("import_ctx_content", BuildCtxSection(ctxPath, rickDir))
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(skillsDir))
 	builder.SetVariable("debug_context", debugContext)
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, debugSkillFile))
+	builder.SetVariable("doing_loop_content", LoadDoingLoopContent(domainDir, debugSkillFile))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	builder.SetVariable("session_wrap_section", buildSessionWrapSection(learningLoopFile))
+	builder.SetVariable("session_wrap_section", BuildSessionWrapSection(learningLoopFile))
 	builder.SetVariable("orchestration_section", "")
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", jobID)
@@ -119,15 +121,15 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 
 	builder := NewPromptBuilder(tmpl)
 	builder.SetVariable("task_info_section", "")
-	builder.SetVariable("requirement", buildRequirementSection(requirement))
-	builder.SetVariable("grilling_section", buildGrillingSection(filepath.Join(promptsDir, "skill_grilling.md"), ""))
-	builder.SetVariable("import_ctx_content", buildCtxSection(ctxPath, rickDir))
+	builder.SetVariable("requirement", BuildRequirementSection(requirement))
+	builder.SetVariable("grilling_section", BuildGrillingSection(filepath.Join(promptsDir, "skill_grilling.md"), ""))
+	builder.SetVariable("import_ctx_content", BuildCtxSection(ctxPath, rickDir))
 	builder.SetVariable("loops_context", LoadLoopsContext(loopsDir))
 	builder.SetVariable("skills_context", LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	builder.SetVariable("debug_context", "暂无（首次会话）")
-	builder.SetVariable("doing_loop_content", loadDoingLoopContent(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
+	builder.SetVariable("doing_loop_content", LoadDoingLoopContent(domainDir, filepath.Join(promptsDir, "skill_debug_skill.md")))
 	builder.SetVariable("loop_step_header", "## 第二步：执行 Doing Loop")
-	builder.SetVariable("session_wrap_section", buildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
+	builder.SetVariable("session_wrap_section", BuildSessionWrapSection(filepath.Join(promptsDir, "learning_loop.md")))
 	builder.SetVariable("orchestration_section", "")
 	builder.SetVariable("rick_bin_path", rickBinPath)
 	builder.SetVariable("job_id", "job_N")
@@ -203,7 +205,7 @@ func GenerateEasyLearningPromptFile(jobID, rickDir string) (string, error) {
 	builder.SetVariable("debug_content", debugContext)
 
 	builder.SetVariable("task_md_files", "  （easy 模式无 task*.md 文件）")
-	builder.SetVariable("act_path_files", "  （easy 模式无 act-path.md 文件）")
+	builder.SetVariable("act_path_files", "  （easy 模式无独立行为轨迹文件；learning 数据源用 .pi/subagents/artifacts/）")
 	builder.SetVariable("task_execution_results", buildEasyTaskResults(doingDir))
 	builder.SetVariable("rick_bin_path", rickBinPath)
 
@@ -231,7 +233,9 @@ func buildEasyTaskResults(doingDir string) string {
 }
 
 // buildRequirementSection wraps the user requirement in a prompt section.
-func buildRequirementSection(requirement string) string {
+// BuildRequirementSection renders the user-requirement block (shared by the
+// live easy path and the builder dry-run path — 单源 v4.4.13).
+func BuildRequirementSection(requirement string) string {
 	if requirement == "" {
 		return ""
 	}
@@ -240,16 +244,21 @@ func buildRequirementSection(requirement string) string {
 
 // buildGrillingSection builds the grilling prompt block with the actual skill file path.
 // doingDir is used for the requirement.md write-back path; pass "" in dry-run.
-func buildGrillingSection(grillingFilePath, doingDir string) string {
+// BuildGrillingSection renders the grilling shell — the single shared
+// implementation used by both the live easy path and the builder dry-run
+// path (v4.4.12 单源).
+func BuildGrillingSection(grillingFilePath, doingDir string) string {
 	writeBack := ""
 	if doingDir != "" {
 		writeBack = fmt.Sprintf("\n**Grilling 结束后**，将澄清结论追加到 `%s/requirement.md`（只追加，不替换）。\n", doingDir)
 	}
-	return fmt.Sprintf("## 第一步：Grilling 追问（需求澄清）\n\n在正式开始工作之前，必须先执行结构化追问，将需求澄清到可落实的代码路径或具体方案。\n\n**加载并执行 skill:grilling**：`%s`%s\n", grillingFilePath, writeBack)
+	return fmt.Sprintf("## 第一步：Grilling 追问\n\n加载并**完整执行 skill:grilling**（唯一编排协议源：OKR 设计树动态下钻五步循环 + 调研分工 + research 派发 + 追问规范——一切以其为准，本段不重复协议内容）：`%s`\n\n**执行锚点（防漂移）**：先 read 该 skill 全文；**必须按 L1→L5 loop 逐步推进**——第一动作 = 建立设计树根层（O + KR 集）并落盘。%s\n", grillingFilePath, writeBack)
 }
 
 // buildSessionWrapSection returns the learning trigger section injected at the end of easy prompts.
-func buildSessionWrapSection(learningLoopPath string) string {
+// BuildSessionWrapSection returns the learning trigger section injected at the
+// end of easy prompts (shared single implementation — 单源 v4.4.13).
+func BuildSessionWrapSection(learningLoopPath string) string {
 	return fmt.Sprintf(`---
 
 ## 第四步：执行 Learning Loop
@@ -264,7 +273,9 @@ func buildSessionWrapSection(learningLoopPath string) string {
 
 // buildCtxSection renders skills/import_ctx.md with ctxPath and localRickDir substituted.
 // Returns empty string when ctxPath is empty (no inheritance).
-func buildCtxSection(ctxPath, localRickDir string) string {
+// BuildCtxSection renders skills/import_ctx.md with ctxPath and localRickDir
+// substituted (shared single implementation — 单源 v4.4.13).
+func BuildCtxSection(ctxPath, localRickDir string) string {
 	if ctxPath == "" {
 		return ""
 	}

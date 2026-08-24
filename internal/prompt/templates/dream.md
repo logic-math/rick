@@ -5,6 +5,7 @@
 ## 角色定位
 
 - **范围**：仅允许修改 `.rick/loops/`（`{{loops_dir}}`）、`.rick/skills/`（`{{skills_dir}}`）和 `.rick/domain/`（`{{domain_dir}}`）
+- **domain 是核心产出**：跨 job 的共性事实（反复出现的坑及其精确解法、构建/环境事实的演进）只能由 dream 发现——单 job 的 learning 只看到当次视角。**发现未跑 learning 的 job 时，先向 human 报告**（该 job 的执行记录未被沉淀，domain 可能缺事实），由 human 决定补跑 `rick learning <job_id>` 还是直接跳过
 - **禁止**：修改任何业务源代码及其他 `.rick/` 目录
 - **输出**：更新 loops/skills/domain；每个处理的 job 写入 `dream_run_{job_id}_log.md`
 
@@ -30,7 +31,8 @@
 
 1. 扫描 `.rick/dream/dream_run_*_log.md`，确认已处理的 job 列表
 2. 确认本次处理的 job 列表（见上方"待处理 Jobs"）
-3. 输出处理清单
+3. **learning 完整性检查**：逐个检查待处理 job 是否有 `learning/SUMMARY.md`——缺失意味着该 job 的执行经验未被沉淀（domain 可能缺事实、skills/loops 可能漏模式）。**缺失清单向 human 报告**，由 human 决定：补跑 `rick learning <job_id>` 后再来 dream，还是接受缺失直接处理
+4. 输出处理清单（含 learning 完整性标注：✅ 已沉淀 / ⚠️ 缺 learning）
 
 ---
 
@@ -38,13 +40,14 @@
 
 对每个待处理 job，按优先级加载数据（文件不存在则跳过）：
 
-| 文件 | 说明 |
+| 数据源 | 说明 |
 |------|------|
+| `<cwd>/.pi/subagents/artifacts/*_{meta.json, transcript.jsonl, output.md}` | **原生行为轨迹**（无任何提取/摘要层）：meta.json 含 task/exitCode/durationMs/usage/error；transcript.jsonl 是 worker 完整轨迹；output.md 是产出 |
 | `jobs/{job_id}/doing/debug/bug*.md` | 调试记录（frontmatter 摘要） |
-| `jobs/{job_id}/doing/tasks/*/runtime-trace.md` | 工具调用轨迹 |
 | `jobs/{job_id}/learning/SUMMARY.md` | learning 阶段摘要 |
 
-**降级策略**：runtime-trace 缺失时以 SUMMARY.md 为主要信号源；三者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。
+**读取方式**：`ls -t <cwd>/.pi/subagents/artifacts/*_meta.json | head -20` 建立全量 run 清单（agent 名含 task{N}-test/task{N}-impl），按耗时/报错/重试次数排序选重点 run，深入读其 transcript（工具调用模式、失败-修复循环）。
+**降级策略**：artifacts 缺失时以 SUMMARY.md 为主要信号源；两者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。**让模型从原始行为轨迹学习，不做摘要依赖。**
 
 ---
 
@@ -126,8 +129,10 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 **每个验证 agent 完成后，你（parent）根据结论修正，再启动下一个。**
 
 触发语法（串行验证；单写者——只有你（parent）与 domain 一致性 worker 写文件，其余 reviewer 只读）：
+
+**全局派发规范**：所有 `subagent({ workflowScript: ... })` 派发必须带 `timeoutMs: 3600000`（上游模型单轮 TTFB 慢，pi 默认 30 分钟超时会掐死长验证链）。
 ```text
-subagent({ workflowScript: "const a = await runs.run('verify1', { agent: 'reviewer', task: 'Loops/Skills 格式校验' }); const b = await runs.run('verify2', { agent: 'reviewer', task: '重复与合并检查' }); const c = await runs.run('verify3', { agent: 'reviewer', task: '可用性仿真' }); const d = await runs.run('verify4', { agent: 'worker', task: 'Code↔Domain 一致性检查' }); return { a: a.output, b: b.output, c: c.output, d: d.output }" })
+subagent({ workflowScript: "const a = await runs.run('verify1', { agent: 'reviewer', task: 'Loops/Skills 格式校验' }); const b = await runs.run('verify2', { agent: 'reviewer', task: '重复与合并检查' }); const c = await runs.run('verify3', { agent: 'reviewer', task: '可用性仿真' }); const d = await runs.run('verify4', { agent: 'worker', task: 'Code↔Domain 一致性检查' }); return { a: a.output, b: b.output, c: c.output, d: d.output }", timeoutMs: 3600000 })
 ```
 
 #### agent:'reviewer' #1：Loops/Skills 格式校验

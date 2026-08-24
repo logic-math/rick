@@ -55,6 +55,7 @@ func GeneratePlanPrompt(requirement string, jobPlanDir string, rickDir string) (
 	builder.SetVariable("job_id", extractJobID(jobPlanDir))
 	builder.SetVariable("grilling_skill_path", "<tmp>/rick-plan-prompts/skill_grilling.md")
 	builder.SetVariable("tdd_skill_path", "<tmp>/rick-plan-skill-tdd-zh-*.md")
+	builder.SetVariable("pipeline_skill_path", "<tmp>/rick-plan-prompts/skill_pipeline.md")
 	builder.SetVariable("testing_anti_patterns_path", "<tmp>/rick-plan-skill-testing-anti-patterns-zh-*.md")
 
 	return builder.Build()
@@ -78,7 +79,9 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 		return "", nil, fmt.Errorf("failed to load plan template: %w", err)
 	}
 
-	grillingFile, err := WriteSkillFile(promptsDir, "skill_grilling.md", "grilling")
+	grillingFile, err := WriteSkillFileWithVars(promptsDir, "skill_grilling.md", "grilling", map[string]string{
+		"grilling_workdir": filepath.Join(jobPlanDir, "grilling"),
+	})
 	if err != nil {
 		return "", nil, err
 	}
@@ -87,6 +90,10 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 		return "", nil, err
 	}
 	testingAntiPatternsFile, err := WriteSkillFile(promptsDir, "skill_testing_anti_patterns_zh.md", "testing-anti-patterns-zh")
+	if err != nil {
+		return "", nil, err
+	}
+	pipelineFile, err := WriteSkillFile(promptsDir, "skill_pipeline.md", "pipeline")
 	if err != nil {
 		return "", nil, err
 	}
@@ -104,6 +111,7 @@ func GeneratePlanPromptFile(requirement string, jobPlanDir string, rickDir strin
 	builder.SetVariable("grilling_skill_path", grillingFile)
 	builder.SetVariable("tdd_skill_path", tddZhFile)
 	builder.SetVariable("testing_anti_patterns_path", testingAntiPatternsFile)
+	builder.SetVariable("pipeline_skill_path", pipelineFile)
 
 	promptFile := filepath.Join(promptsDir, "plan_prompt.md")
 	if err := builder.SaveToFile(promptFile); err != nil {

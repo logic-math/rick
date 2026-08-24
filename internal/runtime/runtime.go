@@ -70,8 +70,11 @@ func (r *piRuntime) Name() string { return "pi" }
 // returns an error so the caller (handler) can apply its retry safety net.
 //
 // methodText (the method layer) is written to a temp file and injected through
-// `--append-system-prompt <methodFile>`. promptFile is passed last as the user
-// prompt (instance context). The temp method file is removed on return.
+// `--append-system-prompt <methodFile>`. promptFile (the instance/protocol
+// layer) is likewise injected via --append-system-prompt since v4.4.5 — the
+// full doing protocol persists in the system prompt and survives compaction;
+// the initial user message is only a bootstrap trigger. The temp method file
+// is removed on return.
 func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config) (string, *Trace, error) {
 	piBin := r.piPath
 	if piBin == "" {
@@ -108,14 +111,15 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 	defer os.Remove(rawLogPath)
 
 	merged := mergeExtraArgs(cfg, r.extraArgs)
-	args := make([]string, 0, len(merged)+6)
+	args := make([]string, 0, len(merged)+8)
 	args = append(args, "--mode", "json")
 	args = append(args, merged...)
 	if methodFile != "" {
 		args = append(args, "--append-system-prompt", methodFile)
 	}
 	if promptFile != "" {
-		args = append(args, promptFile)
+		// v4.4.5: instance 协议也走系统提示词（compaction 持久），user 消息只做启动触发。
+		args = append(args, "--append-system-prompt", promptFile, "-p", bootstrapMessage)
 	}
 
 	cmd := exec.Command(piBin, args...)
@@ -129,7 +133,12 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 		return "", nil, err
 	}
 
-	sess, parseErr := parseStream(stdout, rawLogPath)
+	// v4.4.6: 实时进度反馈——pi JSONL 关键事件（派发/工具调用/门禁/收敛）
+	// 以精简单行打 stderr，长时 job 不再零反馈。
+	progress := func(line string) {
+		fmt.Fprintf(os.Stderr, "[rick] %s\n", line)
+	}
+	sess, parseErr := parseStream(stdout, rawLogPath, progress)
 	cmd.Wait() //nolint
 	if parseErr != nil {
 		return "", nil, parseErr
