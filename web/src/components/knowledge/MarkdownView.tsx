@@ -12,7 +12,7 @@ import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import "./hljs-theme.css";
+import "../common/hljs-theme.css";
 
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
