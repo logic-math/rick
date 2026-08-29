@@ -74,6 +74,7 @@ Rick 的源码按**三层金字塔**组织（`cmd` 入口 → `handler` 调度 �
 flowchart TD
     subgraph L1["第一层 入口"]
         CLI["internal/cmd<br/>路由命令 / 解析参数"]
+        WEBUI["rick web<br/>浏览器入口（多端）"]
     end
     subgraph L2["第二层 调度聚合"]
         HANDLER["internal/handler<br/>编排 env → builder → runtime"]
@@ -81,7 +82,7 @@ flowchart TD
     subgraph L3["第三层 执行"]
         ENV["internal/env<br/>环境就绪"]
         BUILDER["internal/builder<br/>拼提示词"]
-        RUNTIME["internal/runtime<br/>拉起 pi"]
+        RUNTIME["internal/runtime<br/>拉起 pi（rpc supervisor）"]
     end
     subgraph L4["第四层 基础设施"]
         PI["pi（唯一 runtime，dsh 预留）"]
@@ -89,6 +90,7 @@ flowchart TD
     end
 
     CLI --> HANDLER
+    WEBUI --> HANDLER
     HANDLER --> ENV
     HANDLER --> BUILDER
     HANDLER --> RUNTIME
@@ -156,6 +158,18 @@ rick 收敛为引导程序（env 保证 pi 就绪 → builder 拼提示词 → r
 ```bash
 ./scripts/install.sh
 ```
+
+### Web UI 模式（多端浏览器入口）
+
+在浏览器中操作 rick 的全部核心功能（多工作区 / 7 类 cmd 会话 / doing 监控看板 / 知识库浏览 / 前端自迭代）：
+
+```bash
+rick web                  # http://127.0.0.1:6137，token 自动生成并打印
+rick web customize        # 抽取前端源码到 ~/.rick/web/（对话式自迭代入口）
+rick web reset            # 自定义层复位回内嵌 baseline
+```
+
+详见 [wiki/web-ui.md](wiki/web-ui.md)（PWA 安装 / 自迭代指南 / 安全模型）。
 
 ### Easy 模式（白箱，人类把控）
 

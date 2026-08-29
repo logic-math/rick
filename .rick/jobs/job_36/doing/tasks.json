@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-08-29T23:38:08.383Z",
+  "updated_at": "2026-08-29T23:45:46.060Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -174,13 +174,14 @@
       "task_id": "task14",
       "task_name": "env 基座+handler/cmd web 命令收口",
       "task_file": "task14.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task13"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-08-29T11:30:00+08:00",
-      "updated_at": "2026-08-29T11:30:00+08:00"
+      "updated_at": "2026-08-29T23:45:46.060Z",
+      "commit_hash": "cb8f8482b892e2b766926f2b0cb013249295a0a4"
     },
     {
       "task_id": "task15",

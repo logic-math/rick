@@ -487,3 +487,74 @@ func drain(t *testing.T, ch <-chan Envelope, n int, deadline time.Duration) []En
 	}
 	return out
 }
+
+// TestSSEInitialInfoOnConnect：契约「连接建立即发 server_info」——ServeSSE 带
+// InitialInfo 时客户端连接后第一块数据即含 server_info（静默期无需等心跳/事件）；
+// 不带 InitialInfo 时行为不变（第一块仍是正常事件或心跳——回归保护）。
+func TestSSEInitialInfoOnConnect(t *testing.T) {
+	tests := []struct {
+		name       string
+		opts       ServeSSEOptions
+		wantFirst  string // 期望首块 data 内容包含的子串（空=不校验具体内容）
+		wantNoData bool   // true=首块应为心跳注释行（无 data: 前缀）
+	}{
+		{
+			name: "带 InitialInfo 首块即 server_info",
+			opts: func() ServeSSEOptions {
+				info := serverInfoEventForTest("3.1.5")
+				return ServeSSEOptions{Heartbeat: 5 * time.Second, InitialInfo: &info}
+			}(),
+			wantFirst: "server_info",
+		},
+		{
+			name:       "不带 InitialInfo 静默期只有心跳（回归）",
+			opts:       ServeSSEOptions{Heartbeat: 30 * time.Millisecond},
+			wantNoData: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := NewHub(0)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ServeSSE(w, r, hub, tc.opts)
+			}))
+			defer srv.Close()
+
+			resp, err := srv.Client().Get(srv.URL)
+			if err != nil {
+				t.Fatalf("connect: %v", err)
+			}
+			defer resp.Body.Close()
+			if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
+				t.Fatalf("content-type = %q", got)
+			}
+			br := bufio.NewReader(resp.Body)
+
+			block, ok := readSSELine(t, br, 3*time.Second)
+			if !ok {
+				t.Fatal("no block received within deadline")
+			}
+			if tc.wantNoData {
+				if strings.Contains(block, "data:") {
+					t.Fatalf("expected comment-only heartbeat block, got %q", block)
+				}
+				if !strings.HasPrefix(block, ": ping") {
+					t.Fatalf("expected heartbeat comment, got %q", block)
+				}
+				return
+			}
+			if tc.wantFirst != "" && !strings.Contains(block, tc.wantFirst) {
+				t.Fatalf("first block missing %q: %q", tc.wantFirst, block)
+			}
+			// server_info 首块应含 id: 与 data: 两行（走 writeEnvelope 同一路径）。
+			if !strings.Contains(block, "data:") || !strings.Contains(block, "id:") {
+				t.Fatalf("initial block not envelope-shaped: %q", block)
+			}
+		})
+	}
+}
+
+// serverInfoEventForTest 构造测试用 server_info（复用生产构造器，校验其形状）。
+func serverInfoEventForTest(rickVersion string) Envelope {
+	return ServerInfoEvent(1, rickVersion)
+}

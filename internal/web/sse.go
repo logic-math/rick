@@ -204,10 +204,17 @@ func (h *Hub) Stats() HubStats {
 // Overridable in tests via ServeSSEOptions.
 const sseHeartbeatInterval = 15 * time.Second
 
-// ServeSSEOptions tunes ServeSSE (heartbeat cadence). The zero value uses
-// the contract default. Tests inject a short ticker here.
+// ServeSSEOptions tunes ServeSSE (heartbeat cadence + initial envelope).
+// The zero value uses the contract defaults. Tests inject a short ticker here.
+//
+// InitialInfo, when non-nil, is written to the stream immediately after the
+// response headers — the contract's「连接建立即发 server_info」. routes.go's
+// handleEvents constructs it via ServerInfoEvent so every fresh connection
+// (and reconnect) receives a state-rebuild signal without waiting for hub
+// traffic or the heartbeat.
 type ServeSSEOptions struct {
-	Heartbeat time.Duration
+	Heartbeat  time.Duration
+	InitialInfo *Envelope
 }
 
 // ServeSSE streams the hub to one HTTP client as text/event-stream:
@@ -277,6 +284,15 @@ func ServeSSE(w http.ResponseWriter, r *http.Request, hub *Hub, opts ServeSSEOpt
 		}
 		flusher.Flush()
 		return true
+	}
+
+	// 契约「连接建立即发 server_info」：初始 envelope 先于事件循环写出，
+	// 客户端（gate6 的 SSE 探测/前端 sse.ts 的全量刷新信号）在静默期也能
+	// 立即收到首个数据行。写失败（客户端已断开）则直接收尾。
+	if opts.InitialInfo != nil {
+		if !writeEnvelope(*opts.InitialInfo) {
+			return
+		}
 	}
 
 	for {
