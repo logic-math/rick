@@ -1,0 +1,67 @@
+/**
+ * rick web 代码高亮主题（highlight.js class 面——rehype-highlight 输出）。
+ *
+ * R&M 深色配色：底 #0b0e14/#1a1c2e，keyword 星云紫、string Morty 黄、
+ * comment 暗灰、number 传送门绿、function Rick 蓝灰。
+ * 自带主题（github-dark 等）需引 CDN/额外包——这里内联精简版保持零外链。
+ */
+
+.hljs {
+  color: #e8ecf8;
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #5c6690;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #b39bff;
+}
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp {
+  color: #ffd54a;
+}
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable {
+  color: #39ff88;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name {
+  color: #a6c8dd;
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-built_in {
+  color: #7fd8ff;
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: #7fd8ff;
+}
+.hljs-meta,
+.hljs-deletion {
+  color: #ff5d5d;
+}
+.hljs-addition {
+  color: #39ff88;
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
+.hljs-link {
+  text-decoration: underline;
+}
