@@ -1,14 +1,16 @@
 // Package web 内嵌 rick web 前端（源码 + 构建产物）。
 //
 // 两个导出 FS 是「embed 混合分发 + 自迭代」机制的基座：
-//   - SrcFS：前端源码全树 + 根构建配置（package.json/vite.config.ts/tsconfig.json/
-//     index.html）——`rick web customize`（env.DeployWebScaffold）把它幂等抽取到
-//     ~/.rick/web/ 供 agent 会话改造后 npm build（customize 链路依赖根配置文件
-//     在 SrcFS 内，多 directive 累积缺一不可）
+//   - SrcFS：前端源码全树 + public/（PWA 图标与 manifest 源）+ 根构建配置
+//     （package.json/vite.config.ts/tsconfig.json/index.html）——`rick web customize`
+//     （env.DeployWebScaffold）把它幂等抽取到 ~/.rick/web/ 供 agent 会话改造后
+//     npm build（customize 链路依赖根配置与 public/ 都在 SrcFS 内，多 directive
+//     累积缺一不可——vite build 会把 public/ 拷进 dist，缺它则覆盖层构建无 PWA 图标）
 //   - DistFS：构建产物 baseline——无覆盖层（~/.rick/web/dist）时由静态资源服务兜底
 //
 // 路径契约（消费方按此取用）：
-//   - SrcFS 的路径 = web/ 仓库布局（src/main.tsx、package.json、vite.config.ts…）
+//   - SrcFS 的路径 = web/ 仓库布局（src/main.tsx、public/icon-192.png、
+//     package.json、vite.config.ts…）
 //   - DistFS 的路径带 dist/ 前缀（dist/index.html、dist/assets/…）——用 DistWeb() 拿到
 //     以 dist/ 为根的干净视图
 //
@@ -22,6 +24,7 @@ import (
 )
 
 //go:embed all:src
+//go:embed all:public
 //go:embed package.json vite.config.ts tsconfig.json index.html
 var SrcFS embed.FS
 

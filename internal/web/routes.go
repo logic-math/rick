@@ -291,7 +291,11 @@ func handleWebReset(deps Deps) http.HandlerFunc {
 
 func (deps Deps) handleEvents() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ServeSSE(w, r, deps.Hub, ServeSSEOptions{})
+		// 契约「连接建立即发 server_info」：每次连接（含重连）先发一个
+		// server_info envelope，客户端拿到全量重建信号后才开始消费事件流。
+		// version 与 handleConfig 的 rick_version 同源（Deps.Version）。
+		info := ServerInfoEvent(1, deps.Version)
+		ServeSSE(w, r, deps.Hub, ServeSSEOptions{InitialInfo: &info})
 	}
 }
 

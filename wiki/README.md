@@ -14,6 +14,8 @@ wiki/
 ├── prompt-system.md             # 提示词系统（方法/技能/实例三层注入）
 ├── testing.md                   # 测试与验证
 ├── installation.md              # 安装部署指南（init-pi）
+├── web-ui.md                    # rick web 用户指南（多工作区/会话/自迭代/安全模型）
+├── web-e2e-log.md               # rick web E2E 验证记录（job_36）
 ├── CONTRIBUTING.md              # 贡献指南
 └── modules/                     # 模块详细文档
     ├── cmd.md                   # 入口层（Cobra 命令）
@@ -34,6 +36,7 @@ wiki/
 1. **[安装部署指南](installation.md)** - 安装、配置（`rick tools init-pi`）
 2. **[系统架构设计](architecture.md)** - 三层金字塔 + spec 信息内核
 3. **[运行时流程详解](runtime-flow.md)** - env → builder → runtime 全链路
+4. **[Web UI 用户指南](web-ui.md)** - rick web：多端浏览器入口（多工作区/会话/监控/自迭代）
 
 ### 📚 深入理解
 
