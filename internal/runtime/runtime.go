@@ -41,9 +41,15 @@ type Trace struct {
 // methodText is the method-layer system prompt (rick 方法描述): it is injected
 // before the session via `--append-system-prompt <methodFile>` so pi keeps its
 // default skeleton. promptFile is the instance context (user prompt).
+//
+// RunIn is the directory-parameterized variant: dir is the working directory
+// the pi subprocess runs in ("" inherits the process cwd — identical to Run).
+// Web sessions anchor each pi subprocess to its workspace root via this seam;
+// the CLI keeps the cwd default through Run.
 type Runtime interface {
 	Name() string
 	Run(methodText string, promptFile string, cfg *config.Config) (sessionID string, trace *Trace, err error)
+	RunIn(dir string, methodText string, promptFile string, cfg *config.Config) (sessionID string, trace *Trace, err error)
 }
 
 // piRuntime implements Runtime for the pi coding agent.
@@ -62,11 +68,20 @@ func NewPiRuntime(piPath string, extraArgs ...string) *piRuntime {
 // Name returns the runtime's identifier ("pi").
 func (r *piRuntime) Name() string { return "pi" }
 
-// Run launches pi for one prompt and returns the parsed session id + trace.
+// Run launches pi for one prompt in the process working directory and
+// returns the parsed session id + trace. It delegates to RunIn with an empty
+// dir (inherit cwd) — the CLI behavior.
+func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config) (string, *Trace, error) {
+	return r.RunIn("", methodText, promptFile, cfg)
+}
+
+// RunIn launches pi with the subprocess working directory set to dir.
+// dir == "" keeps the historical behavior (inherit the rick process cwd).
+// The workspace root (parent of .rick) is the expected dir for web sessions.
 //
 // The runtime contract (task8 Execute→Run switch): returning a non-empty
 // sessionID means the run succeeded. If the JSONL stream never produced a
-// session id or never emitted agent_settled (the session did not settle), Run
+// session id or never emitted agent_settled (the session did not settle), RunIn
 // returns an error so the caller (handler) can apply its retry safety net.
 //
 // methodText (the method layer) is written to a temp file and injected through
@@ -75,7 +90,7 @@ func (r *piRuntime) Name() string { return "pi" }
 // full doing protocol persists in the system prompt and survives compaction;
 // the initial user message is only a bootstrap trigger. The temp method file
 // is removed on return.
-func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config) (string, *Trace, error) {
+func (r *piRuntime) RunIn(dir string, methodText string, promptFile string, cfg *config.Config) (string, *Trace, error) {
 	piBin := r.piPath
 	if piBin == "" {
 		piBin = piPathOrDefault(cfg)
@@ -123,6 +138,12 @@ func (r *piRuntime) Run(methodText string, promptFile string, cfg *config.Config
 	}
 
 	cmd := exec.Command(piBin, args...)
+	// Workspace anchoring (web sessions): run pi inside the workspace root so
+	// relative file operations and session storage land in the right repo.
+	// Empty dir keeps the legacy behavior (inherit the process cwd).
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	// rick-managed pi config isolation (same as CallCLI).
 	cmd.Env = AgentEnv()
 	stdout, err := cmd.StdoutPipe()

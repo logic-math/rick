@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/* ============================================================
+   rick web · Rick and Morty 主题体系
+   灵感：飞碟 / 星空陨石 / 绿色传送门 —— 深色默认
+   ============================================================ */
+
+:root {
+  /* ---- R&M 原色 ---- */
+  --rm-portal: #39ff88; /* 绿色传送门 */
+  --rm-space: #0b0e14; /* 深空底 */
+  --rm-space-2: #1a1c2e; /* 深空底·浅 */
+  --rm-nebula: #5d3fd3; /* 星云紫 */
+  --rm-rick: #a6c8dd; /* Rick 蓝灰 */
+  --rm-morty: #ffd54a; /* Morty 黄 */
+
+  /* ---- 语义 token（映射到原色）---- */
+  --bg: var(--rm-space);
+  --surface: var(--rm-space-2);
+  --surface-raised: #232742; /* surface 上浮一层 */
+  --border: #2c3152;
+  --text: #e8ecf8;
+  --text-secondary: #9aa3c7;
+  --text-faint: #5c6690;
+  --accent: var(--rm-portal);
+  --accent-strong: #2ee67a;
+  --accent-soft: rgba(57, 255, 136, 0.12);
+  --info: var(--rm-rick);
+  --warning: var(--rm-morty);
+  --danger: #ff5d5d;
+  --success: var(--rm-portal);
+  --focus-ring: rgba(57, 255, 136, 0.45);
+}
+
+/* ---- Tailwind 4 主题（生成 utility：bg-space / text-ink / border-line …）---- */
+@theme {
+  --color-portal: #39ff88;
+  --color-portal-strong: #2ee67a;
+  --color-portal-soft: rgba(57, 255, 136, 0.12);
+  --color-space: #0b0e14;
+  --color-space-2: #1a1c2e;
+  --color-surface: #1a1c2e;
+  --color-surface-raised: #232742;
+  --color-nebula: #5d3fd3;
+  --color-rick: #a6c8dd;
+  --color-morty: #ffd54a;
+  --color-line: #2c3152;
+  --color-ink: #e8ecf8;
+  --color-ink-2: #9aa3c7;
+  --color-ink-3: #5c6690;
+  --color-danger: #ff5d5d;
+
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+}
+
+/* ---- 全局基底 ---- */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(57, 255, 136, 0.25);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ---- 滚动条 ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3a4068;
+}
+
+/* ============================================================
+   动效（R&M 元素）
+   ============================================================ */
+
+/* 传送门旋涡旋转 */
+@keyframes rm-portal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 呼吸脉动（状态点 / 运行中指示） */
+@keyframes rm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* 飞碟悬停 */
+@keyframes rm-saucer-hover {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6%);
+  }
+}
+
+/* 飞碟牵引光束 */
+@keyframes rm-beam {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ---- 动效降级：prefers-reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

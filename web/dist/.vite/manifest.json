@@ -1,0 +1,11 @@
+{
+  "index.html": {
+    "file": "assets/index-4-SX5a_d.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "css": [
+      "assets/index-CdmOHolN.css"
+    ]
+  }
+}

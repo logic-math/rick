@@ -8,14 +8,26 @@ import (
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // HumanLoop executes the complete human-loop thinking session (migrated from
 // cmd.runHumanLoop). It allocates a loop_N directory, builds the SENSE prompt
 // files, and launches the interactive pi session.
 func HumanLoop(topic string, opts Options) error {
-	draftDir, rfcDir, loopDir, err := prepareHumanLoopDirs()
+	rickDir, err := rickDirFromCwd()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return HumanLoopIn(rickDir, topic, opts)
+}
+
+// HumanLoopIn is the explicit-workspace variant of HumanLoop.
+func HumanLoopIn(rickDir string, topic string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
+	draftDir, rfcDir, loopDir, err := PrepareHumanLoopDirsIn(rickDir)
 	if err != nil {
 		return err
 	}
@@ -55,10 +67,20 @@ func HumanLoop(topic string, opts Options) error {
 // loop_1 → .rick/draft/loops/loop_1)：读 loop 目录的 session_id，以 --session-id
 // 恢复完整 pi 会话（SENSÉ 五阶段进度、此前 human 判断全在上下文中）。
 func ResumeHumanLoop(loopID string, opts Options) error {
-	draftDir, err := workspace.GetDraftDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
-		return fmt.Errorf("failed to get draft directory: %w", err)
+		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
+	return ResumeHumanLoopIn(rickDir, loopID, opts)
+}
+
+// ResumeHumanLoopIn is the explicit-workspace variant of ResumeHumanLoop.
+func ResumeHumanLoopIn(rickDir string, loopID string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
+	draftDir := filepath.Join(rickDir, "draft")
 	loopDir := filepath.Join(draftDir, "loops", loopID)
 	if _, err := os.Stat(loopDir); os.IsNotExist(err) {
 		return fmt.Errorf("loop 目录不存在：%s（查看 .rick/draft/loops/ 下可恢复的会话）", loopDir)
@@ -95,7 +117,21 @@ func HumanLoopDryRun(topic string) error {
 // RenderHumanLoopPrompt 构建并返回 SENSE（sense_loop）提示词全文，不落盘、不
 // 创建 session、不打印。供 dry-run 与 update-pi 的渲染冒烟自检共用。
 func RenderHumanLoopPrompt(topic string) (string, error) {
-	draftDir, rfcDir, _, err := prepareHumanLoopDirs()
+	rickDir, err := rickDirFromCwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return RenderHumanLoopPromptIn(rickDir, topic)
+}
+
+// RenderHumanLoopPromptIn is the explicit-workspace variant of
+// RenderHumanLoopPrompt.
+func RenderHumanLoopPromptIn(rickDir string, topic string) (string, error) {
+	if rickDir == "" {
+		return "", fmt.Errorf("rickDir cannot be empty")
+	}
+
+	draftDir, rfcDir, _, err := PrepareHumanLoopDirsIn(rickDir)
 	if err != nil {
 		return "", err
 	}
@@ -110,18 +146,16 @@ func RenderHumanLoopPrompt(topic string) (string, error) {
 	return content, nil
 }
 
-// prepareHumanLoopDirs resolves the draft/rfc/loop directories and ensures the
-// draft directory tree exists (idempotent MkdirAll, same as the original
-// cmd.runHumanLoop setup).
-func prepareHumanLoopDirs() (draftDir, rfcDir, loopDir string, err error) {
-	draftDir, err = workspace.GetDraftDir()
-	if err != nil {
-		return "", "", "", fmt.Errorf("failed to get draft directory: %w", err)
-	}
+// PrepareHumanLoopDirsIn resolves the draft/rfc/loop directories under an
+// explicit rickDir and ensures the draft directory tree exists (idempotent
+// MkdirAll, same as the original cmd.runHumanLoop setup). Exported for the web
+// layer (task11) which spawns rpc sessions from workspace-anchored paths.
+func PrepareHumanLoopDirsIn(rickDir string) (draftDir, rfcDir, loopDir string, err error) {
+	draftDir = filepath.Join(rickDir, "draft")
 	rfcDir = filepath.Join(draftDir, "rfc")
 
-	// Allocate next loop_N directory
-	loopID, err := workspace.NextLoopID(draftDir)
+	// Allocate next loop_N directory (path-parameterized helper).
+	loopID, err := nextLoopIDIn(draftDir)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to allocate loop id: %w", err)
 	}

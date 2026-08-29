@@ -8,7 +8,6 @@ import (
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // Plan executes the complete planning workflow for a new job (migrated from
@@ -16,38 +15,45 @@ import (
 // allocates the next job ID, builds the plan prompt, and launches the
 // interactive pi session.
 func Plan(requirement string, opts Options) error {
+	rickDir, err := rickDirFromCwd()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return PlanIn(rickDir, requirement, opts)
+}
+
+// PlanIn is the explicit-workspace variant of Plan: rickDir is the .rick
+// directory of the target workspace (web sessions resolve it from the session's
+// anchored workspace instead of the process cwd).
+func PlanIn(rickDir string, requirement string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
 	// Step 1: Load configuration and ensure workspace exists
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Ensure workspace exists (auto-create if needed)
-	ws, err := workspace.New()
-	if err != nil {
+	// Ensure workspace exists (auto-create if needed) — path-parameterized
+	// mirror of workspace.New() (which resolves from cwd).
+	if err := ensureWorkspaceDirsIn(rickDir); err != nil {
 		return fmt.Errorf("failed to create workspace: %w", err)
-	}
-
-	rickDir, err := workspace.GetRickDir()
-	if err != nil {
-		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
 	if opts.Verbose {
 		fmt.Printf("[INFO] Using workspace: %s\n", rickDir)
-		fmt.Printf("[INFO] Workspace initialized: %v\n", ws != nil)
+		fmt.Printf("[INFO] Workspace initialized: %v\n", true)
 	}
 
 	// Step 2: Determine next job ID and create job/plan directory
-	jobID, err := workspace.NextJobID()
+	jobID, err := nextJobIDIn(rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to determine next job ID: %w", err)
 	}
 
-	jobPlanDir, err := workspace.GetJobPlanDir(jobID)
-	if err != nil {
-		return fmt.Errorf("failed to get job plan directory: %w", err)
-	}
+	jobPlanDir := filepath.Join(rickDir, "jobs", jobID, "plan")
 
 	if err := os.MkdirAll(jobPlanDir, 0755); err != nil {
 		return fmt.Errorf("failed to create job plan directory: %w", err)
@@ -102,11 +108,20 @@ func Plan(requirement string, opts Options) error {
 // ReEnterPlan re-enters a planning session for an existing job (migrated from
 // cmd.reEnterPlanWorkflow).
 func ReEnterPlan(existingJobID string, requirement string, opts Options) error {
-	jobPlanDir, err := workspace.GetJobPlanDir(existingJobID)
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
-		return fmt.Errorf("failed to get job plan directory: %w", err)
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return ReEnterPlanIn(rickDir, existingJobID, requirement, opts)
+}
+
+// ReEnterPlanIn is the explicit-workspace variant of ReEnterPlan.
+func ReEnterPlanIn(rickDir string, existingJobID string, requirement string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
 	}
 
+	jobPlanDir := filepath.Join(rickDir, "jobs", existingJobID, "plan")
 	if _, err := os.Stat(jobPlanDir); os.IsNotExist(err) {
 		return fmt.Errorf("job %s plan directory does not exist, use 'rick plan' to create a new job", existingJobID)
 	}
@@ -114,11 +129,6 @@ func ReEnterPlan(existingJobID string, requirement string, opts Options) error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	rickDir, err := workspace.GetRickDir()
-	if err != nil {
-		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
 	if opts.Verbose {
@@ -160,7 +170,7 @@ func ReEnterPlan(existingJobID string, requirement string, opts Options) error {
 // PlanDryRun generates and prints the plan prompt without executing it
 // (migrated from cmd.runPlanDryRun). Used for inspection and testing.
 func PlanDryRun() error {
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
 		return nil
