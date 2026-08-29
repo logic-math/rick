@@ -9,6 +9,12 @@ type Config struct {
 	DefaultWorkspace string          `json:"default_workspace"`
 	Git              GitConfig       `json:"git"`
 	HumanLoop        HumanLoopConfig `json:"human_loop"`
+	// WebToken is the single-user auth token for `rick web` (job_36).
+	// Empty disables auth (local development mode). Auto-generated on first
+	// `rick web` start when neither --token nor this field is set (written
+	// back + printed once). loader.go needs no change: json round-trips
+	// omitempty-transparently.
+	WebToken string `json:"web_token,omitempty"`
 }
 
 // GitConfig represents Git-related configuration
