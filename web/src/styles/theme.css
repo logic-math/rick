@@ -52,6 +52,12 @@
 
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo,
     Consolas, monospace;
+
+  /* animate-* 工具类（Tailwind 4 由 --animate-* 生成：animate-rm-pulse 等） */
+  --animate-rm-pulse: rm-pulse 2s ease-in-out infinite;
+  --animate-rm-portal-spin: rm-portal-spin 8s linear infinite;
+  --animate-rm-saucer-hover: rm-saucer-hover 3s ease-in-out infinite;
+  --animate-rm-beam: rm-beam 2.4s ease-in-out infinite;
 }
 
 /* ---- 全局基底 ---- */
