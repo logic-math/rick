@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-08-29T23:28:34.100Z",
+  "updated_at": "2026-08-29T23:38:08.383Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -144,29 +144,31 @@
       "task_id": "task12",
       "task_name": "前端组装：路由/弹窗/Settings/PWA",
       "task_file": "task12.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task9",
         "task10"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-08-29T11:30:00+08:00",
-      "updated_at": "2026-08-29T11:30:00+08:00"
+      "updated_at": "2026-08-29T23:38:08.383Z",
+      "commit_hash": "f88bc82f13f421a2e02c5a11549ce29954205ea7"
     },
     {
       "task_id": "task13",
       "task_name": "web server 组装+static+watcher",
       "task_file": "task13.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task11",
         "task6",
         "task8",
         "task3"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-08-29T11:30:00+08:00",
-      "updated_at": "2026-08-29T11:30:00+08:00"
+      "updated_at": "2026-08-29T23:38:08.383Z",
+      "commit_hash": "f88bc82f13f421a2e02c5a11549ce29954205ea7"
     },
     {
       "task_id": "task14",
