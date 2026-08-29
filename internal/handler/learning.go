@@ -26,11 +26,24 @@ type ExecutionData struct {
 // Learning executes the complete learning workflow for a job (migrated from
 // cmd.executeLearningWorkflow).
 func Learning(jobID string, opts Options) error {
+	rickDir, err := rickDirFromCwd()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return LearningIn(rickDir, jobID, opts)
+}
+
+// LearningIn is the explicit-workspace variant of Learning.
+func LearningIn(rickDir string, jobID string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
 	fmt.Println("\n=== Learning Workflow ===")
 	fmt.Println()
 
 	fmt.Println("=== Step 1: Collecting execution data ===")
-	data, err := collectExecutionData(jobID)
+	data, err := collectExecutionDataIn(rickDir, jobID)
 	if err != nil {
 		return fmt.Errorf("failed to collect execution data: %w", err)
 	}
@@ -53,7 +66,7 @@ func LearningDryRun(jobID string) error {
 		jobID = "job_N"
 	}
 
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
 		return nil
@@ -93,14 +106,10 @@ func LearningDryRun(jobID string) error {
 	return nil
 }
 
-// collectExecutionData collects execution data paths for learning (migrated
-// from cmd.collectExecutionData).
-func collectExecutionData(jobID string) (*ExecutionData, error) {
-	rickDir, err := workspace.GetRickDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get rick directory: %w", err)
-	}
-
+// collectExecutionDataIn collects execution data paths for learning under an
+// explicit rickDir (path-parameterized core; the old cwd-based wrapper was
+// collectExecutionData).
+func collectExecutionDataIn(rickDir string, jobID string) (*ExecutionData, error) {
 	jobDir := filepath.Join(rickDir, "jobs", jobID)
 	doingDir := filepath.Join(jobDir, "doing")
 
@@ -162,14 +171,10 @@ func collectExecutionData(jobID string) (*ExecutionData, error) {
 }
 
 // callAgentForAnalysis drives the pi agent to analyze execution data and write
-// learning docs (migrated from cmd.callAgentForAnalysis).
+// learning docs (migrated from cmd.callAgentForAnalysis). The workspace root is
+// derived from data.RickDir (no cwd resolution).
 func callAgentForAnalysis(data *ExecutionData, verbose bool) error {
-	rickDir, err := workspace.GetRickDir()
-	if err != nil {
-		return fmt.Errorf("failed to get rick directory: %w", err)
-	}
-
-	learningDir := filepath.Join(rickDir, "jobs", data.JobID, "learning")
+	learningDir := filepath.Join(data.RickDir, "jobs", data.JobID, "learning")
 	if err := os.MkdirAll(learningDir, 0755); err != nil {
 		return fmt.Errorf("failed to create learning directory: %w", err)
 	}

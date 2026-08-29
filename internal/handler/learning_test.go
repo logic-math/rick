@@ -229,42 +229,26 @@ func TestLearning_WithMockPi(t *testing.T) {
 }
 
 func TestCollectExecutionData_NoDoingDir(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+	rickDir := filepath.Join(dir, ".rick")
+	if err := os.MkdirAll(rickDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = collectExecutionData("job_test")
+	_, err := collectExecutionDataIn(rickDir, "job_test")
 	if err == nil {
 		t.Fatal("expected error for missing doing dir")
 	}
 }
 
 func TestCollectExecutionData_WithData(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+	rickDir := filepath.Join(dir, ".rick")
+	if err := os.MkdirAll(rickDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	doingDir := filepath.Join(dir, ".rick", "jobs", "job_test", "doing")
+	doingDir := filepath.Join(rickDir, "jobs", "job_test", "doing")
 	if err := os.MkdirAll(doingDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +260,7 @@ func TestCollectExecutionData_WithData(t *testing.T) {
 	writeTasksJSON(t, doingDir, []workspace.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
 	})
-	data, err := collectExecutionData("job_test")
+	data, err := collectExecutionDataIn(rickDir, "job_test")
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}
@@ -286,24 +270,19 @@ func TestCollectExecutionData_WithData(t *testing.T) {
 	if data.JobID != "job_test" {
 		t.Errorf("expected job_id=job_test, got %s", data.JobID)
 	}
+	if data.RickDir != rickDir {
+		t.Errorf("expected rickDir=%s, got %s", rickDir, data.RickDir)
+	}
 }
 
 func TestCollectExecutionData_NoDebugMD(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
+	rickDir := filepath.Join(dir, ".rick")
+	if err := os.MkdirAll(rickDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	doingDir := filepath.Join(dir, ".rick", "jobs", "job_test", "doing")
+	doingDir := filepath.Join(rickDir, "jobs", "job_test", "doing")
 	if err := os.MkdirAll(doingDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +290,7 @@ func TestCollectExecutionData_NoDebugMD(t *testing.T) {
 	writeTasksJSON(t, doingDir, []workspace.TaskState{
 		{TaskID: "task1", TaskName: "T1", Status: "success", CommitHash: "abc"},
 	})
-	data, err := collectExecutionData("job_test")
+	data, err := collectExecutionDataIn(rickDir, "job_test")
 	if err != nil {
 		t.Errorf("expected no error even without debug.md, got: %v", err)
 	}

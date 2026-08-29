@@ -7,7 +7,6 @@ import (
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // Ctrl launches the interactive ctrl monitoring/intervention session for a job
@@ -18,12 +17,25 @@ func Ctrl(opts Options) error {
 		return fmt.Errorf("--job flag is required (e.g. rick ctrl --job job_1)")
 	}
 
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
-	promptFile, _, err := builder.NewPIBuilder().SaveCtrlPrompt(jID, rickDir)
+	return CtrlIn(rickDir, jID, opts)
+}
+
+// CtrlIn is the explicit-workspace variant of Ctrl: rickDir is the .rick
+// directory of the target workspace; jobID is the ctrl target job.
+func CtrlIn(rickDir string, jobID string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+	if jobID == "" {
+		return fmt.Errorf("job id is required (e.g. ctrl --job job_1)")
+	}
+
+	promptFile, _, err := builder.NewPIBuilder().SaveCtrlPrompt(jobID, rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate ctrl prompt: %w", err)
 	}
@@ -33,7 +45,7 @@ func Ctrl(opts Options) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	fmt.Printf("Job: %s\n", jID)
+	fmt.Printf("Job: %s\n", jobID)
 	fmt.Println("🎮 Starting ctrl interactive session...")
 
 	if err := runtime.CallCLI(opts.Verbose, cfg, promptFile, runtime.ModeInteractive); err != nil {
@@ -51,7 +63,7 @@ func CtrlDryRun(opts Options) error {
 		return fmt.Errorf("--job flag is required (e.g. rick ctrl --dry-run --job job_1)")
 	}
 
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // EasyDryRun prints the easy prompt without creating any job or calling pi
@@ -21,7 +20,7 @@ func EasyDryRun(requirement, ctxPath string) error {
 		return fmt.Errorf("requirement cannot be empty")
 	}
 
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
 		return nil
@@ -45,13 +44,21 @@ func EasyDryRun(requirement, ctxPath string) error {
 // Easy creates a new job and starts an easy interactive session (migrated from
 // cmd.runEasyMode). Interactive requirement prompting stays in the CLI layer.
 func Easy(requirement, ctxPath string, opts Options) error {
-	if requirement == "" {
-		return fmt.Errorf("requirement cannot be empty")
-	}
-
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return EasyIn(rickDir, requirement, ctxPath, opts)
+}
+
+// EasyIn is the explicit-workspace variant of Easy: rickDir is the .rick
+// directory of the target workspace (web sessions anchor to a workspace).
+func EasyIn(rickDir string, requirement, ctxPath string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+	if requirement == "" {
+		return fmt.Errorf("requirement cannot be empty")
 	}
 
 	// --ctx: guard against overwriting existing context
@@ -61,7 +68,7 @@ func Easy(requirement, ctxPath string, opts Options) error {
 		}
 	}
 
-	jobID, err := workspace.NextJobID()
+	jobID, err := nextJobIDIn(rickDir)
 	if err != nil {
 		return fmt.Errorf("failed to determine next job ID: %w", err)
 	}
@@ -98,9 +105,17 @@ func validateCtxInheritance(localRickDir, ctxPath string) error {
 // ResumeEasy resumes an existing easy session by job ID (migrated from
 // cmd.resumeEasyMode).
 func ResumeEasy(jobID string, opts Options) error {
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	return ResumeEasyIn(rickDir, jobID, opts)
+}
+
+// ResumeEasyIn is the explicit-workspace variant of ResumeEasy.
+func ResumeEasyIn(rickDir string, jobID string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
 	}
 
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
@@ -134,7 +149,8 @@ func ResumeEasy(jobID string, opts Options) error {
 }
 
 // StartEasySession runs the full easy session flow for a new job (migrated from
-// cmd.startEasySession).
+// cmd.startEasySession). It is already path-parameterized (rickDir is an
+// explicit argument), so it doubles as the second half of the easy core.
 func StartEasySession(jobID, requirement, rickDir string, cfg *config.Config, ctxPath string, opts Options) error {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 	if err := os.MkdirAll(doingDir, 0755); err != nil {

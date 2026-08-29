@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,7 +14,6 @@ import (
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
-	"github.com/sunquan/rick/internal/workspace"
 )
 
 // Doing executes the complete doing workflow. Scheduling is now delegated to
@@ -27,15 +27,25 @@ import (
 // implementation and injects it here). Handler depends on the Runtime interface
 // only, so a future dsh runtime only needs a new impl + registration without
 // touching this orchestrator.
+
 // ResumeDoing resumes a previous doing parent session interactively: reads
 // doing/session_id (persisted by piRuntime.Run) and re-enters the same pi
 // session (--session-id) so a human (or the agent) can inspect state, fix a
 // stuck pipeline, or continue unfinished work with full context.
 func ResumeDoing(jobID string, opts Options) error {
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
+	return ResumeDoingIn(rickDir, jobID, opts)
+}
+
+// ResumeDoingIn is the explicit-workspace variant of ResumeDoing.
+func ResumeDoingIn(rickDir string, jobID string, opts Options) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
 	if _, err := os.Stat(doingDir); os.IsNotExist(err) {
 		return fmt.Errorf("job %s doing directory does not exist", jobID)
@@ -55,15 +65,31 @@ func ResumeDoing(jobID string, opts Options) error {
 	return nil
 }
 
+// Doing runs the doing workflow against the workspace resolved from the
+// process cwd (CLI entry). Signature unchanged — cmd layer untouched.
 func Doing(jobID string, opts Options, rt runtime.Runtime) error {
+	rickDir, err := rickDirFromCwd()
+	if err != nil {
+		return fmt.Errorf("failed to get rick directory: %w", err)
+	}
+	// CLI: no cancellation wiring (Ctrl+C kills the process); nil progress
+	// keeps the watcher's stdout prints (the pre-refactor behavior).
+	return DoingIn(context.Background(), rickDir, jobID, opts, rt, nil)
+}
+
+// DoingIn is the explicit-workspace, cancellable variant of Doing: rickDir is
+// the .rick directory of the target workspace; ctx cancels between attempts
+// (web abort — subprocess kill is the supervisor's concern); progress receives
+// task status transitions (web SSE jobs_update; nil = no events beyond the
+// CLI's stdout prints).
+func DoingIn(ctx context.Context, rickDir string, jobID string, opts Options, rt runtime.Runtime, progress func(DoingEvent)) error {
+	if rickDir == "" {
+		return fmt.Errorf("rickDir cannot be empty")
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	rickDir, err := workspace.GetRickDir()
-	if err != nil {
-		return fmt.Errorf("failed to get rick directory: %w", err)
 	}
 
 	jobDir := filepath.Join(rickDir, "jobs", jobID)
@@ -107,6 +133,10 @@ func Doing(jobID string, opts Options, rt runtime.Runtime) error {
 	}
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("doing cancelled: %w", err)
+		}
+
 		if opts.Verbose {
 			fmt.Printf("[INFO] Attempt %d/%d\n", attempt, maxRetries)
 		}
@@ -123,10 +153,20 @@ func Doing(jobID string, opts Options, rt runtime.Runtime) error {
 
 		// v4.4.7: 确定性进度——tasks.json watcher（hook 写状态，watcher 轮询 diff，
 		// 状态变更打一行）。pi 会话内 assistant 文本不固定，不作为进度信号。
+		// v4.5（job_36 task2）：watcher 的 diff 消费改为回调注入——CLI 走
+		// cliDoingProgress（打印，行为不变），web 走 DoingEvent（SSE jobs_update）。
 		watchDone := make(chan struct{})
-		go watchTasksJSON(watchDone, doingDir)
+		go watchTasksJSONIn(watchDone, doingDir, func(changes []taskChange) {
+			printTaskDiff(changes)
+			for _, c := range changes {
+				emitDoing(progress, DoingEvent{JobID: jobID, TaskID: c.id, From: c.from, To: c.to})
+			}
+		})
 
-		sessionID, trace, err := rt.Run(method, promptFile, cfg)
+		// Workspace anchoring: the pi subprocess runs inside the workspace root
+		// (parent of .rick) — identical to the CLI cwd behavior, and correct for
+		// web sessions whose rickDir comes from the session's workspace.
+		sessionID, trace, err := rt.RunIn(workspaceRoot(rickDir), method, promptFile, cfg)
 		close(watchDone)
 		if err != nil {
 			fmt.Printf("[WARN] pi run did not settle (attempt %d/%d): %v\n", attempt, maxRetries, err)
@@ -213,7 +253,7 @@ func DoingDryRun(jobID string) error {
 		return nil
 	}
 
-	rickDir, err := workspace.GetRickDir()
+	rickDir, err := rickDirFromCwd()
 	if err != nil {
 		fmt.Printf("[DRY-RUN] failed to get rick dir: %v\n", err)
 		return nil
@@ -355,11 +395,41 @@ func readTaskSnapshot(doingDir string) taskSnapshot {
 	return snap
 }
 
-// watchTasksJSON polls tasks.json every 2s and prints one line per status
-// change until done is closed. Deterministic progress: the rick-gates hook is
-// the only writer, so every transition (level_complete batch success, manual
-// fixes) surfaces here immediately.
-func watchTasksJSON(done <-chan struct{}, doingDir string) {
+// taskChange is a single task status transition detected by the watcher.
+type taskChange struct {
+	id   string
+	from string
+	to   string
+	hash string
+}
+
+// diffTaskSnapshots returns the sorted changes between two snapshots (new
+// tasks report from "new"; success reruns report commit-hash churn).
+func diffTaskSnapshots(last, cur taskSnapshot) []taskChange {
+	var changes []taskChange
+	for id, s := range cur {
+		prev, ok := last[id]
+		if !ok {
+			changes = append(changes, taskChange{id: id, from: "new", to: s.Status, hash: s.CommitHash})
+			continue
+		}
+		if prev.Status != s.Status || (s.Status == "success" && prev.CommitHash != s.CommitHash) {
+			changes = append(changes, taskChange{id: id, from: prev.Status, to: s.Status, hash: s.CommitHash})
+		}
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].id < changes[j].id })
+	return changes
+}
+
+// watchTasksJSONIn polls tasks.json every 2s and invokes onChanges with the
+// batched status transitions until done is closed. Deterministic progress: the
+// rick-gates hook is the only writer, so every transition (level_complete
+// batch success, manual fixes) surfaces here immediately.
+//
+// v4.5（job_36 task2）：the printing moved out of the watcher into the callback —
+// DoingIn injects a callback that prints (CLI, unchanged output) and forwards
+// DoingEvents (web SSE). The final diff on close is preserved.
+func watchTasksJSONIn(done <-chan struct{}, doingDir string, onChanges func(changes []taskChange)) {
 	last := readTaskSnapshot(doingDir)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -367,37 +437,23 @@ func watchTasksJSON(done <-chan struct{}, doingDir string) {
 		select {
 		case <-done:
 			// 收尾时补一次 diff（Run 返回前的最后一次写可能未被 tick 捕获）
-			printTaskDiff(last, readTaskSnapshot(doingDir))
+			if changes := diffTaskSnapshots(last, readTaskSnapshot(doingDir)); len(changes) > 0 {
+				onChanges(changes)
+			}
 			return
 		case <-ticker.C:
 			cur := readTaskSnapshot(doingDir)
-			printTaskDiff(last, cur)
+			if changes := diffTaskSnapshots(last, cur); len(changes) > 0 {
+				onChanges(changes)
+			}
 			last = cur
 		}
 	}
 }
 
-// printTaskDiff prints one progress line per changed/new task.
-func printTaskDiff(last, cur taskSnapshot) {
-	// 稳定输出顺序：按新增/变更的 task id 排序
-	type change struct {
-		id   string
-		from string
-		to   string
-		hash string
-	}
-	var changes []change
-	for id, s := range cur {
-		prev, ok := last[id]
-		if !ok {
-			changes = append(changes, change{id: id, from: "new", to: s.Status, hash: s.CommitHash})
-			continue
-		}
-		if prev.Status != s.Status || (s.Status == "success" && prev.CommitHash != s.CommitHash) {
-			changes = append(changes, change{id: id, from: prev.Status, to: s.Status, hash: s.CommitHash})
-		}
-	}
-	sort.Slice(changes, func(i, j int) bool { return changes[i].id < changes[j].id })
+// printTaskDiff prints one progress line per changed/new task (CLI formatter —
+// output identical to the pre-refactor watcher).
+func printTaskDiff(changes []taskChange) {
 	for _, c := range changes {
 		switch {
 		case c.to == "success":
