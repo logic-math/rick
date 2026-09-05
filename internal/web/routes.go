@@ -16,7 +16,12 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 // CustomizeFunc deploys the frontend customization scaffold (env 层实现，
@@ -35,6 +40,11 @@ type Deps struct {
 	Token      string
 	Static     http.Handler
 	Version    string
+
+	// Archived is the web-layer soft-archive store (job 归档：列表默认过滤、
+	// 可恢复；不碰 rick job 文件）。nil 时归档接口返回 state_conflict，
+	// jobs 列表不过滤（老测试/未注入场景优雅降级）。
+	Archived *ArchivedStore
 
 	// Customize/Reset 以函数注入解耦 env 层（task14 前可为 nil——nil 时
 	// customize/reset 返回 501 not implemented，测试注入 fake）。
@@ -133,6 +143,218 @@ func handleAddWorkspace(deps Deps) http.HandlerFunc {
 	}
 }
 
+// handleBrowseWorkspaces serves GET /api/workspaces/browse?path=<dir> — the
+// immediate subdirectories of path that contain a .rick directory (depth 1,
+// capped at 50 entries). The frontend uses it for the "选择机器上已有的工作区"
+// flow. Non-existent / non-directory paths → 400 invalid_params.
+func handleBrowseWorkspaces(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSpace(r.URL.Query().Get("path"))
+		if path == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path must not be empty"))
+			return
+		}
+		fi, err := os.Stat(path)
+		if err != nil || !fi.IsDir() {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path is not a readable directory: %s", path))
+			return
+		}
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			writeError(w, newWebError(http.StatusInternalServerError, "internal", "read directory: %v", err))
+			return
+		}
+		var found []map[string]string
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			rickDir := filepath.Join(path, e.Name(), workspace.RickDirName)
+			if st, err := os.Stat(rickDir); err == nil && st.IsDir() {
+				found = append(found, map[string]string{"path": filepath.Join(path, e.Name()), "name": e.Name()})
+			}
+			if len(found) >= 50 {
+				break
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"workspaces": found})
+	}
+}
+
+// ---- fs 浏览（多级路径选择器——前端目录浏览器数据源）----
+
+// handleFSList serves GET /api/fs/list?path=<dir> — the immediate
+// subdirectories of path (non-hidden, sorted by name, capped at 100) for
+// multi-level directory navigation. Returns {path, parent, entries:[{path,name}]}
+// where parent = filepath.Dir(path) (empty string for the filesystem root).
+func handleFSList(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path must not be empty"))
+		return
+	}
+	fi, err := os.Stat(path)
+	if err != nil || !fi.IsDir() {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path is not a readable directory: %s", path))
+		return
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "read directory: %v", err))
+		return
+	}
+
+	parent := filepath.Dir(path)
+	if parent == path {
+		parent = "" // filesystem root
+	}
+
+	var dirs []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue // hidden dirs excluded
+		}
+		dirs = append(dirs, e.Name())
+	}
+	sort.Strings(dirs)
+	if len(dirs) > 100 {
+		dirs = dirs[:100]
+	}
+
+	type fsEntry struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	out := make([]fsEntry, 0, len(dirs))
+	for _, name := range dirs {
+		out = append(out, fsEntry{Path: filepath.Join(path, name), Name: name})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "parent": parent, "entries": out})
+}
+
+// handleFSStatus serves GET /api/fs/status?path=<dir> — directory state for
+// the create/register decision: {path, exists, is_dir, has_rick}.
+func handleFSStatus(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path must not be empty"))
+		return
+	}
+	exists, isDir := false, false
+	if fi, err := os.Stat(path); err == nil {
+		exists = true
+		isDir = fi.IsDir()
+	}
+	hasRick := false
+	if exists && isDir {
+		if st, err := os.Stat(filepath.Join(path, workspace.RickDirName)); err == nil && st.IsDir() {
+			hasRick = true
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"path": path, "exists": exists, "is_dir": isDir, "has_rick": hasRick})
+}
+
+// handleFSMkdir serves POST /api/fs/mkdir {path, name} — creates a
+// subdirectory for the in-browser「新建子目录」flow (returns the new path;
+// 200 idempotent when it already exists). Name must be a single path segment
+// (no / \ . ..).
+func handleFSMkdir(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+		return
+	}
+	path := strings.TrimSpace(req.Path)
+	name := strings.TrimSpace(req.Name)
+	if path == "" || name == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path and name must not be empty"))
+		return
+	}
+	if strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "invalid directory name"))
+		return
+	}
+	target := filepath.Join(path, name)
+	if err := os.Mkdir(target, 0o755); err != nil {
+		if os.IsExist(err) {
+			writeJSON(w, http.StatusOK, map[string]string{"path": target})
+			return
+		}
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "mkdir: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"path": target})
+}
+
+// createWorkspaceDirs bootstraps the minimal .rick structure for a new
+// workspace (idempotent MkdirAll — mirrors handler.ensureWorkspaceDirsIn's
+// six directories so a freshly created workspace is immediately usable by
+// rick commands). Returns the rickDir path.
+func createWorkspaceDirs(path string) (string, error) {
+	rickDir := filepath.Join(path, workspace.RickDirName)
+	dirs := []string{
+		rickDir,
+		filepath.Join(rickDir, workspace.LoopsDirName),
+		filepath.Join(rickDir, workspace.SkillsDirName),
+		filepath.Join(rickDir, workspace.DomainDirName),
+		filepath.Join(rickDir, workspace.JobsDirName),
+		filepath.Join(rickDir, workspace.DreamDirName),
+		filepath.Join(rickDir, workspace.DraftDirName),
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+	}
+	return rickDir, nil
+}
+
+// handleCreateWorkspace serves POST /api/workspaces/create {path, name?}:
+// creates the directory tree (and workspace parent if missing), bootstraps
+// the minimal .rick structure when absent, then registers the workspace
+// (201 created / 200 idempotent when already registered).
+func handleCreateWorkspace(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+			return
+		}
+		path := strings.TrimSpace(req.Path)
+		if path == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path must not be empty"))
+			return
+		}
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			writeError(w, newWebError(http.StatusInternalServerError, "internal", "create workspace dir: %v", err))
+			return
+		}
+		if _, err := createWorkspaceDirs(path); err != nil {
+			writeError(w, newWebError(http.StatusInternalServerError, "internal", "init .rick structure: %v", err))
+			return
+		}
+		entry, created, err := deps.Workspaces.Add(path, req.Name)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
+		writeJSON(w, status, entry)
+	}
+}
+
 // handleRemoveWorkspace serves DELETE /api/workspaces/{id} → 204.
 func handleRemoveWorkspace(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +364,27 @@ func handleRemoveWorkspace(deps Deps) http.HandlerFunc {
 			return
 		}
 		if err := deps.Workspaces.Remove(id); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleReorderWorkspaces serves PUT /api/workspaces/order {ids:[...]} → 204.
+// Reorders the display order of registered workspaces (sidebar drag-sort).
+// Validation failures (id set mismatch / unknown / duplicate) → 400
+// invalid_order; empty ids is a no-op 204.
+func handleReorderWorkspaces(deps Deps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			IDs []string `json:"ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+			return
+		}
+		if err := deps.Workspaces.Reorder(req.IDs); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -172,12 +415,81 @@ func (deps Deps) handleListJobs() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		jobs, err := ListJobs(ws.Path + "/.rick")
+		includeArchived := r.URL.Query().Get("include_archived") == "true"
+		rickDir := ws.Path + "/.rick"
+		var manual []string
+		if deps.Archived != nil {
+			manual = deps.Archived.List(ws.ID)
+		}
+		// Auto-archive: jobs already processed by dream are archived
+		// (archive = dream 转化, job_36 语义).
+		dreamArchived := DreamArchivedJobs(rickDir)
+		jobs, err := ListJobsFiltered(rickDir, manual, dreamArchived, includeArchived)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, jobs)
+	}
+}
+
+// handleArchiveJob serves POST /api/workspaces/{ws}/jobs/{job}/archive →
+// 204. Only completed jobs (every task status=success) may be archived;
+// archiving is idempotent and never touches rick job files.
+func (deps Deps) handleArchiveJob() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := deps.workspaceFromPath(w, r)
+		if !ok {
+			return
+		}
+		jobID := r.PathValue("job")
+		if jobID == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing job id"))
+			return
+		}
+		done, err := jobIsComplete(ws.Path+"/.rick", jobID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if !done {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "only completed jobs can be archived"))
+			return
+		}
+		if deps.Archived == nil {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "archive store not configured"))
+			return
+		}
+		if err := deps.Archived.Archive(ws.ID, jobID); err != nil {
+			writeError(w, newWebError(http.StatusInternalServerError, "internal", "archive job: %v", err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleUnarchiveJob serves POST /api/workspaces/{ws}/jobs/{job}/unarchive
+// → 204 (idempotent; unknown archive entry is a no-op).
+func (deps Deps) handleUnarchiveJob() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := deps.workspaceFromPath(w, r)
+		if !ok {
+			return
+		}
+		jobID := r.PathValue("job")
+		if jobID == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing job id"))
+			return
+		}
+		if deps.Archived == nil {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "archive store not configured"))
+			return
+		}
+		if err := deps.Archived.Unarchive(ws.ID, jobID); err != nil {
+			writeError(w, newWebError(http.StatusInternalServerError, "internal", "unarchive job: %v", err))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -316,7 +628,15 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 	// Workspaces.
 	mux.Handle("GET /api/workspaces", authWrap(deps.Token, http.HandlerFunc(handleListWorkspaces(deps))))
 	mux.Handle("POST /api/workspaces", authWrap(deps.Token, http.HandlerFunc(handleAddWorkspace(deps))))
+	mux.Handle("GET /api/workspaces/browse", authWrap(deps.Token, http.HandlerFunc(handleBrowseWorkspaces(deps))))
+	mux.Handle("POST /api/workspaces/create", authWrap(deps.Token, http.HandlerFunc(handleCreateWorkspace(deps))))
 	mux.Handle("DELETE /api/workspaces/{id}", authWrap(deps.Token, http.HandlerFunc(handleRemoveWorkspace(deps))))
+	mux.Handle("PUT /api/workspaces/order", authWrap(deps.Token, http.HandlerFunc(handleReorderWorkspaces(deps))))
+
+	// FS browse（多级路径选择器——目录导航/新建子目录/注册与创建判定）。
+	mux.Handle("GET /api/fs/list", authWrap(deps.Token, http.HandlerFunc(handleFSList)))
+	mux.Handle("GET /api/fs/status", authWrap(deps.Token, http.HandlerFunc(handleFSStatus)))
+	mux.Handle("POST /api/fs/mkdir", authWrap(deps.Token, http.HandlerFunc(handleFSMkdir)))
 
 	// Sessions（全命令面——handler 内部已做状态冲突矩阵）。
 	if deps.Sessions != nil {
@@ -331,10 +651,17 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 		mux.Handle("POST /api/sessions/{id}/resume", authWrap(deps.Token, http.HandlerFunc(sm.SessionResume)))
 		mux.Handle("POST /api/sessions/{id}/ui_response", authWrap(deps.Token, http.HandlerFunc(sm.SessionUIResponse)))
 		mux.Handle("GET /api/sessions/{id}/entries", authWrap(deps.Token, http.HandlerFunc(sm.SessionEntries)))
+		mux.Handle("GET /api/sessions/{id}/models", authWrap(deps.Token, http.HandlerFunc(sm.SessionModels)))
+		mux.Handle("POST /api/sessions/{id}/model", authWrap(deps.Token, http.HandlerFunc(sm.SessionSetModel)))
+		mux.Handle("POST /api/sessions/{id}/thinking", authWrap(deps.Token, http.HandlerFunc(sm.SessionSetThinking)))
+		mux.Handle("GET /api/sessions/{id}/prompt", authWrap(deps.Token, http.HandlerFunc(sm.SessionPromptFiles)))
+		mux.Handle("GET /api/workspaces/{ws}/sessions/{id}/prompt", authWrap(deps.Token, http.HandlerFunc(sm.SessionPromptFiles)))
 	}
 
 	// Jobs / knowledge（{ws} 注册工作区）。
 	mux.Handle("GET /api/workspaces/{ws}/jobs", authWrap(deps.Token, http.HandlerFunc(deps.handleListJobs())))
+	mux.Handle("POST /api/workspaces/{ws}/jobs/{job}/archive", authWrap(deps.Token, http.HandlerFunc(deps.handleArchiveJob())))
+	mux.Handle("POST /api/workspaces/{ws}/jobs/{job}/unarchive", authWrap(deps.Token, http.HandlerFunc(deps.handleUnarchiveJob())))
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/tasks", authWrap(deps.Token, http.HandlerFunc(deps.handleReadTasks())))
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/file", authWrap(deps.Token, http.HandlerFunc(deps.handleJobFile())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/tree", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeTree())))

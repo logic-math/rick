@@ -13,7 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
-import type { SessionStatus, SessionType } from "../../types";
+import type { SessionStatus, SessionPrompt, SessionType } from "../../types";
+import { ApiError } from "../../types";
 import MessageList from "./MessageList";
 import SteerBar, { type SessionPhase } from "./SteerBar";
 import ExtensionUIDialog, { NotifyToasts } from "../extui/ExtensionUIDialog";
@@ -21,13 +22,22 @@ import {
   buildChatViewModel,
   buildHistoryItems,
   optimisticEchoed,
-  type ChatItem,
+  type HistoryBuildResult,
 } from "./viewModel";
 import type { SlashCommand } from "./ChatInput";
 import Portal from "../starfield/Portal";
+import Collapse from "../common/Collapse";
+import type { HistoryMeta } from "./viewModel";
+import ModelSwitchDialog from "./ModelSwitchDialog";
 
 /** 稳定空数组引用（选择器 `?? EMPTY` 避免每次 store 更新建新 [] 触发重渲染） */
 const EMPTY_ENVELOPES: Parameters<typeof buildChatViewModel>[0] = [];
+
+/** 历史分页页大小（最近 N 条先渲染；滚动到顶/顶部按钮加载更早） */
+const HISTORY_PAGE_SIZE = 50;
+
+/** 挂载自动补拉上限（超长会话显示最近 MAX_HISTORY 条 + 顶部「加载更早」按钮继续） */
+const MAX_HISTORY = 500;
 
 // ============================================================
 // 会话头（类型徽标 + 状态点）
@@ -83,6 +93,144 @@ function StatusDot({ status, streaming }: { status: SessionStatus; streaming: bo
 }
 
 // ============================================================
+// 会话信息折叠区（系统提示词来源 + 元信息 + 模型/思考档位）
+// ============================================================
+
+/** 会话类型的 prompt 文件来源（显示路径提示——内容经 job files API 查看） */
+const PROMPT_SOURCE: Record<SessionType, string> = {
+  plan: "<job>/plan/prompts/plan_prompt.md（+ method 系统提示词，--append-system-prompt 注入）",
+  easy: "<job>/doing/prompts/easy_main_prompt.md（+ method 系统提示词）",
+  ctrl: "<job>/doing/prompts/ctrl_prompt.md",
+  "human-loop": "<draft>/loops/loop_N/prompts/*.md（SENSE 四文件协议）",
+  learning: "<job>/learning/prompts/learning_prompt.md",
+  dream: ".rick/dream/（跨 job 反思，扫描已完成 jobs）",
+  doing: "<job>/doing/prompts/doing_prompt.md（parent 编排协议）",
+};
+
+function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value == null || value === "") return null;
+  return (
+    <div className="flex gap-2 py-0.5">
+      <span className="w-20 shrink-0 text-right text-[10px] text-ink-3">{label}</span>
+      <span className="min-w-0 flex-1 break-all font-mono text-[11px] text-ink-2">{value}</span>
+    </div>
+  );
+}
+
+function SessionInfoPanel({
+  info,
+  meta,
+  workspaceId,
+  onSwitchModel,
+}: {
+  info: { type: SessionType; params: Record<string, unknown>; pi_session_id?: string; created_at?: string; id: string } | null;
+  meta: HistoryMeta;
+  workspaceId: string | null;
+  /** 点「切换」打开模型切换 Dialog */
+  onSwitchModel: () => void;
+}) {
+  const type = info?.type ?? "plan";
+  const params = info?.params ?? {};
+  const paramRows = Object.entries(params);
+  const [prompt, setPrompt] = useState<SessionPrompt | null>(null);
+  const [promptLoading, setPromptLoading] = useState(false);
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
+
+  async function loadPrompt(): Promise<void> {
+    if (!workspaceId || !info?.id || prompt || promptLoading) return;
+    setPromptLoading(true);
+    setPromptError(null);
+    try {
+      const p = await api.getSessionPrompt(workspaceId, info.id);
+      setPrompt(p);
+      setPromptOpen(true);
+    } catch (e) {
+      setPromptError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPromptLoading(false);
+    }
+  }
+
+  return (
+    <Collapse
+      className="mx-4 mt-2"
+      title={
+        <>
+          <span className="text-ink-3">会话信息</span>
+          <span className="ml-1 font-mono text-[10px] text-ink-3">（系统提示词原文 / 参数 / 模型）</span>
+        </>
+      }
+      label="展开会话信息"
+    >
+      <div className="px-3 py-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-3">系统提示词（原文）</div>
+        <p className="pb-1 font-mono text-[11px] leading-relaxed text-ink-2">
+          {PROMPT_SOURCE[type]}
+        </p>
+        <button
+          type="button"
+          onClick={() => void loadPrompt()}
+          disabled={!workspaceId || promptLoading}
+          className="mb-2 rounded border border-line px-2 py-0.5 text-[10px] text-portal hover:border-portal/50 hover:bg-portal/10 disabled:opacity-50"
+        >
+          {promptLoading ? "加载中…" : prompt ? "收起原文" : "查看原文"}
+        </button>
+        {promptError && <p className="pb-1 text-[10px] text-danger">原文加载失败：{promptError}</p>}
+        {prompt && promptOpen && (
+          <div className="mb-2 flex flex-col gap-2 rounded border border-line bg-space/60 p-2">
+            <details open>
+              <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-ink-3">
+                method 系统提示词（{prompt.method.length} 字符）
+              </summary>
+              <pre className="mt-1 max-h-72 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-ink-2">
+                {prompt.method}
+              </pre>
+            </details>
+            <details open={promptOpen}>
+              <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-ink-3">
+                instance prompt（{prompt.instance.length} 字符）
+              </summary>
+              <pre className="mt-1 max-h-96 overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-ink-2">
+                {prompt.instance}
+              </pre>
+            </details>
+          </div>
+        )}
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-3">参数</div>
+        <div className="pb-2">
+          {paramRows.length === 0 ? (
+            <p className="font-mono text-[11px] text-ink-3">（无）</p>
+          ) : (
+            paramRows.map(([k, v]) => (
+              <MetaRow key={k} label={k} value={typeof v === "string" ? v : JSON.stringify(v)} />
+            ))
+          )}
+        </div>
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-3">运行时</div>
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <MetaRow label="模型" value={meta.model} />
+            <MetaRow label="provider" value={meta.provider} />
+            <MetaRow label="思考档位" value={meta.thinkingLevel} />
+          </div>
+          <button
+            type="button"
+            onClick={onSwitchModel}
+            className="shrink-0 rounded-md border border-portal/50 px-2 py-0.5 text-[10px] text-portal transition-colors hover:bg-portal/10 hover:border-portal"
+            title="切换 pi 支持的模型 / 思考档位（/model）"
+          >
+            切换
+          </button>
+        </div>
+        <MetaRow label="启动时间" value={meta.startedAt} />
+        <MetaRow label="pi 会话" value={info?.pi_session_id} />
+      </div>
+    </Collapse>
+  );
+}
+
+// ============================================================
 // 主组件
 // ============================================================
 
@@ -101,12 +249,22 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   const loadSession = useSessionsStore((s) => s.get);
   const applyState = useSessionsStore((s) => s.applyState);
 
-  const [historyItems, setHistoryItems] = useState<ChatItem[] | null>(null);
+  const [history, setHistory] = useState<HistoryBuildResult | null>(null);
+  // 历史分页：earliestId=已加载最早 entry id（before 游标）；hasMore=是否还有更早
+  const [paging, setPaging] = useState<{ earliestId: string | null; hasMore: boolean }>({
+    earliestId: null,
+    hasMore: false,
+  });
+  const loadingEarlierRef = useRef(false);
+  /** 加载更早进行中（驱动顶部按钮的「加载中…」态——ref 不响应式，需 state 镜像） */
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const historyEpochRef = useRef(-1);
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [modelHint, setModelHint] = useState<string | null>(null);
 
   // 会话元数据回源（路由直达 / 刷新场景）
   useEffect(() => {
@@ -115,6 +273,20 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     }
   }, [info, loadSession, sessionId]);
 
+  // 公共前置合并：把更早一页 built 结果前置合并到已渲染 history（items 前置 + 指纹
+  // 并集 + meta 保持最新页）。loadEarlier 与挂载自动补拉共用，避免逻辑分叉。
+  const prependHistory = useCallback((built: HistoryBuildResult) => {
+    setHistory((prev) =>
+      prev
+        ? {
+            items: [...built.items, ...prev.items],
+            fingerprints: new Set([...built.fingerprints, ...prev.fingerprints]),
+            meta: prev.meta, // meta 取最新页（首屏已含模型信息）
+          }
+        : prev,
+    );
+  }, []);
+
   // 挂载/SSE 重连/resume 后：REST 补历史（幂等——同 epoch 只拉一次）
   useEffect(() => {
     let cancelled = false;
@@ -122,47 +294,96 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
     api
-      .getEntries(sessionId)
-      .then((resp) => {
+      .getEntries(sessionId, { limit: HISTORY_PAGE_SIZE })
+      .then(async (resp) => {
         if (cancelled) return;
-        setHistoryItems(
-          buildHistoryItems(resp.entries as unknown as Parameters<typeof buildHistoryItems>[0]),
+        const firstBuilt = buildHistoryItems(
+          resp.entries as unknown as Parameters<typeof buildHistoryItems>[0],
         );
+        setHistory(firstBuilt);
+        // 分页游标：entries 时间序，第一条=最早已加载；满页=可能还有更早
+        let earliestId = (resp.entries[0] as { id?: string } | undefined)?.id ?? null;
+        let hasMore = resp.entries.length === HISTORY_PAGE_SIZE;
+        setPaging({ earliestId, hasMore });
+
+        // A：挂载自动补拉（方案 A——用户实测 254 条会话首屏只见最近 50 条，
+        // 更早历史要手动滚动才加载，体验不完整）。首屏已渲染，随后循环用
+        // before 游标拉更早页并前置合并，直到：拉到底（不满页）/ 达 MAX_HISTORY
+        // 上限 / 组件卸载。补拉不阻塞首屏；与 loadEarlier 共用 loadingEarlierRef 防重入。
+        if (hasMore && earliestId && !cancelled) {
+          loadingEarlierRef.current = true;
+          setLoadingEarlier(true);
+          try {
+            let loaded = resp.entries.length;
+            while (hasMore && earliestId && !cancelled && loaded < MAX_HISTORY) {
+              const pageResp = await api.getEntries(sessionId, {
+                before: earliestId,
+                limit: HISTORY_PAGE_SIZE,
+              });
+              if (cancelled) return;
+              const pageEntries = pageResp.entries as unknown as Parameters<
+                typeof buildHistoryItems
+              >[0];
+              if (pageEntries.length === 0) {
+                hasMore = false;
+                break;
+              }
+              const built = buildHistoryItems(pageEntries);
+              prependHistory(built);
+              loaded += pageEntries.length;
+              earliestId = (pageEntries[0] as { id?: string } | undefined)?.id ?? null;
+              hasMore = pageEntries.length === HISTORY_PAGE_SIZE;
+            }
+            if (!cancelled) setPaging({ earliestId, hasMore });
+          } catch {
+            // 自动补拉失败：保留已渲染部分（不阻塞 live 流），hasMore 保持可重试
+          } finally {
+            loadingEarlierRef.current = false;
+            if (!cancelled) setLoadingEarlier(false);
+          }
+        }
       })
       .catch(() => {
         if (cancelled) return;
-        setHistoryItems([]); // 历史拉取失败不阻塞 live 流
+        setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } }); // 历史拉取失败不阻塞 live 流
       });
     return () => {
       cancelled = true;
     };
-  }, [sessionId, resyncCount, historyRefresh]);
+  }, [sessionId, resyncCount, historyRefresh, prependHistory]);
 
   // 视图模型（纯函数重建——环形缓冲 ≤500 条，成本可控；版本号触发重算）
-  const vm = useMemo(() => buildChatViewModel(envelopes, null), [envelopes]);
-
-  // 乐观消息 echo 消解
-  const echoed = optimisticEchoed(vm.items, optimisticUser);
-  useEffect(() => {
-    if (echoed && optimisticUser) setOptimisticUser(null);
-  }, [echoed, optimisticUser]);
+  // 历史指纹传入：live 流与历史重叠的事件去重（挂载时 REST 快照 vs SSE 在途事件）
+  const vm = useMemo(
+    () => buildChatViewModel(envelopes, null, history?.fingerprints),
+    [envelopes, history],
+  );
 
   // 合并视图：历史（前置）+ live
   const items = useMemo(() => {
     const live = optimisticUser
       ? [...vm.items, { kind: "user" as const, id: "optimistic-user", text: optimisticUser }]
       : vm.items;
-    return historyItems ? [...historyItems, ...live] : live;
-  }, [historyItems, vm.items, optimisticUser]);
+    return history ? [...history.items, ...live] : live;
+  }, [history, vm.items, optimisticUser]);
+
+  // 乐观消息 echo 消解：只检查 **live 事件流**（vm.items）——SSE 真实收到新 user 事件才消解。
+  // 不能检查合并后 items（含 history）：同一会话重复发送同文本时，历史里的旧条目会误消解
+  // 新发送的乐观消息 → 「消息消失」（用户实测反馈）。vm.items 里的 user 条目由
+  // applyMessageStart(role=user) 生成（skip 检查在 vm 内），代表真实到达的 echo。
+  const echoed = optimisticEchoed(vm.items, optimisticUser);
+  useEffect(() => {
+    if (echoed && optimisticUser) setOptimisticUser(null);
+  }, [echoed, optimisticUser]);
 
   // 会话状态：SSE 状态事件 > REST 元数据
   const status: SessionStatus = (sseState?.status as SessionStatus) ?? info?.status ?? "active";
   const phase: SessionPhase = useMemo(() => {
-    if (!info && !sseState && historyItems === null) return "loading";
+    if (!info && !sseState && history === null) return "loading";
     if (status === "closed") return "closed";
     if (status === "error") return "error";
     return vm.streaming ? "streaming" : "idle";
-  }, [info, sseState, historyItems, status, vm.streaming]);
+  }, [info, sseState, history, status, vm.streaming]);
 
   // ============================================================
   // 动作
@@ -181,13 +402,48 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         }
       } catch (err) {
         setOptimisticUser(null);
-        setError(err instanceof Error ? err.message : String(err));
+        // 用户反馈：非活跃会话发送报 409（state_conflict/worker not alive）——
+        // 本地立即降级为 error（终止）态并引导 Resume，而非停留在 active 反复报错。
+        if (err instanceof ApiError && err.status === 409) {
+          applyState(sessionId, "error", "worker lost");
+          setError("会话已中断（agent 进程不在）——点击 Resume 重新加载历史并恢复");
+        } else {
+          setError(err instanceof Error ? err.message : String(err));
+        }
       } finally {
         setBusy(false);
       }
     },
-    [phase, sessionId],
+    [phase, sessionId, applyState],
   );
+
+  // 历史分页：滚动到顶/顶部按钮 → 用最早已加载 entry 作 before 拉更早一页，前置合并
+  const loadEarlier = useCallback(async () => {
+    if (loadingEarlierRef.current || !history || !paging.earliestId || !paging.hasMore) return;
+    loadingEarlierRef.current = true;
+    setLoadingEarlier(true);
+    try {
+      const resp = await api.getEntries(sessionId, {
+        before: paging.earliestId,
+        limit: HISTORY_PAGE_SIZE,
+      });
+      const built = buildHistoryItems(
+        resp.entries as unknown as Parameters<typeof buildHistoryItems>[0],
+      );
+      if (built.items.length === 0) {
+        setPaging((p0) => ({ ...p0, hasMore: false }));
+        return;
+      }
+      const firstId = (resp.entries[0] as { id?: string } | undefined)?.id ?? null;
+      prependHistory(built);
+      setPaging({ earliestId: firstId, hasMore: resp.entries.length === HISTORY_PAGE_SIZE });
+    } catch {
+      // 更早历史拉取失败：保留现状（不阻塞聊天），hasMore 保持可重试
+    } finally {
+      loadingEarlierRef.current = false;
+      setLoadingEarlier(false);
+    }
+  }, [sessionId, history, paging.earliestId, paging.hasMore, prependHistory]);
 
   const runCommand = useCallback(
     async (cmd: SlashCommand) => {
@@ -199,6 +455,35 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         } else if (cmd.name === "/close") {
           await api.closeSession(sessionId);
           applyState(sessionId, "closed");
+        } else if (cmd.name === "/model") {
+          if (cmd.arg) {
+            // /model <name>：模糊匹配模型名，唯一则直接切，多则打开选择
+            const res = await api.getSessionModels(sessionId).catch(() => null);
+            const hits = (res?.models ?? []).filter(
+              (m) =>
+                m.name.toLowerCase().includes(cmd.arg!.toLowerCase()) ||
+                m.id.toLowerCase().includes(cmd.arg!.toLowerCase()),
+            );
+            if (res === null || hits.length === 0) {
+              setModelHint(`未找到匹配「${cmd.arg}」的模型——已打开选择列表`);
+              setModelDialogOpen(true);
+            } else if (hits.length === 1) {
+              await api.setSessionModel(sessionId, hits[0].provider, hits[0].id);
+              setModelHint(`已切换至 ${hits[0].name}`);
+            } else {
+              setModelHint(`匹配到 ${hits.length} 个模型（${hits.map((m) => m.name).join(", ")}）——请选择`);
+              setModelDialogOpen(true);
+            }
+          } else {
+            setModelDialogOpen(true);
+          }
+        } else if (cmd.name === "/thinking") {
+          if (cmd.arg) {
+            await api.setSessionThinking(sessionId, cmd.arg);
+            setModelHint(`思考档位已设为 ${cmd.arg}`);
+          } else {
+            setModelDialogOpen(true);
+          }
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -297,12 +582,48 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         </div>
       )}
 
+      {/* 会话信息（系统提示词来源/参数/模型——默认折叠，复查行为轨迹用） */}
+      <SessionInfoPanel
+        info={info ?? null}
+        meta={history?.meta ?? { model: null, provider: null, thinkingLevel: null, startedAt: null }}
+        workspaceId={info?.workspace_id ?? null}
+        onSwitchModel={() => setModelDialogOpen(true)}
+      />
+
+      {/* 模型切换提示（/model 快捷命令反馈） */}
+      {modelHint && (
+        <div className="flex items-center gap-2 border-b border-portal/30 bg-portal/10 px-4 py-1.5 text-xs text-portal">
+          <span aria-hidden="true">⚡</span>
+          <span className="min-w-0 flex-1 break-words">{modelHint}</span>
+          <button type="button" onClick={() => setModelHint(null)} aria-label="关闭提示">
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 模型切换 Dialog */}
+      <ModelSwitchDialog
+        open={modelDialogOpen}
+        sessionId={sessionId}
+        currentModel={history?.meta.model ?? null}
+        currentProvider={history?.meta.provider ?? null}
+        currentThinking={history?.meta.thinkingLevel ?? null}
+        onClose={() => setModelDialogOpen(false)}
+        onChanged={() => setHistoryRefresh((n) => n + 1)}
+      />
+
       {/* fire-and-forget notify toasts */}
       <NotifyToasts sessionId={sessionId} notifications={vm.notifications} />
 
       {/* 消息流 */}
       <div className="min-h-0 flex-1">
-        <MessageList items={items} streaming={vm.streaming} />
+        <MessageList
+          items={items}
+          streaming={vm.streaming}
+          hasMore={paging.hasMore}
+          loadingEarlier={loadingEarlier}
+          onReachTop={() => void loadEarlier()}
+        />
       </div>
 
       {/* extension_ui 对话框（agent 阻塞等待——渲染在输入条上方） */}

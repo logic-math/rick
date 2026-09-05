@@ -9,11 +9,15 @@
  * - 结果截断 → 提示 + fullOutputPath
  */
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import Ansi from "ansi-to-react";
 import { DiffView, DiffModeEnum } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import { summarizeArgs, type ToolItem } from "./viewModel";
+import { useExpandState } from "./expand";
+
+/** 工具输出截断阈值（8KB） */
+const MAX_OUTPUT = 8 * 1024;
 
 // ============================================================
 // LCS 行级 diff（轻量实现——edit 工具卡的 old/new 字符串对齐）
@@ -148,8 +152,9 @@ interface ToolCallCardProps {
   item: ToolItem;
 }
 
-export default function ToolCallCard({ item }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
+function ToolCallCardImpl({ item }: ToolCallCardProps) {
+  const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, false);
+  const [expandedFull, setExpandedFull] = useState(false);
   const summary = summarizeArgs(item.args);
   const isBash = item.toolName === "bash";
   const isEdit = item.toolName === "edit";
@@ -161,6 +166,9 @@ export default function ToolCallCard({ item }: ToolCallCardProps) {
   }, [edit]);
 
   const hasResult = item.output.length > 0;
+  const outputTruncated = !expandedFull && item.output.length > MAX_OUTPUT;
+  const outputShown = outputTruncated ? item.output.slice(0, MAX_OUTPUT) : item.output;
+  const expanded = open;
 
   return (
     <div
@@ -171,9 +179,9 @@ export default function ToolCallCard({ item }: ToolCallCardProps) {
       {/* 头部：工具名 + 摘要 + 状态 */}
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => onToggle(!open)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-white/5"
-        aria-expanded={expanded}
+        aria-expanded={open}
       >
         <span aria-hidden="true" className="text-ink-3">
           {expanded ? "▾" : "▸"}
@@ -246,14 +254,23 @@ export default function ToolCallCard({ item }: ToolCallCardProps) {
               <div className="max-h-80 overflow-auto rounded bg-space">
                 {isBash ? (
                   <div className="p-2 font-mono text-[11px] leading-relaxed">
-                    <Ansi>{item.output}</Ansi>
+                    <Ansi>{outputShown}</Ansi>
                   </div>
                 ) : (
                   <pre className="p-2 font-mono text-[11px] leading-relaxed text-ink-2">
-                    {item.output}
+                    {outputShown}
                   </pre>
                 )}
               </div>
+              {outputTruncated && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedFull(true)}
+                  className="mt-1 text-[10px] text-portal hover:text-portal-strong"
+                >
+                  展开全部（{Math.ceil((item.output.length - MAX_OUTPUT) / 1024)}K 已截断）
+                </button>
+              )}
               {(item.truncated || item.fullOutputPath) && (
                 <div className="mt-1 text-[10px] text-morty">
                   ⚠ 输出已截断
@@ -267,3 +284,25 @@ export default function ToolCallCard({ item }: ToolCallCardProps) {
     </div>
   );
 }
+
+// 流式稳定性：vm 每帧重建 → item 对象每帧新建，浅比较必然不等 → 已落定的工具卡
+// 每帧重渲（闪烁机制三）。自定义比较：内容字段不变则跳过渲染；running 中 status
+// /output 变化会自然失配（重渲），等待中的 running 卡无视觉变化也无需重渲。
+function sameToolItem(a: ToolItem, b: ToolItem): boolean {
+  return (
+    a.id === b.id &&
+    a.toolName === b.toolName &&
+    a.status === b.status &&
+    a.output === b.output &&
+    a.args === b.args &&
+    a.truncated === b.truncated &&
+    a.fullOutputPath === b.fullOutputPath
+  );
+}
+
+const ToolCallCard = memo(
+  ToolCallCardImpl,
+  (prev, next) => sameToolItem(prev.item, next.item),
+);
+
+export default ToolCallCard;

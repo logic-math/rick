@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- rick web favicon：绿色传送门（R&M 标志性元素），SMIL 旋转动画；静态兜底同样美观 -->
+  <defs>
+    <style>
+      @keyframes rm-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </defs>
+  <rect width="100" height="100" rx="20" fill="#0b0e14"/>
+  <g style="transform-origin: 50% 50%; animation: rm-spin 4s linear infinite">
+    <animateTransform attributeName="transform" type="rotate" from="0 50 50" to="360 50 50" dur="4s" repeatCount="indefinite"/>
+    <circle cx="50" cy="50" r="46" fill="none" stroke="#39ff88" stroke-width="3" stroke-opacity="0.9"/>
+    <circle cx="50" cy="50" r="34" fill="none" stroke="#2ee67a" stroke-width="2.5" stroke-opacity="0.75" stroke-dasharray="31 14"/>
+    <circle cx="50" cy="50" r="22" fill="none" stroke="#39ff88" stroke-width="2.5" stroke-opacity="0.6"/>
+    <circle cx="50" cy="50" r="11" fill="none" stroke="#2ee67a" stroke-width="2" stroke-opacity="0.45" stroke-dasharray="10 4"/>
+    <circle cx="50" cy="50" r="6" fill="#39ff88" opacity="0.95"/>
+  </g>
+</svg>

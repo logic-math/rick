@@ -6,12 +6,14 @@
  * 光标 ▮ 以 rm-pulse 呼吸闪烁。
  */
 
+import { memo } from "react";
+
 interface StreamTextProps {
   text: string;
   className?: string;
 }
 
-export default function StreamText({ text, className }: StreamTextProps) {
+function StreamTextImpl({ text, className }: StreamTextProps) {
   return (
     <span className={`whitespace-pre-wrap break-words text-sm leading-relaxed ${className ?? ""}`}>
       {text}
@@ -23,3 +25,9 @@ export default function StreamText({ text, className }: StreamTextProps) {
     </span>
   );
 }
+
+// 打字机文本每帧变 → text 变必然重渲；父组件（memo 后的 AssistantBubble）在
+// text 未变时不会传新值——此处 memo 防父级无谓重渲传导。
+const StreamText = memo(StreamTextImpl, (prev, next) => prev.text === next.text && prev.className === next.className);
+
+export default StreamText;

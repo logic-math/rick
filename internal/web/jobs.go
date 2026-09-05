@@ -44,6 +44,44 @@ func errNotFound(format string, args ...any) *WebError {
 	return newWebError(http.StatusNotFound, "not_found", format, args...)
 }
 
+// readPromptFile safely reads a prompt/method file referenced by an absolute
+// path recorded in the session registry (_prompt_file/_method_file). The
+// path must be inside the workspace's .rick tree (no traversal outside it),
+// be a regular file (symlinks rejected), and stay under MaxReadFileSize.
+// Missing or oversized files surface not_found / invalid_path respectively.
+func readPromptFile(workspacePath, absPath string) (string, error) {
+	if absPath == "" {
+		return "", errNotFound("no prompt file recorded for this session")
+	}
+	clean := filepath.Clean(absPath)
+	if !filepath.IsAbs(clean) {
+		return "", errInvalidPath("prompt file must be absolute: %s", absPath)
+	}
+	rickDir := filepath.Join(workspacePath, workspace.RickDirName)
+	rel, err := filepath.Rel(rickDir, clean)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", errInvalidPath("prompt file escapes workspace .rick: %s", absPath)
+	}
+	fi, err := os.Lstat(clean)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", errNotFound("prompt file not found: %s", absPath)
+		}
+		return "", newWebError(http.StatusInternalServerError, "internal", "stat prompt file: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
+		return "", errInvalidPath("prompt file must be a regular file: %s", absPath)
+	}
+	if fi.Size() > MaxReadFileSize {
+		return "", errInvalidPath("prompt file too large: %s", absPath)
+	}
+	data, err := os.ReadFile(clean)
+	if err != nil {
+		return "", newWebError(http.StatusInternalServerError, "internal", "read prompt file: %v", err)
+	}
+	return string(data), nil
+}
+
 // TaskBrief is the per-task projection of a job's tasks.json
 // (api-contract.md Jobs 节: task_id/name/status/commit_hash).
 type TaskBrief struct {
@@ -58,6 +96,11 @@ type JobSummary struct {
 	JobID     string      `json:"job_id"`
 	UpdatedAt time.Time   `json:"updated_at"`
 	Tasks     []TaskBrief `json:"tasks"`
+	Archived  bool        `json:"archived,omitempty"`
+	// ArchivedBy records the archive source for archived jobs:
+	// "manual" = user archived via the UI, "dream" = dream already
+	// processed the job (auto-archived). Frontend renders a source badge.
+	ArchivedBy string `json:"archived_by,omitempty"`
 }
 
 // FileNode is one knowledge file entry (api-contract.md Knowledge 节).
@@ -128,6 +171,82 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out, nil
+}
+
+// ListJobsFiltered lists jobs with the web-layer soft-archive applied:
+//   - includeArchived=false: job ids present in the archived list are
+//     omitted entirely (default view — completed jobs archived by the user
+//     stop cluttering the listing).
+//   - includeArchived=true: every job is returned and archived ones carry
+//     Archived=true (the “已归档” recovery view).
+//
+// An empty/nil archived list short-circuits to ListJobs unchanged. rick
+// job files are never modified — archive is a pure view-layer state.
+// ListJobsFiltered returns the jobs listing with archive filtering applied.
+// archived is the manual soft-archive set (ArchivedStore.List) and
+// dreamArchived is the auto-archive set from dream processing
+// (DreamArchivedJobs). A job is hidden from the default listing if it is in
+// either set; includeArchived returns everything with Archived=true and the
+// ArchiveSource. When a job is in both sets, "dream" wins (dream processing
+// is the authoritative archive signal; manual is a supplementary action).
+func ListJobsFiltered(rickDir string, archived []string, dreamArchived map[string]bool, includeArchived bool) ([]JobSummary, error) {
+	jobs, err := ListJobs(rickDir)
+	if err != nil {
+		return nil, err
+	}
+	manualSet := make(map[string]bool, len(archived))
+	for _, id := range archived {
+		manualSet[id] = true
+	}
+	out := make([]JobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		_, manual := manualSet[j.JobID]
+		dream := dreamArchived != nil && dreamArchived[j.JobID]
+		if manual || dream {
+			if !includeArchived {
+				continue
+			}
+			j.Archived = true
+			if dream {
+				j.ArchivedBy = "dream"
+			} else {
+				j.ArchivedBy = "manual"
+			}
+		}
+		out = append(out, j)
+	}
+	return out, nil
+}
+
+// jobIsComplete reports whether every task of the job is status=success
+// (a job with zero tasks is treated as incomplete — nothing finished yet).
+// It is the archive gate: only completed jobs may be archived. Read errors
+// and missing tasks.json surface as errors (caller maps them to HTTP).
+func jobIsComplete(rickDir, jobID string) (bool, error) {
+	root, err := jobRoot(rickDir, jobID)
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(filepath.Join(root, workspace.DoingDirName, "tasks.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, errNotFound("no tasks.json for job %s", jobID)
+		}
+		return false, fmt.Errorf("read tasks.json for job %s: %w", jobID, err)
+	}
+	var tj jobTasksFile
+	if err := json.Unmarshal(data, &tj); err != nil {
+		return false, fmt.Errorf("parse tasks.json for job %s: %w", jobID, err)
+	}
+	if len(tj.Tasks) == 0 {
+		return false, nil
+	}
+	for _, t := range tj.Tasks {
+		if t.Status != "success" {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // ReadTasks returns the job's tasks.json verbatim (api-contract: "tasks.json

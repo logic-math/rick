@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -69,8 +70,8 @@ type SessionManager struct {
 
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // background sessions (doing/dream)
-	closing map[string]bool                // sessions closed by the user (worker death is not a crash)
-	bgWaits map[string]chan struct{}       // closed when the background goroutine exits
+	closing map[string]bool               // sessions closed by the user (worker death is not a crash)
+	bgWaits map[string]chan struct{}      // closed when the background goroutine exits
 }
 
 // NewSessionManager wires the dependencies. doingRunner/dreamRunner may be
@@ -101,6 +102,27 @@ func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry,
 		}
 	}
 	return m
+}
+
+// ReconcileOnStart 服务启动对账：注册表里 status=active/running 的会话在本次进程
+// 重启后没有对应 worker/goroutine（旧进程已死）——统一标记为 error（worker lost
+// on server restart），前端据此显示 Resume 按钮恢复（SessionResume 支持 error→active）。
+// 这是「重启后发送消息 409 session worker is not alive」的根治（job_36 验收期实测）。
+func (m *SessionManager) ReconcileOnStart() {
+	for _, e := range m.sessions.List() {
+		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
+			continue
+		}
+		if e.Type == SessionTypeDoing || e.Type == SessionTypeDream {
+			// 后台型 goroutine 随进程消亡——一律标记 error（可重新发起）
+			m.updateStatus(e, SessionStatusError, "server restarted: background task lost")
+			continue
+		}
+		w := m.sup.Get(e.ID)
+		if w == nil || w.IsDead() {
+			m.updateStatus(e, SessionStatusError, "server restarted: worker lost")
+		}
+	}
 }
 
 // ---- HTTP handlers ----
@@ -338,11 +360,11 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 					Type:      EventTypeSessionEvent,
 					SessionID: entry.ID,
 					Data: mustMarshal(map[string]any{
-						"kind":     "doing_progress",
-						"job_id":   ev.JobID,
-						"task_id":  ev.TaskID,
-						"from":     ev.From,
-						"to":       ev.To,
+						"kind":    "doing_progress",
+						"job_id":  ev.JobID,
+						"task_id": ev.TaskID,
+						"from":    ev.From,
+						"to":      ev.To,
 					}),
 				})
 			})
@@ -356,9 +378,9 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 					Type:      EventTypeSessionEvent,
 					SessionID: entry.ID,
 					Data: mustMarshal(map[string]any{
-						"kind":     "dream_progress",
-						"phase":    ev.Phase,
-						"job_ids":  ev.JobIDs,
+						"kind":    "dream_progress",
+						"phase":   ev.Phase,
+						"job_ids": ev.JobIDs,
 					}),
 				})
 			})
@@ -437,6 +459,10 @@ func (m *SessionManager) command(w http.ResponseWriter, r *http.Request, what st
 	}
 	worker := m.sup.Get(entry.ID)
 	if worker == nil || worker.IsDead() {
+		// worker 失活（崩溃/心跳超时/重启遗留）——自动标记 error（终止/中断语义），
+		// 前端收到 session_state 后切换到 error 态并显示 Resume 引导（用户反馈：
+		// 非活跃会话仍显示 active，进入发送就 409——应标记中断+引导 resume）。
+		m.markWorkerLost(entry)
 		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
 		return
 	}
@@ -459,7 +485,9 @@ func (m *SessionManager) command(w http.ResponseWriter, r *http.Request, what st
 		return
 	}
 	if err := send(worker, req.Message); err != nil {
-		writeError(w, newWebError(http.StatusInternalServerError, "internal", "send %s: %v", what, err))
+		// 管道断裂（worker 刚死）——同样标记 error 而非静默 500
+		m.markWorkerLost(entry)
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
@@ -477,6 +505,7 @@ func (m *SessionManager) SessionAbort(w http.ResponseWriter, r *http.Request) {
 	}
 	worker := m.sup.Get(entry.ID)
 	if worker == nil || worker.IsDead() {
+		m.markWorkerLost(entry)
 		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
 		return
 	}
@@ -653,28 +682,49 @@ type entriesResponse struct {
 	LeafID  *string           `json:"leaf_id"`
 }
 
-// SessionEntries handles GET /api/sessions/{id}/entries?since=<entryId>.
-// Active sessions relay rpc get_entries; closed sessions parse the pi
-// session JSONL offline (no spawn).
+// SessionEntries handles GET /api/sessions/{id}/entries?since=<entryId>&limit=N&before=<entryId>.
+// Pagination semantics:
+//   - since: incremental cursor (strictly-after entries; active-worker rpc passthrough)
+//   - before+limit: newest-first paging for rehydration — returns at most `limit`
+//     entries that come strictly BEFORE `before` (time order preserved);
+//     `limit` alone returns the most recent `limit` entries.
+// Three-tier resolution (job_36 fix): ① active + live worker → rpc get_entries
+// passthrough (incremental `since` semantics preserved; before/limit applied
+// after); ② worker missing / dead / rpc error (browser refresh, reconnect,
+// another device, server restart) → fallback to offline parsing of the pi
+// session JSONL — the file is appended in real time, so it is the same source
+// of truth pi serves; ③ both paths fail → 404/500. Running/closed/error
+// sessions go straight to the offline path.
 func (m *SessionManager) SessionEntries(w http.ResponseWriter, r *http.Request) {
 	entry, ok := m.lookup(w, r)
 	if !ok {
 		return
 	}
 	since := r.URL.Query().Get("since")
+	before := r.URL.Query().Get("before")
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "limit must be a non-negative integer"))
+			return
+		}
+		if n > maxEntriesPage {
+			n = maxEntriesPage
+		}
+		limit = n
+	}
 
 	if entry.Status == SessionStatusActive {
 		if resp, err := m.rpcGetEntries(entry.ID, since); err == nil {
+			applyPagination(resp, limit, before)
 			writeJSON(w, http.StatusOK, resp)
 			return
-		} else if !errors.Is(err, errNoWorker) {
-			// Fall through to offline parsing on rpc failure — the session
-			// file on disk is the same source of truth pi serves.
-			_ = err
-		} else {
-			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
-			return
 		}
+		// Any rpc failure (including errNoWorker — worker not in this
+		// process: restarted server, second browser, post-refresh) falls
+		// through to offline parsing below. The JSONL on disk is appended
+		// live by pi, so the offline read serves full history.
 	}
 
 	// Offline: locate the pi session JSONL by uuid filename prefix under the
@@ -685,7 +735,7 @@ func (m *SessionManager) SessionEntries(w http.ResponseWriter, r *http.Request) 
 		writeError(w, newWebError(http.StatusNotFound, "not_found", "%v", err))
 		return
 	}
-	resp, err := parseSessionEntries(file, since)
+	resp, err := parseSessionEntries(file, since, limit, before)
 	if err != nil {
 		writeError(w, newWebError(http.StatusInternalServerError, "internal", "parse session entries: %v", err))
 		return
@@ -693,7 +743,81 @@ func (m *SessionManager) SessionEntries(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// maxEntriesPage caps a single paginated page (rehydration request).
+const maxEntriesPage = 500
+
+// applyPagination trims resp.Entries per before/limit (time order preserved).
+// Works on rpc responses as well as offline lists: before trims everything
+// at-or-after the cursor, then limit keeps only the trailing `limit` entries.
+func applyPagination(resp *entriesResponse, limit int, before string) {
+	if resp == nil || resp.Entries == nil {
+		return
+	}
+	all := resp.Entries
+	if before != "" {
+		cut := -1
+		for i, raw := range all {
+			var probe struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(raw, &probe); err != nil {
+				continue
+			}
+			if probe.ID == before {
+				cut = i
+				break
+			}
+		}
+		if cut >= 0 {
+			all = all[:cut]
+		} // cursor not found → keep the whole page (defensive: don't lose data)
+	}
+	if limit > 0 && len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	resp.Entries = all
+}
+
 var errNoWorker = errors.New("no live worker for session")
+
+// SessionPromptFiles serves GET /api/sessions/{id}/prompt — the full text that
+// was fed to the LLM for this session (method + instance system prompts).
+// The file paths were recorded at session creation (_prompt_file /
+// _method_file params — see createSessionLocked). Files are read through
+// readPromptFile, which enforces the workspace-.rick containment, symlink
+// rejection and size cap. Missing recorded paths degrade to not_found so the
+// frontend can show an explicit hint instead of a broken block.
+func (m *SessionManager) SessionPromptFiles(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	ws, ok := m.workspaces.Get(entry.WorkspaceID)
+	if !ok {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is not registered", entry.WorkspaceID))
+		return
+	}
+	instancePath, _ := entry.Params["_prompt_file"].(string)
+	methodPath, _ := entry.Params["_method_file"].(string)
+
+	instance, err := readPromptFile(ws.Path, instancePath)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	method := ""
+	if methodPath != "" {
+		method, err = readPromptFile(ws.Path, methodPath)
+		if we, isWeb := err.(*WebError); isWeb && we.Status != http.StatusNotFound {
+			writeError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"method":   method,
+		"instance": instance,
+	})
+}
 
 // pendingResponses routes rpc responses back to waiting requesters.
 type pendingResp struct {
@@ -765,6 +889,165 @@ func (m *SessionManager) rpcGetEntries(sessionID, since string) (*entriesRespons
 	}
 }
 
+// rpcRequest sends an rpc command built by build to the session's worker and
+// waits for the correlated response (bounded). It returns the response event
+// for the caller to interpret. Errors: errNoWorker when the worker is absent
+// or dead; a descriptive error when pi reports success:false or the wait
+// times out.
+func (m *SessionManager) rpcRequest(sessionID string, build func(*runtime.RpcClient) ([]byte, error)) (*runtime.RpcEvent, error) {
+	worker := m.sup.Get(sessionID)
+	if worker == nil || worker.IsDead() {
+		return nil, errNoWorker
+	}
+	client := runtime.NewRpcClient()
+	line, err := build(client)
+	if err != nil {
+		return nil, err
+	}
+	var idOnly struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(line, &idOnly); err != nil {
+		return nil, err
+	}
+	ch := m.pending.register(idOnly.ID)
+	defer m.pending.release(idOnly.ID)
+	if err := worker.Send(line); err != nil {
+		return nil, err
+	}
+	select {
+	case ev := <-ch:
+		if ev == nil {
+			return nil, fmt.Errorf("rpc response channel closed")
+		}
+		if !ev.Success {
+			return nil, fmt.Errorf("%s failed: %s", ev.Command, ev.Error)
+		}
+		return ev, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("rpc command timed out")
+	}
+}
+
+// SessionModels handles GET /api/sessions/{id}/models — the list of models
+// pi can switch to (get_available_models projection: id/name/provider/
+// contextWindow). Worker absent (restarted server / second browser) → 409 so
+// the frontend can degrade gracefully.
+func (m *SessionManager) SessionModels(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if entry.Status != SessionStatusActive {
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, model list requires active", entry.Status))
+		return
+	}
+	ev, err := m.rpcRequest(entry.ID, func(c *runtime.RpcClient) ([]byte, error) { return c.GetAvailableModels() })
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "get_available_models: %v", err))
+		return
+	}
+	var payload struct {
+		Models []ModelInfo `json:"models"`
+	}
+	if err := json.Unmarshal(ev.Data, &payload); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "decode models payload: %v", err))
+		return
+	}
+	if payload.Models == nil {
+		payload.Models = []ModelInfo{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": nil})
+}
+
+// SessionSetModel handles POST /api/sessions/{id}/model {provider, model_id}:
+// switches the session to the given model via set_model.
+func (m *SessionManager) SessionSetModel(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if entry.Status != SessionStatusActive {
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, model switch requires active", entry.Status))
+		return
+	}
+	var req struct {
+		Provider string `json:"provider"`
+		ModelID  string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+		return
+	}
+	if req.Provider == "" || req.ModelID == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "provider and model_id are required"))
+		return
+	}
+	ev, err := m.rpcRequest(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
+		return c.SetModel(req.Provider, req.ModelID)
+	})
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		// pi-side rejection (bad model id / provider mismatch) → 400 with
+		// the upstream error text so the UI can surface it.
+		writeError(w, newWebError(http.StatusBadRequest, "model_rejected", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "model": string(ev.Data)})
+}
+
+// SessionSetThinking handles POST /api/sessions/{id}/thinking {level}:
+// sets the reasoning/thinking level for the session's current model.
+func (m *SessionManager) SessionSetThinking(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if entry.Status != SessionStatusActive {
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, thinking switch requires active", entry.Status))
+		return
+	}
+	var req struct {
+		Level string `json:"level"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+		return
+	}
+	if req.Level == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "level is required"))
+		return
+	}
+	ev, err := m.rpcRequest(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
+		return c.SetThinkingLevel(req.Level)
+	})
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		writeError(w, newWebError(http.StatusBadRequest, "thinking_rejected", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "level": string(ev.Data)})
+}
+
+// ModelInfo is the wire projection of pi's Model object (rpc.md Types
+// section) — the fields the web UI needs for display and switching.
+type ModelInfo struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Provider      string `json:"provider"`
+	ContextWindow int64  `json:"contextWindow,omitempty"`
+}
+
 // decodeEntriesPayload converts a get_entries response data payload
 // ({"entries":[...],"leafId":...}) into the wire projection.
 func decodeEntriesPayload(data json.RawMessage) (*entriesResponse, error) {
@@ -815,13 +1098,14 @@ func findSessionJSONL(sessionID string) (string, error) {
 // entries after the `since` cursor (append order), plus the leaf id (the
 // last appended entry — a reasonable leaf for offline reads). The session
 // header line (type "session") is excluded, mirroring rpc get_entries.
-func parseSessionEntries(file, since string) (*entriesResponse, error) {
+// When `since` is non-empty but not found among entry ids, the FULL list is
+// returned (stale-cursor rebuild semantics).
+func parseSessionEntries(file, since string, limit int, before string) (*entriesResponse, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	resp := &entriesResponse{Entries: []json.RawMessage{}}
-	var sinceSeen bool = since == ""
+	all := make([]json.RawMessage, 0, 64)
 	var leaf string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimRight(line, "\r")
@@ -838,21 +1122,40 @@ func parseSessionEntries(file, since string) (*entriesResponse, error) {
 		if probe.Type == "session" {
 			continue // header
 		}
-		if !sinceSeen {
-			if probe.ID == since {
-				sinceSeen = true
-			}
-			continue
-		}
-		resp.Entries = append(resp.Entries, json.RawMessage(line))
+		all = append(all, json.RawMessage(line))
 		if probe.ID != "" {
 			leaf = probe.ID
 		}
 	}
+
+	resp := &entriesResponse{Entries: all}
 	if leaf != "" {
 		resp.LeafID = &leaf
 	}
-	return resp, nil
+	if since == "" {
+		applyPagination(resp, limit, before)
+		return resp, nil
+	}
+
+	// `since` cursor: return only entries strictly after it. When the cursor
+	// id does not exist in this file (stale cursor from a previous server run
+	// or a compaction boundary), degrade to the full list — the caller
+	// rebuilds full state instead of silently seeing an empty tail.
+	for i, raw := range all {
+		var probe struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			continue
+		}
+		if probe.ID == since {
+			resp.Entries = all[i+1:]
+			applyPagination(resp, limit, before)
+			return resp, nil
+		}
+	}
+	applyPagination(resp, limit, before)
+	return resp, nil // cursor not found → full list
 }
 
 // pumpWorker relays a worker's event stream into the Hub for the session's
@@ -872,17 +1175,29 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 			}
 		}
 		// Channel closed: worker terminated. Distinguish user close (closing
-		// map, already handled) from a crash (transition to closed here).
+		// map, already handled) from a crash (transition to error here —
+		// 终止/中断语义：worker 异常退出=error，前端显示 Resume 恢复；
+		// closed 保留给主动 close）。
 		m.mu.Lock()
 		userClosing := m.closing[sessionID]
 		m.mu.Unlock()
 		if !userClosing {
 			if entry, ok := m.sessions.Get(sessionID); ok && entry.Status == SessionStatusActive {
-				m.updateStatus(entry, SessionStatusClosed, "worker exited: "+worker.Reason())
+				m.markWorkerLost(entry)
 			}
 			m.sup.Remove(sessionID)
 		}
 	}()
+}
+
+// markWorkerLost 标记会话为 error（终止/中断语义）：worker 失活（崩溃/心跳超时/
+// 重启遗留/发送管道断裂）时调用，前端收到 session_state 后切换到 error 态并显示
+// Resume 恢复引导。幂等：仅当当前 status 为 active/running 时生效（已 error/closed 不覆盖）。
+func (m *SessionManager) markWorkerLost(entry SessionEntry) {
+	if entry.Status != SessionStatusActive && entry.Status != SessionStatusRunning {
+		return
+	}
+	m.updateStatus(entry, SessionStatusError, "worker lost")
 }
 
 // updateStatus persists a status transition and broadcasts it on the hub.
@@ -918,10 +1233,10 @@ func (m *SessionManager) lookup(w http.ResponseWriter, r *http.Request) (Session
 
 // prep is the artifact bundle an interactive spawn needs.
 type prep struct {
-	promptFile  string
-	methodFile  string
-	persistDir  string // CLI-compat session_id file location ("" = none)
-	title       string
+	promptFile string
+	methodFile string
+	persistDir string // CLI-compat session_id file location ("" = none)
+	title      string
 }
 
 // prepareInteractive produces the prompt artifacts for a session type using

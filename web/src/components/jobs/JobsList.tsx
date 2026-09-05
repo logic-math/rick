@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useJobsStore } from "../../stores/jobs";
+import { api } from "../../api/client";
 import type { JobSummary, TaskBrief } from "../../types";
 import Spinner from "../common/Spinner";
 import ErrorBanner from "../common/ErrorBanner";
@@ -79,6 +80,8 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
   );
   const storeLoading = useJobsStore((s) => s.loadingByWorkspace.get(workspaceId) ?? false);
   const [error, setError] = useState<string | null>(null);
+  // 归档中 job_id 集合（防连击）
+  const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -91,8 +94,30 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     };
   }, [workspaceId, load]);
 
+  async function archive(jobId: string): Promise<void> {
+    setError(null);
+    setArchiving((s) => new Set(s).add(jobId));
+    try {
+      await api.archiveJob(workspaceId, jobId);
+      // 归档成功 → 重新拉列表（store 快照剔除该 job）
+      await load(workspaceId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setArchiving((s) => {
+        const next = new Set(s);
+        next.delete(jobId);
+        return next;
+      });
+    }
+  }
+
+  function isComplete(job: JobSummary): boolean {
+    return job.tasks.length > 0 && job.tasks.every((t) => t.status === "success");
+  }
+
   if (storeLoading && jobs.length === 0 && !error) return <Spinner center label="加载 jobs…" />;
-  if (error) return <ErrorBanner message={error} />;
+  if (error) return <ErrorBanner message={error} onDismiss={() => setError(null)} />;
   if (jobs.length === 0) {
     return (
       <EmptyState
@@ -106,12 +131,14 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
       {jobs.map((job) => {
         const { done, total, failed } = jobProgress(job);
+        const complete = isComplete(job);
+        const busy = archiving.has(job.job_id);
         return (
-          <li key={job.job_id}>
+          <li key={job.job_id} className="group flex flex-col gap-1.5 rounded-lg border border-line bg-surface/50 p-3 transition-colors hover:border-portal/50">
             <button
               type="button"
               onClick={() => onOpen(job.job_id)}
-              className="flex w-full flex-col gap-2 rounded-lg border border-line bg-surface/50 p-3 text-left transition-colors hover:border-portal/50 hover:bg-portal-soft/40"
+              className="flex w-full flex-col gap-2 text-left"
             >
               <div className="flex items-baseline gap-2">
                 <span className="font-mono text-sm font-semibold text-ink">{job.job_id}</span>
@@ -124,6 +151,17 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 {done}/{total} 完成{failed > 0 ? ` · ${failed} 失败 ⚠` : done === total && total > 0 ? " ✅" : ""}
               </p>
             </button>
+            {complete && (
+              <button
+                type="button"
+                onClick={() => void archive(job.job_id)}
+                disabled={busy}
+                title="归档：从列表隐藏（可随时恢复）"
+                className="flex w-fit items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[10px] text-ink-3 transition-colors hover:border-portal/50 hover:text-portal disabled:opacity-40"
+              >
+                {busy ? "归档中…" : "📦 归档"}
+              </button>
+            )}
           </li>
         );
       })}

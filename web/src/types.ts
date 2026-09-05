@@ -152,6 +152,14 @@ export interface SessionEntries {
   leaf_id: string | null;
 }
 
+/** GET /api/workspaces/{ws}/sessions/{id}/prompt 响应——系统提示词全文 */
+export interface SessionPrompt {
+  /** method 层系统提示词（--append-system-prompt 注入的方法描述） */
+  method: string;
+  /** instance 实例 prompt 全文（plan_prompt.md 等） */
+  instance: string;
+}
+
 /**
  * pi session JSONL 行（session-format v3 轻量视图）。
  * message 内容按 pi 原始 schema（role/content…），前端按 role 渲染。
@@ -184,6 +192,10 @@ export interface JobSummary {
   job_id: string; // "job_5"
   updated_at: string; // RFC3339
   tasks: TaskBrief[];
+  /** 已归档（include_archived=true 时返回） */
+  archived?: boolean;
+  /** 归档来源：dream=已被 dream 学习（自动归档）/ manual=手动归档 */
+  archived_by?: "manual" | "dream";
 }
 
 /** GET /api/workspaces/{ws}/jobs/{job}/file 响应 */
@@ -301,4 +313,17 @@ export class ApiError extends Error {
     this.code = code;
     this.status = status;
   }
+}
+
+/** 会话模型（GET /api/sessions/{id}/models 的模型项） */
+export interface SessionModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+/** GET /api/sessions/{id}/models 响应 */
+export interface SessionModelsResult {
+  models: SessionModel[];
+  current: SessionModel | null;
 }

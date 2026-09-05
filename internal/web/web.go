@@ -45,6 +45,13 @@ func SessionsPath() string {
 	return filepath.Join(WebStateDir(), "sessions.json")
 }
 
+// ArchivedPath returns the job archive registry file path
+// (~/.rick/web/archived.json). It holds the web-layer soft-archive state
+// (per-workspace archived job ids) — rick job files are never touched.
+func ArchivedPath() string {
+	return filepath.Join(WebStateDir(), "archived.json")
+}
+
 // PidPath returns the singleton liveness file path (~/.rick/web.pid).
 func PidPath() string {
 	home, err := os.UserHomeDir()

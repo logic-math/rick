@@ -3,7 +3,8 @@
  *
  * 与 ChatView 富渲染的区别：本组件把 session_event 里的「非 chat 类」事件压成
  * 精简单行卡（时间戳 + 图标 + 摘要）：
- * - tool_execution_start/end → 🔧 工具名 + 参数摘要 / 结果状态
+ * - tool_execution_start/end → 🔧 工具名 + 参数摘要 / 结果状态；**行可点击展开
+ *   简版详情（完整参数 + 结果）**——复查行为轨迹
  * - agent_start / agent_settled → 生命周期
  * - message_end（assistant）→ 文本首行摘要（截断）
  * - message_update（流式 delta）→ 跳过（密度优先；chat 组件的职责）
@@ -14,8 +15,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PiRpcEvent, SSEEnvelope } from "../../types";
+import Collapse from "../common/Collapse";
 
 const MAX_RENDER = 300;
+/** 展开详情的输出截断（密度优先——监控视图简版） */
+const MAX_DETAIL = 4 * 1024;
 
 type LineKind = "tool" | "tool-error" | "lifecycle" | "message" | "ui" | "state";
 
@@ -25,6 +29,8 @@ interface EventLine {
   kind: LineKind;
   icon: string;
   text: string;
+  /** 可展开详情（tool 行：参数 + 结果） */
+  detail?: { args?: unknown; result?: unknown; isError?: boolean };
 }
 
 const KIND_STYLE: Record<LineKind, string> = {
@@ -73,13 +79,34 @@ function toLine(env: SSEEnvelope, event: PiRpcEvent): EventLine | null {
   switch (event.type) {
     case "tool_execution_start": {
       const text = summarizeArgs(event.args);
-      return { id, time, kind: "tool", icon: "🔧", text: `${event.toolName ?? "tool"}${text ? ` ${text}` : ""}` };
+      return {
+        id,
+        time,
+        kind: "tool",
+        icon: "🔧",
+        text: `${event.toolName ?? "tool"}${text ? ` ${text}` : ""}`,
+        detail: { args: event.args },
+      };
     }
     case "tool_execution_end": {
       if (event.isError) {
-        return { id, time, kind: "tool-error", icon: "⚠", text: `${event.toolName ?? "tool"} 失败` };
+        return {
+          id,
+          time,
+          kind: "tool-error",
+          icon: "⚠",
+          text: `${event.toolName ?? "tool"} 失败`,
+          detail: { result: event.result, isError: true, args: event.args },
+        };
       }
-      return { id, time, kind: "tool", icon: "✓", text: `${event.toolName ?? "tool"} 完成` };
+      return {
+        id,
+        time,
+        kind: "tool",
+        icon: "✓",
+        text: `${event.toolName ?? "tool"} 完成`,
+        detail: { result: event.result, args: event.args },
+      };
     }
     case "agent_start":
       return { id, time, kind: "lifecycle", icon: "▶", text: "agent 启动" };
@@ -106,7 +133,7 @@ function toLine(env: SSEEnvelope, event: PiRpcEvent): EventLine | null {
       }
       text = text.replace(/\s+/g, " ").trim();
       if (!text) return null;
-      return { id, time, kind: "message", icon: "💬", text: text.length > 120 ? `${text.slice(0, 120)}…` : text };
+      return { id, time, kind: "message", icon: "💬", text: text.length > 120 ? `${text.slice(0, 120)}…` : text, detail: undefined };
     }
     case "extension_ui_request": {
       const method = (event as { method?: unknown }).method ?? "dialog";
@@ -117,9 +144,10 @@ function toLine(env: SSEEnvelope, event: PiRpcEvent): EventLine | null {
   }
 }
 
-/** SSEEnvelope[] → 渲染行（session_state 也压成行） */
+/** SSEEnvelope[] → 渲染行（session_state 也压成行；同工具的 start/end 行合并详情） */
 export function toEventLines(events: SSEEnvelope[]): EventLine[] {
   const lines: EventLine[] = [];
+  const toolLineById = new Map<string, EventLine>();
   for (const env of events) {
     if (env.type === "session_state") {
       const data = env.data as { status?: string; reason?: string } | undefined;
@@ -139,9 +167,86 @@ export function toEventLines(events: SSEEnvelope[]): EventLine[] {
     const event = data?.event;
     if (!event?.type) continue;
     const line = toLine(env, event);
-    if (line) lines.push(line);
+    if (!line) continue;
+
+    // 同一工具调用的 start/end 合并：end 行的 result 并入 start 行（保留首行位置）
+    const callId = event.toolCallId;
+    if (callId && line.detail && (event.type === "tool_execution_start" || event.type === "tool_execution_end")) {
+      const existing = toolLineById.get(callId);
+      if (existing && existing.detail) {
+        existing.detail = {
+          ...existing.detail,
+          ...line.detail,
+          args: existing.detail.args ?? line.detail.args,
+        };
+        // end 到达后把首行状态文本更新为终态摘要
+        if (event.type === "tool_execution_end") {
+          existing.icon = event.isError ? "⚠" : "✓";
+          existing.kind = event.isError ? "tool-error" : "tool";
+          existing.text = `${event.toolName ?? existing.text} ${event.isError ? "失败" : "完成"}`;
+        }
+        continue; // end 行不单独渲染
+      }
+      if (event.type === "tool_execution_start") {
+        toolLineById.set(callId, line);
+      }
+    }
+
+    lines.push(line);
   }
   return lines.length > MAX_RENDER ? lines.slice(lines.length - MAX_RENDER) : lines;
+}
+
+/** 工具行详情（参数 + 结果，监控简版——4KB 截断） */
+function ToolDetail({ detail }: { detail: NonNullable<EventLine["detail"]> }) {
+  const argsText = useMemo(() => {
+    if (detail.args == null) return null;
+    if (typeof detail.args === "string") return detail.args;
+    try {
+      return JSON.stringify(detail.args, null, 2);
+    } catch {
+      return String(detail.args);
+    }
+  }, [detail.args]);
+
+  const resultText = useMemo(() => {
+    if (detail.result == null) return null;
+    if (typeof detail.result === "string") return detail.result;
+    const r = detail.result as { content?: Array<{ type?: string; text?: string }> };
+    if (Array.isArray(r.content)) {
+      return r.content.map((c) => (typeof c?.text === "string" ? c.text : "")).join("");
+    }
+    try {
+      return JSON.stringify(detail.result, null, 2);
+    } catch {
+      return String(detail.result);
+    }
+  }, [detail.result]);
+
+  return (
+    <div className="flex flex-col gap-1 px-2 pb-2 pt-1">
+      {argsText != null && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-ink-3">参数</div>
+          <pre className="mt-0.5 max-h-40 overflow-auto rounded bg-space p-1.5 font-mono text-[10px] leading-relaxed text-ink-2">
+            {argsText.length > MAX_DETAIL ? `${argsText.slice(0, MAX_DETAIL)}…` : argsText}
+          </pre>
+        </div>
+      )}
+      {resultText != null && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-ink-3">
+            结果{detail.isError ? "（失败）" : ""}
+          </div>
+          <pre className={`mt-0.5 max-h-40 overflow-auto rounded bg-space p-1.5 font-mono text-[10px] leading-relaxed ${
+            detail.isError ? "text-danger" : "text-ink-2"
+          }`}>
+            {resultText.length > MAX_DETAIL ? `${resultText.slice(0, MAX_DETAIL)}…` : resultText}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface EventStreamProps {
@@ -178,13 +283,33 @@ export default function EventStream({ events }: EventStreamProps) {
         <p className="px-2 py-6 text-center text-ink-3">（等待事件…）</p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {lines.map((l) => (
-            <li key={l.id} className="flex items-start gap-2 rounded px-1 py-0.5 hover:bg-white/[0.03]">
-              <span className="w-14 shrink-0 text-right text-[10px] leading-5 text-ink-3">{l.time}</span>
-              <span aria-hidden="true" className="shrink-0 leading-5">{l.icon}</span>
-              <span className={`min-w-0 flex-1 break-all leading-5 ${KIND_STYLE[l.kind]}`}>{l.text}</span>
-            </li>
-          ))}
+          {lines.map((l) =>
+            l.detail ? (
+              <li key={l.id}>
+                <Collapse
+                  className="!rounded !border-0 !bg-transparent"
+                  headerClassName="!px-1 !py-0.5 rounded hover:bg-white/[0.03]"
+                  contentClassName="!border-t-0"
+                  title={
+                    <>
+                      <span className="w-12 shrink-0 text-right text-[10px] leading-5 text-ink-3">{l.time}</span>
+                      <span aria-hidden="true" className="shrink-0 leading-5">{l.icon}</span>
+                      <span className={`min-w-0 flex-1 break-all leading-5 ${KIND_STYLE[l.kind]}`}>{l.text}</span>
+                    </>
+                  }
+                  label={`展开 ${l.text}`}
+                >
+                  <ToolDetail detail={l.detail} />
+                </Collapse>
+              </li>
+            ) : (
+              <li key={l.id} className="flex items-start gap-2 rounded px-1 py-0.5 hover:bg-white/[0.03]">
+                <span className="w-14 shrink-0 text-right text-[10px] leading-5 text-ink-3">{l.time}</span>
+                <span aria-hidden="true" className="shrink-0 leading-5">{l.icon}</span>
+                <span className={`min-w-0 flex-1 break-all leading-5 ${KIND_STYLE[l.kind]}`}>{l.text}</span>
+              </li>
+            ),
+          )}
         </ul>
       )}
       {!stickBottom && (
