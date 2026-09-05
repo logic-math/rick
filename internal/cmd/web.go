@@ -82,6 +82,10 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	if err != nil {
 		return fmt.Errorf("load workspace registry: %w", err)
 	}
+	archived, err := web.LoadArchived(web.ArchivedPath())
+	if err != nil {
+		return fmt.Errorf("load archived registry: %w", err)
+	}
 	sessions, err := web.LoadSessionRegistry(web.SessionsPath())
 	if err != nil {
 		return fmt.Errorf("load session registry: %w", err)
@@ -93,6 +97,8 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		// MaxActive/IdleTimeout/Heartbeat: supervisor defaults (8 / 30m / 30s).
 	})
 	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil, nil)
+	// 重启对账：active/running 但无 worker 的会话标记 error（前端显示 Resume 恢复）
+	sm.ReconcileOnStart()
 
 	addr := fmt.Sprintf("%s:%d", opts.Listen, opts.Port)
 	if opts.Listen == "" && opts.Port == 0 {
@@ -112,6 +118,7 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		Workspaces: workspaces,
 		Token:      token,
 		Version:    opts.Version,
+		Archived:   archived,
 	}
 	server, err := web.NewServer(serverCfg, deps)
 	if err != nil {

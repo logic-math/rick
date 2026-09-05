@@ -271,6 +271,47 @@ func (c *RpcClient) GetSessionStats() ([]byte, error) {
 	return c.buildNoPayload("get_session_stats")
 }
 
+// SetModel builds a `set_model` command: switch the session to a specific
+// model (provider + modelId per rpc.md Model section).
+func (c *RpcClient) SetModel(provider, modelID string) ([]byte, error) {
+	if provider == "" || modelID == "" {
+		return nil, fmt.Errorf("rpc: set_model requires provider and modelId")
+	}
+	return c.BuildCommand("set_model", map[string]any{
+		"provider": provider,
+		"modelId":  modelID,
+	})
+}
+
+// CycleModel builds a `cycle_model` command: switch to the next available
+// model (response data is null when only one model is available).
+func (c *RpcClient) CycleModel() ([]byte, error) {
+	return c.buildNoPayload("cycle_model")
+}
+
+// GetAvailableModels builds a `get_available_models` command: list all
+// configured models (response data carries {"models":[...]}).
+func (c *RpcClient) GetAvailableModels() ([]byte, error) {
+	return c.buildNoPayload("get_available_models")
+}
+
+// SetThinkingLevel builds a `set_thinking_level` command: set the
+// reasoning/thinking level ("off" | "minimal" | "low" | "medium" | "high" |
+// "xhigh" | "max" — the latter two only when the model supports them).
+func (c *RpcClient) SetThinkingLevel(level string) ([]byte, error) {
+	if level == "" {
+		return nil, fmt.Errorf("rpc: set_thinking_level requires a level")
+	}
+	return c.BuildCommand("set_thinking_level", map[string]any{"level": level})
+}
+
+// GetAvailableThinkingLevels builds a `get_available_thinking_levels`
+// command: list the thinking levels supported by the current model
+// (response data carries {"levels":[...]}).
+func (c *RpcClient) GetAvailableThinkingLevels() ([]byte, error) {
+	return c.buildNoPayload("get_available_thinking_levels")
+}
+
 // --- extension_ui_response construction ---
 
 // UIResponseKind enumerates the three response shapes of the extension UI

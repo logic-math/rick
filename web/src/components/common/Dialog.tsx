@@ -7,6 +7,7 @@
  */
 
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 interface DialogProps {
   open: boolean;
@@ -43,9 +44,13 @@ export default function Dialog({
 
   if (!open) return null;
 
-  return (
+  // createPortal 渲染到 document.body：避免 fixed 定位被 backdrop-filter/
+  // transform 祖先（侧边栏 aside 带 backdrop-blur）劫持为相对祖先定位——
+  // 否则弹窗被锁在侧边栏内无法全屏（job_36 用户实测反馈）。z-[999]
+  // 高于侧边栏 z-30 / 移动端遮罩 z-20。
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && closable) onClose();
       }}
@@ -74,6 +79,7 @@ export default function Dialog({
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

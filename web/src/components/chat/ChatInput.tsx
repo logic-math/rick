@@ -16,9 +16,13 @@ export interface SlashCommand {
   name: string;
   desc: string;
   available: boolean;
+  /** 命令参数（如 `/model glm-5.3` 的 `glm-5.3`；无参数为空串） */
+  arg?: string;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
+  { name: "/model", desc: "切换模型", available: true },
+  { name: "/thinking", desc: "切换思考档位", available: true },
   { name: "/abort", desc: "中止当前生成", available: true },
   { name: "/close", desc: "关闭会话", available: true },
   { name: "/compact", desc: "压缩上下文（v1 暂不可用）", available: false },
@@ -84,7 +88,7 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
       const target = exact ?? slashMatches[menuIndex];
       if (target) {
         if (target.available) {
-          onCommand(target);
+          onCommand({ ...target, arg: value.slice(target.name.length).trim() });
           setText("");
         } else {
           // 不可用命令就地提示（不清空输入——用户可看到提示）
@@ -199,9 +203,16 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
           type="button"
           onClick={send}
           disabled={disabled || busy || !text.trim()}
-          className="mb-0.5 shrink-0 rounded-lg bg-portal/15 px-3 py-1.5 text-xs font-medium text-portal transition-colors hover:bg-portal/25 disabled:cursor-not-allowed disabled:opacity-40"
+          className="mb-0.5 flex shrink-0 items-center gap-1.5 rounded-lg bg-portal/15 px-3 py-1.5 text-xs font-medium text-portal transition-colors hover:bg-portal/25 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-busy={busy}
         >
-          发送
+          {busy && (
+            <span
+              className="inline-block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent"
+              aria-hidden="true"
+            />
+          )}
+          {busy ? "发送中…" : "发送"}
         </button>
       </div>
     </div>

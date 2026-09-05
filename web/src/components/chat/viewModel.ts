@@ -39,6 +39,8 @@ export interface UserItem {
   kind: "user";
   id: string;
   text: string;
+  /** epoch ms（历史=entry 时间戳；live=事件到达时）——气泡相对时间显示用 */
+  ts?: number;
 }
 
 export interface AssistantTextItem {
@@ -46,6 +48,7 @@ export interface AssistantTextItem {
   id: string;
   text: string;
   streaming: boolean;
+  ts?: number;
 }
 
 export interface ThinkingItem {
@@ -76,7 +79,6 @@ export interface ChatViewModel {
   /** fire-and-forget notify 通知（最近 N 条，可关闭） */
   notifications: Array<{ id: string; message: string; notifyType: string }>;
 }
-
 export interface ExtensionUIDialogRequest {
   id: string;
   method: string; // select | confirm | input | editor
@@ -159,6 +161,8 @@ interface BuildState {
   liveText: AssistantTextItem | null;
   liveThinking: ThinkingItem | null;
   seq: number;
+  /** 历史回放指纹（live 重叠跳过） */
+  skip: Set<string> | undefined;
 }
 
 const MAX_NOTIFICATIONS = 5;
@@ -171,10 +175,13 @@ function liveId(seq: number): string {
  * 由事件流构建视图模型。
  * @param envelopes session_event 信封列表（时间序）
  * @param optimisticUser 本地乐观 user 消息（发送后未收到 echo 前）；echo 到达时由调用方清除
+ * @param skipFingerprints 历史回放已渲染的内容指纹——live 事件与之重叠时跳过
+ *   （挂载时 REST 补历史与 SSE 在途事件的重叠消解；指纹见 buildHistoryItems）
  */
 export function buildChatViewModel(
   envelopes: SSEEnvelope[],
   optimisticUser: string | null,
+  skipFingerprints?: Set<string>,
 ): ChatViewModel {
   const st: BuildState = {
     items: [],
@@ -185,6 +192,7 @@ export function buildChatViewModel(
     liveText: null,
     liveThinking: null,
     seq: 0,
+    skip: skipFingerprints,
   };
 
   for (const env of envelopes) {
@@ -210,6 +218,20 @@ export function buildChatViewModel(
   };
 }
 
+/**
+ * 工具终态化兜底：任何「推进」事件（新工具开始 / agent 开始回文本 / 回合结束）
+ * 到达时，把仍卡在 running 的工具强制标 done——保证 UI 不会因缺失的
+ * tool_execution_end / 未配对的 toolResult 而永久旋转（job_36 验收期实测：
+ * 上一个 edit 已返回内容但仍在旋转）。
+ */
+function supersedeRunningTools(st: BuildState): void {
+	for (const it of st.items) {
+		if (it.kind === "tool" && it.status === "running") {
+			it.status = "done";
+		}
+	}
+}
+
 function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
   st.seq += 1;
   switch (ev.type) {
@@ -219,11 +241,15 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
     }
     case "agent_settled": {
       st.streaming = false;
+      supersedeRunningTools(st); // 回合结束：仍 running 的工具强制终态化
       break;
     }
     case "agent_end": {
       const willRetry = ev.willRetry === true;
-      if (!willRetry) st.streaming = false;
+      if (!willRetry) {
+        st.streaming = false;
+        supersedeRunningTools(st);
+      }
       break;
     }
     case "compaction_start": {
@@ -235,26 +261,33 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
       break;
     }
     case "message_update": {
+      // agent 开始返回文本 → 工具调用阶段已结束：强制终态化仍 running 的工具
+      supersedeRunningTools(st);
       applyMessageUpdate(st, ev);
       break;
     }
     case "message_end": {
+      supersedeRunningTools(st);
       applyMessageEnd(st, ev);
       break;
     }
     case "tool_execution_start": {
       const toolCallId = String(ev.toolCallId ?? st.seq);
-      st.items.push({
-        kind: "tool",
-        id: `tool-${toolCallId}`,
-        toolCallId,
-        toolName: String(ev.toolName ?? "tool"),
-        args: ev.args,
-        output: "",
-        status: "running",
-        truncated: false,
-        fullOutputPath: null,
-      });
+      // 新工具开始：上一个工具必然已结束（顺序推进）——强制终态化前一个 running
+      supersedeRunningTools(st);
+      if (!st.skip?.has(`tool:${toolCallId}`)) {
+        st.items.push({
+          kind: "tool",
+          id: `tool-${toolCallId}`,
+          toolCallId,
+          toolName: String(ev.toolName ?? "tool"),
+          args: ev.args,
+          output: "",
+          status: "running",
+          truncated: false,
+          fullOutputPath: null,
+        });
+      }
       break;
     }
     case "tool_execution_update": {
@@ -277,7 +310,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
         item.truncated = r.truncated;
         item.fullOutputPath = r.fullOutputPath;
         item.status = ev.isError === true ? "error" : "done";
-      } else {
+      } else if (!st.skip?.has(`tool:${toolCallId}`)) {
         // 未见过 start 的 end（缓冲截断等）——直接落终态卡
         st.items.push({
           kind: "tool",
@@ -360,11 +393,14 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
   if (role === "user") {
     st.liveText = null;
     st.liveThinking = null;
-    st.items.push({
-      kind: "user",
-      id: `user-${st.seq}`,
-      text: messageText(message),
-    });
+    const text = messageText(message);
+    if (!st.skip?.has(`user:${text.trim()}`)) {
+      st.items.push({
+        kind: "user",
+        id: `user-${st.seq}`,
+        text,
+      });
+    }
     return;
   }
 
@@ -375,20 +411,26 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
     const content = message.content;
     const blocks = Array.isArray(content) ? content : [];
     for (const b of blocks) {
-      if (b?.type === "text" && typeof b.text === "string" && b.text) {
-        st.items.push({
-          kind: "assistant-text",
-          id: `text-${st.seq}-${st.items.length}`,
-          text: b.text,
-          streaming: false,
-        });
-      } else if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking) {
-        st.items.push({
-          kind: "thinking",
-          id: `think-${st.seq}-${st.items.length}`,
-          text: b.thinking,
-          streaming: false,
-        });
+      const block = b as Record<string, unknown>;
+      if (block?.type === "text" && typeof block.text === "string" && block.text) {
+        if (!st.skip?.has(`text:${block.text.trim()}`)) {
+          st.items.push({
+            kind: "assistant-text",
+            id: `text-${st.seq}-${st.items.length}`,
+            text: block.text,
+            streaming: false,
+            ts: Date.now(),
+          });
+        }
+      } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
+        if (!st.skip?.has(`think:${block.thinking.trim()}`)) {
+          st.items.push({
+            kind: "thinking",
+            id: `think-${st.seq}-${st.items.length}`,
+            text: block.thinking,
+            streaming: false,
+          });
+        }
       }
       // toolCall 块：由 tool_execution_* 事件渲染（顺序自然落在消息后）
     }
@@ -449,9 +491,12 @@ function applyExtensionUIRequest(st: BuildState, ev: Record<string, unknown>): v
 
 interface HistoryEntry {
   type?: string;
+  id?: string;
+  parentId?: string;
+  timestamp?: string;
   message?: {
     role?: string;
-    content?: string | Array<{ type?: string; text?: string; thinking?: string }>;
+    content?: string | Array<Record<string, unknown>>;
     isError?: boolean;
     stopReason?: string;
     [key: string]: unknown;
@@ -459,55 +504,154 @@ interface HistoryEntry {
   [key: string]: unknown;
 }
 
+/** 历史回放产物：items + 消息指纹（live 流去重）+ 会话元信息 */
+export interface HistoryBuildResult {
+  items: ChatItem[];
+  /** 已渲染内容的指纹集合（live 事件流与之去重：user:/text:/think:/tool:） */
+  fingerprints: Set<string>;
+  /** 会话级元信息（会话信息折叠区展示） */
+  meta: HistoryMeta;
+}
+
+export interface HistoryMeta {
+  model: string | null;
+  provider: string | null;
+  thinkingLevel: string | null;
+  /** 首条 user 消息时间（会话启动锚点） */
+  startedAt: string | null;
+}
+
+/** 内容指纹（归一化文本/工具调用 id——历史与 live 重叠消解） */
+function fingerprint(kind: string, key: string): string {
+  return `${kind}:${key}`;
+}
+
+function normText(s: string): string {
+  return s.trim();
+}
+
+/** ISO 时间戳（如 2026-01-01T00:00:01.000Z）→ epoch ms；解析失败返回 undefined */
+function tsMs(iso: string | undefined): number | undefined {
+  if (!iso) return undefined;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? t : undefined;
+}
+
 /**
- * 离线/历史条目 → 初始 items（message 条目：user/assistant/toolResult）。
- * 仅取 leaf 分支线性序（服务端已按追加序返回）。
+ * 离线/历史条目 → 初始 items + 指纹 + 元信息。
+ *
+ * 关键配对：assistant 消息的 toolCall 块（name + arguments）与后续 toolResult
+ * 条目（toolCallId → content/isError）按 toolCallId 合并——完整工具卡
+ * （参数 + 输出 + 状态）才能落进时间线（此前 args 丢失是「历史没法复查」主因）。
+ * 服务端已按追加序返回（assistant(toolCalls) → toolResults → …）。
  */
-export function buildHistoryItems(entries: HistoryEntry[]): ChatItem[] {
+export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
   const items: ChatItem[] = [];
+  const fingerprints = new Set<string>();
+  const meta: HistoryMeta = { model: null, provider: null, thinkingLevel: null, startedAt: null };
+  /** toolCallId → ToolItem（引用就地补 result——保持时间线块序） */
+  const toolById = new Map<string, ToolItem>();
   let seq = 0;
+
   for (const entry of entries) {
     seq += 1;
+
+    // 会话级元信息（model_change / thinking_level_change）
+    if (entry.type === "model_change") {
+      if (typeof entry.modelId === "string") meta.model = entry.modelId;
+      if (typeof entry.provider === "string") meta.provider = entry.provider;
+      continue;
+    }
+    if (entry.type === "thinking_level_change") {
+      if (typeof entry.thinkingLevel === "string") meta.thinkingLevel = entry.thinkingLevel;
+      continue;
+    }
+
     const m = entry.message;
     if (!m || typeof m.role !== "string") continue;
 
     if (m.role === "user") {
-      items.push({ kind: "user", id: `h-user-${seq}`, text: messageText(m) });
-    } else if (m.role === "assistant") {
+      const text = messageText(m);
+      items.push({ kind: "user", id: `h-user-${seq}`, text, ts: tsMs(entry.timestamp) });
+      fingerprints.add(fingerprint("user", normText(text)));
+      if (!meta.startedAt && text) meta.startedAt = entry.timestamp ?? null;
+      continue;
+    }
+
+    if (m.role === "assistant") {
       const blocks = Array.isArray(m.content) ? m.content : [];
       for (const b of blocks) {
-        if (b?.type === "text" && b.text) {
+        const block = b as Record<string, unknown>;
+        if (block?.type === "text" && typeof block.text === "string" && block.text) {
           items.push({
             kind: "assistant-text",
             id: `h-text-${seq}-${items.length}`,
-            text: b.text,
+            text: block.text,
             streaming: false,
+            ts: tsMs(entry.timestamp),
           });
-        } else if (b?.type === "thinking" && b.thinking) {
+          fingerprints.add(fingerprint("text", normText(block.text)));
+        } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
           items.push({
             kind: "thinking",
             id: `h-think-${seq}-${items.length}`,
-            text: b.thinking,
+            text: block.thinking,
             streaming: false,
           });
+          fingerprints.add(fingerprint("think", normText(block.thinking)));
+        } else if (block?.type === "toolCall") {
+          // 工具调用块：name + arguments（toolResult 后续按 toolCallId 回填）
+          const callId = typeof block.id === "string" ? block.id : `h-${seq}-${items.length}`;
+          const toolName =
+            typeof block.name === "string" ? block.name : "tool";
+          const item: ToolItem = {
+            kind: "tool",
+            id: `h-tool-${seq}-${items.length}`,
+            toolCallId: callId,
+            toolName,
+            args: block.arguments ?? null,
+            output: "",
+            status: "running", // result 未到（若会话在此截断，保持 running 视觉）
+            truncated: false,
+            fullOutputPath: null,
+          };
+          items.push(item);
+          toolById.set(callId, item);
+          fingerprints.add(fingerprint("tool", callId));
         }
       }
-    } else if (m.role === "toolResult") {
+      continue;
+    }
+
+    if (m.role === "toolResult") {
       const r = resultText({ content: m.content });
-      items.push({
-        kind: "tool",
-        id: `h-tool-${seq}`,
-        toolCallId: `h-${seq}`,
-        toolName: typeof m.toolName === "string" ? m.toolName : "tool",
-        args: null,
-        output: r.text,
-        status: m.isError === true ? "error" : "done",
-        truncated: false,
-        fullOutputPath: null,
-      });
+      const callId = typeof m.toolCallId === "string" ? m.toolCallId : null;
+      const target = callId ? toolById.get(callId) : undefined;
+      if (target) {
+        // 就地回填（时间线块序不变）
+        target.output = r.text;
+        target.truncated = r.truncated;
+        target.fullOutputPath = r.fullOutputPath;
+        target.status = m.isError === true ? "error" : "done";
+      } else {
+        // 未配对（缓冲截断/历史分支）——独立工具卡（无参数但有输出）
+        items.push({
+          kind: "tool",
+          id: `h-toolr-${seq}`,
+          toolCallId: callId ?? `h-${seq}`,
+          toolName: typeof m.toolName === "string" ? m.toolName : "tool",
+          args: null,
+          output: r.text,
+          status: m.isError === true ? "error" : "done",
+          truncated: r.truncated,
+          fullOutputPath: r.fullOutputPath,
+        });
+        if (callId) fingerprints.add(fingerprint("tool", callId));
+      }
     }
   }
-  return items;
+
+  return { items, fingerprints, meta };
 }
 
 /**

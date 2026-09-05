@@ -21,8 +21,28 @@ import {
   type ServerConfig,
   type SessionEntries,
   type SessionInfo,
+  type SessionModelsResult,
+  type SessionPrompt,
   type WorkspaceEntry,
 } from "../types";
+
+// ---- fs 浏览（多级路径选择器——目录浏览器数据源）----
+
+/** GET /api/fs/list 响应 */
+export interface FsListResult {
+  path: string;
+  /** 上级目录（文件系统根为空串） */
+  parent: string;
+  entries: { path: string; name: string }[];
+}
+
+/** GET /api/fs/status 响应 */
+export interface FsStatusResult {
+  path: string;
+  exists: boolean;
+  is_dir: boolean;
+  has_rick: boolean;
+}
 
 export const TOKEN_STORAGE_KEY = "rick-web-token";
 export const UNAUTHORIZED_EVENT = "rick-web:unauthorized";
@@ -166,6 +186,36 @@ export class ApiClient {
     return this.request<void>("DELETE", `/api/workspaces/${encodeURIComponent(id)}`);
   }
 
+  /** PUT /api/workspaces/order {ids:[...]} → 204（侧边栏拖拽排序持久化） */
+  reorderWorkspaces(ids: string[]): Promise<void> {
+    return this.request<void>("PUT", "/api/workspaces/order", { body: { ids } });
+  }
+
+  // ----------------------------------------------------------
+  // FS 浏览（多级路径选择器）
+  // ----------------------------------------------------------
+
+  /** GET /api/fs/list?path=<dir> —— 列出子目录（逐级导航） */
+  fsList(path: string): Promise<FsListResult> {
+    return this.request<FsListResult>("GET", "/api/fs/list", {
+      query: { path: path || "/" },
+    });
+  }
+
+  /** GET /api/fs/status?path=<dir> —— 目录状态（注册/创建判定） */
+  fsStatus(path: string): Promise<FsStatusResult> {
+    return this.request<FsStatusResult>("GET", "/api/fs/status", {
+      query: { path: path || "/" },
+    });
+  }
+
+  /** POST /api/fs/mkdir —— 在浏览器中新建子目录 */
+  fsMkdir(path: string, name: string): Promise<{ path: string }> {
+    return this.request<{ path: string }>("POST", "/api/fs/mkdir", {
+      body: { path, name },
+    });
+  }
+
   // ----------------------------------------------------------
   // Sessions
   // ----------------------------------------------------------
@@ -239,24 +289,76 @@ export class ApiClient {
     );
   }
 
-  /** GET /api/sessions/{id}/entries?since=<entryId>（active=rpc 透传；closed=离线 JSONL） */
-  getEntries(id: string, since?: string): Promise<SessionEntries> {
-    return this.request<SessionEntries>(
+  /** GET /api/sessions/{id}/entries?since=<entryId>&limit=N&before=<entryId>（active=rpc 透传；closed=离线 JSONL；before+limit 用于历史分页） */
+  getEntries(
+    id: string,
+    opts?: { since?: string; limit?: number; before?: string },
+  ): Promise<SessionEntries> {
+    return this.request<SessionEntries>("GET", `/api/sessions/${encodeURIComponent(id)}/entries`, {
+      query: {
+        since: opts?.since,
+        ...(opts?.limit != null ? { limit: String(opts.limit) } : {}),
+        ...(opts?.before ? { before: opts.before } : {}),
+      },
+    });
+  }
+
+  /** GET /api/workspaces/{ws}/sessions/{id}/prompt —— 会话的系统提示词原文（method+instance 两份全文） */
+  getSessionPrompt(workspaceId: string, sessionId: string): Promise<SessionPrompt> {
+    return this.request<SessionPrompt>(
       "GET",
-      `/api/sessions/${encodeURIComponent(id)}/entries`,
-      { query: { since } },
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/prompt`,
     );
+  }
+
+  /** GET /api/sessions/{id}/models —— 可用模型列表（active 且有 worker → 200；否则 409） */
+  getSessionModels(id: string): Promise<SessionModelsResult> {
+    return this.request<SessionModelsResult>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(id)}/models`,
+    );
+  }
+
+  /** POST /api/sessions/{id}/model {provider, model_id} → 202 */
+  setSessionModel(id: string, provider: string, modelId: string): Promise<void> {
+    return this.request<void>("POST", `/api/sessions/${encodeURIComponent(id)}/model`, {
+      body: { provider, model_id: modelId },
+    });
+  }
+
+  /** POST /api/sessions/{id}/thinking {level} → 202 */
+  setSessionThinking(id: string, level: string): Promise<void> {
+    return this.request<void>("POST", `/api/sessions/${encodeURIComponent(id)}/thinking`, {
+      body: { level },
+    });
   }
 
   // ----------------------------------------------------------
   // Jobs（只读）
   // ----------------------------------------------------------
 
-  /** GET /api/workspaces/{ws}/jobs */
-  listJobs(workspaceId: string): Promise<JobSummary[]> {
+  /** GET /api/workspaces/{ws}/jobs —— includeArchived=true 时返回全部（归档的带 archived:true） */
+  listJobs(workspaceId: string, includeArchived?: boolean): Promise<JobSummary[]> {
     return this.request<JobSummary[]>(
       "GET",
       `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs`,
+      includeArchived ? { query: { include_archived: "true" } } : undefined,
+    );
+  }
+
+  /** POST /api/workspaces/{ws}/jobs/{job}/archive → 204（仅已完成 job 可归档，幂等） */
+  archiveJob(workspaceId: string, jobId: string): Promise<void> {
+    return this.request<void>(
+      "POST",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/archive`,
+    );
+  }
+
+  /** POST /api/workspaces/{ws}/jobs/{job}/unarchive → 204（恢复，幂等） */
+  unarchiveJob(workspaceId: string, jobId: string): Promise<void> {
+    return this.request<void>(
+      "POST",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/unarchive`,
     );
   }
 

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -470,4 +472,156 @@ func TestManualSmoke(t *testing.T) {
 	data, _ = os.ReadFile(SessionsPath())
 	fmt.Println("---- sessions.json ----")
 	fmt.Println(string(data))
+}
+
+// TestRegistryWorkspaceReorder —— 拖拽排序（sidebar drag-sort）持久化：
+// 按给定 id 顺序重排、空集合 no-op、集合不匹配/未知 id/重复 id 报 invalid_order
+// 且顺序不变、save 失败回滚。
+func TestRegistryWorkspaceReorder(t *testing.T) {
+	path := registryPathUnder(t)
+	r, err := LoadWorkspaceRegistry(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	ws1, ws2, ws3 := newTestWorkspace(t), newTestWorkspace(t), newTestWorkspace(t)
+	e1, _, err := r.Add(ws1, "alpha")
+	if err != nil {
+		t.Fatalf("add ws1: %v", err)
+	}
+	e2, _, err := r.Add(ws2, "beta")
+	if err != nil {
+		t.Fatalf("add ws2: %v", err)
+	}
+	e3, _, err := r.Add(ws3, "gamma")
+	if err != nil {
+		t.Fatalf("add ws3: %v", err)
+	}
+
+	// 1) 空集合：no-op，顺序不变
+	if err := r.Reorder(nil); err != nil {
+		t.Fatalf("reorder empty: %v", err)
+	}
+	want := []string{e1.ID, e2.ID, e3.ID}
+	if got := idsOf(r.List()); !equalStrings(got, want) {
+		t.Fatalf("reorder empty changed order: got %v want %v", got, want)
+	}
+
+	// 2) 合法重排：[e3, e1, e2] → 顺序变为该序，且持久化（重载验证）
+	if err := r.Reorder([]string{e3.ID, e1.ID, e2.ID}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	want = []string{e3.ID, e1.ID, e2.ID}
+	if got := idsOf(r.List()); !equalStrings(got, want) {
+		t.Fatalf("reorder order: got %v want %v", got, want)
+	}
+	reloaded, err := LoadWorkspaceRegistry(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := idsOf(reloaded.List()); !equalStrings(got, want) {
+		t.Fatalf("reorder persisted: got %v want %v", got, want)
+	}
+
+	// 3) 集合不匹配（多一个 id）→ invalid_order，顺序不变
+	before := idsOf(r.List())
+	if err := r.Reorder([]string{e3.ID, e1.ID, e2.ID, "extra-1"}); err == nil {
+		t.Fatal("reorder with extra id: expected error")
+	}
+	if got := idsOf(r.List()); !equalStrings(got, before) {
+		t.Fatalf("reorder failed but order changed: got %v", got)
+	}
+
+	// 4) 未知 id → invalid_order
+	if err := r.Reorder([]string{e3.ID, "unknown-9", e1.ID}); err == nil {
+		t.Fatal("reorder with unknown id: expected error")
+	}
+
+	// 5) 重复 id → invalid_order
+	if err := r.Reorder([]string{e3.ID, e3.ID, e1.ID}); err == nil {
+		t.Fatal("reorder with duplicate id: expected error")
+	}
+}
+
+// idsOf extracts the ordered id slice from workspace entries.
+func idsOf(entries []WorkspaceEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+// equalStrings reports whether two string slices are element-wise equal.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestRoutes_ReorderWorkspacesHTTP —— 路由层回归锁：PUT /api/workspaces/order
+// 经 RegisterRoutes 正确路由到 Reorder（合法 204 / 非法 400 / 无 token 401）。
+func TestRoutes_ReorderWorkspacesHTTP(t *testing.T) {
+	env := newTestEnv(t)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, Deps{
+		Hub:        env.hub,
+		Sessions:   env.managerWith(t, nil, nil),
+		Workspaces: env.workspaces,
+		Token:      "test-token",
+		Static:     http.NotFoundHandler(),
+		Version:    "test",
+	})
+
+	ws1 := newTestWorkspace(t)
+	e1, _, err := env.workspaces.Add(ws1, "alpha")
+	if err != nil {
+		t.Fatalf("add ws1: %v", err)
+	}
+	ws2 := newTestWorkspace(t)
+	e2, _, err := env.workspaces.Add(ws2, "beta")
+	if err != nil {
+		t.Fatalf("add ws2: %v", err)
+	}
+	// newTestEnv 自带一个已注册工作区（env.wsEntry）——三者构成完整集合。
+	base := env.wsEntry.ID
+	all := []string{e2.ID, e1.ID, base}
+
+	// 无 token → 401
+	req := httptest.NewRequest(http.MethodPut, "/api/workspaces/order",
+		strings.NewReader(`{"ids":["`+e2.ID+`","`+e1.ID+`"]}`))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("PUT order without token: got %d, want 401", rec.Code)
+	}
+
+	// 合法重排（完整集合 [e2, e1, base]）→ 204 + 顺序变更
+	body, _ := json.Marshal(map[string]any{"ids": all})
+	req = httptest.NewRequest(http.MethodPut, "/api/workspaces/order",
+		strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("PUT order: got %d, want 204, body=%s", rec.Code, rec.Body.String())
+	}
+	if got := idsOf(env.workspaces.List()); !equalStrings(got, all) {
+		t.Fatalf("reorder via HTTP: got %v want %v", got, all)
+	}
+
+	// 非法（未知 id 且缺 base）→ 400
+	req = httptest.NewRequest(http.MethodPut, "/api/workspaces/order",
+		strings.NewReader(`{"ids":["`+e2.ID+`","bogus"]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("PUT order invalid: got %d, want 400", rec.Code)
+	}
 }

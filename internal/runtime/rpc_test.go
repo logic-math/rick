@@ -100,10 +100,13 @@ func TestRpcClient_SteerAndFollowUp(t *testing.T) {
 func TestRpcClient_NoPayloadCommands(t *testing.T) {
 	c := NewRpcClient()
 	builders := map[string]func() ([]byte, error){
-		"abort":             c.Abort,
-		"get_state":         c.GetState,
-		"get_messages":      c.GetMessages,
-		"get_session_stats": c.GetSessionStats,
+		"abort":                     c.Abort,
+		"get_state":                 c.GetState,
+		"get_messages":              c.GetMessages,
+		"get_session_stats":         c.GetSessionStats,
+		"cycle_model":               c.CycleModel,
+		"get_available_models":      c.GetAvailableModels,
+		"get_available_thinking_levels": c.GetAvailableThinkingLevels,
 	}
 	for want, build := range builders {
 		line := mustCmd(build())
@@ -114,6 +117,52 @@ func TestRpcClient_NoPayloadCommands(t *testing.T) {
 		if len(m) != 2 { // type + id only
 			t.Errorf("%s: want exactly type+id fields, got %d: %v", want, len(m), m)
 		}
+	}
+}
+
+func TestRpcClient_SetModel(t *testing.T) {
+	c := NewRpcClient()
+	line := mustCmd(c.SetModel("deepseek", "deepseek-v4-flash"))
+	m := decodeCommandJSON(t, line)
+	if m["type"] != "set_model" {
+		t.Errorf("type: want set_model, got %v", m["type"])
+	}
+	if m["provider"] != "deepseek" {
+		t.Errorf("provider: want deepseek, got %v", m["provider"])
+	}
+	if m["modelId"] != "deepseek-v4-flash" {
+		t.Errorf("modelId: want deepseek-v4-flash, got %v", m["modelId"])
+	}
+	if len(m) != 4 { // type + provider + modelId + id
+		t.Errorf("want exactly 4 fields, got %d: %v", len(m), m)
+	}
+}
+
+func TestRpcClient_SetModelValidation(t *testing.T) {
+	c := NewRpcClient()
+	if _, err := c.SetModel("", "model-x"); err == nil {
+		t.Error("SetModel with empty provider must error")
+	}
+	if _, err := c.SetModel("deepseek", ""); err == nil {
+		t.Error("SetModel with empty modelID must error")
+	}
+}
+
+func TestRpcClient_SetThinkingLevel(t *testing.T) {
+	c := NewRpcClient()
+	line := mustCmd(c.SetThinkingLevel("high"))
+	m := decodeCommandJSON(t, line)
+	if m["type"] != "set_thinking_level" {
+		t.Errorf("type: want set_thinking_level, got %v", m["type"])
+	}
+	if m["level"] != "high" {
+		t.Errorf("level: want high, got %v", m["level"])
+	}
+	if len(m) != 3 { // type + level + id
+		t.Errorf("want exactly 3 fields, got %d: %v", len(m), m)
+	}
+	if _, err := c.SetThinkingLevel(""); err == nil {
+		t.Error("SetThinkingLevel with empty level must error")
 	}
 }
 

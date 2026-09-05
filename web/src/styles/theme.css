@@ -146,6 +146,28 @@ body {
   }
 }
 
+/* 消息气泡进入动画（轻量：opacity + 上移 0.15s——消息到达不跳帧） */
+.chat-item-enter {
+  animation: rm-chat-in 0.15s ease-out;
+}
+@keyframes rm-chat-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 消息滚动容器：滚动条预留稳定位（scrollbar-gutter）——流式内容从不足一屏跨过
+ * 一屏时滚动条突然出现/消失会导致容器宽度变化 → 整页文本重排跳动（打字机闪烁
+ * 的隐蔽来源之一，job_36 诊断）。保留 gutter 后宽度恒定，消除重排跳变。 */
+.rm-chat-scroll {
+  scrollbar-gutter: stable;
+}
+
 /* ---- 动效降级：prefers-reduced-motion ---- */
 @media (prefers-reduced-motion: reduce) {
   *,

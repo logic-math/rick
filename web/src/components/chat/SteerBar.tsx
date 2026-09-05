@@ -47,7 +47,10 @@ export default function SteerBar({
     return (
       <div className="flex items-center gap-3 px-4 py-3">
         <span className="text-xs text-ink-3">
-          {phase === "error" ? "会话异常终止" : "会话已关闭"}——可恢复继续（resume 加载完整历史）
+          {phase === "error"
+            ? "会话已中断（agent 进程不在）——"
+            : "会话已关闭——"}
+          点击 Resume 重新加载完整历史并恢复 agent 进程
         </span>
         <button
           type="button"

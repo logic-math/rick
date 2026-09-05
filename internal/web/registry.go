@@ -141,7 +141,8 @@ func (r *WorkspaceRegistry) Add(path, name string) (WorkspaceEntry, bool, error)
 
 // Remove deletes the workspace with the given id. Removing an unknown id is
 // an error (not_found). Removing does not touch anything on disk besides the
-// registry file itself (api-contract.md: 活跃会话保留).
+// registry file itself (api-contract.md: 活跃会话保留)。注销=仅从 rick 移除
+// 注册、目录与 job 文件完整保留（可随时重新 Add 回来）。
 func (r *WorkspaceRegistry) Remove(id string) error {
 	for i, e := range r.Items {
 		if e.ID == id {
@@ -153,6 +154,45 @@ func (r *WorkspaceRegistry) Remove(id string) error {
 		}
 	}
 	return newValidationError("not_found", "workspace %s is not registered", id)
+}
+
+// Reorder reorders the registered workspaces to match the given id order
+// (sidebar drag-sort persistence). The ids must be a permutation of the
+// currently registered ids: same length, every id present, no duplicates —
+// otherwise a 400 invalid_order error is returned and the order is untouched.
+// An empty ids slice is a no-op (nil). Persists atomically with rollback on
+// save failure. List() afterwards returns entries in the new order.
+func (r *WorkspaceRegistry) Reorder(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if len(ids) != len(r.Items) {
+		return newValidationError("invalid_order", "expected %d workspace ids, got %d", len(r.Items), len(ids))
+	}
+	byID := make(map[string]WorkspaceEntry, len(r.Items))
+	for _, e := range r.Items {
+		byID[e.ID] = e
+	}
+	seen := make(map[string]bool, len(ids))
+	next := make([]WorkspaceEntry, 0, len(ids))
+	for _, id := range ids {
+		e, ok := byID[id]
+		if !ok {
+			return newValidationError("invalid_order", "unknown workspace id %q", id)
+		}
+		if seen[id] {
+			return newValidationError("invalid_order", "duplicate workspace id %q", id)
+		}
+		seen[id] = true
+		next = append(next, e)
+	}
+	old := r.Items
+	r.Items = next
+	if err := r.save(); err != nil {
+		r.Items = old // rollback so a failed write never claims a reordered state
+		return fmt.Errorf("persist workspace registry: %w", err)
+	}
+	return nil
 }
 
 // List returns the registered workspaces (oldest first).
