@@ -140,6 +140,17 @@ export interface SessionInfo {
   pi_session_id: string; // uuid
   created_at: string; // RFC3339
   closed_at?: string; // RFC3339
+  /** 人工归档（默认列表不含已归档会话；GET archived=true 分页返回） */
+  archived?: boolean;
+  archived_at?: string; // RFC3339
+}
+
+/** GET /api/sessions?workspace=..&archived=true 分页响应（区别于裸数组的默认列表） */
+export interface ArchivedSessionsPage {
+  items: SessionInfo[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // ============================================================
@@ -194,8 +205,8 @@ export interface JobSummary {
   tasks: TaskBrief[];
   /** 已归档（include_archived=true 时返回） */
   archived?: boolean;
-  /** 归档来源：dream=已被 dream 学习（自动归档）/ manual=手动归档 */
-  archived_by?: "manual" | "dream";
+  /** 归档来源：manual=手动归档 / dream=已被 dream 学习 / done=已完成自动归档 */
+  archived_by?: "manual" | "dream" | "done";
 }
 
 /** GET /api/workspaces/{ws}/jobs/{job}/file 响应 */

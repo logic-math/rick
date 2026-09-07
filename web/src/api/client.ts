@@ -10,6 +10,7 @@
 import {
   ApiError,
   type AddWorkspaceRequest,
+  type ArchivedSessionsPage,
   type CreateSessionRequest,
   type CustomizeResult,
   type HealthInfo,
@@ -235,6 +236,42 @@ export class ApiClient {
   /** GET /api/sessions/{id} */
   getSession(id: string): Promise<SessionInfo> {
     return this.request<SessionInfo>("GET", `/api/sessions/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * GET /api/sessions?workspace=<ws>&archived=true&limit&offset → 分页对象
+   * （created_at desc；默认列表裸数组不含已归档——见 listSessions）
+   */
+  listArchivedSessions(
+    workspaceId: string,
+    opts: { limit?: number; offset?: number } = {},
+  ): Promise<ArchivedSessionsPage> {
+    return this.request<ArchivedSessionsPage>("GET", "/api/sessions", {
+      query: {
+        workspace: workspaceId,
+        archived: "true",
+        ...(opts.limit != null ? { limit: String(opts.limit) } : {}),
+        ...(opts.offset != null ? { offset: String(opts.offset) } : {}),
+      },
+    });
+  }
+
+  /** POST /api/sessions/{id}/archive → 204（人工归档，幂等；active 会话先终止变 closed） */
+  archiveSession(id: string): Promise<void> {
+    return this.request<void>(
+      "POST",
+      `/api/sessions/${encodeURIComponent(id)}/archive`,
+      { body: {} },
+    );
+  }
+
+  /** POST /api/sessions/{id}/unarchive → 204（恢复出列表，幂等；不改 status） */
+  unarchiveSession(id: string): Promise<void> {
+    return this.request<void>(
+      "POST",
+      `/api/sessions/${encodeURIComponent(id)}/unarchive`,
+      { body: {} },
+    );
   }
 
   /** POST /api/sessions/{id}/prompt {message} → 202 */

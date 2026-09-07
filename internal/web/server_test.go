@@ -274,10 +274,15 @@ func TestRoutesWorkspacesCRUD(t *testing.T) {
 		t.Fatalf("invalid workspace: status %d body %s", resp.StatusCode, body)
 	}
 
-	// Jobs listing through the workspace route.
+	// Jobs listing through the workspace route (completed job_1 auto-archived:
+	// default view empty; include_archived returns it marked done).
 	resp, body = e.req(t, "GET", "/api/workspaces/"+entry.ID+"/jobs", "", "tk", "")
-	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "job_1") {
-		t.Fatalf("jobs listing: status %d body %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusOK || strings.Contains(body, "job_1") {
+		t.Fatalf("jobs listing default: status %d body %s (job_1 completed → done-archived)", resp.StatusCode, body)
+	}
+	resp, body = e.req(t, "GET", "/api/workspaces/"+entry.ID+"/jobs?include_archived=true", "", "tk", "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"job_id":"job_1"`) || !strings.Contains(body, `"archived_by":"done"`) {
+		t.Fatalf("jobs listing include_archived: status %d body %s", resp.StatusCode, body)
 	}
 
 	// Knowledge tree over the same workspace (empty → []).

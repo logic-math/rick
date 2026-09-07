@@ -18,9 +18,11 @@ import type { JobSummary } from "../types";
 function ArchivedSection({
   workspaceId,
   onRestored,
+  onOpen,
 }: {
   workspaceId: string;
   onRestored: () => void;
+  onOpen: (jobId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [archived, setArchived] = useState<JobSummary[] | null>(null);
@@ -77,26 +79,45 @@ function ArchivedSection({
       {open && archived && archived.length > 0 && (
         <ul className="flex flex-col gap-1">
           {archived.map((j) => {
-            const byDream = j.archived_by === "dream";
+            const src = j.archived_by ?? "manual";
+            const srcBadge =
+              src === "dream" ? (
+                <span className="rounded bg-portal/10 px-1.5 py-0.5 text-[10px] text-portal" title="该 job 已被 dream 学习沉淀，自动归档">
+                  🏭 dream 已学习
+                </span>
+              ) : src === "done" ? (
+                <span className="rounded bg-ink-3/10 px-1.5 py-0.5 text-[10px] text-ink-3" title="任务全部完成即自动归档（完成即离开进行中列表）">
+                  ✅ 已完成自动归档
+                </span>
+              ) : (
+                <span className="rounded bg-morty/10 px-1.5 py-0.5 text-[10px] text-morty" title="手动归档">
+                  📦 手动归档
+                </span>
+              );
             return (
               <li
                 key={j.job_id}
-                className="flex items-center gap-3 rounded-md border border-dashed border-line px-3 py-1.5 text-xs"
+                className="group flex items-center gap-3 rounded-md border border-dashed border-line px-3 py-1.5 text-xs"
               >
-                <span className="font-mono text-ink-2">{j.job_id}</span>
+                <button
+                  type="button"
+                  onClick={() => onOpen(j.job_id)}
+                  className="font-mono text-ink-2 underline-offset-2 group-hover:text-portal group-hover:underline"
+                  title={`打开 ${j.job_id}`}
+                >
+                  {j.job_id}
+                </button>
                 <span className="text-ink-3">
                   {j.tasks.length > 0 ? `${j.tasks.filter((t) => t.status === "success").length}/${j.tasks.length} 完成` : ""}
                 </span>
-                {byDream ? (
-                  <span className="rounded bg-portal/10 px-1.5 py-0.5 text-[10px] text-portal" title="该 job 已被 dream 学习沉淀，自动归档">
-                    🏭 dream 已学习
-                  </span>
-                ) : (
+                {srcBadge}
+                {src === "manual" && (
                   <button
                     type="button"
                     onClick={() => void restore(j.job_id)}
                     disabled={busy}
                     className="ml-auto rounded border border-line px-2 py-0.5 text-[10px] text-portal hover:border-portal/50 hover:bg-portal/10 disabled:opacity-40"
+                    title="解除手动归档（已完成 job 会由系统自动归档，仍在下方列表）"
                   >
                     恢复
                   </button>
@@ -126,7 +147,11 @@ export default function Jobs({ workspaceId }: { workspaceId: string }) {
         <>
           {/* 归档后主列表重挂（refresh key） */}
           <JobsList key={tick} workspaceId={workspaceId} onOpen={(jobId) => setOpenJob(jobId)} />
-          <ArchivedSection workspaceId={workspaceId} onRestored={() => setTick((t) => t + 1)} />
+          <ArchivedSection
+            workspaceId={workspaceId}
+            onRestored={() => setTick((t) => t + 1)}
+            onOpen={(jobId) => setOpenJob(jobId)}
+          />
         </>
       )}
     </div>

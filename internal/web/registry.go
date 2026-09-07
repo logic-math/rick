@@ -228,7 +228,9 @@ func (r *WorkspaceRegistry) save() error {
 
 // SessionEntry is one persisted session. JSON tags follow api-contract.md
 // SessionInfo verbatim; ClosedAt is omitempty because it is absent until the
-// session closes.
+// session closes. Archived/ArchivedAt record a user-initiated manual archive
+// (session-level archive — finished sessions are hidden from the default list
+// but queryable via the paginated archived view and restorable).
 type SessionEntry struct {
 	ID          string         `json:"id"`
 	WorkspaceID string         `json:"workspace_id"`
@@ -239,6 +241,8 @@ type SessionEntry struct {
 	PISessionID string         `json:"pi_session_id"`
 	CreatedAt   time.Time      `json:"created_at"`
 	ClosedAt    time.Time      `json:"closed_at,omitzero"`
+	Archived    bool           `json:"archived,omitempty"`
+	ArchivedAt  time.Time      `json:"archived_at,omitzero"`
 }
 
 // sessionRegistryVersion is the on-disk schema version of sessions.json.

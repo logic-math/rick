@@ -69,6 +69,39 @@ interface JobsListProps {
   onOpen: (jobId: string) => void;
 }
 
+function EmptyJobsView({ workspaceId }: { workspaceId: string }) {
+  // 主列表（进行中）为空：区分“从无 job”与“全部已完成自动归档”
+  const [anyJob, setAnyJob] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listJobs(workspaceId, true)
+      .then((list) => {
+        if (!cancelled) setAnyJob(list.length > 0);
+      })
+      .catch(() => {
+        if (!cancelled) setAnyJob(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+  if (anyJob === true) {
+    return (
+      <EmptyState
+        message="暂无进行中的 job"
+        hint="已完成的 job 会自动归档——展开下方「已归档」可查看"
+      />
+    );
+  }
+  return (
+    <EmptyState
+      message="该工作区还没有 job"
+      hint="plan/doing 跑起来后 tasks.json 会出现在这里"
+    />
+  );
+}
+
 export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
   const load = useJobsStore((s) => s.load);
   const version = useJobsStore((s) => s.version);
@@ -119,12 +152,7 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
   if (storeLoading && jobs.length === 0 && !error) return <Spinner center label="加载 jobs…" />;
   if (error) return <ErrorBanner message={error} onDismiss={() => setError(null)} />;
   if (jobs.length === 0) {
-    return (
-      <EmptyState
-        message="该工作区还没有 job"
-        hint="plan/doing 跑起来后 tasks.json 会出现在这里"
-      />
-    );
+    return <EmptyJobsView workspaceId={workspaceId} />;
   }
 
   return (

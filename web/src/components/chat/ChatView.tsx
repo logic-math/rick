@@ -288,13 +288,18 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   }, []);
 
   // 挂载/SSE 重连/resume 后：REST 补历史（幂等——同 epoch 只拉一次）
+  // hadHistoryRef：首次完整加载过历史后置 true——重建（SSE resync/刷新）时
+  // 拉**全量**（不带 limit）覆盖，避免「重建只拉最近 50 条 → 254 条历史缩水 →
+  // 全部重挂 + enter 动画重放 = 使用中历史闪烁 + override 展开态丢失」。
+  const hadHistoryRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
+    const isRebuild = hadHistoryRef.current;
     api
-      .getEntries(sessionId, { limit: HISTORY_PAGE_SIZE })
+      .getEntries(sessionId, isRebuild ? {} : { limit: HISTORY_PAGE_SIZE })
       .then(async (resp) => {
         if (cancelled) return;
         const firstBuilt = buildHistoryItems(
@@ -303,8 +308,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         setHistory(firstBuilt);
         // 分页游标：entries 时间序，第一条=最早已加载；满页=可能还有更早
         let earliestId = (resp.entries[0] as { id?: string } | undefined)?.id ?? null;
-        let hasMore = resp.entries.length === HISTORY_PAGE_SIZE;
+        let hasMore =
+          !isRebuild && resp.entries.length === HISTORY_PAGE_SIZE;
         setPaging({ earliestId, hasMore });
+        if (isRebuild || !hasMore || !earliestId) {
+          // 重建（全量已拿齐）或首次拉到底：历史已完整
+          if (!cancelled) hadHistoryRef.current = true;
+          return;
+        }
 
         // A：挂载自动补拉（方案 A——用户实测 254 条会话首屏只见最近 50 条，
         // 更早历史要手动滚动才加载，体验不完整）。首屏已渲染，随后循环用
@@ -335,6 +346,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
               hasMore = pageEntries.length === HISTORY_PAGE_SIZE;
             }
             if (!cancelled) setPaging({ earliestId, hasMore });
+            if (!cancelled) hadHistoryRef.current = true; // 首次补拉完整
           } catch {
             // 自动补拉失败：保留已渲染部分（不阻塞 live 流），hasMore 保持可重试
           } finally {
@@ -359,12 +371,19 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     [envelopes, history],
   );
 
-  // 合并视图：历史（前置）+ live
+  // 合并视图：历史（前置）+ 乐观用户消息 + live（SSE 事件流）。
+  // 顺序语义：乐观消息是「最新用户动作」，它触发的内容（assistant 回复/思考/工具）
+  // 必然在其后到达——因此 optimistic 插在 history 与 live 之间，而非 live 尾部。
+  // 旧版 `[...vm.items, optimistic]` 导致：echo 到达前助理内容先到 → 用户消息被
+  // 排到回复下方（用户实测「后续事件排在用户输入之前」）。
   const items = useMemo(() => {
-    const live = optimisticUser
-      ? [...vm.items, { kind: "user" as const, id: "optimistic-user", text: optimisticUser }]
-      : vm.items;
-    return history ? [...history.items, ...live] : live;
+    const opt = optimisticUser
+      ? [{ kind: "user" as const, id: "optimistic-user", text: optimisticUser }]
+      : [];
+    const live = [...vm.items];
+    return history
+      ? [...history.items, ...opt, ...live]
+      : [...opt, ...live];
   }, [history, vm.items, optimisticUser]);
 
   // 乐观消息 echo 消解：只检查 **live 事件流**（vm.items）——SSE 真实收到新 user 事件才消解。

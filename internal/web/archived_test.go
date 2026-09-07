@@ -119,14 +119,15 @@ func TestListJobsFiltered_DefaultHidesArchived_IncludeMarks(t *testing.T) {
 
 	archived := []string{"job_2"}
 
-	// Default: job_2 hidden entirely.
+	// Default: only in-flight jobs — job_1 (done auto-archive) and job_2
+	// (manual) hidden, job_3 (pending) visible.
 	jobs, err := ListJobsFiltered(env.rickDir, archived, nil, false)
 	if err != nil {
 		t.Fatalf("ListJobsFiltered default: %v", err)
 	}
 	ids := jobIDs(jobs)
-	if len(ids) != 2 || ids[0] != "job_1" && ids[1] != "job_1" {
-		t.Fatalf("default view ids = %v, want job_1+job_3 (job_2 archived hidden)", ids)
+	if len(ids) != 1 || ids[0] != "job_3" {
+		t.Fatalf("default view ids = %v, want [job_3] (job_1 done-archived, job_2 manual)", ids)
 	}
 	for _, j := range jobs {
 		if j.Archived {
@@ -134,7 +135,7 @@ func TestListJobsFiltered_DefaultHidesArchived_IncludeMarks(t *testing.T) {
 		}
 	}
 
-	// include_archived=true: all three, job_2 flagged.
+	// include_archived=true: all three, each with the right source.
 	all, err := ListJobsFiltered(env.rickDir, archived, nil, true)
 	if err != nil {
 		t.Fatalf("ListJobsFiltered include: %v", err)
@@ -142,26 +143,28 @@ func TestListJobsFiltered_DefaultHidesArchived_IncludeMarks(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("include view = %d jobs, want 3", len(all))
 	}
-	var flagged bool
+	byID := map[string]JobSummary{}
 	for _, j := range all {
-		if j.JobID == "job_2" && !j.Archived {
-			t.Fatal("job_2 should carry Archived=true in include view")
-		}
-		if j.Archived {
-			flagged = true
-		}
+		byID[j.JobID] = j
 	}
-	if !flagged {
-		t.Fatal("no job marked archived in include view")
+	if !byID["job_1"].Archived || byID["job_1"].ArchivedBy != "done" {
+		t.Fatalf("job_1 include view = %+v, want archived=done (auto-archived completed)", byID["job_1"])
+	}
+	if !byID["job_2"].Archived || byID["job_2"].ArchivedBy != "manual" {
+		t.Fatalf("job_2 include view = %+v, want archived=manual", byID["job_2"])
+	}
+	if byID["job_3"].Archived {
+		t.Fatal("job_3 must not be archived")
 	}
 
-	// Empty archived → unchanged (nil short-circuit).
+	// done auto-archive is independent of the manual set: no manual/dream
+	// entries still filters completed jobs out of the default view.
 	nilJobs, err := ListJobsFiltered(env.rickDir, nil, nil, false)
 	if err != nil {
 		t.Fatalf("ListJobsFiltered nil archived: %v", err)
 	}
-	if len(nilJobs) != 3 {
-		t.Fatalf("nil archived should not filter, got %d jobs", len(nilJobs))
+	if ids := jobIDs(nilJobs); len(ids) != 1 || ids[0] != "job_3" {
+		t.Fatalf("nil archived default view = %v, want [job_3] (done archive still applies)", ids)
 	}
 }
 
@@ -283,14 +286,23 @@ func TestArchiveRoutes_ArchiveListUnarchive(t *testing.T) {
 		t.Fatal("job_1 missing from include view")
 	}
 
-	// Unarchive → 204; default list shows job_1 again.
+	// Unarchive → 204; job_1 is still hidden because completed jobs are
+	// auto-archived (done) — unarchiving only lifts the manual marker.
 	if rec := authPost(mux, "/api/workspaces/"+wsID+"/jobs/job_1/unarchive"); rec.Code != http.StatusNoContent {
 		t.Fatalf("unarchive job_1: got %d, want 204", rec.Code)
 	}
 	var after []JobSummary
 	_ = json.Unmarshal(authGet(mux, "/api/workspaces/"+wsID+"/jobs").Body.Bytes(), &after)
-	if len(after) != 2 {
-		t.Fatalf("after unarchive list = %v, want both jobs back", jobIDs(after))
+	if len(after) != 1 || after[0].JobID != "job_2" {
+		t.Fatalf("after unarchive list = %v, want [job_2] (job_1 completed → still done-archived)", jobIDs(after))
+	}
+	// Include view: job_1 carries archived_by=done now (manual marker lifted).
+	var all2 []JobSummary
+	_ = json.Unmarshal(authGet(mux, "/api/workspaces/"+wsID+"/jobs?include_archived=true").Body.Bytes(), &all2)
+	for _, j := range all2 {
+		if j.JobID == "job_1" && (j.ArchivedBy != "done" || !j.Archived) {
+			t.Fatalf("job_1 after unarchive = %+v, want archived=done", j)
+		}
 	}
 }
 
@@ -371,16 +383,18 @@ func TestListJobsFiltered_DreamAutoArchive(t *testing.T) {
 
 	store := &ArchivedStore{data: archivedFile{Version: 1, Archived: map[string][]string{"ws1": {"job_3"}}}}
 
-	// Default view: job_2 (dream) and job_3 (manual) both hidden → only job_1.
+	// Default view: all three are completed → all auto-archived (job_1 done,
+	// job_2 dream, job_3 manual) → empty default view.
 	got, err := ListJobsFiltered(rickDir, store.List("ws1"), DreamArchivedJobs(rickDir), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ids := jobIDs(got); len(ids) != 1 || ids[0] != "job_1" {
-		t.Fatalf("default view = %v, want [job_1]", ids)
+	if ids := jobIDs(got); len(ids) != 0 {
+		t.Fatalf("default view = %v, want [] (all completed → auto-archived)", ids)
 	}
 
-	// Include view: all three back with archive flags/sources.
+	// Include view: all three back with archive flags/sources (dream wins
+	// over manual wins over done).
 	all, err := ListJobsFiltered(rickDir, store.List("ws1"), DreamArchivedJobs(rickDir), true)
 	if err != nil {
 		t.Fatal(err)
@@ -395,8 +409,8 @@ func TestListJobsFiltered_DreamAutoArchive(t *testing.T) {
 	if !byID["job_3"].Archived || byID["job_3"].ArchivedBy != "manual" {
 		t.Fatalf("job_3 include view = %+v, want archived=manual", byID["job_3"])
 	}
-	if byID["job_1"].Archived {
-		t.Fatal("job_1 must not be archived")
+	if !byID["job_1"].Archived || byID["job_1"].ArchivedBy != "done" {
+		t.Fatalf("job_1 include view = %+v, want archived=done (auto)", byID["job_1"])
 	}
 
 	// Dream wins when both apply: job_2 manually archived too → still "dream".

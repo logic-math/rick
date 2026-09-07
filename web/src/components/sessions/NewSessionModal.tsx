@@ -13,12 +13,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useJobsStore } from "../../stores/jobs";
 import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
+import { api } from "../../api/client";
+import { ApiError } from "../../types";
 import type {
   CreateSessionRequest,
   DreamParams,
+  JobSummary,
   SessionType,
 } from "../../types";
 import Button from "../common/Button";
@@ -26,6 +28,7 @@ import Dialog from "../common/Dialog";
 import ErrorBanner from "../common/ErrorBanner";
 import Spinner from "../common/Spinner";
 import Saucer from "../starfield/Saucer";
+
 
 // ============================================================
 // cmd 类型卡片（图标=内联 SVG，一句话说明）
@@ -125,32 +128,70 @@ const FIELD_CLS =
 // 参数表单（按 type 动态）
 // ============================================================
 
-/** jobs 下拉选项加载（ctrl/learning/doing 需要） */
-function useJobOptions(workspaceId: string | null): {
+/** jobs 下拉选项加载（ctrl/learning/doing 需要）+ dream 素材预检（交互式 dream
+ * 需要 workspace 里有“已完成且未被 dream 归档”的 job——提交前先看，避免 409 玄学）。 */
+function useJobOptions(workspaceId: string | null, active: boolean): {
   jobs: Array<{ job_id: string; label: string }>;
   loading: boolean;
+  /** 可 dream 素材数：已完成（tasks 全 success）且未被 dream 学习的 job
+   *  （含 done/manual 归档来源——dream 会扫描文件系统，不受归档视图影响）。
+   *  口径 = include_archived 全量中 completed && archived_by !== "dream"。 */
+  dreamPending: number;
+  /** 是否已完成一次检查（区分 loading 与空结果） */
+  checked: boolean;
 } {
-  const load = useJobsStore((s) => s.load);
-  const version = useJobsStore((s) => s.version);
-  const getJobs = useJobsStore((s) => s.getJobs);
+  const [list, setList] = useState<JobSummary[] | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (workspaceId) void load(workspaceId);
-  }, [workspaceId, load]);
+    if (!active || !workspaceId) {
+      setList(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    api
+      .listJobs(workspaceId, true) // 全量（含归档）——job 下拉需含已完成；dream 素材需跨归档口径
+      .then((all) => {
+        if (!cancelled) setList(all);
+      })
+      .catch(() => {
+        if (!cancelled) setList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, active]);
 
   const jobs = useMemo(() => {
-    if (!workspaceId) return [];
-    void version; // 依赖版本号感知 snapshot 更新
-    return getJobs(workspaceId)
+    if (!list) return [];
+    return list
       .slice()
       .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
-      .map((j) => ({
-        job_id: j.job_id,
-        label: `${j.job_id}（${j.tasks.filter((t) => t.status === "success").length}/${j.tasks.length} 完成）`,
-      }));
-  }, [workspaceId, version, getJobs]);
+      .map((j) => {
+        const done = j.tasks.filter((t) => t.status === "success").length;
+        const archivedMark = j.archived ? ` 📦` : "";
+        return {
+          job_id: j.job_id,
+          label: `${j.job_id}（${done}/${j.tasks.length} 完成${archivedMark}）`,
+        };
+      });
+  }, [list]);
 
-  return { jobs, loading: useJobsStore((s) => (workspaceId ? s.loadingByWorkspace.get(workspaceId) ?? false : false)) };
+  const dreamPending = useMemo(() => {
+    if (!list) return 0;
+    return list.filter(
+      (j) =>
+        j.tasks.length > 0 &&
+        j.tasks.every((t) => t.status === "success") &&
+        j.archived_by !== "dream",
+    ).length;
+  }, [list]);
+
+  return { jobs, loading, dreamPending, checked: !loading };
 }
 
 interface NewSessionModalProps {
@@ -213,7 +254,9 @@ export default function NewSessionModal({
     }
   }, [open, presetWorkspaceId, presetType, presetJob]);
 
-  const { jobs: jobOptions, loading: jobsLoading } = useJobOptions(cmdType && needsJob(cmdType) ? workspaceId : null);
+  const jobActive = cmdType !== null && (needsJob(cmdType) || cmdType === "dream");
+  const { jobs: jobOptions, loading: jobsLoading, dreamPending, checked: dreamChecked } =
+    useJobOptions(jobActive ? workspaceId : null, jobActive);
 
   // ----------------------------------------------------------
   // 校验 + 提交
@@ -256,7 +299,16 @@ export default function NewSessionModal({
       onClose();
       navigate(`/session/${info.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // 后端 409 no_pending_jobs（dream 无可学习素材）——给可行动引导而非裸英文报错
+      if (err instanceof ApiError && err.code === "no_pending_jobs") {
+        setError(
+          "该工作区暂无「已完成且未被 dream 学习」的 job——dream 需要以已完成 job 作为学习素材。\n" +
+            "已完成 job 在此已被 dream 自动归档：可到本工作区 Jobs 页的归档区查看；\n" +
+            "或换一个仍有已完成 job 的工作区再试（也可先跑一个 doing/plan 会话产生已完成 job）。",
+        );
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
       setSubmitting(false);
     }
   }
@@ -412,6 +464,25 @@ export default function NewSessionModal({
 
             {cmdType === "dream" && (
               <>
+                {/* 素材可用性预检：无素材时提交前就告知（避免裸 409）；交互/后台都需要素材 */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-sm text-ink-2">可用素材</span>
+                  {!workspaceId || !dreamChecked ? (
+                    <p className="rounded-md border border-line bg-space/40 px-2.5 py-1.5 text-xs text-ink-3">
+                      选择工作区后检查可 dream 的已完成 job…
+                    </p>
+                  ) : dreamPending === 0 ? (
+                    <p className="rounded-md border border-morty/40 bg-morty/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink-2">
+                      ⚠ 该工作区暂无 dream 素材：已完成 job 都已被 dream 学习并归档
+                      （见 Jobs 页归档区）。dream 需要“已完成且未被 dream”的 job 作为素材——
+                      可切换到其他工作区，或先跑一个 plan/doing 会话产生已完成 job。
+                    </p>
+                  ) : (
+                    <p className="rounded-md border border-portal/40 bg-portal/5 px-2.5 py-1.5 text-xs leading-relaxed text-portal">
+                      ✓ 可学习素材：{dreamPending} 个已完成 job（dream 将取前 job_num 个反思）
+                    </p>
+                  )}
+                </div>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-sm text-ink-2">处理数量（job_num）</span>
                   <input
