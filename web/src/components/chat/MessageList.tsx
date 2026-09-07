@@ -136,24 +136,23 @@ export default function MessageList({
   useEffect(() => {
     pinnedRef.current = pinned;
   }, [pinned]);
-  // 贴底滚动 rAF 合并：items 流式时每帧变化，同步 scrollTop=scrollHeight 会造成
-  // 整页抖动/内容跳动（打字机闪烁的机制二）。合并到 requestAnimationFrame——
-  // 一帧内多次 items 更新只滚一次；且仅 pinned（用户近底）时跟随。
+  // 贴底：items 变化（补拉前置合并/流式 delta flush）→ pinned 则 rAF 滚到底。
+  // 首帧（空→有内容）也触发一次 → 默认滚到底。onScroll 的方向守卫已避免
+  // scroll anchoring（前置插入）误置 pinned=false（那是旧版「打开停在中间」根因）。
   const followRaf = useRef(0);
-  useEffect(() => {
-    if (!pinned) return;
+  const jumpToBottom = useCallback(() => {
     cancelAnimationFrame(followRaf.current);
     followRaf.current = requestAnimationFrame(() => {
       const el = scrollRef.current;
-      // 仅当内容确实超出容器（可滚）且用户仍近底时才拽到底——
-      // 内容不足一屏时 scrollHeight<=clientHeight，赋值无副作用。
       if (el && pinnedRef.current && el.scrollHeight > el.clientHeight) {
         el.scrollTop = el.scrollHeight;
       }
     });
-    return () => cancelAnimationFrame(followRaf.current);
-  }, [items, pinned]);
-  // 卸载时清理 pending rAF
+  }, []);
+  useEffect(() => {
+    if (items.length > 0) jumpToBottom();
+  }, [items, jumpToBottom]);
+  // 卸载时清理 pending rAF（兜底，防泄漏）
   useEffect(() => () => cancelAnimationFrame(followRaf.current), []);
   const [mode, setMode] = useState<ExpandMode>("default");
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -170,11 +169,20 @@ export default function MessageList({
     [mode, overrides, setOverride],
   );
 
+  // 用户主动滚离底部：以 scrollTop 方向判断——scroll anchoring（历史分页
+  // 前置插入）只让 scrollTop 增加（保持视口内容位置）；scrollTop 减少只来自
+  // 用户向上滚动浏览更早内容 → 此时才解除贴底。
+  const lastScrollTop = useRef(0);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setPinned(distance < 60);
+    if (distance < 60) {
+      setPinned(true);
+    } else if (el.scrollTop < lastScrollTop.current) {
+      setPinned(false); // 用户向上滚（scrollTop 减小）→ 离开底部
+    }
+    lastScrollTop.current = el.scrollTop;
     // 顶部触达（分页加载更早历史）——近顶阈值；onReachTop 由调用方防抖/幂等
     if (el.scrollTop <= 32) {
       onReachTop?.();
@@ -312,9 +320,12 @@ function renderGrouped(items: ChatItem[]): ReactNode[] {
       toolRun.push(item);
     } else {
       flushTools();
-      // thinking：流式中的最后一块默认展开；历史 thinking 全折叠
-      const isLastStreamingThink =
-        item.kind === "thinking" && item.streaming && i === items.length - 1;
+      // thinking 默认折叠（含流式中的最后一块）：历史+实时都不自动展开。
+      // 理由（job_36 用户实测「思考持续追加时整个上下文闪烁」）：展开的流式
+      // thinking 块每帧增长会推动下方消息（max-h 内未溢出前），在长历史会话
+      // 中部造成视觉跳动；折叠后仅标题行存在，流式更新不产生布局位移。
+      // 用户想观看思考时可手动展开单块（override 优先，流式内容照常增长）。
+      const isLastStreamingThink = false;
       out.push(renderItem(item, isLastStreamingThink));
     }
   }

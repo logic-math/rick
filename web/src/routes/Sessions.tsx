@@ -22,6 +22,7 @@ import Dialog from "../components/common/Dialog";
 import ErrorBanner from "../components/common/ErrorBanner";
 import Spinner from "../components/common/Spinner";
 import NewSessionModal from "../components/sessions/NewSessionModal";
+import SessionSettingsDialog from "../components/sessions/SessionSettingsDialog";
 import { useIsMobile } from "./hooks";
 
 // ============================================================
@@ -58,7 +59,13 @@ function sessionSubtitle(s: SessionInfo): string {
   }
 }
 
-function SessionCard({ session }: { session: SessionInfo }) {
+function SessionCard({
+  session,
+  onMenu,
+}: {
+  session: SessionInfo;
+  onMenu: (s: SessionInfo) => void;
+}) {
   const resume = useSessionsStore((s) => s.get);
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -98,6 +105,20 @@ function SessionCard({ session }: { session: SessionInfo }) {
         <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-ink-3">
           {session.status}
         </span>
+        {/* ⋮ 会话设置（归档/恢复）——不触发卡片导航 */}
+        <button
+          type="button"
+          aria-label={`${session.title || session.id} 设置`}
+          title="会话设置（归档/恢复）"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onMenu(session);
+          }}
+          className="shrink-0 rounded px-1 py-0.5 text-sm leading-none text-ink-3 opacity-60 transition-colors hover:bg-white/10 hover:text-ink hover:opacity-100"
+        >
+          ⋮
+        </button>
       </div>
       {sessionSubtitle(session) && (
         <p className="line-clamp-2 text-xs leading-relaxed text-ink-2">
@@ -508,6 +529,177 @@ export function AddWorkspaceCard({ onAdded }: { onAdded: (id: string) => void })
 }
 
 // ============================================================
+// 会话归档区（分页查询 + 恢复）
+// ============================================================
+
+const ARCHIVE_PAGE_SIZE = 20;
+
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "刚刚";
+  if (min < 60) return `${min} 分钟前`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} 小时前`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} 天前`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function ArchivedSessionsSection({
+  workspaceId,
+  onRestored,
+}: {
+  workspaceId: string;
+  /** 恢复成功后通知父级刷新主列表 */
+  onRestored: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<SessionInfo[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function loadPage(nextOffset: number): Promise<void> {
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await api.listArchivedSessions(workspaceId, {
+        limit: ARCHIVE_PAGE_SIZE,
+        offset: nextOffset,
+      });
+      setItems(page.items);
+      setTotal(page.total);
+      setOffset(nextOffset);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (open) void loadPage(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workspaceId]);
+
+  async function restore(s: SessionInfo): Promise<void> {
+    setBusyId(s.id);
+    setError(null);
+    try {
+      await api.unarchiveSession(s.id);
+      onRestored();
+      // 重拉当前页（该条已离开归档区）
+      if (items.length === 1 && offset > 0) {
+        await loadPage(Math.max(0, offset - ARCHIVE_PAGE_SIZE));
+      } else {
+        await loadPage(offset);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const pages = Math.max(1, Math.ceil(total / ARCHIVE_PAGE_SIZE));
+  const pageNo = Math.floor(offset / ARCHIVE_PAGE_SIZE) + 1;
+
+  return (
+    <section className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-fit items-center gap-2 rounded-md border border-line px-3 py-1.5 text-xs text-ink-3 transition-colors hover:border-portal/40 hover:text-portal"
+      >
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        已归档会话{open && total > 0 ? ` (${total})` : ""}
+      </button>
+      {open && error && <p className="text-xs text-danger">{error}</p>}
+      {open && loading && items.length === 0 && (
+        <p className="flex items-center gap-2 text-xs text-ink-3">
+          <Spinner size={14} /> 加载归档会话…
+        </p>
+      )}
+      {open && !loading && items.length === 0 && !error && (
+        <p className="text-xs text-ink-3">暂无归档会话</p>
+      )}
+      {open && items.length > 0 && (
+        <>
+          <ul className="flex flex-col gap-1">
+            {items.map((s) => (
+              <li
+                key={s.id}
+                className="group flex items-center gap-3 rounded-md border border-dashed border-line px-3 py-1.5 text-xs"
+              >
+                <Link
+                  to={`/session/${s.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  title={`打开 ${s.id}`}
+                >
+                  <span
+                    className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${TYPE_TONE[s.type] ?? "border-line text-ink-2"}`}
+                  >
+                    {s.type}
+                  </span>
+                  <span className="truncate text-ink-2 group-hover:text-portal">
+                    {s.title || `${s.type} · ${s.id.slice(0, 8)}`}
+                  </span>
+                </Link>
+                <span className="shrink-0 rounded-full border border-ink-3/30 bg-ink-3/10 px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
+                  {s.status}
+                </span>
+                <span className="shrink-0 text-[10px] text-ink-3">
+                  {relativeTime(s.created_at)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void restore(s)}
+                  disabled={busyId === s.id}
+                  className="ml-auto shrink-0 rounded border border-line px-2 py-0.5 text-[10px] text-portal hover:border-portal/50 hover:bg-portal/10 disabled:opacity-40"
+                  title="恢复：回到默认列表（closed 会话点进用 Resume 重启）"
+                >
+                  {busyId === s.id ? "恢复中…" : "↩ 恢复"}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {/* 分页 */}
+          {total > ARCHIVE_PAGE_SIZE && (
+            <div className="flex items-center gap-3 text-[11px] text-ink-3">
+              <button
+                type="button"
+                onClick={() => void loadPage(Math.max(0, offset - ARCHIVE_PAGE_SIZE))}
+                disabled={offset <= 0 || loading}
+                className="rounded border border-line px-2 py-0.5 hover:border-portal/40 hover:text-portal disabled:opacity-40"
+              >
+                ‹ 上一页
+              </button>
+              <span>
+                {pageNo} / {pages}
+              </span>
+              <button
+                type="button"
+                onClick={() => void loadPage(offset + ARCHIVE_PAGE_SIZE)}
+                disabled={offset + ARCHIVE_PAGE_SIZE >= total || loading}
+                className="rounded border border-line px-2 py-0.5 hover:border-portal/40 hover:text-portal disabled:opacity-40"
+              >
+                下一页 ›
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
 // 工作区会话区块（单工作区）
 // ============================================================
 
@@ -527,6 +719,8 @@ function WorkspaceSection({
   // 稳定引用兜底（同 App.tsx：?? [] 新数组会触发 React #185 无限重渲染）
   const sessions = useSessionsStore((s) => s.byWorkspace.get(workspaceId) ?? EMPTY_SESSIONS);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // 会话设置（⋮ → 归档/恢复）目标
+  const [menuSession, setMenuSession] = useState<SessionInfo | null>(null);
 
   useEffect(() => {
     void load(workspaceId);
@@ -586,10 +780,24 @@ function WorkspaceSection({
       ) : (
         <div className={`grid gap-3 ${compact ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
           {sorted.map((s) => (
-            <SessionCard key={s.id} session={s} />
+            <SessionCard key={s.id} session={s} onMenu={setMenuSession} />
           ))}
         </div>
       )}
+
+      {/* 会话归档区（分页查询 + 恢复） */}
+      <ArchivedSessionsSection
+        workspaceId={workspaceId}
+        onRestored={() => void load(workspaceId)}
+      />
+
+      {/* 会话设置弹层（⋮ → 归档/恢复） */}
+      <SessionSettingsDialog
+        session={menuSession}
+        open={menuSession !== null}
+        onClose={() => setMenuSession(null)}
+        onChanged={() => void load(workspaceId)}
+      />
     </section>
   );
 }

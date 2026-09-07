@@ -1158,3 +1158,261 @@ func TestReconcileOnStart_MarksOrphanActiveAsError(t *testing.T) {
 		t.Fatal("reconcile: ClosedAt should be set for error transition")
 	}
 }
+
+// --- session-level archive (user-initiated: manual mark-done-and-archive) ---
+
+func TestSessionArchive_ActiveTerminatesAndMarks(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+	if w := env.sup.Get(id); w == nil {
+		t.Fatal("active session should hold a live worker")
+	}
+
+	rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("archive active session: %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	got, ok := env.sessions.Get(id)
+	if !ok {
+		t.Fatal("session missing after archive")
+	}
+	if got.Status != SessionStatusClosed {
+		t.Fatalf("archived active session status = %q, want closed", got.Status)
+	}
+	if !got.Archived {
+		t.Fatal("session should be archived")
+	}
+	if got.ArchivedAt.IsZero() {
+		t.Fatal("archived_at should be set")
+	}
+	if w := env.sup.Get(id); w != nil {
+		t.Fatal("worker must be removed after archive of an active session")
+	}
+
+	// Wire projection carries the archive fields.
+	var info map[string]any
+	rec = get(t, m.GetSession, "/api/sessions/"+id)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get session: %d", rec.Code)
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &info)
+	if info["archived"] != true {
+		t.Fatalf("get session archived field = %v, want true", info["archived"])
+	}
+	if info["archived_at"] == nil {
+		t.Fatal("get session archived_at field missing")
+	}
+}
+
+func TestSessionArchive_ClosedAndError_OnlyMarksIdempotent(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	// Closed session (created then closed by the user).
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+	if rec := post(t, m.SessionClose, "/api/sessions/"+id+"/close", nil); rec.Code != http.StatusAccepted {
+		t.Fatalf("close: %d", rec.Code)
+	}
+
+	rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("archive closed: %d body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := env.sessions.Get(id)
+	if !got.Archived || got.ArchivedAt.IsZero() {
+		t.Fatalf("closed session after archive = %+v, want archived", got)
+	}
+
+	// Idempotent second archive → 204.
+	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("re-archive: %d", rec.Code)
+	}
+
+	// Error session (manually pushed to error, worker gone) → marks only.
+	errID := "err-archive-1"
+	now := time.Now()
+	if err := env.sessions.Add(SessionEntry{
+		ID: errID, WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+		Params: map[string]any{"requirement": "r"}, Status: SessionStatusError,
+		PISessionID: "pi-err", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, m.SessionArchive, "/api/sessions/"+errID+"/archive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("archive error session: %d", rec.Code)
+	}
+	gotErr, _ := env.sessions.Get(errID)
+	if gotErr.Status != SessionStatusError || !gotErr.Archived {
+		t.Fatalf("error session after archive = %+v (status should stay error, archived set)", gotErr)
+	}
+
+	// Unknown session → 404.
+	if rec := post(t, m.SessionArchive, "/api/sessions/ghost/archive", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("archive unknown: %d", rec.Code)
+	}
+}
+
+func TestSessionArchive_UnarchiveRestoresToList(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("archive: %d", rec.Code)
+	}
+
+	// Archived session leaves the default list.
+	rec := get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID)
+	var list []map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 0 {
+		t.Fatalf("default list after archive = %d sessions, want 0", len(list))
+	}
+
+	// Unarchive → 204; status untouched (closed stays closed).
+	if rec := post(t, m.SessionUnarchive, "/api/sessions/"+id+"/unarchive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("unarchive: %d", rec.Code)
+	}
+	got, _ := env.sessions.Get(id)
+	if got.Archived || !got.ArchivedAt.IsZero() {
+		t.Fatalf("after unarchive = %+v, want archived cleared", got)
+	}
+	if got.Status != SessionStatusClosed {
+		t.Fatalf("unarchive changed status to %q, want closed untouched", got.Status)
+	}
+
+	// Back in the default list.
+	rec = get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID)
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 1 || list[0]["id"] != id {
+		t.Fatalf("default list after unarchive = %+v, want the restored session", list)
+	}
+
+	// Idempotent unarchive again.
+	if rec := post(t, m.SessionUnarchive, "/api/sessions/"+id+"/unarchive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("re-unarchive: %d", rec.Code)
+	}
+}
+
+func TestSessionList_ArchivedPagination(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	// Seed 5 archived + 1 active session with distinct created_at (desc order
+	// expected: newest first in the archived view).
+	seed := func(id string, created time.Time, archived bool) {
+		entry := SessionEntry{
+			ID: id, WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+			Params: map[string]any{"requirement": "r"}, Status: SessionStatusClosed,
+			PISessionID: "pi-" + id, CreatedAt: created,
+		}
+		if archived {
+			entry.Archived = true
+			entry.ArchivedAt = created.Add(time.Minute)
+		}
+		if err := env.sessions.Add(entry); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	base := time.Now().Add(-time.Hour)
+	for i := 1; i <= 5; i++ {
+		seed(fmt.Sprintf("arch-%d", i), base.Add(time.Duration(i)*time.Minute), true)
+	}
+	seed("active-1", base.Add(time.Hour), false)
+
+	// Default list: only the non-archived session.
+	rec := get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID)
+	var list []map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 1 || list[0]["id"] != "active-1" {
+		t.Fatalf("default list = %+v, want only active-1", list)
+	}
+
+	// Archived view: page 1 (limit 2) → total 5, newest first (arch-5, arch-4).
+	rec = get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID+"&archived=true&limit=2&offset=0")
+	var page map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode archived view: %v body=%s", err, rec.Body.String())
+	}
+	if total := page["total"].(float64); total != 5 {
+		t.Fatalf("archived total = %v, want 5", total)
+	}
+	items := page["items"].([]any)
+	if len(items) != 2 {
+		t.Fatalf("archived page len = %d, want 2", len(items))
+	}
+	first := items[0].(map[string]any)
+	second := items[1].(map[string]any)
+	if first["id"] != "arch-5" || second["id"] != "arch-4" {
+		t.Fatalf("archived page order = [%v %v], want [arch-5 arch-4] (created_at desc)", first["id"], second["id"])
+	}
+
+	// Page 2 (offset 2, limit 2) → arch-3, arch-2.
+	rec = get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID+"&archived=true&limit=2&offset=2")
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	items = page["items"].([]any)
+	if len(items) != 2 || items[0].(map[string]any)["id"] != "arch-3" || items[1].(map[string]any)["id"] != "arch-2" {
+		t.Fatalf("archived page2 = %v, want [arch-3 arch-2]", items)
+	}
+
+	// Offset beyond total → empty page.
+	rec = get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID+"&archived=true&limit=2&offset=10")
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	if len(page["items"].([]any)) != 0 {
+		t.Fatal("archived view past the end should be empty")
+	}
+}
+
+func TestSessionResume_ClearsArchived(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("archive: %d", rec.Code)
+	}
+
+	// Resume the archived (closed) session → active again, archive cleared.
+	rec := post(t, m.SessionResume, "/api/sessions/"+id+"/resume", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume archived: %d body=%s", rec.Code, rec.Body.String())
+	}
+	got, _ := env.sessions.Get(id)
+	if got.Status != SessionStatusActive {
+		t.Fatalf("resumed status = %q, want active", got.Status)
+	}
+	if got.Archived || !got.ArchivedAt.IsZero() {
+		t.Fatalf("resumed session still archived = %+v, want cleared", got)
+	}
+}
+
+func TestSessionArchive_PersistsAcrossReload(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("archive: %d", rec.Code)
+	}
+
+	// Reload the registry from disk (simulates a server restart).
+	reloaded, err := LoadSessionRegistry(env.sessions.path)
+	if err != nil {
+		t.Fatalf("reload registry: %v", err)
+	}
+	got, ok := reloaded.Get(id)
+	if !ok {
+		t.Fatal("session missing after reload")
+	}
+	if !got.Archived || got.ArchivedAt.IsZero() {
+		t.Fatalf("archived flag lost across reload: %+v", got)
+	}
+}

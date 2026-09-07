@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -184,6 +185,8 @@ type sessionInfo struct {
 	PISessionID string         `json:"pi_session_id"`
 	CreatedAt   time.Time      `json:"created_at"`
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
+	Archived    bool           `json:"archived,omitempty"`
+	ArchivedAt  *time.Time     `json:"archived_at,omitempty"`
 }
 
 func toSessionInfo(e SessionEntry) sessionInfo {
@@ -203,10 +206,15 @@ func toSessionInfo(e SessionEntry) sessionInfo {
 		Status:      e.Status,
 		PISessionID: e.PISessionID,
 		CreatedAt:   e.CreatedAt,
+		Archived:    e.Archived,
 	}
 	if !e.ClosedAt.IsZero() {
 		closed := e.ClosedAt
 		info.ClosedAt = &closed
+	}
+	if !e.ArchivedAt.IsZero() {
+		archived := e.ArchivedAt
+		info.ArchivedAt = &archived
 	}
 	return info
 }
@@ -409,8 +417,58 @@ func (m *SessionManager) ListSessions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		list = m.sessions.List()
 	}
+
+	// Archived view (session-level archive, user-initiated): paginated object
+	// response ordered by created_at desc. Default view stays a bare array
+	// without archived sessions (frontend branches on the archived param).
+	if r.URL.Query().Get("archived") == "true" {
+		arch := make([]sessionInfo, 0, len(list))
+		for _, e := range list {
+			if e.Archived {
+				arch = append(arch, toSessionInfo(e))
+			}
+		}
+		sort.Slice(arch, func(i, j int) bool {
+			return arch[i].CreatedAt.After(arch[j].CreatedAt)
+		})
+		total := len(arch)
+		limit := 50
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		offset := 0
+		if v := r.URL.Query().Get("offset"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				offset = n
+			}
+		}
+		page := []sessionInfo{}
+		if offset < total {
+			end := offset + limit
+			if end > total {
+				end = total
+			}
+			page = arch[offset:end]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items":  page,
+			"total":  total,
+			"limit":  limit,
+			"offset": offset,
+		})
+		return
+	}
+
 	out := make([]sessionInfo, 0, len(list))
 	for _, e := range list {
+		if e.Archived {
+			continue
+		}
 		out = append(out, toSessionInfo(e))
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -566,6 +624,72 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 	m.mu.Unlock()
 }
 
+// SessionArchive handles POST /api/sessions/{id}/archive → 204 (idempotent).
+//
+// Session-level archive is a user-initiated action (no agent judgement): the
+// user marks a session done and archives it so it leaves the default session
+// list. An active/running session is terminated first (same semantics as
+// close — worker killed / background cancelled, status → closed). Already
+// closed/error sessions are only flagged. Archived sessions stay queryable
+// through GET /api/sessions?archived=true and can be restored via unarchive.
+func (m *SessionManager) SessionArchive(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if entry.Status == SessionStatusActive || entry.Status == SessionStatusRunning {
+		// Terminate the live session first; the state transition to closed is
+		// broadcast by closeSession (reason "archived").
+		m.closeSession(entry, "archived")
+		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
+			entry = e2
+		}
+	}
+	if entry.Archived {
+		// Idempotent; backfill a missing archive timestamp (legacy rows that
+		// were persisted with archived=true but no time).
+		if entry.ArchivedAt.IsZero() {
+			entry.ArchivedAt = time.Now()
+			_ = m.sessions.Update(entry)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	entry.Archived = true
+	entry.ArchivedAt = time.Now()
+	if err := m.sessions.Update(entry); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "archive session: %v", err))
+		return
+	}
+	// Broadcast so live UIs refresh (status may be unchanged for already
+	// closed/error sessions; archived flag itself is read via GET).
+	m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "archived"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SessionUnarchive handles POST /api/sessions/{id}/unarchive → 204
+// (idempotent): clears the archived flag so the session returns to the
+// default list. Status is untouched (a closed session stays closed — the
+// frontend offers Resume to re-run it).
+func (m *SessionManager) SessionUnarchive(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if !entry.Archived {
+		w.WriteHeader(http.StatusNoContent) // idempotent
+		return
+	}
+	entry.Archived = false
+	entry.ArchivedAt = time.Time{}
+	if err := m.sessions.Update(entry); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "unarchive session: %v", err))
+		return
+	}
+	m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "unarchived"))
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // bgWait returns the background goroutine's done channel (nil if none).
 func (m *SessionManager) bgWait(id string) chan struct{} {
 	m.mu.Lock()
@@ -615,6 +739,15 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.updateStatus(entry, SessionStatusActive, "resumed")
+	// Resuming an archived session means the user wants it back in active use:
+	// clear the archive marker so it returns to the default session list.
+	if e2, ok2 := m.sessions.Get(entry.ID); ok2 && e2.Archived {
+		e2.Archived = false
+		e2.ArchivedAt = time.Time{}
+		if err := m.sessions.Update(e2); err != nil {
+			fmt.Fprintf(os.Stderr, "[rick-web] session %s unarchive-on-resume failed: %v\n", entry.ID, err)
+		}
+	}
 	m.pumpWorker(entry.ID, worker)
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
@@ -1359,7 +1492,11 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		}
 		jobIDs := workspace.SelectPendingJobs(rickDir, jobNum)
 		if len(jobIDs) == 0 {
-			return nil, newWebError(http.StatusConflict, "state_conflict", "no pending completed jobs to dream")
+			// 409 保留（测试契约：interactive dream 无可 dream 素材时拒绝）；code 从泛化的
+			// state_conflict 改为专用 no_pending_jobs——前端据此给可行动的引导文案
+			// （该工作区已完成 job 均已 dream 归档 → Jobs 页归档区查看）。
+			return nil, newWebError(http.StatusConflict, "no_pending_jobs",
+				"no pending completed jobs to dream in this workspace (completed jobs here were already dream-archived — see Jobs → Archived)")
 		}
 		promptFile, method, err := pb.SaveDreamPrompt(jobIDs, rickDir)
 		if err != nil {

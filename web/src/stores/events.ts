@@ -19,6 +19,33 @@ import type { SSEEnvelope } from "../types";
 const MAX_PER_SESSION = 500;
 const FLUSH_FALLBACK_MS = 50;
 
+/** 纯增量帧（message_update/tool_execution_update）——可安全裁剪：
+ *  落定事实由 message_end / tool_execution_end 承载，丢增量帧只损失流式
+ *  中间态（打字机跳帧），不丢已落定的消息/工具卡。
+ *  结构事件（落定/工具里程碑/回合边界）必须保留——否则环形裁剪把已渲染
+ *  的「上一条 AI 消息」挤出窗口 → 消息从 UI 消失（无 resync 不回来）→
+ *  用户实测「工具/思考流式时上一条 AI 消息一闪一闪」（bug2）。 */
+export function isDeltaFrame(env: SSEEnvelope): boolean {
+  if (env.type !== "session_event") return false;
+  const ev = (env.data as { event?: { type?: string } })?.event;
+  return ev?.type === "message_update" || ev?.type === "tool_execution_update";
+}
+
+/** 环形裁剪：优先丢最旧增量帧；仅当增量帧不足时才丢结构帧（防御退化）。 */
+export function trimBuffer(buf: SSEEnvelope[]): SSEEnvelope[] {
+  if (buf.length <= MAX_PER_SESSION) return buf;
+  const deltas = buf.filter(isDeltaFrame);
+  const overflow = buf.length - MAX_PER_SESSION;
+  if (deltas.length >= overflow) {
+    // 保留较新的 delta（丢最旧 overflow 条），结构帧全留，顺序不变
+    const keep = new Set(deltas.slice(overflow));
+    return buf.filter((env) => !isDeltaFrame(env) || keep.has(env));
+  }
+  // delta 不够（理论不会：结构事件量远小于上限）——全丢 delta 再裁最旧结构帧
+  const rest = buf.filter((env) => !isDeltaFrame(env));
+  return rest.length > MAX_PER_SESSION ? rest.slice(rest.length - MAX_PER_SESSION) : rest;
+}
+
 export interface SessionEventState {
   /** session_id → 该会话的 envelope 环形缓冲（最近 N 条，时间序） */
   buffers: Map<string, SSEEnvelope[]>;
@@ -73,8 +100,8 @@ export const useSessionEventsStore = create<SessionEventStore>((set, get) => ({
       const sid = env.session_id;
       if (!sid) continue;
       const buf = [...(buffers.get(sid) ?? []), env];
-      // 环形裁剪：保留最近 N 条
-      buffers.set(sid, buf.length > MAX_PER_SESSION ? buf.slice(buf.length - MAX_PER_SESSION) : buf);
+      // 环形裁剪：结构事件（落定/工具里程碑）全保留，只丢最旧的增量帧
+      buffers.set(sid, trimBuffer(buf));
     }
     set({ buffers, version: get().version + 1 });
   },

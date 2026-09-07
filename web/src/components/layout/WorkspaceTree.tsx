@@ -150,12 +150,12 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
             onDragOver={() => handleDragOver(index)}
             onDrop={() => void handleDrop(index)}
             onDragEnd={handleDragEnd}
-            onRemove={() => setRemoveTarget(w)}
           >
             <WorkspaceListNode
               workspaceId={w.id}
               onNewSession={onNewSession}
               onNavigate={onNavigate}
+              onRemove={(ws) => setRemoveTarget(ws)}
             />
           </WorkspaceRow>
         ))
@@ -221,12 +221,13 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
 }
 
 /**
- * WorkspaceRow：单行工作区拖拽容器 + hover 注销按钮。
+ * WorkspaceRow：单行工作区拖拽容器。
  *
  * - draggable + HTML5 DnD（dragstart/dragover/drop/dragend）；移动端不启用
  *   （touch 手势与 DnD 冲突——桌面端语义，移动端仍可用行内展开/会话导航）。
  * - 拖拽中源行半透明、drop 目标行 portal 绿边框高亮。
- * - hover 显示右上角「注销」按钮（点击不触发行内展开——按钮在列表节点上方）。
+ * - 工作区操作（设置/注销）已折叠到行内 ⋮ 菜单（WorkspaceListNode 内），
+ *   不再使用 hover 悬浮按钮——展开子目录后按钮不漂移（用户反馈）。
  */
 function WorkspaceRow({
   workspace,
@@ -236,7 +237,6 @@ function WorkspaceRow({
   onDragOver,
   onDrop,
   onDragEnd,
-  onRemove,
   children,
 }: {
   workspace: WorkspaceEntry;
@@ -246,7 +246,6 @@ function WorkspaceRow({
   onDragOver: () => void;
   onDrop: () => void;
   onDragEnd: () => void;
-  onRemove: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -273,20 +272,6 @@ function WorkspaceRow({
       title="拖拽排序（拖动到目标工作区位置）"
     >
       {children}
-      {/* 注销按钮（hover 显示，不触发行内展开） */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onRemove();
-        }}
-        aria-label={`注销 ${workspace.name || workspace.path}`}
-        title="注销：从 rick 移除（目录保留）"
-        className="absolute right-1.5 top-1/2 z-10 -translate-y-1/2 rounded-md border border-line bg-space-2/90 px-1.5 py-0.5 text-[10px] text-ink-3 opacity-0 transition-opacity hover:border-danger/50 hover:text-danger group-hover:opacity-100"
-      >
-        🗑 注销
-      </button>
     </div>
   );
 }

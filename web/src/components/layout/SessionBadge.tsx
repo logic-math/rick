@@ -6,11 +6,16 @@
  *   - 终止（error）        = Morty 黄 + 「已中断」
  *   - 完成（closed）       = 灰 + 「已完成」
  *
- * 整行可点击 → /session/:id（NavLink）；类型徽标 + 标题 + 状态徽标。
+ * 整行可点击 → /session/:id（NavLink）；类型徽标 + 标题 + 状态徽标；
+ * 行尾 hover ⋮ → 会话设置（人工归档/恢复，防误触入口）。
+ * 归档/恢复成功后 load(workspace_id) 重拉（默认列表不含归档会话）。
  */
 
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
+import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
 
 const TYPE_LABEL: Record<SessionType, string> = {
   plan: "PLAN",
@@ -32,32 +37,6 @@ const TYPE_TONE: Record<SessionType, string> = {
   doing: "border-rick/40 bg-rick/10 text-rick",
 };
 
-/** 状态徽标三态 */
-function StatusBadge({ status }: { status: SessionInfo["status"] }) {
-  if (status === "active" || status === "running") {
-    return (
-      <span className="flex shrink-0 items-center gap-1 rounded-full border border-portal/40 bg-portal/10 px-1.5 py-0.5 text-[9px] leading-none text-portal">
-        <span className="inline-block h-1.5 w-1.5 animate-rm-pulse rounded-full bg-portal" />
-        活跃
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span className="flex shrink-0 items-center gap-1 rounded-full border border-morty/40 bg-morty/10 px-1.5 py-0.5 text-[9px] leading-none text-morty">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-morty" />
-        已中断
-      </span>
-    );
-  }
-  return (
-    <span className="flex shrink-0 items-center gap-1 rounded-full border border-ink-3/30 bg-ink-3/10 px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
-      <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
-      已完成
-    </span>
-  );
-}
-
 export default function SessionBadge({
   session,
   onNavigate,
@@ -65,25 +44,53 @@ export default function SessionBadge({
   session: SessionInfo;
   onNavigate?: () => void;
 }) {
+  const load = useSessionsStore((s) => s.load);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const title = session.title || `${session.type} · ${session.id.slice(0, 8)}`;
   return (
-    <NavLink
-      to={`/session/${session.id}`}
-      onClick={onNavigate}
-      title={title}
-      className={({ isActive }) =>
-        `flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs ${
-          isActive ? "bg-portal-soft text-portal" : "text-ink-2 hover:bg-white/5 hover:text-ink"
-        }`
-      }
-    >
-      <span
-        className={`shrink-0 rounded border px-1 font-mono text-[8px] font-semibold tracking-wider ${TYPE_TONE[session.type]}`}
+    <div className="group relative flex min-w-0 items-center rounded-md">
+      <NavLink
+        to={`/session/${session.id}`}
+        onClick={onNavigate}
+        title={title}
+        className={({ isActive }) =>
+          `flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pl-2 pr-7 text-xs ${
+            isActive ? "bg-portal-soft text-portal" : "text-ink-2 hover:bg-white/5 hover:text-ink"
+          }`
+        }
       >
-        {TYPE_LABEL[session.type]}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      <StatusBadge status={session.status} />
-    </NavLink>
+        <span
+          className={`shrink-0 rounded border px-1 font-mono text-[8px] font-semibold tracking-wider ${TYPE_TONE[session.type]}`}
+        >
+          {TYPE_LABEL[session.type]}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {session.status === "active" || session.status === "running" ? (
+          <span className="flex shrink-0 items-center gap-1 rounded-full border border-portal/40 bg-portal/10 px-1.5 py-0.5 text-[9px] leading-none text-portal">
+            <span className="inline-block h-1.5 w-1.5 animate-rm-pulse rounded-full bg-portal" />
+            活跃
+          </span>
+        ) : (
+          sessionStatusBadge(session.status)
+        )}
+      </NavLink>
+      {/* ⋮ 会话设置（hover 显示；stopPropagation 避免触发导航） */}
+      <button
+        type="button"
+        aria-label={`${title} 设置`}
+        title="会话设置（归档/恢复）"
+        onClick={() => setSettingsOpen(true)}
+        className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3 opacity-0 transition-opacity hover:bg-white/10 hover:text-ink group-hover:opacity-100"
+      >
+        ⋮
+      </button>
+
+      <SessionSettingsDialog
+        session={session}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onChanged={() => void load(session.workspace_id)}
+      />
+    </div>
   );
 }

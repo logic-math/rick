@@ -161,6 +161,8 @@ interface BuildState {
   liveText: AssistantTextItem | null;
   liveThinking: ThinkingItem | null;
   seq: number;
+  /** 当前事件的服务端全局 seq（envelope.seq）——落定条目稳定 id 源 */
+  idSeq: number;
   /** 历史回放指纹（live 重叠跳过） */
   skip: Set<string> | undefined;
 }
@@ -192,13 +194,14 @@ export function buildChatViewModel(
     liveText: null,
     liveThinking: null,
     seq: 0,
+    idSeq: 0,
     skip: skipFingerprints,
   };
 
   for (const env of envelopes) {
     const ev = (env.data as { event?: Record<string, unknown> })?.event;
     if (!ev || typeof ev.type !== "string") continue;
-    applyEvent(st, ev);
+    applyEvent(st, ev, env.seq);
   }
 
   // 收尾：live 块作为条目展示（streaming 中未落定）
@@ -232,8 +235,17 @@ function supersedeRunningTools(st: BuildState): void {
 	}
 }
 
-function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
+/**
+ * 事件分发。envSeq = envelope 顶层 seq（服务端 Hub.Publish 全局单调）——
+ * 落定条目的稳定身份源：客户端 buffers 环形裁剪 / resync 重放只改变 replay
+ * 起点，不改变 envelope.seq → 用 envSeq 生成的条目 id 跨裁剪/重放稳定，
+ * React key 不变 → 不重挂（旧版用 st.seq（replay 局部计数）+ items.length
+ * 作 id，裁剪平移全部已渲染条目 key → 重挂 + enter 动画重放 = 「上一条 AI
+ * 消息在工具/思考流式时闪烁」（bug2）。
+ */
+function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number): void {
   st.seq += 1;
+  st.idSeq = envSeq > 0 ? envSeq : st.seq; // 容错：无 seq 时退回局部计数
   switch (ev.type) {
     case "agent_start": {
       st.streaming = true;
@@ -336,7 +348,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
       const msg = typeof ev.errorMessage === "string" ? ev.errorMessage : "";
       st.items.push({
         kind: "notice",
-        id: `retry-${st.seq}`,
+        id: `retry-${st.idSeq || st.seq}`,
         level: "warning",
         text: `自动重试（${attempt}/${max}）${msg ? `：${msg.slice(0, 200)}` : ""}`,
       });
@@ -346,7 +358,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>): void {
       const msg = typeof ev.error === "string" ? ev.error : JSON.stringify(ev.error ?? "");
       st.items.push({
         kind: "notice",
-        id: `exterr-${st.seq}`,
+        id: `exterr-${st.idSeq || st.seq}`,
         level: "error",
         text: `扩展错误：${msg.slice(0, 300)}`,
       });
@@ -366,12 +378,12 @@ function applyMessageUpdate(st: BuildState, ev: Record<string, unknown>): void {
 
   if (ame.type === "text_delta" && typeof ame.delta === "string") {
     if (!st.liveText) {
-      st.liveText = { kind: "assistant-text", id: liveId(st.seq), text: "", streaming: true };
+      st.liveText = { kind: "assistant-text", id: liveId(st.idSeq || st.seq), text: "", streaming: true };
     }
     st.liveText.text += ame.delta;
   } else if (ame.type === "thinking_delta" && typeof ame.delta === "string") {
     if (!st.liveThinking) {
-      st.liveThinking = { kind: "thinking", id: liveId(st.seq), text: "", streaming: true };
+      st.liveThinking = { kind: "thinking", id: liveId(st.idSeq || st.seq), text: "", streaming: true };
     }
     st.liveThinking.text += ame.delta;
   }
@@ -397,7 +409,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
     if (!st.skip?.has(`user:${text.trim()}`)) {
       st.items.push({
         kind: "user",
-        id: `user-${st.seq}`,
+        id: `user-${st.idSeq || st.seq}`,
         text,
       });
     }
@@ -410,27 +422,30 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
 
     const content = message.content;
     const blocks = Array.isArray(content) ? content : [];
+    let blockIdx = 0;
     for (const b of blocks) {
       const block = b as Record<string, unknown>;
       if (block?.type === "text" && typeof block.text === "string" && block.text) {
         if (!st.skip?.has(`text:${block.text.trim()}`)) {
           st.items.push({
             kind: "assistant-text",
-            id: `text-${st.seq}-${st.items.length}`,
+            id: blockIdx > 0 ? `text-${st.idSeq || st.seq}-${blockIdx}` : `text-${st.idSeq || st.seq}`,
             text: block.text,
             streaming: false,
             ts: Date.now(),
           });
         }
+        blockIdx += 1;
       } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
         if (!st.skip?.has(`think:${block.thinking.trim()}`)) {
           st.items.push({
             kind: "thinking",
-            id: `think-${st.seq}-${st.items.length}`,
+            id: blockIdx > 0 ? `think-${st.idSeq || st.seq}-${blockIdx}` : `think-${st.idSeq || st.seq}`,
             text: block.thinking,
             streaming: false,
           });
         }
+        blockIdx += 1;
       }
       // toolCall 块：由 tool_execution_* 事件渲染（顺序自然落在消息后）
     }
@@ -438,7 +453,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
     if (message.stopReason === "error") {
       st.items.push({
         kind: "notice",
-        id: `err-${st.seq}`,
+        id: `err-${st.idSeq || st.seq}`,
         level: "error",
         text: `模型响应错误：${messageText(message).slice(0, 300) || "（无详情）"}`,
       });
@@ -446,7 +461,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
     if (message.stopReason === "aborted") {
       st.items.push({
         kind: "notice",
-        id: `abort-${st.seq}`,
+        id: `abort-${st.idSeq || st.seq}`,
         level: "info",
         text: "已中止本轮生成",
       });
@@ -555,6 +570,11 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
 
   for (const entry of entries) {
     seq += 1;
+    /** 块内稳定序号：entry.id 可能同 entry 多块（text/thinking/toolCall），
+     *  用块内索引区分——避免重建时 id 抖动（key 变 → React 全量重挂 + 动画重放
+     *  = 历史闪烁根因；override 展开态也因 key 变而失效）。 */
+    const eid = (suffix: string): string =>
+      `h-${suffix}-${typeof entry.id === "string" ? entry.id : seq}`;
 
     // 会话级元信息（model_change / thinking_level_change）
     if (entry.type === "model_change") {
@@ -572,7 +592,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
 
     if (m.role === "user") {
       const text = messageText(m);
-      items.push({ kind: "user", id: `h-user-${seq}`, text, ts: tsMs(entry.timestamp) });
+      items.push({ kind: "user", id: eid("user"), text, ts: tsMs(entry.timestamp) });
       fingerprints.add(fingerprint("user", normText(text)));
       if (!meta.startedAt && text) meta.startedAt = entry.timestamp ?? null;
       continue;
@@ -580,33 +600,36 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
 
     if (m.role === "assistant") {
       const blocks = Array.isArray(m.content) ? m.content : [];
+      let blockIdx = 0;
       for (const b of blocks) {
         const block = b as Record<string, unknown>;
         if (block?.type === "text" && typeof block.text === "string" && block.text) {
           items.push({
             kind: "assistant-text",
-            id: `h-text-${seq}-${items.length}`,
+            id: eid(`text-${blockIdx}`),
             text: block.text,
             streaming: false,
             ts: tsMs(entry.timestamp),
           });
           fingerprints.add(fingerprint("text", normText(block.text)));
+          blockIdx += 1;
         } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
           items.push({
             kind: "thinking",
-            id: `h-think-${seq}-${items.length}`,
+            id: eid(`think-${blockIdx}`),
             text: block.thinking,
             streaming: false,
           });
           fingerprints.add(fingerprint("think", normText(block.thinking)));
+          blockIdx += 1;
         } else if (block?.type === "toolCall") {
           // 工具调用块：name + arguments（toolResult 后续按 toolCallId 回填）
-          const callId = typeof block.id === "string" ? block.id : `h-${seq}-${items.length}`;
+          const callId = typeof block.id === "string" ? block.id : eid(`tool-${blockIdx}`);
           const toolName =
             typeof block.name === "string" ? block.name : "tool";
           const item: ToolItem = {
             kind: "tool",
-            id: `h-tool-${seq}-${items.length}`,
+            id: eid(`tool-${blockIdx}`),
             toolCallId: callId,
             toolName,
             args: block.arguments ?? null,
@@ -618,6 +641,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
           items.push(item);
           toolById.set(callId, item);
           fingerprints.add(fingerprint("tool", callId));
+          blockIdx += 1;
         }
       }
       continue;
@@ -637,8 +661,8 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
         // 未配对（缓冲截断/历史分支）——独立工具卡（无参数但有输出）
         items.push({
           kind: "tool",
-          id: `h-toolr-${seq}`,
-          toolCallId: callId ?? `h-${seq}`,
+          id: eid("toolr"),
+          toolCallId: callId ?? eid("toolr"),
           toolName: typeof m.toolName === "string" ? m.toolName : "tool",
           args: null,
           output: r.text,

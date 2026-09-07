@@ -189,6 +189,26 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 // either set; includeArchived returns everything with Archived=true and the
 // ArchiveSource. When a job is in both sets, "dream" wins (dream processing
 // is the authoritative archive signal; manual is a supplementary action).
+// ListJobsFiltered returns the job listing with archive filtering applied.
+//
+// Archive sources (a job leaves the active list once any applies):
+//   - dream:  a dream_run_{id}_log.md exists (dream already processed the
+//     job — auto-archived, authoritative)
+//   - manual: id present in the archived store (user archived via UI)
+//   - done:   every task is status=success — completed jobs are auto-archived
+//     so the default view only shows in-flight jobs (user requirement:
+//     finished jobs must not accumulate in the active list)
+//
+//   - includeArchived=false: archived jobs (any source) are omitted entirely
+//     (default view — in-flight work only)
+//   - includeArchived=true: every job is returned and archived ones carry
+//     Archived=true + ArchivedBy, one of "dream" | "manual" | "done"
+//     (dream wins over manual wins over done — dream processing is the
+//     authoritative archive signal).
+//
+// An empty/nil archived list short-circuits to ListJobs unchanged. rick
+// archived is the manual soft-archive set (ArchivedStore.List) and
+// dreamArchived the dream-run-log set (DreamArchivedJobs).
 func ListJobsFiltered(rickDir string, archived []string, dreamArchived map[string]bool, includeArchived bool) ([]JobSummary, error) {
 	jobs, err := ListJobs(rickDir)
 	if err != nil {
@@ -202,20 +222,39 @@ func ListJobsFiltered(rickDir string, archived []string, dreamArchived map[strin
 	for _, j := range jobs {
 		_, manual := manualSet[j.JobID]
 		dream := dreamArchived != nil && dreamArchived[j.JobID]
-		if manual || dream {
-			if !includeArchived {
-				continue
-			}
+		// 完成即自动归档（done）：tasks 全 success。默认视图只留进行中 job。
+		done := tasksAllSuccess(j.Tasks)
+		if (manual || dream || done) && !includeArchived {
+			continue
+		}
+		if manual || dream || done {
 			j.Archived = true
-			if dream {
+			switch {
+			case dream:
 				j.ArchivedBy = "dream"
-			} else {
+			case manual:
 				j.ArchivedBy = "manual"
+			default:
+				j.ArchivedBy = "done"
 			}
 		}
 		out = append(out, j)
 	}
 	return out, nil
+}
+
+// tasksAllSuccess reports whether every task is status=success (a job with
+// zero tasks is treated as incomplete). It is the done auto-archive gate.
+func tasksAllSuccess(tasks []TaskBrief) bool {
+	if len(tasks) == 0 {
+		return false
+	}
+	for _, t := range tasks {
+		if t.Status != "success" {
+			return false
+		}
+	}
+	return true
 }
 
 // jobIsComplete reports whether every task of the job is status=success

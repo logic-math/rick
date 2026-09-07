@@ -98,9 +98,15 @@ try:
             errors.append(f"工作区列表异常: {body[:300]}")
         else:
             ws = json.loads(body)[0]["id"]
+            # 语义升级（job_36 迭代需求：已完成 job 自动归档 done）：默认列表只含
+            # 进行中 job——fixture 仓库 job 全完成后默认列表可为空；include_archived
+            # 必须仍能取到全部 job（数据真实可达）。
             st, body = http("GET", f"{base}/api/workspaces/{ws}/jobs", token="e2etest-token")
-            if st != 200 or "job_" not in body:
+            if st != 200:
                 errors.append(f"jobs 列表异常 {st}: {body[:300]}")
+            st, body = http("GET", f"{base}/api/workspaces/{ws}/jobs?include_archived=true", token="e2etest-token")
+            if st != 200 or "job_" not in body:
+                errors.append(f"jobs include_archived 列表异常 {st}: {body[:300]}")
         # SSE：行读 + 截止时间（流式 read(4096) 会阻塞到超时）
         try:
             req = urllib.request.Request(f"{base}/api/events?token=e2etest-token")
