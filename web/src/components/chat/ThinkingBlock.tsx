@@ -7,7 +7,7 @@
  * - 超长 thinking 16KB 截断 + 「展开全部」
  */
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { useExpandState } from "./expand";
 
 /** 长文本截断阈值（16KB——与 assistant 正文一致） */
@@ -31,10 +31,11 @@ function ThinkingBlockImpl({ text, streaming, id, defaultOpen = false }: Thinkin
   const truncated = !expandedFull && text.length > MAX_TEXT;
   const shown = truncated ? text.slice(0, MAX_TEXT) : text;
 
-  // 流式期间展开时贴底跟随：仅在内容即将溢出块底时才滚（距离 < 24px），
-  // 避免每帧 scrollTop=scrollHeight 造成文字持续跳动（用户反馈「思考追加时
-  // 消息区闪烁」——跳动感主要来自块内滚动跟随 + 光标脉动，已去掉脉动）。
-  useEffect(() => {
+  // 流式期间展开时贴底跟随：仅在内容即将溢出块底时才滚（距离 < 24px）。
+  // useLayoutEffect（而非 useEffect）：在**浏览器绘制前**同步滚动位置——否则
+  // 每帧先按旧 scrollTop 绘制（内容已增长 → 文字看起来先下移一行）再被纠正，
+  // 形成逐帧抖动（bug3「思考刷新感」的次要来源）。effect 内只读布局属性，无副作用。
+  useLayoutEffect(() => {
     if (open && streaming) {
       const el = bodyRef.current;
       if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 24) {
