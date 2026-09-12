@@ -31,19 +31,61 @@ export function isDeltaFrame(env: SSEEnvelope): boolean {
   return ev?.type === "message_update" || ev?.type === "tool_execution_update";
 }
 
-/** 环形裁剪：优先丢最旧增量帧；仅当增量帧不足时才丢结构帧（防御退化）。 */
+/** 打开块（in-flight message）增量帧上限——防御失控流（单条消息数万帧）。
+ *  超限才退化为丢最旧增量（极端情况文本头可能缺失），正常消息远低于此。 */
+const OPEN_BLOCK_MAX = 20000;
+
+/** 打开块起点：最近一次 message_end 之后的帧属于「正在流式的消息」。
+ *  vm 在 message_end 清空 liveText/liveThinking（applyMessageEnd）——打开块的
+ *  完整证据（增量帧）只存在于该边界之后：裁掉它们 =
+ *  ① live 文本（= 存活 delta 的顺序拼接）头部被吃 → 内容每帧跳变；
+ *  ② live 块身份随之漂移（bug3 修复后身份锚定 message_end，但工具/文本累积
+ *     仍依赖增量帧齐全）——两者都会让用户看到「思考过程不断闪烁刷新」。
+ *  返回首个属于打开块的索引（无 message_end 时整段都是打开块 → 0）。 */
+export function openBlockStart(buf: SSEEnvelope[]): number {
+  for (let i = buf.length - 1; i >= 0; i--) {
+    const env = buf[i];
+    if (isDeltaFrame(env)) continue; // 增量帧不构成边界
+    const ev = (env.data as { event?: { type?: string } })?.event;
+    if (env.type === "session_event" && ev?.type === "message_end") return i + 1;
+  }
+  return 0;
+}
+
+/** 环形裁剪：
+ *  - 结构事件（message_end / tool_execution_* / agent_* 等）永不裁；
+ *  - **打开块（最近 message_end 之后）的增量帧永不裁**——它是当前流式块文本与
+ *    身份（key）的唯一来源，裁掉即「思考过程不断闪烁刷新」（bug3）；
+ *  - 只裁「已落定（打开块之前）」的最旧增量帧——完整事实由 message_end /
+ *    tool_execution_end 承载，丢中间帧只损失打字机中间态。
+ *  注：打开块 + 结构帧可能使缓冲暂时超过 MAX_PER_SESSION（打开块完整性优先）。 */
 export function trimBuffer(buf: SSEEnvelope[]): SSEEnvelope[] {
   if (buf.length <= MAX_PER_SESSION) return buf;
-  const deltas = buf.filter(isDeltaFrame);
-  const overflow = buf.length - MAX_PER_SESSION;
-  if (deltas.length >= overflow) {
-    // 保留较新的 delta（丢最旧 overflow 条），结构帧全留，顺序不变
-    const keep = new Set(deltas.slice(overflow));
-    return buf.filter((env) => !isDeltaFrame(env) || keep.has(env));
+  const openFrom = openBlockStart(buf);
+  const drop = new Set<number>();
+
+  // 打开块增量帧：仅超 OPEN_BLOCK_MAX 时退化丢最旧（防御失控流）
+  const openDeltas: number[] = [];
+  for (let i = openFrom; i < buf.length; i++) {
+    if (isDeltaFrame(buf[i])) openDeltas.push(i);
   }
-  // delta 不够（理论不会：结构事件量远小于上限）——全丢 delta 再裁最旧结构帧
-  const rest = buf.filter((env) => !isDeltaFrame(env));
-  return rest.length > MAX_PER_SESSION ? rest.slice(rest.length - MAX_PER_SESSION) : rest;
+  if (openDeltas.length > OPEN_BLOCK_MAX) {
+    for (const i of openDeltas.slice(0, openDeltas.length - OPEN_BLOCK_MAX)) drop.add(i);
+  }
+
+  // 已落定增量帧：可裁（丢最旧 overflow 条，顺序不变）
+  const settledDeltas: number[] = [];
+  for (let i = 0; i < openFrom; i++) {
+    if (isDeltaFrame(buf[i])) settledDeltas.push(i);
+  }
+  const overflow = buf.length - drop.size - MAX_PER_SESSION;
+  if (overflow > 0 && settledDeltas.length > 0) {
+    const take = Math.min(overflow, settledDeltas.length);
+    for (const i of settledDeltas.slice(0, take)) drop.add(i);
+  }
+
+  if (drop.size === 0) return buf;
+  return buf.filter((_, i) => !drop.has(i));
 }
 
 export interface SessionEventState {

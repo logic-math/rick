@@ -160,17 +160,27 @@ interface BuildState {
   /** live 流式块（message_update 拼接；message_end 落定后清除） */
   liveText: AssistantTextItem | null;
   liveThinking: ThinkingItem | null;
+  /** live 块的创建顺序（text/think）——收尾按真实到达序展示（否则落定时 block 序
+   *  与流式序不一致 → 位置跳变） */
+  liveOrder: Array<"text" | "think">;
   seq: number;
   /** 当前事件的服务端全局 seq（envelope.seq）——落定条目稳定 id 源 */
   idSeq: number;
+  /** 打开块锚点：最近一次 message_end 的 envelope.seq（0=会话首条消息）。
+   *  结构帧永不裁 → 锚点跨裁剪/重放稳定；live 块与落定块共用该锚点生成 id，
+   *  于是 live→落定是**同一个 React key 的就地更新**（不重挂、不重放 enter 动画、
+   *  useExpandState 的展开 override 不丢）——bug3。 */
+  boundarySeq: number;
   /** 历史回放指纹（live 重叠跳过） */
   skip: Set<string> | undefined;
 }
 
 const MAX_NOTIFICATIONS = 5;
 
-function liveId(seq: number): string {
-  return `live-${seq}`;
+/** 消息块稳定 id：锚点（前置 message_end 的 seq）+ 块类别 + 同类块序号。
+ *  live 块用 0 号（首个同类块）——与落定后的首个同类块 id 一致。 */
+function msgBlockId(anchor: number, kind: "text" | "think", idx: number): string {
+  return idx > 0 ? `msg-${anchor}-${kind}-${idx}` : `msg-${anchor}-${kind}`;
 }
 
 /**
@@ -193,8 +203,10 @@ export function buildChatViewModel(
     notifications: [],
     liveText: null,
     liveThinking: null,
+    liveOrder: [],
     seq: 0,
     idSeq: 0,
+    boundarySeq: 0,
     skip: skipFingerprints,
   };
 
@@ -204,10 +216,12 @@ export function buildChatViewModel(
     applyEvent(st, ev, env.seq);
   }
 
-  // 收尾：live 块作为条目展示（streaming 中未落定）
+  // 收尾：live 块作为条目展示（streaming 中未落定）——按创建序（与落定 block 序一致）
   const items = [...st.items];
-  if (st.liveText) items.push(st.liveText);
-  if (st.liveThinking) items.push(st.liveThinking);
+  for (const kind of st.liveOrder) {
+    if (kind === "text" && st.liveText) items.push(st.liveText);
+    else if (kind === "think" && st.liveThinking) items.push(st.liveThinking);
+  }
   if (optimisticUser) {
     items.push({ kind: "user", id: "optimistic-user", text: optimisticUser });
   }
@@ -280,7 +294,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
     }
     case "message_end": {
       supersedeRunningTools(st);
-      applyMessageEnd(st, ev);
+      applyMessageEnd(st, ev, envSeq);
       break;
     }
     case "tool_execution_start": {
@@ -378,20 +392,35 @@ function applyMessageUpdate(st: BuildState, ev: Record<string, unknown>): void {
 
   if (ame.type === "text_delta" && typeof ame.delta === "string") {
     if (!st.liveText) {
-      st.liveText = { kind: "assistant-text", id: liveId(st.idSeq || st.seq), text: "", streaming: true };
+      st.liveText = {
+        kind: "assistant-text",
+        id: msgBlockId(st.boundarySeq, "text", 0),
+        text: "",
+        streaming: true,
+      };
+      st.liveOrder.push("text");
     }
     st.liveText.text += ame.delta;
   } else if (ame.type === "thinking_delta" && typeof ame.delta === "string") {
     if (!st.liveThinking) {
-      st.liveThinking = { kind: "thinking", id: liveId(st.idSeq || st.seq), text: "", streaming: true };
+      st.liveThinking = {
+        kind: "thinking",
+        id: msgBlockId(st.boundarySeq, "think", 0),
+        text: "",
+        streaming: true,
+      };
+      st.liveOrder.push("think");
     }
     st.liveThinking.text += ame.delta;
   }
   // text_end/thinking_end/toolcall_* 由 message_end 落定（authoritative）
 }
 
-/** message_end：authoritative 落定（覆盖 live 块） */
-function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
+/** message_end：authoritative 落定（覆盖 live 块）。
+ *  envSeq = 本 message_end 的 envelope.seq：处理完后成为下一打开块的锚点（boundarySeq）。
+ *  落定块 id 用「**前置** message_end 锚点」而非本帧 seq——与流式中的 live 块 id 一致
+ *  → 落定是同一 key 的就地更新（不重挂/不重放 enter 动画/展开态不丢）。 */
+function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: number): void {
   const message = ev.message as
     | {
         role?: string;
@@ -401,10 +430,12 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
     | undefined;
   if (!message) return;
   const role = message.role;
+  const anchor = st.boundarySeq;
 
   if (role === "user") {
     st.liveText = null;
     st.liveThinking = null;
+    st.liveOrder = [];
     const text = messageText(message);
     if (!st.skip?.has(`user:${text.trim()}`)) {
       st.items.push({
@@ -413,39 +444,43 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
         text,
       });
     }
+    st.boundarySeq = envSeq > 0 ? envSeq : st.seq; // 服务端 seq 恒≥1；兜底用 replay 计数保证唯一
     return;
   }
 
   if (role === "assistant") {
     st.liveText = null;
     st.liveThinking = null;
+    st.liveOrder = [];
 
     const content = message.content;
     const blocks = Array.isArray(content) ? content : [];
-    let blockIdx = 0;
+    // 同类块序号（非共享 blockIdx）：首个同类块 = live 块 id，后续同类块递号
+    let textIdx = 0;
+    let thinkIdx = 0;
     for (const b of blocks) {
       const block = b as Record<string, unknown>;
       if (block?.type === "text" && typeof block.text === "string" && block.text) {
         if (!st.skip?.has(`text:${block.text.trim()}`)) {
           st.items.push({
             kind: "assistant-text",
-            id: blockIdx > 0 ? `text-${st.idSeq || st.seq}-${blockIdx}` : `text-${st.idSeq || st.seq}`,
+            id: msgBlockId(anchor, "text", textIdx),
             text: block.text,
             streaming: false,
             ts: Date.now(),
           });
         }
-        blockIdx += 1;
+        textIdx += 1;
       } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
         if (!st.skip?.has(`think:${block.thinking.trim()}`)) {
           st.items.push({
             kind: "thinking",
-            id: blockIdx > 0 ? `think-${st.idSeq || st.seq}-${blockIdx}` : `think-${st.idSeq || st.seq}`,
+            id: msgBlockId(anchor, "think", thinkIdx),
             text: block.thinking,
             streaming: false,
           });
         }
-        blockIdx += 1;
+        thinkIdx += 1;
       }
       // toolCall 块：由 tool_execution_* 事件渲染（顺序自然落在消息后）
     }
@@ -466,6 +501,8 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>): void {
         text: "已中止本轮生成",
       });
     }
+    // 本帧成为下一打开块的锚点（结构帧 seq 永不被裁 → 跨裁剪/重放稳定）
+    st.boundarySeq = envSeq > 0 ? envSeq : st.seq; // 服务端 seq 恒≥1；兜底用 replay 计数保证唯一
   }
 }
 
