@@ -97,10 +97,16 @@ export default function StarfieldBackground({
     let nextMeteorAt = 0;
     let dpr = 1;
     let bgGradient: CanvasGradient | null = null;
+    // 缓存的 CSS 像素尺寸：**只在 resize/ResizeObserver 时读取 clientWidth/Height**。
+    // 旧版在每个绘制函数里逐帧读 canvas.clientWidth/clientHeight——任何 DOM 变更后
+    // 该读取都会强制同步重排（forced synchronous layout）；长会话（2.5 万 DOM 节点）
+    // 下每帧 ~1.3ms×10 次 → 流式期间掉帧（实测 12s/600 帧）。详见 debug/bug4。
+    let cssW = 0;
+    let cssH = 0;
 
     const seedStars = () => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       const count = Math.max(
         40,
         Math.round((density * w * h) / (1280 * 720))
@@ -124,8 +130,8 @@ export default function StarfieldBackground({
     };
 
     const buildBg = () => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       bgGradient = ctx.createLinearGradient(0, 0, 0, h);
       bgGradient.addColorStop(0, BG_TOP);
       bgGradient.addColorStop(1, BG_BOTTOM);
@@ -134,8 +140,8 @@ export default function StarfieldBackground({
     };
 
     const drawNebulae = (staticMode: boolean) => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       // 极缓漂移（背景氛围，reduced-motion 固定）
       const driftX = staticMode ? 0 : Math.sin(performance.now() / 200000) * 0.02;
       for (const n of NEBULAE) {
@@ -153,8 +159,8 @@ export default function StarfieldBackground({
     };
 
     const drawStars = (timeSec: number, animated: boolean) => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       if (bgGradient) {
@@ -190,8 +196,8 @@ export default function StarfieldBackground({
     };
 
     const drawMeteor = (m: Meteor) => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       const headX = m.x * w;
       const headY = m.y * h;
       const len = Math.hypot(m.vx, m.vy) || 1;
@@ -213,8 +219,8 @@ export default function StarfieldBackground({
 
     // 背景装饰层（星球 + 传送门 + 巡航飞船）——叠加在星点/流星之上
     const drawDecor = (timeSec: number, staticMode: boolean) => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const w = cssW;
+      const h = cssH;
       for (const p of PLANETS) {
         drawPlanet(ctx, p, w, h, timeSec, staticMode);
       }
@@ -229,9 +235,12 @@ export default function StarfieldBackground({
     };
 
     const resize = () => {
+      // 唯一的尺寸读取点（布局读取仅在此发生）
+      cssW = canvas.clientWidth;
+      cssH = canvas.clientHeight;
       dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.floor(canvas.clientWidth * dpr);
-      canvas.height = Math.floor(canvas.clientHeight * dpr);
+      canvas.width = Math.max(1, Math.floor(cssW * dpr));
+      canvas.height = Math.max(1, Math.floor(cssH * dpr));
       buildBg();
       seedStars();
       drawStars(0, false);
@@ -284,6 +293,9 @@ export default function StarfieldBackground({
     resize();
     window.addEventListener("resize", resize);
     document.addEventListener("visibilitychange", onVisibility);
+    // 元素盒变化（视口/缩放/DPR 变化）→ 重取尺寸；避免在动画帧内读布局
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => resize()) : null;
+    ro?.observe(canvas);
 
     if (!reduced) {
       nextMeteorAt =
@@ -295,6 +307,7 @@ export default function StarfieldBackground({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibility);
+      ro?.disconnect();
     };
   }, [density]);
 

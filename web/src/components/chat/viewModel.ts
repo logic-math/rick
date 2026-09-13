@@ -671,7 +671,12 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
             toolName,
             args: block.arguments ?? null,
             output: "",
-            status: "running", // result 未到（若会话在此截断，保持 running 视觉）
+            // 历史回放的工具调用一律视为已结束：历史消息是已落盘内容，不存在
+            // 「还在跑」的历史工具；真正的进行中工具由 live 事件（open block）渲染。
+            // 旧值 "running" 会让未配对 result 的历史工具组判定为 running →
+            // 渲染 flying Saucer（rm-beam + rm-saucer-hover 两个**无限动画**）→
+            // 长会话数百个并发无限动画 → 每帧全文档样式/布局重算（debug/bug4 根因）。
+            status: "done",
             truncated: false,
             fullOutputPath: null,
           };

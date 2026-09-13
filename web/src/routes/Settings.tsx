@@ -218,7 +218,7 @@ export default function Settings() {
       </Section>
 
       <p className="flex items-center gap-2 text-xs text-ink-3">
-        <Portal size={14} /> rick web · 对抗上下文熵增 · AICoding = Humans + Agents
+        <Portal size={14} spin /> rick web · 对抗上下文熵增 · AICoding = Humans + Agents
       </p>
 
       {/* Reset 确认弹窗 */}

@@ -565,7 +565,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     <div className="relative flex h-full min-h-0 flex-col">
       {/* 会话头 */}
       <header className="flex shrink-0 items-center gap-2.5 border-b border-line bg-space/70 px-4 py-2.5 backdrop-blur">
-        <Portal size={22} />
+        <Portal size={22} spin />
         <span
           className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider ${TYPE_TONE[sessionType]}`}
         >

@@ -70,6 +70,10 @@ function ToolGroup({
   );
 }
 
+/** 贴底哨兵：远大于任何真实内容高度——赋值即被浏览器 clamp 到最大滚动位置，
+ *  无需读取 scrollHeight（避免长会话下的强制同步重排，见 debug/bug4）。 */
+const BOTTOM_SENTINEL = 10_000_000;
+
 interface MessageListProps {
   items: ChatItem[];
   streaming: boolean;
@@ -130,7 +134,36 @@ export default function MessageList({
   loadingEarlier = false,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** 内容/视口高度缓存（ResizeObserver 维护——回调内布局已干净，读 offsetHeight/
+   *  clientHeight 不触发 forced synchronous layout）。滚动路径不得直接读
+   *  `scrollContainer.scrollHeight`：长会话（数万 DOM 节点）下每帧多次读取会强制
+   *  同步重排（实测流式 600 帧累计 12s，帧间隔 40ms）——详见 debug/bug4。 */
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const contentHRef = useRef(0);
+  const viewHRef = useRef(0);
   const [pinned, setPinned] = useState(true);
+  // 尺寸缓存：ResizeObserver 在浏览器完成布局后回调 → 其中的读取不产生强制重排。
+  // 依赖 hasContent：列表在空态时不渲染滚动容器/内容节点（首帧 refs 为 null），
+  // 必须在列表真正出现后再挂观察器，否则高度缓存恒为 0 → 贴底失效。
+  const hasContent = items.length > 0;
+  useEffect(() => {
+    if (!hasContent) return;
+    const el = scrollRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const measure = () => {
+      contentHRef.current = content.offsetHeight;
+      viewHRef.current = el.clientHeight;
+    };
+    measure();
+    if (typeof ResizeObserver === "function") {
+      const ro = new ResizeObserver(measure);
+      ro.observe(content);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }
+  }, [hasContent]);
+
   // pinned 的 ref 镜像（rAF 回调里读最新值，避开闭包过期陷阱）
   const pinnedRef = useRef(true);
   useEffect(() => {
@@ -144,8 +177,11 @@ export default function MessageList({
     cancelAnimationFrame(followRaf.current);
     followRaf.current = requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el && pinnedRef.current && el.scrollHeight > el.clientHeight) {
-        el.scrollTop = el.scrollHeight;
+      // 写一个大于任何真实内容高度的哨兵值——浏览器 clamp 到底。不读 scrollHeight
+      // （每次流式 flush 读它会触发一次全文档同步重排），也不依赖可能滞后一帧的
+      // 高度缓存（缓存只用于「是否真的有可滚动内容」的廉价判断）。
+      if (el && pinnedRef.current && contentHRef.current > viewHRef.current) {
+        el.scrollTop = BOTTOM_SENTINEL;
       }
     });
   }, []);
@@ -176,7 +212,8 @@ export default function MessageList({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // 距离用缓存的 content/view 高度计算（不读 scrollHeight → 不强制重排）
+    const distance = contentHRef.current - viewHRef.current - el.scrollTop;
     if (distance < 60) {
       setPinned(true);
     } else if (el.scrollTop < lastScrollTop.current) {
@@ -215,6 +252,7 @@ export default function MessageList({
         aria-live="polite"
       >
         <ExpandCtx.Provider value={ctx}>
+          <div ref={contentRef}>
           {/* 顶部「加载更早历史」按钮（hasMore 时显示——显式兑底；
               滚动到顶自动加载保留，按钮让超长会话可一步一页继续往上） */}
           {hasMore && (
@@ -230,6 +268,7 @@ export default function MessageList({
             </div>
           )}
           {renderGrouped(items)}
+          </div>
         </ExpandCtx.Provider>
       </div>
 
