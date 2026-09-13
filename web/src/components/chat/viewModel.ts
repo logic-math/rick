@@ -21,7 +21,7 @@ import type { SSEEnvelope } from "../../types";
 
 export type ToolStatus = "running" | "done" | "error";
 
-export interface ToolItem {
+export interface ToolItem extends SeqAnchor {
   kind: "tool";
   id: string; // toolCallId
   toolCallId: string;
@@ -35,7 +35,16 @@ export interface ToolItem {
   fullOutputPath: string | null;
 }
 
-export interface UserItem {
+/** envelope 全局序号（Hub 单调 seq）——live 项的**时序锚点**。
+ *  乐观用户消息按「发送时刻的会话最大 seq」插入，保证严格 timeline：
+ *  发送前产生的内容（含上一条 AI 回复的尾巴，可能尚未落盘）在其前，
+ *  发送后产生的内容在其后（此前用「history 与 live 之间」的固定位置，
+ *  在上一轮回复尾巴仍在 live 时会把新消息插到它前面 → 用户实测乱序）。 */
+export interface SeqAnchor {
+  seq?: number;
+}
+
+export interface UserItem extends SeqAnchor {
   kind: "user";
   id: string;
   text: string;
@@ -43,7 +52,7 @@ export interface UserItem {
   ts?: number;
 }
 
-export interface AssistantTextItem {
+export interface AssistantTextItem extends SeqAnchor {
   kind: "assistant-text";
   id: string;
   text: string;
@@ -51,14 +60,14 @@ export interface AssistantTextItem {
   ts?: number;
 }
 
-export interface ThinkingItem {
+export interface ThinkingItem extends SeqAnchor {
   kind: "thinking";
   id: string;
   text: string;
   streaming: boolean;
 }
 
-export interface NoticeItem {
+export interface NoticeItem extends SeqAnchor {
   kind: "notice";
   id: string;
   /** info | warning | error */
@@ -303,6 +312,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       supersedeRunningTools(st);
       if (!st.skip?.has(`tool:${toolCallId}`)) {
         st.items.push({
+          seq: st.idSeq || st.seq,
           kind: "tool",
           id: `tool-${toolCallId}`,
           toolCallId,
@@ -339,6 +349,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       } else if (!st.skip?.has(`tool:${toolCallId}`)) {
         // 未见过 start 的 end（缓冲截断等）——直接落终态卡
         st.items.push({
+          seq: st.idSeq || st.seq,
           kind: "tool",
           id: `tool-${toolCallId}`,
           toolCallId,
@@ -361,6 +372,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       const max = ev.maxAttempts ?? "?";
       const msg = typeof ev.errorMessage === "string" ? ev.errorMessage : "";
       st.items.push({
+        seq: st.idSeq || st.seq,
         kind: "notice",
         id: `retry-${st.idSeq || st.seq}`,
         level: "warning",
@@ -371,6 +383,7 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
     case "extension_error": {
       const msg = typeof ev.error === "string" ? ev.error : JSON.stringify(ev.error ?? "");
       st.items.push({
+        seq: st.idSeq || st.seq,
         kind: "notice",
         id: `exterr-${st.idSeq || st.seq}`,
         level: "error",
@@ -397,6 +410,7 @@ function applyMessageUpdate(st: BuildState, ev: Record<string, unknown>): void {
         id: msgBlockId(st.boundarySeq, "text", 0),
         text: "",
         streaming: true,
+        seq: st.idSeq || st.seq,
       };
       st.liveOrder.push("text");
     }
@@ -408,6 +422,7 @@ function applyMessageUpdate(st: BuildState, ev: Record<string, unknown>): void {
         id: msgBlockId(st.boundarySeq, "think", 0),
         text: "",
         streaming: true,
+        seq: st.idSeq || st.seq,
       };
       st.liveOrder.push("think");
     }
@@ -439,6 +454,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: nu
     const text = messageText(message);
     if (!st.skip?.has(`user:${text.trim()}`)) {
       st.items.push({
+        seq: st.idSeq || st.seq,
         kind: "user",
         id: `user-${st.idSeq || st.seq}`,
         text,
@@ -463,6 +479,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: nu
       if (block?.type === "text" && typeof block.text === "string" && block.text) {
         if (!st.skip?.has(`text:${block.text.trim()}`)) {
           st.items.push({
+            seq: st.idSeq || st.seq,
             kind: "assistant-text",
             id: msgBlockId(anchor, "text", textIdx),
             text: block.text,
@@ -474,6 +491,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: nu
       } else if (block?.type === "thinking" && typeof block.thinking === "string" && block.thinking) {
         if (!st.skip?.has(`think:${block.thinking.trim()}`)) {
           st.items.push({
+            seq: st.idSeq || st.seq,
             kind: "thinking",
             id: msgBlockId(anchor, "think", thinkIdx),
             text: block.thinking,
@@ -487,6 +505,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: nu
 
     if (message.stopReason === "error") {
       st.items.push({
+        seq: st.idSeq || st.seq,
         kind: "notice",
         id: `err-${st.idSeq || st.seq}`,
         level: "error",
@@ -495,6 +514,7 @@ function applyMessageEnd(st: BuildState, ev: Record<string, unknown>, envSeq: nu
     }
     if (message.stopReason === "aborted") {
       st.items.push({
+        seq: st.idSeq || st.seq,
         kind: "notice",
         id: `abort-${st.idSeq || st.seq}`,
         level: "info",
