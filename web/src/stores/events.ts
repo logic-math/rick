@@ -92,7 +92,7 @@ export interface SessionEventState {
   /** session_id → 该会话的 envelope 环形缓冲（最近 N 条，时间序） */
   buffers: Map<string, SSEEnvelope[]>;
   /** session_id → 最新一次 session_state 事件 data（状态机视图） */
-  states: Map<string, { status: string; reason?: string }>;
+  states: Map<string, { status: string; reason?: string; busy?: boolean }>;
   /** 全局版本号（每次 flush ++）——订阅组件的选择器依赖 */
   version: number;
   /** SSE 重连后的全量刷新信号（版本号跳变 + resync 计数） */
@@ -103,7 +103,7 @@ interface SessionEventActions {
   /** SSE session_event 入缓冲（由 wireSessionEvents 接线调用） */
   push: (envelope: SSEEnvelope) => void;
   /** SSE session_state 更新（即时——状态变更低频无需批处理） */
-  pushState: (sessionId: string, data: { status: string; reason?: string }) => void;
+  pushState: (sessionId: string, data: { status: string; reason?: string; busy?: boolean }) => void;
   /** 手动 flush（测试/立即渲染场景） */
   flush: () => void;
   /** 读取某 session 的事件缓冲（快照副本） */

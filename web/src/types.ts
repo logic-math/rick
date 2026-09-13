@@ -143,6 +143,9 @@ export interface SessionInfo {
   /** 人工归档（默认列表不含已归档会话；GET archived=true 分页返回） */
   archived?: boolean;
   archived_at?: string; // RFC3339
+  /** 服务端权威的流式状态（agent 本回合是否在跑）——输入区「发送 vs 终止/steer」
+   *  据此渲染；刷新/重连后不依赖客户端事件重放推断。 */
+  busy?: boolean;
 }
 
 /** GET /api/sessions?workspace=..&archived=true 分页响应（区别于裸数组的默认列表） */

@@ -347,6 +347,22 @@ func SessionEvent(sessionID string, raw json.RawMessage, v any) Envelope {
 
 // SessionStateEvent reports a session status change (contract session_state:
 // {"status":"...","reason"?}).
+// SessionBusyEvent broadcasts the server-authoritative streaming flag
+// (session_state with "busy": true/false). The frontend renders the input
+// area (send vs abort/steer) from this flag — independent of client-side
+// event-replay inference (a refresh window can drop agent_start).
+func SessionBusyEvent(sessionID, status string, busy bool, reason string) Envelope {
+	payload := map[string]any{"status": status, "busy": busy}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	return Envelope{
+		Type:      EventTypeSessionState,
+		SessionID: sessionID,
+		Data:      mustMarshal(payload),
+	}
+}
+
 func SessionStateEvent(sessionID, status, reason string) Envelope {
 	payload := map[string]any{"status": status}
 	if reason != "" {

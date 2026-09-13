@@ -397,12 +397,16 @@ export default function ChatView({ sessionId }: ChatViewProps) {
 
   // 会话状态：SSE 状态事件 > REST 元数据
   const status: SessionStatus = (sseState?.status as SessionStatus) ?? info?.status ?? "active";
+  // 流式状态：**服务端权威优先**（session_state.busy / GET session.busy）——
+  // 刷新/重连后事件重放窗口可能丢 agent_start（回合中途刷新），客户端推断
+  // 会错误回到 idle（发送态）；server busy 与实际 worker 状态一致。
+  const streaming = sseState?.busy ?? info?.busy ?? vm.streaming;
   const phase: SessionPhase = useMemo(() => {
     if (!info && !sseState && history === null) return "loading";
     if (status === "closed") return "closed";
     if (status === "error") return "error";
-    return vm.streaming ? "streaming" : "idle";
-  }, [info, sseState, history, status, vm.streaming]);
+    return streaming ? "streaming" : "idle";
+  }, [info, sseState, history, status, streaming]);
 
   // ============================================================
   // 动作

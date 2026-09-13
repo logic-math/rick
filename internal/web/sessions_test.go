@@ -1416,3 +1416,68 @@ func TestSessionArchive_PersistsAcrossReload(t *testing.T) {
 		t.Fatalf("archived flag lost across reload: %+v", got)
 	}
 }
+
+// TestSessionBusyAuthority 验证服务端权威流式状态（SessionEntry.Busy）：
+// 投影规则（仅 active 才 busy）、广播内容（session_state 带 busy）、幂等
+// （重复同值不重复广播）、以及非 active 状态一律不 busy。
+func TestSessionBusyAuthority(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	entry := SessionEntry{
+		ID:          "busy-s1",
+		WorkspaceID: env.wsEntry.ID,
+		Type:        SessionTypePlan,
+		Status:      SessionStatusActive,
+		PISessionID: "pi-busy-1",
+	}
+	if err := m.sessions.Add(entry); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := m.sessions.Get(entry.ID)
+	if toSessionInfo(got).Busy {
+		t.Fatal("initial busy must be false")
+	}
+
+	coll := startCollector(env.hub)
+	defer coll.stop()
+
+	// agent_start → busy true + 广播
+	m.setBusy(entry.ID, true, "agent_start")
+	got, _ = m.sessions.Get(entry.ID)
+	if !got.Busy || !toSessionInfo(got).Busy {
+		t.Fatalf("after agent_start: entry.Busy=%v info.Busy=%v (want true)", got.Busy, toSessionInfo(got).Busy)
+	}
+	evts := coll.waitMatching(t, time.Second, func(e Envelope) bool {
+		return e.Type == EventTypeSessionState && e.SessionID == entry.ID && strings.Contains(string(e.Data), `"busy":true`)
+	})
+	if len(evts) == 0 {
+		t.Fatal("busy=true session_state never reached the hub")
+	}
+
+	// 幂等：重复 true 不新增广播（waitMatching 计数不变）
+	m.setBusy(entry.ID, true, "agent_start")
+	time.Sleep(100 * time.Millisecond)
+	busyTrue := coll.waitMatching(t, 200*time.Millisecond, func(e Envelope) bool {
+		return e.Type == EventTypeSessionState && e.SessionID == entry.ID && strings.Contains(string(e.Data), `"busy":true`)
+	})
+	if len(busyTrue) != 1 {
+		t.Fatalf("idempotent setBusy broadcast %d busy=true events, want exactly 1", len(busyTrue))
+	}
+
+	// agent_settled → busy false + 广播
+	m.setBusy(entry.ID, false, "agent_settled")
+	got, _ = m.sessions.Get(entry.ID)
+	if got.Busy || toSessionInfo(got).Busy {
+		t.Fatal("after agent_settled busy must be false")
+	}
+
+	// 非 active（closed/error）一律不 busy（即使 entry.Busy 残留）
+	got.Busy = true
+	_ = m.sessions.Update(got)
+	got.Status = SessionStatusClosed
+	_ = m.sessions.Update(got)
+	if toSessionInfo(got).Busy {
+		t.Fatal("closed session must project busy=false regardless of the flag")
+	}
+}
