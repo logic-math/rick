@@ -259,6 +259,9 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   /** 加载更早进行中（驱动顶部按钮的「加载中…」态——ref 不响应式，需 state 镜像） */
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [optimisticUser, setOptimisticUser] = useState<string | null>(null);
+  /** 乐观消息的时序锚点：发送时刻该会话已到达的最大 envelope seq（见合并逻辑）。
+   *  seq > anchor 的 live 项属于本次发送之后产生的回复。 */
+  const optAnchorRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const historyEpochRef = useRef(-1);
@@ -371,19 +374,32 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     [envelopes, history],
   );
 
-  // 合并视图：历史（前置）+ 乐观用户消息 + live（SSE 事件流）。
-  // 顺序语义：乐观消息是「最新用户动作」，它触发的内容（assistant 回复/思考/工具）
-  // 必然在其后到达——因此 optimistic 插在 history 与 live 之间，而非 live 尾部。
-  // 旧版 `[...vm.items, optimistic]` 导致：echo 到达前助理内容先到 → 用户消息被
-  // 排到回复下方（用户实测「后续事件排在用户输入之前」）。
+  // 合并视图：history（前置）→ live（SSE 重放，按自带 seq 顺序）→ 乐观用户消息。
+  //
+  // 顺序语义（严格 timeline）：乐观消息按其**发送时刻的会话最大 seq**（anchorSeq）
+  // 插入——seq ≤ anchor 的 live 项（发送前产生，含上一条 AI 回复尚未落盘的尾巴）
+  // 在其前，seq > anchor 的在其后（发送后才产生的回复）。
+  // 历史旧实现踩过两个坑：
+  //   ① 插在 live 尾部 → echo 到达前助手内容先到，用户消息被压到回复下方；
+  //   ② 插在 history 与 live 之间 → 上一轮回复尾巴仍在 live 时，新消息被插到它前面
+  //      （用户实测「我说的话排在上一句话下面，未按 timeline」）。anchorSeq 同时解决两者。
   const items = useMemo(() => {
-    const opt = optimisticUser
-      ? [{ kind: "user" as const, id: "optimistic-user", text: optimisticUser }]
-      : [];
-    const live = [...vm.items];
-    return history
-      ? [...history.items, ...opt, ...live]
-      : [...opt, ...live];
+    const live = vm.items;
+    if (!optimisticUser) {
+      return history ? [...history.items, ...live] : [...live];
+    }
+    const anchor = optAnchorRef.current;
+    const before: typeof live = [];
+    const after: typeof live = [];
+    for (const it of live) {
+      if ((it.seq ?? 0) <= anchor) before.push(it);
+      else after.push(it);
+    }
+    const opt = [
+      { kind: "user" as const, id: "optimistic-user", text: optimisticUser, seq: anchor + 1 },
+    ];
+    const merged = [...before, ...opt, ...after];
+    return history ? [...history.items, ...merged] : merged;
   }, [history, vm.items, optimisticUser]);
 
   // 乐观消息 echo 消解：只检查 **live 事件流**（vm.items）——SSE 真实收到新 user 事件才消解。
@@ -416,6 +432,9 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     async (message: string) => {
       setBusy(true);
       setError(null);
+      // 时序锚点：发送瞬间的会话最大 seq（此后到达的事件都是本次回复）
+      const buf = useSessionEventsStore.getState().buffers.get(sessionId) ?? [];
+      optAnchorRef.current = buf.length > 0 ? buf[buf.length - 1].seq : 0;
       setOptimisticUser(message);
       try {
         if (phase === "streaming") {

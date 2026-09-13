@@ -1312,10 +1312,15 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 			// 开始/结束回合时更新并广播，前端输入区（发送 vs 终止/steer）据此
 			// 渲染，不依赖客户端事件重放推断。
 			switch ev.Type {
-			case "agent_start":
-				m.setBusy(sessionID, true, "agent_start")
-			case "agent_settled":
-				m.setBusy(sessionID, false, "agent_settled")
+			// 回合边界（pi 常驻 --mode rpc 会话的权威信号）：turn_start → busy，
+			// turn_end → idle（agent 回复完等待用户输入）。实测真实会话事件流里
+			// agent_settled 在回合结束**并不发送**（74s 窗口 0 次、turn_start/turn_end
+			// 7/7 成对），旧实现只认 agent_start/agent_settled → 回合结束后 busy
+			// 永久卡 true（用户实测：AI 已等待输入，UI 仍显示「生产中」+终止按钮）。
+			case "turn_start", "agent_start":
+				m.setBusy(sessionID, true, ev.Type)
+			case "turn_end", "agent_settled":
+				m.setBusy(sessionID, false, ev.Type)
 			case "agent_end":
 				if !agentEndWillRetry(ev) {
 					m.setBusy(sessionID, false, "agent_end")
