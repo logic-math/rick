@@ -135,7 +135,9 @@ export const AssistantBubble = memo(
     return (
       <div className="my-2 flex gap-2.5">
         <div className="mt-0.5 shrink-0" aria-hidden="true">
-          <Portal size={20} />
+          {/* 只有正在流式的那条消息旋转头像——历史消息静态（否则每条消息一个
+              无限 SVG 动画 → 主线程逐帧样式/布局重算；见 Portal.spin 注释） */}
+          <Portal size={20} spin={item.streaming} />
         </div>
         <div className="min-w-0 flex-1">
           {item.streaming ? (

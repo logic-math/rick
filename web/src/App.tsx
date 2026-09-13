@@ -196,7 +196,7 @@ export default function App() {
           }`}
         >
           <div className="flex items-center gap-2 px-4 py-4">
-            <Portal size={28} />
+            <Portal size={28} spin />
             <span className="text-base font-semibold tracking-wide text-ink">rick</span>
           </div>
 

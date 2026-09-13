@@ -8,10 +8,17 @@
 interface PortalProps {
   size?: number;
   loading?: boolean;
+  /** 旋转动画开关。默认 **false**（静态）——SVG `<g>` 的 CSS transform 动画
+   *  在主线程逐帧更新样式/布局，不可合成；历史上每条 assistant 消息都渲染
+   *  Portal 时，数百个无限动画会让每帧样式重算 + 全文档重排（实测长会话
+   *  帧间隔 39ms、流式 drain 慢 7 倍）。只有「正在流式」的头像需要旋转。
+   *  loading（转圈指示）隐含 spin。 */
+  spin?: boolean;
 }
 
-export default function Portal({ size = 32, loading = false }: PortalProps) {
+export default function Portal({ size = 32, loading = false, spin = false }: PortalProps) {
   const rings = [46, 34, 22, 11];
+  const animated = loading || spin;
   return (
     <svg
       width={size}
@@ -24,7 +31,9 @@ export default function Portal({ size = 32, loading = false }: PortalProps) {
       <g
         style={{
           transformOrigin: "50% 50%",
-          animation: `rm-portal-spin ${loading ? 1.2 : 6}s linear infinite`,
+          ...(animated
+            ? { animation: `rm-portal-spin ${loading ? 1.2 : 6}s linear infinite` }
+            : null),
         }}
       >
         {rings.map((r, i) => (
