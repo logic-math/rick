@@ -56,7 +56,10 @@ const RELOAD_SEQ_STORAGE_KEY = "rick-web-frontend-reload-seq";
 const CURSOR_PERSIST_MS = 500;
 
 /** 「落定」事件类型：该会话在此时刻的流式内容已固化（后续内容才是打开块）。 */
-const SETTLE_EVENT_TYPES = new Set(["message_end", "tool_execution_end", "agent_end", "agent_settled"]);
+// 回退点 = **回合边界**（agent_end/agent_settled）——回合内事件（message_end /
+// tool_execution_end）不能当重放起点：否则重放窗口丢掉本回合的 agent_start，
+// 刷新后 server busy 与前端重放推断同时失效的场景会短暂显示 idle。
+const SETTLE_EVENT_TYPES = new Set(["agent_end", "agent_settled"]);
 /** 「内容」事件类型：出现即说明该会话有未落定的流式内容（打开块）。 */
 const CONTENT_EVENT_TYPES = new Set(["message_update", "tool_execution_start", "tool_execution_update"]);
 

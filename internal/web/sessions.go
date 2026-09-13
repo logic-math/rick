@@ -187,6 +187,10 @@ type sessionInfo struct {
 	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
 	Archived    bool           `json:"archived,omitempty"`
 	ArchivedAt  *time.Time     `json:"archived_at,omitempty"`
+	// Busy mirrors SessionEntry.Busy (agent streaming this turn) — the
+	// authoritative source for the frontend's streaming/idle input state
+	// (刷新/重连不得靠客户端事件重放推断：窗口可能丢 agent_start)。
+	Busy bool `json:"busy,omitempty"`
 }
 
 func toSessionInfo(e SessionEntry) sessionInfo {
@@ -207,6 +211,7 @@ func toSessionInfo(e SessionEntry) sessionInfo {
 		PISessionID: e.PISessionID,
 		CreatedAt:   e.CreatedAt,
 		Archived:    e.Archived,
+			Busy:        e.Status == SessionStatusActive && e.Busy,
 	}
 	if !e.ClosedAt.IsZero() {
 		closed := e.ClosedAt
@@ -1303,8 +1308,18 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 			}
 			m.pending.deliver(ev)
 			m.hub.Publish(SessionEvent(sessionID, ev.Raw, ev))
-			if ev.Type == "agent_settled" {
-				m.hub.Publish(SessionStateEvent(sessionID, SessionStatusActive, "agent_settled"))
+			// Server-authoritative streaming state（SessionEntry.Busy）：agent
+			// 开始/结束回合时更新并广播，前端输入区（发送 vs 终止/steer）据此
+			// 渲染，不依赖客户端事件重放推断。
+			switch ev.Type {
+			case "agent_start":
+				m.setBusy(sessionID, true, "agent_start")
+			case "agent_settled":
+				m.setBusy(sessionID, false, "agent_settled")
+			case "agent_end":
+				if !agentEndWillRetry(ev) {
+					m.setBusy(sessionID, false, "agent_end")
+				}
 			}
 		}
 		// Channel closed: worker terminated. Distinguish user close (closing
@@ -1321,6 +1336,38 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 			m.sup.Remove(sessionID)
 		}
 	}()
+}
+
+// setBusy records the server-authoritative streaming state for a session and
+// broadcasts it as a session_state envelope carrying "busy". The flag lives
+// only in memory (SessionEntry.Busy, json:"-") — a restart kills workers, so
+// there is nothing meaningful to restore.
+func (m *SessionManager) setBusy(sessionID string, busy bool, reason string) {
+	entry, ok := m.sessions.Get(sessionID)
+	if !ok {
+		return
+	}
+	if entry.Busy == busy {
+		return // 幂等：重复事件不产生额外广播
+	}
+	entry.Busy = busy
+	_ = m.sessions.Update(entry)
+	m.hub.Publish(SessionBusyEvent(sessionID, entry.Status, busy, reason))
+}
+
+// agentEndWillRetry reports ev.willRetry==true (agent_end is not terminal when
+// the runtime will retry the turn — busy must stay true).
+func agentEndWillRetry(ev *runtime.RpcEvent) bool {
+	if ev == nil || len(ev.Raw) == 0 {
+		return false
+	}
+	var probe struct {
+		WillRetry bool `json:"willRetry"`
+	}
+	if json.Unmarshal(ev.Raw, &probe) != nil {
+		return false
+	}
+	return probe.WillRetry
 }
 
 // markWorkerLost 标记会话为 error（终止/中断语义）：worker 失活（崩溃/心跳超时/

@@ -243,6 +243,14 @@ type SessionEntry struct {
 	ClosedAt    time.Time      `json:"closed_at,omitzero"`
 	Archived    bool           `json:"archived,omitempty"`
 	ArchivedAt  time.Time      `json:"archived_at,omitzero"`
+
+	// Busy = the agent is currently streaming a turn (agent_start seen, not yet
+	// settled). Server-authoritative UI state: the frontend must not infer it
+	// from client-side event replay (a refresh/reconnect window can drop
+	// agent_start → 输入框错误地回到 idle/发送 态). Deliberately NOT persisted
+	// (json:"-") — a server restart kills all workers, so a stale busy flag on
+	// disk would be a lie; ReconcileOnStart marks those sessions error anyway.
+	Busy bool `json:"-"`
 }
 
 // sessionRegistryVersion is the on-disk schema version of sessions.json.
