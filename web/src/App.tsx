@@ -61,6 +61,35 @@ function ConnectionDot() {
   );
 }
 
+/**
+ * ConnectionBanner：断线/重连中的轻量提示（fixed 底部，不占布局、不阻塞操作）。
+ *
+ * 后台 pi worker 与 job 跑在 Go server 进程内——页面断连只影响「显示」，
+ * 故文案明确「后台会话与任务继续运行」，避免用户误以为任务被打断；
+ * 重连成功（open）后自动消失。首次加载的 connecting 不提示（避免闪一下）。
+ */
+function ConnectionBanner() {
+  const connection = useUiStore((s) => s.connection);
+  if (connection !== "reconnecting" && connection !== "closed") return null;
+  const meta = CONNECTION_META[connection] ?? CONNECTION_META.closed;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 px-3"
+    >
+      <div className="flex items-center gap-2 rounded-full border border-line bg-space-2/95 px-3 py-1.5 text-[11px] text-ink-2 shadow-lg backdrop-blur">
+        <span
+          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-rm-pulse" : ""}`}
+          style={{ backgroundColor: meta.color }}
+        />
+        <span>{connection === "reconnecting" ? "连接已断开，正在重连…" : "连接已断开"}</span>
+        <span className="text-ink-3">后台会话与任务继续运行</span>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // 路由辅助
 // ============================================================
@@ -236,6 +265,9 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      {/* 断线/重连提示（后台任务不受影响） */}
+      <ConnectionBanner />
 
       {/* 全局新建会话弹窗 */}
       <NewSessionModal
