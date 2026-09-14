@@ -111,7 +111,7 @@ const CMD_META: CmdMeta[] = [
   {
     type: "dream",
     label: "dream",
-    desc: "跨 job 全局反思（双模：交互 / 后台）",
+    desc: "跨 job 全局反思（交互式，服务端常驻）",
     icon: (a) => (
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -230,7 +230,6 @@ export default function NewSessionModal({
   const [jobId, setJobId] = useState(presetJob ?? "");
   // dream
   const [jobNum, setJobNum] = useState(5);
-  const [dreamMode, setDreamMode] = useState<"background" | "interactive">("background");
   // 通用
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -247,7 +246,6 @@ export default function NewSessionModal({
       setTopic("");
       setJobId(presetJob ?? "");
       setJobNum(5);
-      setDreamMode("background");
       setTitle("");
       setError(null);
       setSubmitting(false);
@@ -287,7 +285,6 @@ export default function NewSessionModal({
         topic,
         jobId,
         jobNum,
-        dreamMode,
       });
       const req: CreateSessionRequest = {
         workspace_id: workspaceId,
@@ -473,9 +470,8 @@ export default function NewSessionModal({
                     </p>
                   ) : dreamPending === 0 ? (
                     <p className="rounded-md border border-morty/40 bg-morty/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink-2">
-                      ⚠ 该工作区暂无 dream 素材：已完成 job 都已被 dream 学习并归档
-                      （见 Jobs 页归档区）。dream 需要“已完成且未被 dream”的 job 作为素材——
-                      可切换到其他工作区，或先跑一个 plan/doing 会话产生已完成 job。
+                      ⓘ 该工作区暂无「已完成且未被 dream」的 job（已完成 job 都已归档）——
+                      仍可启动交互会话：agent 会与你讨论领域知识 / 等待新的已完成 job。
                     </p>
                   ) : (
                     <p className="rounded-md border border-portal/40 bg-portal/5 px-2.5 py-1.5 text-xs leading-relaxed text-portal">
@@ -494,32 +490,12 @@ export default function NewSessionModal({
                     onChange={(e) => setJobNum(Number(e.target.value) || 1)}
                   />
                 </label>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1">
                   <span className="text-sm text-ink-2">模式</span>
-                  <div className="flex gap-2">
-                    {(
-                      [
-                        { value: "background", label: "后台（监控视图）", desc: "非交互，进度+结果查看" },
-                        { value: "interactive", label: "交互（聊天窗）", desc: "常驻 rpc 会话" },
-                      ] as const
-                    ).map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => setDreamMode(m.value)}
-                        className={`flex-1 rounded-lg border p-2.5 text-left ${
-                          dreamMode === m.value
-                            ? "border-portal/60 bg-portal-soft"
-                            : "border-line bg-space/60 hover:bg-white/5"
-                        }`}
-                      >
-                        <span className={`block text-sm font-medium ${dreamMode === m.value ? "text-portal" : "text-ink"}`}>
-                          {m.label}
-                        </span>
-                        <span className="block text-xs text-ink-3">{m.desc}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <p className="rounded-md border border-line bg-space/40 px-2.5 py-1.5 text-xs leading-relaxed text-ink-3">
+                    <b className="text-ink-2">交互模式</b>（web UI 仅支持）——服务端常驻 rpc 会话，
+                    刷新页面或关闭浏览器后 pi 仍在后台工作，状态由 server 维护。
+                  </p>
                 </div>
               </>
             )}
@@ -578,7 +554,6 @@ function buildParams(input: {
   topic: string;
   jobId: string;
   jobNum: number;
-  dreamMode: "interactive" | "background";
 }): CreateSessionRequest["params"] {
   switch (input.type) {
     case "plan":
@@ -598,9 +573,11 @@ function buildParams(input: {
     case "human-loop":
       return { topic: input.topic.trim() };
     case "dream": {
+      // web UI 只保留交互模式（后台模式移除：无进度反馈、与交互语义重复；
+      // CLI 侧后台 dream 不受影响）。
       const params: DreamParams = {
         job_num: input.jobNum,
-        mode: input.dreamMode,
+        mode: "interactive",
       };
       return params;
     }

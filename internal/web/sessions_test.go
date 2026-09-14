@@ -665,11 +665,15 @@ func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	env := newTestEnv(t)
 	m := env.managerWith(t, nil, nil)
 
-	// Interactive dream with no pending jobs → 409 (nothing to dream).
-	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "dream", map[string]any{"mode": "interactive"})
-	if code != http.StatusConflict {
+	// Interactive dream with no pending jobs → allowed (201): the web UI keeps
+	// only the interactive mode, and an empty job list is a valid conversational
+	// start (the agent asks the user / waits for new jobs). Formerly a hard 409
+	// which users hit as "功能不可用" once a workspace's jobs were all dreamed.
+	id0, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "dream", map[string]any{"mode": "interactive"})
+	if code != http.StatusCreated {
 		t.Fatalf("interactive dream with no pending jobs: %d %v", code, body)
 	}
+	_ = post(t, m.SessionClose, "/api/sessions/"+id0+"/close", nil)
 
 	// Background dream spawns no worker and starts the runner.
 	var mu sync.Mutex

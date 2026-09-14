@@ -1542,14 +1542,12 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		if v, ok := paramInt(params, "job_num"); ok {
 			jobNum = v
 		}
+		// 交互式 dream：允许无待处理 job 启动（web UI 只保留交互式）。
+		// 素材为空时 prompt 的 job 列表为空，agent 会与用户对话确认/等待新 job——
+		// 这比 409 硬拒绝更符合「交互式会话」语义（用户实测：有素材时能开、素材
+		// 用完后点击交互模式报 409「功能不可用」）。CLI 的后台 dream 另有自己的
+		// 校验（handler.DreamIn），不受此处影响。
 		jobIDs := workspace.SelectPendingJobs(rickDir, jobNum)
-		if len(jobIDs) == 0 {
-			// 409 保留（测试契约：interactive dream 无可 dream 素材时拒绝）；code 从泛化的
-			// state_conflict 改为专用 no_pending_jobs——前端据此给可行动的引导文案
-			// （该工作区已完成 job 均已 dream 归档 → Jobs 页归档区查看）。
-			return nil, newWebError(http.StatusConflict, "no_pending_jobs",
-				"no pending completed jobs to dream in this workspace (completed jobs here were already dream-archived — see Jobs → Archived)")
-		}
 		promptFile, method, err := pb.SaveDreamPrompt(jobIDs, rickDir)
 		if err != nil {
 			return nil, fmt.Errorf("build dream prompt: %w", err)
