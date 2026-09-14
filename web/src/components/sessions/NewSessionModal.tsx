@@ -269,6 +269,9 @@ export default function NewSessionModal({
   if (cmdType === "human-loop" && !topic.trim()) missing.push("主题");
   if (needsJob(cmdType) && !jobId) missing.push("job");
   if (cmdType === "dream" && jobNum < 1) missing.push("job 数量");
+  // dream 无可学习 job：明确阻塞（提示已给出，后端 409 兜底）
+  const dreamBlocked = cmdType === "dream" && !!workspaceId && dreamChecked && dreamPending === 0;
+  if (dreamBlocked) missing.push("可学习的 job");
 
   const canSubmit = missing.length === 0 && !submitting;
 
@@ -299,9 +302,9 @@ export default function NewSessionModal({
       // 后端 409 no_pending_jobs（dream 无可学习素材）——给可行动引导而非裸英文报错
       if (err instanceof ApiError && err.code === "no_pending_jobs") {
         setError(
-          "该工作区暂无「已完成且未被 dream 学习」的 job——dream 需要以已完成 job 作为学习素材。\n" +
-            "已完成 job 在此已被 dream 自动归档：可到本工作区 Jobs 页的归档区查看；\n" +
-            "或换一个仍有已完成 job 的工作区再试（也可先跑一个 doing/plan 会话产生已完成 job）。",
+          "已无可学习的 job：该工作区所有已完成 job 都已被 dream 学习过（Jobs 页归档区可查）。\n" +
+            "dream 只学习 tasks 全部完成的 job；中断/未完成的 job 不参与学习。\n" +
+            "请先完成一个新的 job（plan/doing 会话跑完），或切换到还有其他已完成 job 的工作区。",
         );
       } else {
         setError(err instanceof Error ? err.message : String(err));
@@ -470,8 +473,9 @@ export default function NewSessionModal({
                     </p>
                   ) : dreamPending === 0 ? (
                     <p className="rounded-md border border-morty/40 bg-morty/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink-2">
-                      ⓘ 该工作区暂无「已完成且未被 dream」的 job（已完成 job 都已归档）——
-                      仍可启动交互会话：agent 会与你讨论领域知识 / 等待新的已完成 job。
+                      ⚠ <b className="text-ink-2">已无可学习的 job</b>——该工作区所有已完成 job
+                      都已被 dream 学习过（Jobs 页归档区可查）。dream 只学习 tasks 全部完成的
+                      job；中断/未完成的 job 不参与学习。请先跑完一个 job 再来。
                     </p>
                   ) : (
                     <p className="rounded-md border border-portal/40 bg-portal/5 px-2.5 py-1.5 text-xs leading-relaxed text-portal">
