@@ -25,6 +25,7 @@ import (
 
 	"github.com/sunquan/rick/internal/handler"
 	"github.com/sunquan/rick/internal/runtime"
+	"github.com/sunquan/rick/internal/workspace"
 )
 
 // --- test fixtures ---
@@ -1484,5 +1485,65 @@ func TestSessionBusyAuthority(t *testing.T) {
 	_ = m.sessions.Update(got)
 	if toSessionInfo(got).Busy {
 		t.Fatal("closed session must project busy=false regardless of the flag")
+	}
+}
+
+// TestEasyTasksLifecycle 验证 easy 合成 tasks.json 的生命周期：
+// 创建时 running（进行中——dream 不学未完成 job），用户 close（正常结束）才标
+// success（可被 dream 学习）。修复点：旧版创建即 success → **中断的 easy job
+// 也被 dream 当完成学习并归档**（用户实测）。
+func TestEasyTasksLifecycle(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
+		"requirement": "easy lifecycle test",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create easy: %d %v", code, body)
+	}
+	entry, _ := m.sessions.Get(id)
+
+	// 创建后：running（不是 success）
+	jobID := paramString(entry.Params, "_job_id")
+	if jobID == "" {
+		t.Fatal("easy entry missing _job_id param")
+	}
+	readStatus := func() string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(env.rickDir, "jobs", jobID, "doing", "tasks.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			Tasks []struct {
+				Status string `json:"status"`
+			} `json:"tasks"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Tasks) != 1 {
+			t.Fatalf("want 1 synthetic task, got %d", len(doc.Tasks))
+		}
+		return doc.Tasks[0].Status
+	}
+	if st := readStatus(); st != "running" {
+		t.Fatalf("after create: task status = %q, want running (in-flight)", st)
+	}
+	// 未完成的 job 不参与 dream 学习
+	if ids := workspace.SelectPendingJobs(env.rickDir, 10); len(ids) != 0 {
+		t.Fatalf("running easy job must not be dream-eligible, got %v", ids)
+	}
+
+	// close（正常结束）→ success → 可被 dream 学习
+	if rec := post(t, m.SessionClose, "/api/sessions/"+id+"/close", nil); rec.Code != http.StatusAccepted {
+		t.Fatalf("close easy: %d", rec.Code)
+	}
+	if st := readStatus(); st != "success" {
+		t.Fatalf("after close: task status = %q, want success", st)
+	}
+	if ids := workspace.SelectPendingJobs(env.rickDir, 10); len(ids) != 1 || ids[0] != jobID {
+		t.Fatalf("closed easy job should be dream-eligible, got %v", ids)
 	}
 }

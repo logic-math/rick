@@ -309,6 +309,9 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 	if prep.methodFile != "" {
 		entry.Params["_method_file"] = prep.methodFile
 	}
+	if prep.JobID != "" {
+		entry.Params["_job_id"] = prep.JobID
+	}
 
 	if err := m.sessions.Add(entry); err != nil {
 		return nil, err
@@ -623,10 +626,53 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 			m.sup.Remove(entry.ID)
 		}
 	}
+	// easy 会话正常关闭 = 需求完成：把合成 tasks.json 标 success（创建时是
+	// running——dream 只学 tasks 全 success 的 job，中断的 easy 会话保持
+	// running 不被学习/归档）。
+	if entry.Type == SessionTypeEasy {
+		if jobID := paramString(entry.Params, "_job_id"); jobID != "" {
+			if ws, ok := m.workspaces.Get(entry.WorkspaceID); ok {
+				if err := updateEasyTasksStatus(ws.Path+"/.rick", jobID, "success"); err != nil {
+					fmt.Fprintf(os.Stderr, "[rick-web] easy close: mark tasks success failed (job %s): %v\n", jobID, err)
+				}
+			}
+		}
+	}
 	m.updateStatus(entry, SessionStatusClosed, reason)
 	m.mu.Lock()
 	delete(m.closing, entry.ID)
 	m.mu.Unlock()
+}
+
+// updateEasyTasksStatus sets the synthetic easy task's status in the job's
+// doing/tasks.json (running → success on close). Missing file / parse error
+// are logged-and-ignored: close must not fail because of housekeeping.
+func updateEasyTasksStatus(rickDir, jobID, status string) error {
+	tasksPath := filepath.Join(rickDir, "jobs", jobID, "doing", "tasks.json")
+	data, err := os.ReadFile(tasksPath)
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	tasks, _ := doc["tasks"].([]any)
+	if len(tasks) == 0 {
+		return fmt.Errorf("easy tasks.json has no tasks: %s", tasksPath)
+	}
+	task, _ := tasks[0].(map[string]any)
+	if task == nil {
+		return fmt.Errorf("easy tasks.json task[0] not an object: %s", tasksPath)
+	}
+	task["status"] = status
+	task["updated_at"] = time.Now().Format(time.RFC3339)
+	doc["updated_at"] = time.Now().Format(time.RFC3339)
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(tasksPath, out, 0644)
 }
 
 // SessionArchive handles POST /api/sessions/{id}/archive → 204 (idempotent).
@@ -1422,6 +1468,10 @@ type prep struct {
 	methodFile string
 	persistDir string // CLI-compat session_id file location ("" = none)
 	title      string
+
+	// jobID of the rick job this interactive session drives (easy: close-time
+	// tasks.json status flip; empty for other types).
+	JobID string
 }
 
 // prepareInteractive produces the prompt artifacts for a session type using
@@ -1486,7 +1536,10 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		if err != nil {
 			return nil, err
 		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: doingDir, title: "easy " + jobID}, nil
+		// jobID 经 prep.JobID 携带——createSessionLocked 会写入 entry.Params
+		// （reserved _job_id，wire 投影过滤）：SessionClose 时据此把 easy 的
+		// tasks.json 标 success（dream 只学完成的 job）。
+		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: doingDir, title: "easy " + jobID, JobID: jobID}, nil
 
 	case SessionTypeCtrl:
 		jobID := paramString(params, "job")
@@ -1674,7 +1727,10 @@ func writeEasyTasksJSON(doingDir string) error {
 			"task_id":      "easy_session",
 			"task_name":    "Easy Mode Session",
 			"task_file":    "",
-			"status":       "success",
+			// 会话进行中（用户 close 时才标 success——dream 只学 tasks 全 success
+			// 的 job；旧值创建即 success，导致**中断的 easy job 也被 dream 学习**
+			// 并归档（用户实测）。CLI 侧 handler.writeEasyTasksJSON 同病，另行修复。
+			"status":       "running",
 			"dependencies": []string{},
 			"attempts":     1,
 			"created_at":   now,
