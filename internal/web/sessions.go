@@ -766,8 +766,21 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if entry.Status == SessionStatusActive || entry.Status == SessionStatusRunning {
-		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s; nothing to resume", entry.Status))
-		return
+		// 幂等：worker 仍在 → 视为「已恢复」，202 成功并重播状态让客户端收敛。
+		// 前端可能因陈旧列表/其他标签页仍显示 Resume——重复点击不应 409
+		//（用户实测：会话其实在跑（worker 存活 5h+），点 Resume 却报
+		//  「session is active; nothing to resume」且 UI 不刷新）。
+		if m.sup.Get(entry.ID) != nil {
+			m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
+			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+			return
+		}
+		// active/running 但 worker 已不存在（崩溃逃过 markWorkerLost 等异常路径）：
+		// 先修正状态再走 spawn 自愈，避免会话永久卡在「active 但不可用、resume 又 409」。
+		m.updateStatus(entry, SessionStatusError, "worker missing; recovering on resume")
+		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
+			entry = e2
+		}
 	}
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
@@ -785,6 +798,15 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 	}
 	worker, err := m.sup.Spawn(spec)
 	if err != nil {
+		// 并发 resume（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
+		// **活 worker** → 说明另一个请求已成功恢复——视为 already_active（202），
+		// 不再把状态误标 error（旧行为造成「error + worker 存活」永久不一致：
+		// 之后每次 resume 都 500 already has a worker，会话卡死不可恢复）。
+		if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
+			m.updateStatus(entry, SessionStatusActive, "resumed (worker already present)")
+			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+			return
+		}
 		m.updateStatus(entry, SessionStatusError, "resume spawn failed: "+err.Error())
 		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
 		return

@@ -555,7 +555,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       applyState(sessionId, "active");
       setHistoryRefresh((n) => n + 1); // resume 后重拉历史（worker 可能已推进）
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      // 409 = 服务端说会话本就 active（本地列表状态陈旧）——以服务端为准刷新
+      // 显示，而不是抛错（旧行为：报「nothing to resume」，UI 仍是 Resume 态）。
+      if (err instanceof ApiError && err.status === 409) {
+        applyState(sessionId, "active");
+        setHistoryRefresh((n) => n + 1);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       setBusy(false);
     }
