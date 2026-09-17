@@ -14,7 +14,8 @@
 
 import { create } from "zustand";
 import { sse, SSE_RESYNC_EVENT } from "../api/sse";
-import type { SSEEnvelope } from "../types";
+import { useSessionsStore } from "./sessions";
+import type { SSEEnvelope, SessionInfo } from "../types";
 
 const MAX_PER_SESSION = 500;
 const FLUSH_FALLBACK_MS = 50;
@@ -181,11 +182,18 @@ export function wireSessionEvents(): void {
 
   sse.on("session_state", (envelope) => {
     if (!envelope.session_id) return;
-    const data = envelope.data as { status?: string; reason?: string };
+    const data = envelope.data as { status?: string; reason?: string; busy?: boolean };
     if (!data?.status) return;
     useSessionEventsStore
       .getState()
-      .pushState(envelope.session_id, { status: data.status, reason: data.reason });
+      .pushState(envelope.session_id, { status: data.status, reason: data.reason, busy: data.busy });
+    // 列表/侧栏状态同步（服务端权威）：session_state 必须同时更新 sessions store——
+    // 此前只喂 events store（仅 ChatView 用），侧栏与 Sessions 卡片状态会**永久陈旧**
+    // （只有 REST 重拉才更新）：resume/close/中断后列表不刷新 → 出现「会话已 active
+    // 但卡片仍显示 Resume」→ 重复点击 Resume 得到 409（用户实测）。
+    useSessionsStore
+      .getState()
+      .applyState(envelope.session_id, data.status as SessionInfo["status"], data.reason);
   });
 
   window.addEventListener(SSE_RESYNC_EVENT, () => {

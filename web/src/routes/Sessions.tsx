@@ -13,6 +13,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, type FsStatusResult } from "../api/client";
 import { useSessionsStore } from "../stores/sessions";
 import { useWorkspacesStore } from "../stores/workspaces";
+import { ApiError } from "../types";
 import type { SessionInfo, WorkspaceEntry } from "../types";
 
 // 稳定引用兑底常量：selector 里 ?? [] 每次返回新数组 → React #185 黑屏（job_36 实测）。
@@ -82,10 +83,17 @@ function SessionCard({
       await api.resumeSession(session.id);
       navigate(`/session/${session.id}`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      // 409 = 服务端认为会话本就 active（本地 store 陈旧）——以服务端为准重拉，
+      // 让卡片状态与 Resume 按钮自行消失，而不是留一个永远 409 的按钮。
+      if (e instanceof ApiError && e.status === 409) {
+        void useSessionsStore.getState().load(session.workspace_id);
+        navigate(`/session/${session.id}`);
+      } else {
+        setErr(e instanceof Error ? e.message : String(e));
+      }
       setBusy(false);
     }
-    void resume; // index 缓存刷新由 SSE session_state 驱动
+    void resume; // index 缓存刷新由 SSE session_state 驱动（409 分支额外兜底重拉）
   }
 
   return (

@@ -1547,3 +1547,74 @@ func TestEasyTasksLifecycle(t *testing.T) {
 		t.Fatalf("closed easy job should be dream-eligible, got %v", ids)
 	}
 }
+
+// TestSessionResumeIdempotent 验证 resume 幂等 + 自愈：
+// ① 已 active 且 worker 存活 → 202（already_active），不再 409（用户实测：
+//    会话其实在跑，点 Resume 报 409「nothing to resume」且 UI 不刷新）；
+// ② active 但 worker 缺失（异常路径）→ 修正状态并重新 spawn（自愈），不卡死。
+func TestSessionResumeIdempotent(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+		"requirement": "resume idempotency",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, body)
+	}
+	// 已 active（fake pi 已 spawn）→ resume 幂等 202
+	rec := post(t, m.SessionResume, "/api/sessions/"+id+"/resume", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume on active session: %d (%s), want 202", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("idempotent resume should report already_active: %s", rec.Body.String())
+	}
+
+	// 模拟「active 但 worker 丢失」（异常路径）：清 supervisor 里的 worker
+	m.sup.Remove(id)
+	entry, ok := m.sessions.Get(id)
+	if !ok || entry.Status != SessionStatusActive {
+		t.Fatalf("precondition: entry should be active, got %+v", entry)
+	}
+	rec = post(t, m.SessionResume, "/api/sessions/"+id+"/resume", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume with missing worker should self-heal: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got, _ := m.sessions.Get(id); got.Status != SessionStatusActive {
+		t.Fatalf("after self-heal resume: status = %q, want active", got.Status)
+	}
+}
+
+// TestSessionResumeConcurrentSpawnHeals 验证 resume 的并发/残留 worker 竞态：
+// supervisor 已有活 worker 而 spawn 失败时，不能把状态误标 error（否则
+// 「error + worker 存活」永久不一致，之后每次 resume 都 500）。应视为
+// already_active(202) 并把状态纠正回 active。
+func TestSessionResumeConcurrentSpawnHeals(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+		"requirement": "concurrent resume race",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d %v", code, body)
+	}
+	// 制造「status=error 但 worker 存活」的不一致态（模拟并发 resume 的败者路径）
+	entry, _ := m.sessions.Get(id)
+	m.updateStatus(entry, SessionStatusError, "simulated race loser")
+	if w := m.sup.Get(id); w == nil {
+		t.Fatal("precondition: a live worker should exist")
+	}
+
+	rec := post(t, m.SessionResume, "/api/sessions/"+id+"/resume", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume with live worker + error status: %d (%s), want 202", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("want already_active in body: %s", rec.Body.String())
+	}
+	if got, _ := m.sessions.Get(id); got.Status != SessionStatusActive {
+		t.Fatalf("status should be healed to active, got %q", got.Status)
+	}
+}
