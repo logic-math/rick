@@ -568,6 +568,21 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     }
   }, [applyState, sessionId]);
 
+  const unarchive = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.unarchiveSession(sessionId);
+      // 以服务端为准刷新该工作区列表（会话回到默认列表）
+      const ws = useSessionsStore.getState().index.get(sessionId)?.workspace_id;
+      if (ws) await useSessionsStore.getState().load(ws);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [sessionId]);
+
   const close = useCallback(async () => {
     setBusy(true);
     try {
@@ -605,7 +620,28 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           {vm.streaming ? "streaming" : status}
         </span>
         {vm.compacting && <span className="text-xs text-morty">压缩中</span>}
+        {/* 归档状态可见 + 一键取消归档：归档是「从列表隐藏」，会话页本身不会变化——
+            若不在页面上明示，用户会误以为「点了归档没生效」（实测反馈）。 */}
+        {info?.archived && (
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-full border border-ink-3/40 bg-ink-3/10 px-1.5 py-0.5 text-[10px] text-ink-3"
+            title="该会话已归档（不在工作区默认列表显示）"
+          >
+            📦 已归档
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
+          {info?.archived && (
+            <button
+              type="button"
+              onClick={() => void unarchive()}
+              disabled={busy}
+              title="取消归档（回到工作区默认列表）"
+              className="rounded-md border border-line px-2 py-1 text-xs text-portal hover:border-portal/50 hover:bg-portal/10 disabled:opacity-40"
+            >
+              取消归档
+            </button>
+          )}
           {status === "active" && (
             <button
               type="button"
