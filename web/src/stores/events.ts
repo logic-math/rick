@@ -152,18 +152,52 @@ export const useSessionEventsStore = create<SessionEventStore>((set, get) => ({
   getEvents: (sessionId) => get().buffers.get(sessionId) ?? [],
 }));
 
+let flushRafId: number | null = null;
+let flushTimerId: ReturnType<typeof setTimeout> | null = null;
+
+/** 立即应用 pending 事件（可见性变化/卸载前调用，取消已排期的刷新）。 */
+function flushNow(): void {
+  if (flushRafId !== null && typeof cancelAnimationFrame === "function") {
+    cancelAnimationFrame(flushRafId);
+    flushRafId = null;
+  }
+  if (flushTimerId !== null) {
+    clearTimeout(flushTimerId);
+    flushTimerId = null;
+  }
+  flushScheduled = false;
+  useSessionEventsStore.getState().flush();
+}
+
 function scheduleFlush(): void {
   if (flushScheduled) return;
   flushScheduled = true;
   const run = () => {
-    flushScheduled = false;
-    useSessionEventsStore.getState().flush();
+    if (!flushScheduled) return;
+    flushNow();
   };
+  // **双保险**：rAF 负责同帧合并（前台最顺滑、零额外延迟），定时器兜底保证
+  // 「后台标签页 rAF 被浏览器暂停/节流」时仍按 ~50ms 批量刷新。
+  // 旧实现是 rAF **或** setTimeout 二选一——后台标签页里事件会一直堆在 pending
+  // 不应用，出现「agent 已返回内容、UI 长时间不更新」，直到切回标签页才补刷
+  // （用户实测反馈的「迟迟不更新」路径之一）。
   if (typeof requestAnimationFrame === "function") {
-    requestAnimationFrame(run);
-  } else {
-    setTimeout(run, FLUSH_FALLBACK_MS);
+    flushRafId = requestAnimationFrame(run);
   }
+  flushTimerId = setTimeout(run, FLUSH_FALLBACK_MS);
+}
+
+// 可见性/卸载：立即落盘 pending（切走前把已收到的事件刷进 UI；切回时也刷一次，
+// 保证回来即见最新——不依赖 rAF 恢复时机）。
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (flushScheduled) flushNow();
+  });
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (flushScheduled) flushNow();
+  });
 }
 
 // ----------------------------------------------------------
