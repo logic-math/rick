@@ -70,21 +70,52 @@ function ConnectionDot() {
  */
 function ConnectionBanner() {
   const connection = useUiStore((s) => s.connection);
+  // 断线超过 30s 视为「持续失败」——服务端重启换 IP / 端口映射变化时，长开页面
+  // 会一直重连不上；此时给出可自助的指引与一键重载（避免用户只看到「正在重连」）。
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    if (connection !== "reconnecting" && connection !== "closed") {
+      setStuck(false);
+      return;
+    }
+    const t = setTimeout(() => setStuck(true), 30_000);
+    return () => clearTimeout(t);
+  }, [connection]);
   if (connection !== "reconnecting" && connection !== "closed") return null;
   const meta = CONNECTION_META[connection] ?? CONNECTION_META.closed;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed bottom-4 left-1/2 z-[100] -translate-x-1/2 px-3"
+      className="pointer-events-none fixed bottom-4 left-1/2 z-[100] w-[min(94vw,560px)] -translate-x-1/2 px-3"
     >
-      <div className="flex items-center gap-2 rounded-full border border-line bg-space-2/95 px-3 py-1.5 text-[11px] text-ink-2 shadow-lg backdrop-blur">
-        <span
-          className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-rm-pulse" : ""}`}
-          style={{ backgroundColor: meta.color }}
-        />
-        <span>{connection === "reconnecting" ? "连接已断开，正在重连…" : "连接已断开"}</span>
-        <span className="text-ink-3">后台会话与任务继续运行</span>
+      <div className="flex flex-col gap-1 rounded-lg border border-line bg-space-2/95 px-3 py-2 text-[11px] text-ink-2 shadow-lg backdrop-blur">
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-rm-pulse" : ""}`}
+            style={{ backgroundColor: meta.color }}
+          />
+          <span>{connection === "reconnecting" ? "连接已断开，正在重连…" : "连接已断开"}</span>
+          <span className="text-ink-3">后台会话与任务继续运行</span>
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-3" title="当前页面地址">
+            {origin}
+          </span>
+        </div>
+        {stuck && (
+          <div className="pointer-events-auto flex items-center gap-2 border-t border-line pt-1">
+            <span className="text-ink-3">
+              已持续重连失败——请确认地址是否为服务端当前地址（服务重启可能换 IP/端口）；也可硬刷新（Ctrl/Cmd+Shift+R）。
+            </span>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="ml-auto shrink-0 rounded border border-portal/50 px-2 py-0.5 text-[10px] text-portal hover:bg-portal/10"
+            >
+              重新加载
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
