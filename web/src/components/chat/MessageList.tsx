@@ -20,7 +20,7 @@ import {
 import type { ChatItem } from "./viewModel";
 import { AssistantBubble, NoticeCard, UserBubble } from "./MessageBubble";
 import ThinkingBlock from "./ThinkingBlock";
-import ToolCallCard from "./ToolCallCard";
+import ToolCallCard, { ToolElapsed, noteToolRunStart } from "./ToolCallCard";
 import Saucer from "../starfield/Saucer";
 import { ExpandCtx, useExpandState, type ExpandCtrl, type ExpandMode } from "./expand";
 
@@ -54,6 +54,13 @@ function ToolGroup({
         {running && <Saucer size={22} flying />}
         <span className="text-ink-2">{tools.length} 次工具调用</span>
         {running && <span className="text-[11px] text-portal">运行中…</span>}
+        {running &&
+          (() => {
+            const rt = tools.find((t) => t.status === "running");
+            if (!rt) return null;
+            noteToolRunStart(rt.id);
+            return <ToolElapsed toolId={rt.id} />;
+          })()}
         {errorCount > 0 && <span className="text-[11px] text-danger">{errorCount} 失败</span>}
         <span className="ml-auto max-w-[45%] truncate font-mono text-[10px] text-ink-3">
           {tools.map((t) => t.toolName).join(" · ")}
