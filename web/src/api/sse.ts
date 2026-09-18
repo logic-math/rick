@@ -85,6 +85,9 @@ export class SseClient {
   private closedByUser = false;
   /** 最近一次已处理 seq（去重前沿；初始值来自持久化重建点——刷新后续传） */
   private lastSeq = -1;
+  /** 缺口自愈：上次回退重连时间与连续失败次数（限流 + 退化为全量 resync）。 */
+  private lastGapRecoveryAt = 0;
+  private gapRecoveryStreak = 0;
   /** 本 document 首个数据事件 seq（0=未收到）——中途接入时的重建点下界 */
   private firstDataSeq = 0;
   /** session_id → 最近一次【落定】事件 seq（该会话打开块的重建点上界） */
@@ -204,6 +207,18 @@ export class SseClient {
     }
   }
 
+  /** 立即写入指定游标值（缺口自愈用；-1 表示清除游标）。 */
+  private persistCursorNow(value: number): void {
+    this.pendingCursor = value;
+    if (typeof window === "undefined") return;
+    try {
+      if (value < 0) window.localStorage.removeItem(CURSOR_STORAGE_KEY);
+      else window.localStorage.setItem(CURSOR_STORAGE_KEY, String(value));
+    } catch {
+      // 静默降级
+    }
+  }
+
   private flushPersistNow(): void {
     if (this.persistTimer !== null) {
       clearTimeout(this.persistTimer);
@@ -316,6 +331,32 @@ export class SseClient {
     return false;
   }
 
+  /** 缺口自愈：把游标回退到 from 并立即重连（服务端按 lastEventID 重放缺失窗口）。
+   *  限流：10s 内只做一次；连续 2 次仍失败 → 清游标并派发全量 resync（对齐 REST 真相）。 */
+  private recoverGap(from: number, to: number): void {
+    const now = Date.now();
+    this.gapRecoveryStreak = now - this.lastGapRecoveryAt < 10_000 ? this.gapRecoveryStreak + 1 : 1;
+    this.lastGapRecoveryAt = now;
+    console.warn(`[sse] 事件缺口 seq ${from} → ${to}（丢 ${to - from - 1} 条）——回退游标重连补齐`);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rick-web:sse-gap", { detail: { from, to } }));
+    }
+    if (this.gapRecoveryStreak > 2) {
+      // 反复缺口：环缓冲可能已滑出窗口——清游标做全量重连 + 状态 resync
+      this.lastSeq = -1;
+      this.gapRecoveryStreak = 0;
+      this.persistCursorNow(-1);
+      this.cleanupSource();
+      if (!this.closedByUser) this.open();
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(SSE_RESYNC_EVENT));
+      return;
+    }
+    this.lastSeq = from;           // 回退游标
+    this.persistCursorNow(from);
+    this.cleanupSource();
+    if (!this.closedByUser) this.open();
+  }
+
   private open(): void {
     const token = getStoredToken();
     const params = new URLSearchParams({ token });
@@ -343,6 +384,13 @@ export class SseClient {
       // 服务端重放严格 seq > 游标，故出现回退只可能是服务端重启（seq 归零）：
       // 视为新纪元——正常处理该事件并派发 resync（否则新 seq 一直被去重丢弃，
       // 页面将永久停在旧状态）。重启后 worker 已失活，全量对齐是必须的。
+      // **seq 缺口检测（实时性兜底）**：正常流 seq 严格 +1。出现空洞说明事件在
+      // 服务端（supervisor 队列满丢最旧 / Hub 慢消费丢最旧）或传输中被丢弃——
+      // 若不处理，UI 会永久缺少这段内容（例如 agent 已返回、UI 少了一截且不再变化）。
+      // 处理：回退游标到最后已处理 seq 并重连，服务端从环形缓冲重放补齐。
+      if (this.lastSeq >= 0 && envelope.seq > this.lastSeq + 1) {
+        this.recoverGap(this.lastSeq, envelope.seq);
+      }
       const epochReset = envelope.seq <= this.lastSeq;
       this.lastSeq = envelope.seq;
       if (this.firstDataSeq === 0) this.firstDataSeq = envelope.seq;
