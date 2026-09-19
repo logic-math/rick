@@ -80,6 +80,9 @@ function ArchivedSection({
         <ul className="flex flex-col gap-1">
           {archived.map((j) => {
             const src = j.archived_by ?? "manual";
+            // manual 归档且未全部完成 → 是用户「关闭」掉的（含历史 blocked/error 卡住
+            // 的 job）——与「手动归档的已完成 job」区分标注，且都可「恢复」。
+            const incomplete = j.tasks.length > 0 && !j.tasks.every((t) => t.status === "success");
             const srcBadge =
               src === "dream" ? (
                 <span className="rounded bg-portal/10 px-1.5 py-0.5 text-[10px] text-portal" title="该 job 已被 dream 学习沉淀，自动归档">
@@ -88,6 +91,13 @@ function ArchivedSection({
               ) : src === "done" ? (
                 <span className="rounded bg-ink-3/10 px-1.5 py-0.5 text-[10px] text-ink-3" title="任务全部完成即自动归档（完成即离开进行中列表）">
                   ✅ 已完成自动归档
+                </span>
+              ) : incomplete ? (
+                <span
+                  className="rounded bg-morty/15 px-1.5 py-0.5 text-[10px] text-morty"
+                  title="已关闭：该 job 未全部完成（如 blocked/error/skipped 的 task）——关闭只是从列表隐藏，文件保留"
+                >
+                  🚪 已关闭（未完成）
                 </span>
               ) : (
                 <span className="rounded bg-morty/10 px-1.5 py-0.5 text-[10px] text-morty" title="手动归档">

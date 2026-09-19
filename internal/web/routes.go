@@ -447,13 +447,24 @@ func (deps Deps) handleArchiveJob() http.HandlerFunc {
 			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing job id"))
 			return
 		}
-		done, err := jobIsComplete(ws.Path+"/.rick", jobID)
-		if err != nil {
+		// force=true（前端「关闭」按钮）：允许归档**未完成**的 job——历史遗留的
+		// blocked/error/长期 pending 的 job 永远无法满足「全部 success」，否则会永久
+		// 滞留在 Jobs 默认列表（用户实测反馈）。关闭只是从列表隐藏（写归档集），
+		// 文件不动，且可在归档区恢复；不伪造任何 task 状态。
+		force := r.URL.Query().Get("force") == "true"
+		if !force {
+			done, err := jobIsComplete(ws.Path+"/.rick", jobID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if !done {
+				writeError(w, newWebError(http.StatusConflict, "state_conflict", "only completed jobs can be archived"))
+				return
+			}
+		} else if _, err := jobRoot(ws.Path+"/.rick", jobID); err != nil {
+			// 仍要求 job 真实存在（防止对不存在的 id 写归档标记）
 			writeError(w, err)
-			return
-		}
-		if !done {
-			writeError(w, newWebError(http.StatusConflict, "state_conflict", "only completed jobs can be archived"))
 			return
 		}
 		if deps.Archived == nil {
