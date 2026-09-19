@@ -174,9 +174,14 @@ function useJobOptions(workspaceId: string | null, active: boolean): {
       .map((j) => {
         const done = j.tasks.filter((t) => t.status === "success").length;
         const archivedMark = j.archived ? ` 📦` : "";
+        // plan 就绪但未 doing：tasks.json 还不存在——明确标注，避免用户以为
+        // 「没有任务」（同时它必须出现在下拉里才能开始 doing）。
         return {
           job_id: j.job_id,
-          label: `${j.job_id}（${done}/${j.tasks.length} 完成${archivedMark}）`,
+          label:
+            j.stage === "planned"
+              ? `${j.job_id}（plan 就绪，未执行 doing${archivedMark}）`
+              : `${j.job_id}（${done}/${j.tasks.length} 完成${archivedMark}）`,
         };
       });
   }, [list]);

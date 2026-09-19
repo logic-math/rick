@@ -101,6 +101,13 @@ type JobSummary struct {
 	// "manual" = user archived via the UI, "dream" = dream already
 	// processed the job (auto-archived). Frontend renders a source badge.
 	ArchivedBy string `json:"archived_by,omitempty"`
+	// Stage records how far the job has progressed: "planned" = has
+	// plan/ (task*.md 由 plan 会话产出) but no doing/tasks.json yet;
+	// "doing" = has doing/tasks.json. Frontend shows a hint and (importantly)
+	// the doing/ctrl 会话表单的 job 下拉必须能选到 planned 的 job
+	//（用户实测：job_17 plan 完成却无法在下拉里选它执行 doing——旧实现只扫
+	// doing/tasks.json，plan 就绪但未开始的 job 完全不在列表里）。
+	Stage string `json:"stage,omitempty"`
 }
 
 // FileNode is one knowledge file entry (api-contract.md Knowledge 节).
@@ -153,6 +160,7 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 			JobID:     jobID,
 			UpdatedAt: parseTimeLenient(tj.UpdatedAt),
 			Tasks:     make([]TaskBrief, 0, len(tj.Tasks)),
+			Stage:     "doing",
 		}
 		for _, t := range tj.Tasks {
 			summary.Tasks = append(summary.Tasks, TaskBrief{
@@ -163,6 +171,43 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 			})
 		}
 		out = append(out, summary)
+	}
+	// plan 就绪但尚未 doing 的 job：doing/tasks.json 不存在，但 plan/ 已产出
+	// task*.md——这些 job 也必须可被选来执行 doing（否则 plan 完成后无处开始）。
+	seen := make(map[string]bool, len(out))
+	for _, j := range out {
+		seen[j.JobID] = true
+	}
+	planPattern := filepath.Join(rickDir, workspace.JobsDirName, "*", "plan")
+	if planDirs, err := filepath.Glob(planPattern); err == nil {
+		for _, pd := range planDirs {
+			jobID := filepath.Base(filepath.Dir(pd))
+			if seen[jobID] {
+				continue
+			}
+			st, err := os.Stat(pd)
+			if err != nil || !st.IsDir() {
+				continue
+			}
+			// 仅统计真正产出了任务清单的 plan（task*.md）
+			taskFiles, _ := filepath.Glob(filepath.Join(pd, "task*.md"))
+			if len(taskFiles) == 0 {
+				continue
+			}
+			updated := st.ModTime()
+			for _, tf := range taskFiles {
+				if fi, err := os.Stat(tf); err == nil && fi.ModTime().After(updated) {
+					updated = fi.ModTime()
+				}
+			}
+			out = append(out, JobSummary{
+				JobID:     jobID,
+				UpdatedAt: updated,
+				Tasks:     []TaskBrief{},
+				Stage:     "planned",
+			})
+			seen[jobID] = true
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {

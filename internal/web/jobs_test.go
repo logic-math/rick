@@ -27,7 +27,8 @@ func writeFileT(t *testing.T, path, content string) {
 //	jobs/job_1  tasks.json (older, 2 tasks) + plan/task1.md + doing/{debug/log.md, raw_session_coding.log, prompts/x.md}
 //	jobs/job_2  tasks.json (newer, 1 task)
 //	jobs/job_3  tasks.json (corrupt JSON — must be skipped by the listing)
-//	jobs/job_4  plan-only, no doing/tasks.json (not listed)
+//	jobs/job_4  plan-only（有 plan/task*.md，无 doing/tasks.json）→ 列为
+//	            stage=planned（必须能被执行 doing/ctrl 的会话表单选到）
 func jobsFixture(t *testing.T) string {
 	t.Helper()
 	rick := filepath.Join(t.TempDir(), ".rick")
@@ -92,21 +93,41 @@ func TestJobsListJobsOrderingAndFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	// job_3 is corrupt JSON, job_4 has no tasks.json → both skipped.
-	if len(jobs) != 2 {
-		t.Fatalf("want 2 jobs, got %d: %+v", len(jobs), jobs)
+	// job_3 是损坏 JSON → 跳过；job_4 只有 plan（无 doing/tasks.json）→ 以
+	// stage=planned 列出（plan 完成但未 doing 的 job 必须可被选来执行）。
+	if len(jobs) != 3 {
+		t.Fatalf("want 3 jobs, got %d: %+v", len(jobs), jobs)
 	}
-	if jobs[0].JobID != "job_2" || jobs[1].JobID != "job_1" {
-		t.Fatalf("want [job_2 job_1] (updated_at desc), got [%s %s]", jobs[0].JobID, jobs[1].JobID)
+	byID := map[string]JobSummary{}
+	for _, j := range jobs {
+		byID[j.JobID] = j
 	}
-	if !jobs[0].UpdatedAt.After(jobs[1].UpdatedAt) {
-		t.Fatalf("job_2 updated_at should sort first: %v vs %v", jobs[0].UpdatedAt, jobs[1].UpdatedAt)
+	if byID["job_4"].Stage != "planned" || len(byID["job_4"].Tasks) != 0 {
+		t.Fatalf("job_4 should be stage=planned with no tasks: %+v", byID["job_4"])
+	}
+	if byID["job_1"].Stage != "doing" || byID["job_2"].Stage != "doing" {
+		t.Fatalf("job_1/job_2 should be stage=doing: %+v", byID)
+	}
+	if _, skipped := byID["job_3"]; skipped {
+		t.Fatal("job_3 (corrupt JSON) must be skipped")
+	}
+	// 排序按 updated_at desc：job_2（08-02）应排在 job_1（08-01）之前。
+	idxOf := func(id string) int {
+		for i, j := range jobs {
+			if j.JobID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	if idxOf("job_2") == -1 || idxOf("job_1") == -1 || idxOf("job_2") > idxOf("job_1") {
+		t.Fatalf("want job_2 before job_1 (updated_at desc): %v", []string{jobs[0].JobID, jobs[1].JobID, jobs[2].JobID})
 	}
 	want := []TaskBrief{
 		{TaskID: "task1", Name: "定义 spec", Status: "success", CommitHash: "abc123"},
 		{TaskID: "task2", Name: "产出实现", Status: "pending", CommitHash: ""},
 	}
-	got := jobs[1].Tasks
+	got := byID["job_1"].Tasks
 	if len(got) != len(want) {
 		t.Fatalf("job_1 task count: want %d, got %d", len(want), len(got))
 	}
@@ -116,7 +137,7 @@ func TestJobsListJobsOrderingAndFields(t *testing.T) {
 		}
 	}
 	// JSON projection must use contract field names.
-	b, err := json.Marshal(jobs[1])
+	b, err := json.Marshal(byID["job_1"])
 	if err != nil {
 		t.Fatal(err)
 	}
