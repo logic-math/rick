@@ -88,6 +88,9 @@ export class SseClient {
   /** 缺口自愈：上次回退重连时间与连续失败次数（限流 + 退化为全量 resync）。 */
   private lastGapRecoveryAt = 0;
   private gapRecoveryStreak = 0;
+  /** 本次断开开始时刻（用于判断是否为「短暂抖动」——短暂重连只靠游标重放补齐，
+   *  不做全量 resync，避免无谓的重拉与界面刷新）。 */
+  private downSince = 0;
   /** 本 document 首个数据事件 seq（0=未收到）——中途接入时的重建点下界 */
   private firstDataSeq = 0;
   /** session_id → 最近一次【落定】事件 seq（该会话打开块的重建点上界） */
@@ -315,8 +318,17 @@ export class SseClient {
 
     this.dispatch(envelope);
     if (wasRetrying) {
-      // 重连成功——通知 stores 全量刷新（乐观保留状态对齐服务端）
-      window.dispatchEvent(new CustomEvent(SSE_RESYNC_EVENT));
+      // 重连成功：**仅当断线时间较长（≥5s）才做全量 resync**（重拉 sessions/jobs）。
+      // 短暂抖动（几秒内自愈）由游标重放（?lastEventID）补齐即可——旧实现在每次重连
+      // 都全量重拉，配合「空闲 SSE 被中间层掐断」会导致界面每几秒刷新一次、画面抖动
+      // （用户实测）。
+      const downMs = this.downSince > 0 ? Date.now() - this.downSince : 0;
+      this.downSince = 0;
+      if (downMs >= 5000) {
+        window.dispatchEvent(new CustomEvent(SSE_RESYNC_EVENT));
+      }
+    } else {
+      this.downSince = 0;
     }
   }
 
@@ -418,6 +430,7 @@ export class SseClient {
     };
 
     source.onerror = () => {
+      if (this.downSince === 0) this.downSince = Date.now();
       // 主动关闭并按指数退避重连（EventSource 内建重连不可控）
       this.cleanupSource();
       if (this.closedByUser) return;
