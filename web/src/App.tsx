@@ -70,18 +70,38 @@ function ConnectionDot() {
  */
 function ConnectionBanner() {
   const connection = useUiStore((s) => s.connection);
-  // 断线超过 30s 视为「持续失败」——服务端重启换 IP / 端口映射变化时，长开页面
-  // 会一直重连不上；此时给出可自助的指引与一键重载（避免用户只看到「正在重连」）。
+  const retryCount = useUiStore((s) => s.retryCount);
+  const unhealthy = connection === "reconnecting" || connection === "closed";
+
+  // 静默重连：默认**不打扰**——短暂抖动（代理重启、SSE 换连接、网络毛刺）在几秒内
+  // 自愈，弹提示只会让人觉得连接不稳（用户实测反馈「总是闪出重连」）。
+  // 显示条件：① 已重试 ≥3 次（明确失败）立即提示；② 或持续不可用超过 8s。
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!unhealthy) {
+      setVisible(false);
+      return;
+    }
+    if (retryCount >= 3) {
+      setVisible(true);
+      return;
+    }
+    const t = setTimeout(() => setVisible(true), 8000);
+    return () => clearTimeout(t);
+  }, [unhealthy, retryCount]);
+
+  // 持续 30s+ 视为网络较弱：追加指引与一键重载
   const [stuck, setStuck] = useState(false);
   useEffect(() => {
-    if (connection !== "reconnecting" && connection !== "closed") {
+    if (!visible) {
       setStuck(false);
       return;
     }
     const t = setTimeout(() => setStuck(true), 30_000);
     return () => clearTimeout(t);
-  }, [connection]);
-  if (connection !== "reconnecting" && connection !== "closed") return null;
+  }, [visible]);
+
+  if (!visible || !unhealthy) return null;
   const meta = CONNECTION_META[connection] ?? CONNECTION_META.closed;
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
@@ -96,7 +116,9 @@ function ConnectionBanner() {
             className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-rm-pulse" : ""}`}
             style={{ backgroundColor: meta.color }}
           />
-          <span>{connection === "reconnecting" ? "连接已断开，正在重连…" : "连接已断开"}</span>
+          <span>
+            {stuck ? "当前网络较弱，断线重连中…" : "网络波动，正在重连…"}
+          </span>
           <span className="text-ink-3">后台会话与任务继续运行</span>
           <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-3" title="当前页面地址">
             {origin}

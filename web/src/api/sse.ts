@@ -261,8 +261,12 @@ export class SseClient {
   // 内部
   // ----------------------------------------------------------
 
+  /** 状态事件携带重试次数：UI 据此实现「短暂抖动不打扰、多次失败才提示」
+   *  （用户反馈：断线重连提示老是闪出，显得连接不稳定）。 */
   private emitState(state: SseConnectionState): void {
-    window.dispatchEvent(new CustomEvent(SSE_STATE_EVENT, { detail: state }));
+    window.dispatchEvent(
+      new CustomEvent(SSE_STATE_EVENT, { detail: { state, retryCount: this.retryCount } }),
+    );
   }
 
   private dispatch(envelope: SSEEnvelope): void {
