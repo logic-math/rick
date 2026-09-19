@@ -71,6 +71,16 @@ export default function SessionBadge({
           {TYPE_LABEL[session.type]}
         </span>
         <span className="min-w-0 flex-1 truncate">{title}</span>
+        {/* job 归属徽标：会话被命名后标题可能不含编号，这里始终可见（点开会话 →
+            会话设置里可复制完整编号与 job 工作目录）。 */}
+        {typeof jobParam === "string" && jobParam && !title.includes(jobParam) && (
+          <span
+            className="shrink-0 rounded border border-line bg-space-2/60 px-1 font-mono text-[8px] leading-4 text-ink-3"
+            title={`归属 job：${jobParam}`}
+          >
+            {jobParam}
+          </span>
+        )}
         {session.status === "active" || session.status === "running" ? (
           <span className="flex shrink-0 items-center gap-1 rounded-full border border-portal/40 bg-portal/10 px-1.5 py-0.5 text-[9px] leading-none text-portal">
             <span className="inline-block h-1.5 w-1.5 animate-rm-pulse rounded-full bg-portal" />

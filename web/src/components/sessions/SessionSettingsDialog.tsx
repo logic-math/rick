@@ -9,6 +9,7 @@
  */
 
 import { useState } from "react";
+import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
 import type { SessionInfo, SessionType } from "../../types";
 import Dialog from "../common/Dialog";
@@ -109,6 +110,15 @@ function SettingsBody({
 
   const archived = session.archived === true;
   const live = session.status === "active" || session.status === "running";
+  // Job 归属（doing/ctrl/learning 等）：会话被命名后侧栏不再显示编号，用户需要
+  // 一个能查到「这是哪个 job / 它的工作目录在哪」的地方（实测反馈）。
+  const jobParamRaw = (session.params as { job?: unknown } | undefined)?.job;
+  const job = typeof jobParamRaw === "string" && jobParamRaw ? jobParamRaw : null;
+  const ws = useWorkspacesStore((st) => st.list.find((w) => w.id === session.workspace_id));
+  const jobDir = job && ws ? `${ws.path}/.rick/jobs/${job}` : null;
+  const copy = (text: string) => {
+    void navigator.clipboard?.writeText(text).catch(() => {});
+  };
 
   async function archive(): Promise<void> {
     setBusy(true);
@@ -184,6 +194,40 @@ function SettingsBody({
               {session.pi_session_id}
             </dd>
           </div>
+          {job && (
+            <div className="flex gap-2">
+              <dt className="w-16 shrink-0 text-ink-3">Job</dt>
+              <dd className="flex min-w-0 items-center gap-2">
+                <span className="rounded border border-portal/40 bg-portal/10 px-1.5 py-0.5 font-mono text-[10px] text-portal">
+                  {job}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copy(job)}
+                  className="rounded border border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-portal/50 hover:text-portal"
+                  title="复制 job 编号（新建 doing/ctrl/learning 会话或 rick --resume 时可用）"
+                >
+                  复制
+                </button>
+              </dd>
+            </div>
+          )}
+          {jobDir && (
+            <div className="flex gap-2">
+              <dt className="w-16 shrink-0 text-ink-3">Job 目录</dt>
+              <dd className="min-w-0 break-all font-mono text-[10px] text-ink-3">
+                {jobDir}
+                <button
+                  type="button"
+                  onClick={() => copy(jobDir)}
+                  className="ml-1.5 rounded border border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-portal/50 hover:text-portal"
+                  title="复制 job 工作目录路径"
+                >
+                  复制
+                </button>
+              </dd>
+            </div>
+          )}
           <div className="flex gap-2">
             <dt className="w-16 shrink-0 text-ink-3">参数</dt>
             <dd className="min-w-0 break-all font-mono text-[10px] text-ink-3">{summaryOf(session)}</dd>
