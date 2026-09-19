@@ -28,6 +28,9 @@ export interface SessionsState {
   get: (id: string) => Promise<SessionInfo | null>;
   /** SSE session_state 同步（本地即时更新） */
   applyState: (sessionId: string, status: SessionInfo["status"], reason?: string) => void;
+  /** 从列表移除（归档事件驱动：默认列表不含已归档会话——多标签页/其他入口归档时
+   *  本页也要立刻隐藏，而不依赖当前页自己触发的那次 reload）。 */
+  drop: (sessionId: string) => void;
   /** 重新拉取全部已加载工作区（SSE resync 后） */
   resyncAll: () => Promise<void>;
 }
@@ -94,6 +97,16 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     } catch {
       return null;
     }
+  },
+
+  drop: (sessionId) => {
+    set((s) => {
+      const existing = s.index.get(sessionId);
+      if (!existing) return s;
+      const list = (s.byWorkspace.get(existing.workspace_id) ?? []).filter((x) => x.id !== sessionId);
+      const byWorkspace = new Map(s.byWorkspace).set(existing.workspace_id, list);
+      return { byWorkspace, index: rebuildIndex(byWorkspace) };
+    });
   },
 
   applyState: (sessionId, status, reason) => {

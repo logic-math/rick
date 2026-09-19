@@ -228,6 +228,16 @@ export function wireSessionEvents(): void {
     useSessionsStore
       .getState()
       .applyState(envelope.session_id, data.status as SessionInfo["status"], data.reason);
+    // 归档/取消归档：默认列表按「未归档」过滤，故归档后必须**立即从列表移除**
+    // （取消归档则重拉回来）。旧实现只靠发起归档的那个弹窗自己 reload——若归档
+    // 来自其他标签页/入口，或那次 reload 失败，侧栏就会「点了归档却不隐藏」
+    // （用户实测）。这里由服务端事件驱动，多端一致。
+    if (data.reason === "archived") {
+      useSessionsStore.getState().drop(envelope.session_id);
+    } else if (data.reason === "unarchived") {
+      const wsId = useSessionsStore.getState().index.get(envelope.session_id)?.workspace_id;
+      if (wsId) void useSessionsStore.getState().load(wsId);
+    }
   });
 
   window.addEventListener(SSE_RESYNC_EVENT, () => {
