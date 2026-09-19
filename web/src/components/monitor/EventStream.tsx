@@ -163,7 +163,26 @@ export function toEventLines(events: SSEEnvelope[]): EventLine[] {
       continue;
     }
     if (env.type !== "session_event") continue;
-    const data = env.data as { event?: PiRpcEvent } | undefined;
+    const data = env.data as
+      | { event?: PiRpcEvent; kind?: string; job_id?: string; task_id?: string; from?: string; to?: string; note?: string }
+      | undefined;
+    // **合成会话事件（非 pi rpc）**：doing 的任务态变更 / 轮次进度说明。
+    // 旧实现只认 data.event（pi rpc 形状）→ doing 会话的事件流**永远空白**
+    // （用户实测「doing 静默执行、没有任何事件更新」）。
+    if (data?.kind === "doing_progress" || data?.kind === "doing_note") {
+      const isNote = data.kind === "doing_note";
+      const text = isNote
+        ? data.note || "进度更新"
+        : `${data.job_id ?? ""} ${data.task_id ?? ""}: ${data.from ?? "?"} → ${data.to ?? "?"}`.trim();
+      lines.push({
+        id: `d-${env.seq}`,
+        time: "",
+        kind: isNote ? "lifecycle" : "state",
+        icon: isNote ? "ℹ" : "📋",
+        text,
+      });
+      continue;
+    }
     const event = data?.event;
     if (!event?.type) continue;
     const line = toLine(env, event);

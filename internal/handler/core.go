@@ -97,6 +97,13 @@ type DoingEvent struct {
 	TaskID string
 	From   string
 	To     string
+	// Note carries non-task progress/explanation events (round boundaries,
+	// "nothing to execute" etc.). Web streams it as a session event so the
+	// monitor view shows liveness; CLI ignores it (its prints stay as-is).
+	// 背景：doing 会话此前只在 task 状态变化时发事件——job 全部完成或某轮长时间
+	// 运行时事件流**完全空白**，监控页看起来像卡死（用户实测「静默执行没有任何
+	// 事件更新」）。
+	Note string
 }
 
 // DreamEvent reports dream run progress (pending-job selection / completion).

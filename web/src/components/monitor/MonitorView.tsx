@@ -52,11 +52,34 @@ export default function MonitorView({ sessionId }: MonitorViewProps) {
   // 会话事件缓冲（版本号驱动重渲染）
   const eventsVersion = useSessionEventsStore((s) => s.version);
   const sessionEvents = useSessionEventsStore((s) => s.buffers.get(sessionId));
-  const events = useMemo(
-    () => sessionEvents ?? [],
+  // 后台进度日志（服务端记录，随单会话查询返回）→ 回填为伪 envelope，
+  // 让「首次/事后打开」的监控页也能看到该会话跑了什么（这些事件只在 hub
+  // 环形缓冲里活过一次，错过就没了——用户实测「doing 静默执行没有任何事件更新」）。
+  const historyEvents = useMemo(() => {
+    const notes = session?.progress ?? [];
+    return notes.map((n, i) => ({
+      seq: -1 - i, // 负 seq：与真实 seq 不冲突、key 稳定
+      type: 'session_event',
+      session_id: sessionId,
+      data: { kind: 'doing_note', note: n.text },
+    })) as unknown as typeof sessionEvents;
+  }, [session, sessionId]);
+
+  const events = useMemo(() => {
+    const live = sessionEvents ?? [];
+    const hist = (historyEvents ?? []) as NonNullable<typeof sessionEvents>;
+    if (hist.length === 0) return live;
+    // 去重：历史已含同文本的 note（live 里可能重复推送同一条）
+    const seen = new Set(hist.map((e) => String((e.data as { note?: string })?.note ?? '')));
+    const liveFiltered = live.filter((e) => {
+      const d = e.data as { kind?: string; note?: string; task_id?: string; from?: string; to?: string } | undefined;
+      if (d?.kind !== 'doing_note' && d?.kind !== 'doing_progress') return true;
+      const key = d.kind === 'doing_note' ? String(d.note ?? '') : `${d.task_id ?? ''} ${d.from ?? ''} → ${d.to ?? ''}`;
+      return !seen.has(key);
+    });
+    return [...hist, ...liveFiltered];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionEvents, eventsVersion],
-  );
+  }, [sessionEvents, historyEvents, eventsVersion]);
 
   // jobs store（快照 + diff）
   const jobsVersion = useJobsStore((s) => s.version);

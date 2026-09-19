@@ -151,6 +151,22 @@ func DoingIn(ctx context.Context, rickDir string, jobID string, opts Options, rt
 		// v4.4.6: 执行反馈——编排摘要（分层结构）+ 运行中实时事件（runtime 打 stderr）。
 		printOrchestrationSummary(doingDir, planDir, attempt, maxRetries)
 
+		// 轮次活性信号 + 「无事可做」提前收敛（web 监控视图此前对这两者都无感：
+		// 只发 task 态变更 → job 已全部完成时静默空转多轮，事件流一片空白）。
+		snap := readTaskSnapshot(doingDir)
+		pending, total := 0, 0
+		for _, t := range snap {
+			total++
+			if t.Status != "success" {
+				pending++
+			}
+		}
+		emitDoing(progress, DoingEvent{JobID: jobID, Note: fmt.Sprintf("第 %d/%d 轮：待执行 %d/%d", attempt, maxRetries, pending, total)})
+		if pending == 0 {
+			emitDoing(progress, DoingEvent{JobID: jobID, Note: fmt.Sprintf("%s 全部 %d 个 task 已 success——无需执行，提前结束", jobID, total)})
+			return nil
+		}
+
 		// v4.4.7: 确定性进度——tasks.json watcher（hook 写状态，watcher 轮询 diff，
 		// 状态变更打一行）。pi 会话内 assistant 文本不固定，不作为进度信号。
 		// v4.5（job_36 task2）：watcher 的 diff 消费改为回调注入——CLI 走
