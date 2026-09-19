@@ -99,6 +99,8 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil, nil)
 	// 重启对账：active/running 但无 worker 的会话标记 error（前端显示 Resume 恢复）
 	sm.ReconcileOnStart()
+	// 后台型会话的历史空标题回填（doing job_N / dream ×N）——旧数据侧栏只显示会话 id
+	sm.BackfillTitles()
 
 	addr := fmt.Sprintf("%s:%d", opts.Listen, opts.Port)
 	if opts.Listen == "" && opts.Port == 0 {

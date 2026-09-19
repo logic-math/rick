@@ -108,7 +108,10 @@ function SessionCard({
           {session.type}
         </span>
         <span className="truncate text-sm font-medium text-ink group-hover:text-portal">
-          {session.title || `${session.type} 会话`}
+          {session.title ||
+            (typeof (session.params as { job?: unknown } | undefined)?.job === "string"
+              ? `${session.type} ${(session.params as { job?: string }).job}`
+              : `${session.type} 会话`)}
         </span>
         <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-ink-3">
           {session.status}

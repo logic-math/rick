@@ -111,6 +111,37 @@ func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry,
 	return m
 }
 
+// BackfillTitles fills empty titles for background sessions (doing/dream) from
+// their params. Legacy rows created before the default-title fix otherwise show
+// only the session id in the sidebar / cards（用户实测：doing 侧栏显示会话 id
+// 而不是 job 编号）。幂等：已有 title 的行不动。
+func (m *SessionManager) BackfillTitles() {
+	for _, e := range m.sessions.List() {
+		if strings.TrimSpace(e.Title) != "" {
+			continue
+		}
+		switch e.Type {
+		case SessionTypeDoing:
+			job := paramString(e.Params, "job")
+			if job == "" {
+				continue // 无 job 参数（异常行）——不编造
+			}
+			e.Title = "doing " + job
+		case SessionTypeDream:
+			n := DreamDefaultJobNum
+			if v, ok := paramInt(e.Params, "job_num"); ok {
+				n = v
+			}
+			e.Title = fmt.Sprintf("dream ×%d", n)
+		default:
+			continue
+		}
+		if err := m.sessions.Update(e); err != nil {
+			fmt.Fprintf(os.Stderr, "[rick-web] backfill title for %s failed: %v\n", e.ID, err)
+		}
+	}
+}
+
 // ReconcileOnStart 服务启动对账：注册表里 status=active/running 的会话在本次进程
 // 重启后没有对应 worker/goroutine（旧进程已死）——统一标记为 error（worker lost
 // on server restart），前端据此显示 Resume 按钮恢复（SessionResume 支持 error→active）。
@@ -307,6 +338,25 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 
 	// Background types never spawn an rpc worker.
 	if req.Type == SessionTypeDoing || (req.Type == SessionTypeDream && dreamMode(req.Params) == DreamModeBackground) {
+		// 后台型会话不走 prepareInteractive（无 prep.title）——此前 title 为空，前端
+		// 只能回退成「doing · d56134af（会话 id）」，侧栏看不到 job 编号
+		// （用户实测反馈）。此处按参数生成有意义默认标题。
+		if strings.TrimSpace(entry.Title) == "" {
+			switch req.Type {
+			case SessionTypeDoing:
+				if job := paramString(req.Params, "job"); job != "" {
+					entry.Title = "doing " + job
+				} else {
+					entry.Title = "doing"
+				}
+			case SessionTypeDream:
+				n := DreamDefaultJobNum
+				if v, ok := paramInt(req.Params, "job_num"); ok {
+					n = v
+				}
+				entry.Title = fmt.Sprintf("dream ×%d", n)
+			}
+		}
 		if err := m.sessions.Add(entry); err != nil {
 			return nil, err
 		}
