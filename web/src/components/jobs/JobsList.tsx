@@ -176,7 +176,14 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
               </div>
               <ProgressDots tasks={job.tasks} />
               <p className="text-xs text-ink-3">
-                {done}/{total} 完成{failed > 0 ? ` · ${failed} 失败 ⚠` : done === total && total > 0 ? " ✅" : ""}
+                {job.stage === "planned" ? (
+                  <span className="text-morty">plan 就绪 · 未执行 doing</span>
+                ) : (
+                  <>
+                    {done}/{total} 完成
+                    {failed > 0 ? ` · ${failed} 失败 ⚠` : done === total && total > 0 ? " ✅" : ""}
+                  </>
+                )}
               </p>
             </button>
             {complete && (

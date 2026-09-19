@@ -213,6 +213,9 @@ export interface JobSummary {
   archived?: boolean;
   /** 归档来源：manual=手动归档 / dream=已被 dream 学习 / done=已完成自动归档 */
   archived_by?: "manual" | "dream" | "done";
+  /** 进度阶段：planned=plan 已产出（task*.md）但未执行 doing；doing=已有 tasks.json。
+   *  planned 的 job 也必须能被执行 doing/ctrl 的会话表单选到。 */
+  stage?: "planned" | "doing";
 }
 
 /** GET /api/workspaces/{ws}/jobs/{job}/file 响应 */
