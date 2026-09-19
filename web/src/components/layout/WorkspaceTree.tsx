@@ -52,6 +52,9 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
   // 注销状态
   const [removeTarget, setRemoveTarget] = useState<WorkspaceEntry | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  /** 注销失败原因——**在确认弹窗内展示**（旧实现只写侧栏底部的 dragError，
+   *  用户正在弹窗里操作时看不到任何反馈 → 表现为「点注销无反应」）。 */
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   useEffect(() => {
     void refresh();
@@ -118,6 +121,7 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
     if (!removeTarget) return;
     setRemoveBusy(true);
     setDragError(null);
+    setRemoveError(null);
     try {
       await removeWs(removeTarget.id);
       // 当前路由在该工作区下 → 重定向到剩余第一个工作区或空态
@@ -127,7 +131,7 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
       }
       setRemoveTarget(null);
     } catch (e) {
-      setDragError(e instanceof Error ? e.message : String(e));
+      setRemoveError(e instanceof Error ? e.message : String(e));
     } finally {
       setRemoveBusy(false);
     }
@@ -155,7 +159,10 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
               workspaceId={w.id}
               onNewSession={onNewSession}
               onNavigate={onNavigate}
-              onRemove={(ws) => setRemoveTarget(ws)}
+              onRemove={(ws) => {
+                setRemoveError(null);
+                setRemoveTarget(ws);
+              }}
             />
           </WorkspaceRow>
         ))
@@ -196,6 +203,15 @@ export default function WorkspaceTree({ onNewSession, onNavigate }: WorkspaceTre
             <p className="text-xs leading-relaxed text-ink-3">
               注销后该工作区从 rick 移除，<b>目录与 job 文件保留</b>，可随时重新添加。
             </p>
+            {removeError && (
+              <div className="rounded-md border border-danger/50 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger">
+                ⚠ 注销失败：{removeError}
+                <div className="mt-1 text-ink-3">
+                  若反复失败，请确认当前页面地址是服务端地址（服务重启可能换 IP/端口），
+                  或硬刷新（Ctrl/Cmd+Shift+R）后重试。
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
