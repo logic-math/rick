@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useJobsStore } from "../../stores/jobs";
 import { api } from "../../api/client";
 import type { JobSummary, TaskBrief } from "../../types";
+import { jobStageInfo } from "../../lib/jobStage";
 import Spinner from "../common/Spinner";
 import ErrorBanner from "../common/ErrorBanner";
 import EmptyState from "../common/EmptyState";
@@ -176,14 +177,26 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
               </div>
               <ProgressDots tasks={job.tasks} />
               <p className="text-xs text-ink-3">
-                {job.stage === "planned" ? (
-                  <span className="text-morty">plan 就绪 · 未执行 doing</span>
-                ) : (
-                  <>
-                    {done}/{total} 完成
-                    {failed > 0 ? ` · ${failed} 失败 ⚠` : done === total && total > 0 ? " ✅" : ""}
-                  </>
-                )}
+                {done}/{total} 完成
+                {failed > 0 ? ` · ${failed} 失败 ⚠` : done === total && total > 0 ? " ✅" : ""}
+                {/* 下一步模式指引（与新建会话的 job 下拉一致） */}
+                {(() => {
+                  const info = jobStageInfo(job);
+                  const tone =
+                    info.tone === "portal"
+                      ? "text-portal"
+                      : info.tone === "morty"
+                        ? "text-morty"
+                        : info.tone === "danger"
+                          ? "text-danger"
+                          : "text-ink-3";
+                  return (
+                    <span className={`ml-1.5 ${tone}`}>
+                      · {info.badge}
+                      {info.nextMode ? ` · 下一步 ${info.nextMode}` : ""}
+                    </span>
+                  );
+                })()}
               </p>
             </button>
             {complete && (
