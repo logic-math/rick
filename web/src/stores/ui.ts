@@ -17,6 +17,8 @@ export interface UiState {
   globalError: string | null;
   /** SSE 连接状态（绿=open / 黄=reconnecting / 红=closed） */
   connection: SseConnectionState;
+  /** 当前连续重试次数（0=已连接）——提示分级用（宽限期/网络波动/网络较弱） */
+  retryCount: number;
 
   setAuthRequired: (v: boolean) => void;
   setGlobalError: (msg: string | null) => void;
@@ -27,6 +29,7 @@ export const useUiStore = create<UiState>((set) => ({
   authRequired: false,
   globalError: null,
   connection: "connecting",
+  retryCount: 0,
 
   setAuthRequired: (v) => set({ authRequired: v }),
   setGlobalError: (msg) => set({ globalError: msg }),
@@ -48,9 +51,13 @@ export function wireUiEvents(): void {
   });
 
   window.addEventListener(SSE_STATE_EVENT, (ev) => {
-    const detail = (ev as CustomEvent<SseConnectionState>).detail;
-    if (detail) {
-      useUiStore.getState().setConnection(detail);
+    // 兼容两种 detail：字符串（旧）或 { state, retryCount }（新）
+    const detail = (ev as CustomEvent<SseConnectionState | { state: SseConnectionState; retryCount?: number }>).detail;
+    if (!detail) return;
+    const state = typeof detail === "string" ? detail : detail.state;
+    const retryCount = typeof detail === "string" ? 0 : (detail.retryCount ?? 0);
+    if (state) {
+      useUiStore.setState({ connection: state, retryCount });
     }
   });
 }
