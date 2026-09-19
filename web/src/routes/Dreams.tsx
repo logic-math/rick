@@ -10,8 +10,12 @@ import KnowledgeBrowser from "../components/knowledge/KnowledgeBrowser";
 
 export default function Dreams({ workspaceId }: { workspaceId: string }) {
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
-      <header className="flex items-center gap-3">
+    // 铺满主内容区：宽度用满（不再 max-w-5xl 居中窄栏——知识库是文件树+正文
+    // 双栏浏览，宽屏下窄栏会留大片空白，用户实测「没铺满窗口，看起来奇怪」），
+    // 高度用 h-full + min-h-0 形成完整 flex 高度链，让 KnowledgeBrowser 的
+    // flex-1 双栏（左侧树/右侧正文）真正撑满可视区并可各自滚动。
+    <div className="flex h-full min-h-0 w-full flex-col gap-4">
+      <header className="flex shrink-0 items-center gap-3">
         <h1 className="text-xl font-semibold text-ink">Dreams</h1>
         <span className="text-xs text-ink-3">
           知识库：domain / loops / skills（dream 产物）
@@ -20,7 +24,7 @@ export default function Dreams({ workspaceId }: { workspaceId: string }) {
 
       <KnowledgeBrowser workspaceId={workspaceId} />
 
-      <div className="rounded-lg border border-dashed border-line bg-space/30 px-4 py-3 text-xs text-ink-3">
+      <div className="shrink-0 rounded-lg border border-dashed border-line bg-space/30 px-4 py-3 text-xs text-ink-3">
         💤 dream 运行日志（<code className="rounded bg-white/5 px-1">.rick/dream/dream_run_*_log.md</code>）浏览
         待后端接口支持——当前可在 Jobs 页查看 job 产物，或直接打开仓库目录。
       </div>

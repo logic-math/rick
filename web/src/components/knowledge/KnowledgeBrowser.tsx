@@ -145,7 +145,7 @@ export default function KnowledgeBrowser({ workspaceId }: KnowledgeBrowserProps)
 
       <div className="flex min-h-0 flex-1 gap-4 max-md:flex-col">
         {/* 桌面端树（≥768px） */}
-        <aside className="w-64 shrink-0 overflow-y-auto rounded-lg border border-line bg-surface/50 p-2 md:block hidden">
+        <aside className="hidden w-64 shrink-0 overflow-y-auto rounded-lg border border-line bg-surface/50 p-2 md:block xl:w-80">
           <p className="px-1.5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
             知识库 · {fileCount} 文件
           </p>
