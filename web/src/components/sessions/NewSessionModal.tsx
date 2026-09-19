@@ -16,6 +16,7 @@ import { useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
+import { jobStageInfo, modeFitWarning } from "../../lib/jobStage";
 import { ApiError } from "../../types";
 import type {
   CreateSessionRequest,
@@ -132,6 +133,8 @@ const FIELD_CLS =
  * 需要 workspace 里有“已完成且未被 dream 归档”的 job——提交前先看，避免 409 玄学）。 */
 function useJobOptions(workspaceId: string | null, active: boolean): {
   jobs: Array<{ job_id: string; label: string }>;
+  /** 原始 job 列表（含 stage/tasks/archived_by）——选中后展示状态与下一步指引 */
+  raw: JobSummary[];
   loading: boolean;
   /** 可 dream 素材数：已完成（tasks 全 success）且未被 dream 学习的 job
    *  （含 done/manual 归档来源——dream 会扫描文件系统，不受归档视图影响）。
@@ -172,16 +175,14 @@ function useJobOptions(workspaceId: string | null, active: boolean): {
       .slice()
       .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
       .map((j) => {
-        const done = j.tasks.filter((t) => t.status === "success").length;
         const archivedMark = j.archived ? ` 📦` : "";
-        // plan 就绪但未 doing：tasks.json 还不存在——明确标注，避免用户以为
-        // 「没有任务」（同时它必须出现在下拉里才能开始 doing）。
+        // 状态徽标 + **下一步模式**指引（用户反馈：选 job 时应标记状态并指引
+        // 下一步该用哪个模式，而不是只给进度数字）。
+        const info = jobStageInfo(j);
+        const nextMark = info.nextMode ? ` · 下一步 ${info.nextMode}` : "";
         return {
           job_id: j.job_id,
-          label:
-            j.stage === "planned"
-              ? `${j.job_id}（plan 就绪，未执行 doing${archivedMark}）`
-              : `${j.job_id}（${done}/${j.tasks.length} 完成${archivedMark}）`,
+          label: `${j.job_id}（${info.badge}${nextMark}${archivedMark}）`,
         };
       });
   }, [list]);
@@ -196,7 +197,7 @@ function useJobOptions(workspaceId: string | null, active: boolean): {
     ).length;
   }, [list]);
 
-  return { jobs, loading, dreamPending, checked: !loading };
+  return { jobs, raw: list ?? [], loading, dreamPending, checked: !loading };
 }
 
 interface NewSessionModalProps {
@@ -258,8 +259,13 @@ export default function NewSessionModal({
   }, [open, presetWorkspaceId, presetType, presetJob]);
 
   const jobActive = cmdType !== null && (needsJob(cmdType) || cmdType === "dream");
-  const { jobs: jobOptions, loading: jobsLoading, dreamPending, checked: dreamChecked } =
-    useJobOptions(jobActive ? workspaceId : null, jobActive);
+  const {
+    jobs: jobOptions,
+    raw: rawJobs,
+    loading: jobsLoading,
+    dreamPending,
+    checked: dreamChecked,
+  } = useJobOptions(jobActive ? workspaceId : null, jobActive);
 
   // ----------------------------------------------------------
   // 校验 + 提交
@@ -451,6 +457,7 @@ export default function NewSessionModal({
                     该工作区暂无 job（先跑 plan 或手写 plan 目录）
                   </span>
                 ) : (
+                  <>
                   <select
                     className={FIELD_CLS}
                     value={jobId}
@@ -463,6 +470,56 @@ export default function NewSessionModal({
                       </option>
                     ))}
                   </select>
+                  {/* 选中 job 的状态 + 下一步指引（含与所选模式不匹配的警告与一键切换） */}
+                  {(() => {
+                    const sel = rawJobs.find((j) => j.job_id === jobId);
+                    if (!sel) return null;
+                    const info = jobStageInfo(sel);
+                    const warn = modeFitWarning(cmdType, sel);
+                    const suggest = info.nextMode && info.nextMode !== cmdType ? info.nextMode : null;
+                    const tone =
+                      info.tone === "portal"
+                        ? "text-portal"
+                        : info.tone === "morty"
+                          ? "text-morty"
+                          : info.tone === "danger"
+                            ? "text-danger"
+                            : "text-ink-3";
+                    return (
+                      <div className="flex flex-col gap-1">
+                        <p className={`text-[11px] leading-relaxed ${tone}`}>
+                          当前状态：{info.badge} —— {info.hint}
+                        </p>
+                        {warn && (
+                          <p className="rounded-md border border-morty/40 bg-morty/10 px-2 py-1 text-[11px] leading-relaxed text-ink-2">
+                            ⚠ {warn}
+                            {suggest && (
+                              <button
+                                type="button"
+                                onClick={() => setCmdType(suggest as SessionType)}
+                                className="ml-1.5 rounded border border-portal/50 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10"
+                              >
+                                改用 {suggest}
+                              </button>
+                            )}
+                          </p>
+                        )}
+                        {!warn && suggest && (
+                          <p className="text-[11px] text-ink-3">
+                            建议下一步：
+                            <button
+                              type="button"
+                              onClick={() => setCmdType(suggest as SessionType)}
+                              className="ml-1 rounded border border-portal/50 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10"
+                            >
+                              改用 {suggest}
+                            </button>
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  </>
                 )}
               </label>
             )}
