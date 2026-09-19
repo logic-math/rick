@@ -69,6 +69,11 @@ type SessionManager struct {
 	// waiting HTTP requesters via the worker event pumps.
 	pending *pendingResp
 
+	// progressLog keeps the recent background-progress notes per session
+	// (bounded; in-memory — 重启后后台任务本就终止，无需持久化)。GetSession 返回它，
+	// 让监控页即使「事后打开」也能看到 doing/dream 跑了什么。
+	progressLog map[string][]ProgressNote
+
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // background sessions (doing/dream)
 	closing map[string]bool               // sessions closed by the user (worker death is not a crash)
@@ -85,7 +90,8 @@ func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry,
 		sup:        sup,
 		hub:        hub,
 		pending:    &pendingResp{wait: make(map[string]chan *runtime.RpcEvent)},
-		cancels:    make(map[string]context.CancelFunc),
+		progressLog: make(map[string][]ProgressNote),
+		cancels:     make(map[string]context.CancelFunc),
 		closing:    make(map[string]bool),
 		bgWaits:    make(map[string]chan struct{}),
 	}
@@ -191,6 +197,19 @@ type sessionInfo struct {
 	// authoritative source for the frontend's streaming/idle input state
 	// (刷新/重连不得靠客户端事件重放推断：窗口可能丢 agent_start)。
 	Busy bool `json:"busy,omitempty"`
+	// Progress carries the session's recent background progress notes
+	// (doing/dream) — populated by GetSession only. Background progress events
+	// are otherwise **live-only** (hub ring buffer), so opening the monitor
+	// page after the fact showed an empty event stream（用户实测：doing 静默执行
+	// 「没有任何事件更新」）。列表响应不带该字段，避免体积膨胀。
+	Progress []ProgressNote `json:"progress,omitempty"`
+}
+
+// ProgressNote is one recorded background-progress line (doing/dream).
+type ProgressNote struct {
+	At   time.Time `json:"at"`
+	Kind string    `json:"kind"`
+	Text string    `json:"text"`
 }
 
 func toSessionInfo(e SessionEntry) sessionInfo {
@@ -368,6 +387,22 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 		case SessionTypeDoing:
 			jobID := paramString(entry.Params, "job")
 			err = m.doingRunner(ctx, rickDir, jobID, func(ev handler.DoingEvent) {
+				// 进度/说明事件（无 task 变更）：作为会话事件流出，让监控视图有活性
+				// 信号（否则 doing 长时间只显示空白事件流）。
+				if ev.Note != "" {
+					m.recordProgress(entry.ID, "doing_note", ev.Note)
+					m.hub.Publish(Envelope{
+						Type:      EventTypeSessionEvent,
+						SessionID: entry.ID,
+						Data: mustMarshal(map[string]any{
+							"kind":   "doing_note",
+							"job_id": ev.JobID,
+							"note":   ev.Note,
+						}),
+					})
+					return
+				}
+				m.recordProgress(entry.ID, "doing_progress", fmt.Sprintf("%s %s: %s → %s", ev.JobID, ev.TaskID, ev.From, ev.To))
 				m.hub.Publish(JobsUpdate(ws.ID, ev.JobID, []TaskDiff{
 					{TaskID: ev.TaskID, From: ev.From, To: ev.To},
 				}, nil))
@@ -390,6 +425,7 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 				jobNum = v
 			}
 			err = m.dreamRunner(ctx, rickDir, jobNum, func(ev handler.DreamEvent) {
+				m.recordProgress(entry.ID, "dream_progress", fmt.Sprintf("%s %s", ev.Phase, strings.Join(ev.JobIDs, " ")))
 				m.hub.Publish(Envelope{
 					Type:      EventTypeSessionEvent,
 					SessionID: entry.ID,
@@ -488,7 +524,11 @@ func (m *SessionManager) GetSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, toSessionInfo(entry))
+	info := toSessionInfo(entry)
+	// 后台进度（doing/dream）：随单会话查询返回，供监控页首次/事后打开时回填
+	// （这些事件只在 hub 环形缓冲里活过一次，页面错过就永远看不到了）。
+	info.Progress = m.ProgressNotes(entry.ID)
+	writeJSON(w, http.StatusOK, info)
 }
 
 // SessionPrompt handles POST /api/sessions/{id}/prompt.
@@ -1409,6 +1449,37 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 			m.sup.Remove(sessionID)
 		}
 	}()
+}
+
+// progressLogCap bounds the per-session progress history (monitor view only
+// needs the recent tail).
+const progressLogCap = 200
+
+// recordProgress appends one background-progress note for a session (bounded).
+func (m *SessionManager) recordProgress(sessionID, kind, text string) {
+	if sessionID == "" || text == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := append(m.progressLog[sessionID], ProgressNote{At: time.Now(), Kind: kind, Text: text})
+	if len(list) > progressLogCap {
+		list = list[len(list)-progressLogCap:]
+	}
+	m.progressLog[sessionID] = list
+}
+
+// ProgressNotes returns a copy of the session's recorded progress notes.
+func (m *SessionManager) ProgressNotes(sessionID string) []ProgressNote {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	list := m.progressLog[sessionID]
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]ProgressNote, len(list))
+	copy(out, list)
+	return out
 }
 
 // setBusy records the server-authoritative streaming state for a session and

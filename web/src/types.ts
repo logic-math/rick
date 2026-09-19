@@ -146,6 +146,9 @@ export interface SessionInfo {
   /** 服务端权威的流式状态（agent 本回合是否在跑）——输入区「发送 vs 终止/steer」
    *  据此渲染；刷新/重连后不依赖客户端事件重放推断。 */
   busy?: boolean;
+  /** 后台进度日志（doing/dream；仅单会话查询返回）——监控页首次/事后打开时回填
+   *  事件流（这些事件原本只在 hub 环形缓冲里活过一次）。 */
+  progress?: Array<{ at: string; kind: string; text: string }>;
 }
 
 /** GET /api/sessions?workspace=..&archived=true 分页响应（区别于裸数组的默认列表） */
