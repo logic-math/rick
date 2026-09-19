@@ -376,16 +376,46 @@ export function AddWorkspaceCard({ onAdded }: { onAdded: (id: string) => void })
 
   async function submit(): Promise<void> {
     if (!path.trim()) return;
+    const p = path.trim();
     setBusy(true);
     setError(null);
     try {
-      const entry = await add(path.trim(), name.trim() || undefined);
+      // **注册前预检**：注册要求目录已存在且含 .rick（服务端 invalid_workspace 400）。
+      // 先查 fs/status 给出中文可行动提示，避免用户拿到一个纯英文 400 不知所措
+      // （用户实测反馈「注册工作区报错 http 400」——其实是用「注册」点了无 .rick 的目录）。
+      try {
+        const st = await api.fsStatus(p);
+        if (!st.exists || !st.is_dir) {
+          setError(`目录不存在（或不是目录）：${p}\n—— 可点下方「✨ 创建新工作区」自动创建并初始化 .rick 结构`);
+          setBusy(false);
+          return;
+        }
+        if (!st.has_rick) {
+          setError(
+            `该目录不是 rick 工作区（缺少 .rick 目录）：${p}\n` +
+              `—— 请点下方「✨ 创建新工作区」初始化 .rick 结构，或改选含 .rick 的目录后再「注册」`,
+          );
+          setBusy(false);
+          return;
+        }
+      } catch {
+        // 预检失败（接口不可用等）→ 继续走注册，由服务端兜底报错
+      }
+      const entry = await add(p, name.trim() || undefined);
       setPath("");
       setName("");
       setBrowseResults(null);
       onAdded(entry.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // 后端 invalid_workspace → 中文可行动提示（预检竞态/预检失败时的兜底）
+      if (e instanceof ApiError && e.code === "invalid_workspace") {
+        setError(
+          `该目录不是 rick 工作区（缺少 .rick）：${p}\n` +
+            `—— 可点下方「✨ 创建新工作区」初始化，或改选含 .rick 的目录`,
+        );
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setBusy(false);
     }
