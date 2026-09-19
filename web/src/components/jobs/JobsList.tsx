@@ -128,11 +128,11 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     };
   }, [workspaceId, load]);
 
-  async function archive(jobId: string): Promise<void> {
+  async function archive(jobId: string, opts?: { force?: boolean }): Promise<void> {
     setError(null);
     setArchiving((s) => new Set(s).add(jobId));
     try {
-      await api.archiveJob(workspaceId, jobId);
+      await api.archiveJob(workspaceId, jobId, opts);
       // 归档成功 → 重新拉列表（store 快照剔除该 job）
       await load(workspaceId);
     } catch (e) {
@@ -199,7 +199,7 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 })()}
               </p>
             </button>
-            {complete && (
+            {complete ? (
               <button
                 type="button"
                 onClick={() => void archive(job.job_id)}
@@ -208,6 +208,18 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 className="flex w-fit items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[10px] text-ink-3 transition-colors hover:border-portal/50 hover:text-portal disabled:opacity-40"
               >
                 {busy ? "归档中…" : "📦 归档"}
+              </button>
+            ) : (
+              // 未完成（含历史 blocked/error 卡住）的 job 也要能清出列表：关闭=归档
+              // 到归档区（不伪造 task 状态、文件不动、可恢复）。
+              <button
+                type="button"
+                onClick={() => void archive(job.job_id, { force: true })}
+                disabled={busy}
+                title="关闭：从列表隐藏（未完成也可关闭；文件保留，可在归档区「恢复」）"
+                className="flex w-fit items-center gap-1 rounded-md border border-morty/50 px-2 py-0.5 text-[10px] text-morty transition-colors hover:bg-morty/10 disabled:opacity-40"
+              >
+                {busy ? "关闭中…" : "🚪 关闭"}
               </button>
             )}
           </li>

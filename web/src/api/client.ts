@@ -384,10 +384,14 @@ export class ApiClient {
   }
 
   /** POST /api/workspaces/{ws}/jobs/{job}/archive → 204（仅已完成 job 可归档，幂等） */
-  archiveJob(workspaceId: string, jobId: string): Promise<void> {
+  /** POST …/jobs/{job}/archive → 204。opts.force=true = 「关闭」：允许归档未完成的
+   *  job（历史 blocked/error 卡住的 job 否则永远无法归档、永久留在列表）。 */
+  archiveJob(workspaceId: string, jobId: string, opts?: { force?: boolean }): Promise<void> {
     return this.request<void>(
       "POST",
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/archive`,
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/archive${
+        opts?.force ? "?force=true" : ""
+      }`,
     );
   }
 
