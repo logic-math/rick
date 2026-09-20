@@ -215,3 +215,63 @@ func TestRenameJobHandler(t *testing.T) {
 		t.Fatalf("error body = %+v, want lowercase code/message", errBody)
 	}
 }
+
+// TestJobParamBackfillAndProjection 验证 job 归属的可发现性修复：
+// ① 历史行只有保留字段 _job_id（web 早期创建的 easy 会话）→ 投影出的 params.job
+//
+//	必须补齐（前端据此显示 job 徽标 / 「任务名」重命名入口 / Jobs 页关联）；
+//
+// ② BackfillJobParams 把公开的 params.job 落盘，且幂等（已有值不覆盖）。
+func TestJobParamBackfillAndProjection(t *testing.T) {
+	reg, err := LoadSessionRegistry(filepath.Join(t.TempDir(), "sessions.json"))
+	if err != nil {
+		t.Fatalf("load sessions: %v", err)
+	}
+	legacy := SessionEntry{
+		ID: "legacy-1", WorkspaceID: "ws1", Type: SessionTypeEasy, Status: SessionStatusClosed,
+		Params: map[string]any{"_job_id": "job_72", "requirement": "算 MFU"},
+	}
+	if err := reg.Add(legacy); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	m := NewSessionManager(reg, nil, nil, nil, nil, nil, nil)
+
+	// ① 投影补齐（读取路径：无需迁移也能被前端关联）
+	info := m.toSessionInfo(legacy)
+	if got, _ := info.Params["job"].(string); got != "job_72" {
+		t.Fatalf("projected params.job = %v, want job_72", info.Params["job"])
+	}
+	if _, leaked := info.Params["_job_id"]; leaked {
+		t.Fatal("reserved _job_id must not leak into the wire projection")
+	}
+	// 有 job 的行不再被别名查找漏掉
+	if info := m.toSessionInfo(legacy); info.JobName != "" { // store 未注入 → 空
+		t.Fatalf("unexpected job_name %q", info.JobName)
+	}
+
+	// ② 回填落盘 + 幂等
+	m.BackfillJobParams()
+	got, _ := reg.Get("legacy-1")
+	if v, _ := got.Params["job"].(string); v != "job_72" {
+		t.Fatalf("after backfill params.job = %v, want job_72", got.Params["job"])
+	}
+	// 已有显式 job 的行不被覆盖
+	explicit := SessionEntry{
+		ID: "explicit-1", WorkspaceID: "ws1", Type: SessionTypeDoing, Status: SessionStatusClosed,
+		Params: map[string]any{"job": "job_1", "_job_id": "job_9"},
+	}
+	if err := reg.Add(explicit); err != nil {
+		t.Fatalf("add explicit: %v", err)
+	}
+	m.BackfillJobParams()
+	gotExplicit, _ := reg.Get("explicit-1")
+	if v, _ := gotExplicit.Params["job"].(string); v != "job_1" {
+		t.Fatalf("explicit job overwritten: %v", gotExplicit.Params["job"])
+	}
+
+	// 无 job 的行（plan 等）保持无 job
+	bare := SessionEntry{ID: "bare-1", WorkspaceID: "ws1", Type: SessionTypePlan, Status: SessionStatusClosed}
+	if info := m.toSessionInfo(bare); info.Params["job"] != nil {
+		t.Fatalf("job-less session must not gain a job param: %v", info.Params["job"])
+	}
+}

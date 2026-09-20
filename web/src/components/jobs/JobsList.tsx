@@ -386,7 +386,8 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
               type="button"
               onClick={() => setRenaming(job)}
               title={job.name ? `重命名任务名（当前：${job.name}）` : "给它起个有意义的名字"}
-              className="absolute right-2 top-2 rounded px-1 text-[11px] leading-none text-ink-3 opacity-0 transition-opacity hover:text-portal group-hover:opacity-100"
+              /* 常显（低对比）+ hover 提亮：触摸设备无 hover，旧版入口点不到 */
+              className="absolute right-2 top-2 rounded px-1 text-[11px] leading-none text-ink-3/70 transition-colors hover:text-portal"
             >
               ✏
             </button>
