@@ -129,6 +129,13 @@ func (s *Server) Serve(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
+	// 先收掉 pi worker（子进程自成进程组，父进程退出不会连带杀死）——否则会留下
+	// 孤儿 pi 进程占着会话文件，下次启动 resume 时「新 worker 起来就死」。
+	// 放在 HTTP drain 之前：worker 的收尸有 TermGrace 预算，不能和 SSE drain 抢时间。
+	if s.deps.Sessions != nil {
+		s.deps.Sessions.ShutdownWorkers()
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
 	defer cancel()
 	if err := s.httpServer.Shutdown(shutdownCtx); err != nil {

@@ -10,8 +10,10 @@
 package runtime
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -172,11 +174,11 @@ func drainUntilResponse(t *testing.T, ch <-chan *RpcEvent, command string, timeo
 // spec builds a minimal SpawnSpec for the responsive fake.
 func spec(sessionID, piPath string) SpawnSpec {
 	return SpawnSpec{
-		SessionID:      sessionID,
-		SessionIDFlag:  sessionID,
-		MethodFile:     "",
-		PromptFile:     "",
-		CreateNew:      true,
+		SessionID:     sessionID,
+		SessionIDFlag: sessionID,
+		MethodFile:    "",
+		PromptFile:    "",
+		CreateNew:     true,
 	}
 }
 
@@ -570,14 +572,14 @@ func TestSupervisor_EventsOverflowDropsOldest(t *testing.T) {
 	isolateRuntimeEnv(t)
 	sup := NewSupervisor(SupervisorConfig{PiPath: "/nonexistent"})
 	w := &Worker{
-		sup:       sup,
-		sessionID: "ovf-1",
-		client:    NewRpcClient(),
-		events:    make(chan *RpcEvent, eventChanBuffer),
-		notify:    make(chan struct{}, 1),
-		waitCh:    make(chan struct{}),
-		deadCh:    make(chan struct{}),
-		abandonC:  make(chan struct{}),
+		sup:          sup,
+		sessionID:    "ovf-1",
+		client:       NewRpcClient(),
+		events:       make(chan *RpcEvent, eventChanBuffer),
+		notify:       make(chan struct{}, 1),
+		waitCh:       make(chan struct{}),
+		deadCh:       make(chan struct{}),
+		abandonC:     make(chan struct{}),
 		lastActivity: time.Now(),
 	}
 	w.stderrTail = newByteRing(stderrTailSize)
@@ -728,3 +730,86 @@ func readSpawnArgv(t *testing.T, path string) []string {
 // ensure no compile-time unused helper complaints
 var _ = exec.Command
 var _ sync.Mutex
+
+// TestReadEventLine 覆盖 stdout 行长处理（resume 大会话时 pi 会吐超大单行事件，
+// 旧实现用 bufio.Scanner，遇到 >8MB 的行会永久停摆并把整条会话判为 worker lost）：
+// 正常行、恰好超限被丢弃（且后续行仍可读）、无结尾换行的最后一行、CRLF。
+func TestReadEventLine(t *testing.T) {
+	limit := 64
+
+	t.Run("normal lines", func(t *testing.T) {
+		br := bufio.NewReaderSize(strings.NewReader("aaa\nbbb\n"), 16)
+		l1, err := readEventLine(br, limit)
+		if err != nil || string(l1) != "aaa" {
+			t.Fatalf("line1 = %q, err=%v", l1, err)
+		}
+		l2, err := readEventLine(br, limit)
+		if err != nil || string(l2) != "bbb" {
+			t.Fatalf("line2 = %q, err=%v", l2, err)
+		}
+		if _, err := readEventLine(br, limit); !errors.Is(err, io.EOF) {
+			t.Fatalf("want EOF after last line, got %v", err)
+		}
+	})
+
+	t.Run("oversized line is skipped and scanning continues", func(t *testing.T) {
+		big := strings.Repeat("x", limit*3)
+		br := bufio.NewReaderSize(strings.NewReader(big+"\nnext\n"), 16)
+		if _, err := readEventLine(br, limit); !errors.Is(err, errEventLineTooLong) {
+			t.Fatalf("oversized line err = %v, want errEventLineTooLong", err)
+		}
+		// 关键：丢弃之后必须还能读到下一行（旧 Scanner 会永久停摆）
+		next, err := readEventLine(br, limit)
+		if err != nil || string(next) != "next" {
+			t.Fatalf("after oversized: next = %q, err=%v", next, err)
+		}
+	})
+
+	t.Run("line spanning multiple internal buffer fills", func(t *testing.T) {
+		long := strings.Repeat("y", limit-1)
+		br := bufio.NewReaderSize(strings.NewReader(long+"\n"), 8) // 内部缓冲 8B → 多次 ErrBufferFull
+		got, err := readEventLine(br, limit)
+		if err != nil || string(got) != long {
+			t.Fatalf("multi-chunk line len=%d err=%v", len(got), err)
+		}
+	})
+
+	t.Run("final line without newline and CRLF", func(t *testing.T) {
+		br := bufio.NewReaderSize(strings.NewReader("tail"), 16)
+		got, err := readEventLine(br, limit)
+		if err != nil || string(got) != "tail" {
+			t.Fatalf("no-newline tail = %q err=%v", got, err)
+		}
+		br2 := bufio.NewReaderSize(strings.NewReader("crlf\r\n"), 16)
+		got2, err := readEventLine(br2, limit)
+		if err != nil || string(got2) != "crlf" {
+			t.Fatalf("crlf = %q err=%v", got2, err)
+		}
+	})
+}
+
+// TestScanLoopSurvivesOversizedLine 端到端（读取循环层面）：stdout 里夹一条超长
+// 事件时，必须继续投递后续事件——而不是结束 supply 让上层把整个会话判为 worker lost。
+func TestScanLoopSurvivesOversizedLine(t *testing.T) {
+	normal := `{"type":"agent_start","id":"1"}`
+	// 上限注入为 1KB（等价语义，避免测试真的分配 64MB）
+	br := bufio.NewReaderSize(strings.NewReader(strings.Repeat("z", 4096)+"\n"+normal+"\n"), 64)
+	var got []*RpcEvent
+	for {
+		line, err := readEventLine(br, 1024)
+		if errors.Is(err, errEventLineTooLong) {
+			continue
+		}
+		if err != nil {
+			break
+		}
+		ev, perr := ParseEventLine(line)
+		if perr != nil {
+			t.Fatalf("parse: %v", perr)
+		}
+		got = append(got, ev)
+	}
+	if len(got) != 1 || got[0].Type != "agent_start" {
+		t.Fatalf("events after oversized line = %+v, want one agent_start", got)
+	}
+}

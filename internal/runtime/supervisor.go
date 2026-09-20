@@ -48,7 +48,16 @@ const (
 	eventChanBuffer          = 256  // consumer-facing channel buffer (spec)
 	maxPendingEvents         = 1024 // staging queue cap; overflow drops OLDEST
 	stderrTailSize           = 4096 // stderr ring for probe failure messages
-	maxEventLineSize         = 8 << 20
+	// maxEventLineSize caps one stdout event line. 实测：resume 一个 11.5MB 的
+	// 会话时 pi 会**一次性吐出一整段历史**（单行 >8MB），旧上限 8MB 直接让
+	// bufio.Scanner 返回 "token too long" → 扫描线程停摆 → 上层把会话判为
+	// worker lost → 会话变 error（用户实测：job_69 导入后反复「已中断」）。
+	maxEventLineSize = 64 << 20
+	// maxDroppedLineSize bounds how much of an oversized line we are willing to
+	// drain before giving up (protects against an unbounded garbage stream).
+	maxDroppedLineSize = 512 << 20
+	// eventReadBufSize is bufio.Reader's internal chunk size for stdout reads.
+	eventReadBufSize = 1 << 20
 )
 
 // ErrMaxActive is returned by Spawn when the supervisor already holds the
@@ -223,16 +232,16 @@ func (s *Supervisor) Spawn(spec SpawnSpec) (*Worker, error) {
 	}
 
 	w := &Worker{
-		sup:       s,
-		sessionID: spec.SessionID,
-		cmd:       cmd,
-		stdin:     stdin,
-		client:    NewRpcClient(),
-		events:    make(chan *RpcEvent, eventChanBuffer),
-		notify:    make(chan struct{}, 1),
-		waitCh:    make(chan struct{}),
-		deadCh:    make(chan struct{}),
-		abandonC:  make(chan struct{}),
+		sup:          s,
+		sessionID:    spec.SessionID,
+		cmd:          cmd,
+		stdin:        stdin,
+		client:       NewRpcClient(),
+		events:       make(chan *RpcEvent, eventChanBuffer),
+		notify:       make(chan struct{}, 1),
+		waitCh:       make(chan struct{}),
+		deadCh:       make(chan struct{}),
+		abandonC:     make(chan struct{}),
 		lastActivity: time.Now(),
 	}
 	w.stderrTail = newByteRing(stderrTailSize)
@@ -369,19 +378,19 @@ type Worker struct {
 
 	events chan *RpcEvent // buffered eventChanBuffer; closed on death
 	// queue staging: scanner → pending → pump → events
-	queueMu     sync.Mutex
-	pending     []*RpcEvent
-	supplyDone  bool
-	notify      chan struct{} // cap 1 wakeup for the pump
-	dropped     atomic.Int64
-	abandonC    chan struct{}
-	abandonOnce    sync.Once
+	queueMu         sync.Mutex
+	pending         []*RpcEvent
+	supplyDone      bool
+	notify          chan struct{} // cap 1 wakeup for the pump
+	dropped         atomic.Int64
+	abandonC        chan struct{}
+	abandonOnce     sync.Once
 	closeEventsOnce sync.Once
 
-	waitCh   chan struct{} // closed when cmd.Wait returns
-	waitErr  error
-	deadCh   chan struct{}
-	deadOnce sync.Once
+	waitCh     chan struct{} // closed when cmd.Wait returns
+	waitErr    error
+	deadCh     chan struct{}
+	deadOnce   sync.Once
 	deadReason atomic.Value // string
 
 	stderrTail *byteRing
@@ -535,6 +544,10 @@ func (w *Worker) markDead(reason string) {
 		last := w.lastEntryID
 		w.mu.Unlock()
 		close(w.deadCh)
+		// 诊断可见性：worker 死亡原因直接落 stderr（web.log）——「会话莫名变
+		// error」时这是唯一能区分 进程退出/心跳超时/stdout EOF 的证据。
+		fmt.Fprintf(os.Stderr, "[rick] supervisor: worker %s died: %s\n",
+			w.sessionID, reason)
 		if cb := w.sup.cfg.OnDead; cb != nil {
 			go cb(w.sessionID, last)
 		}
@@ -545,26 +558,117 @@ func (w *Worker) markDead(reason string) {
 // responses (get_state state cache + heartbeat ack, get_entries leafId
 // cursor) and stages every event for the pump.
 func (w *Worker) scanLoop(stdout io.Reader) {
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 0, 64*1024), maxEventLineSize)
-	for sc.Scan() {
-		line := sc.Bytes()
+	// 用 bufio.Reader 而不是 bufio.Scanner：Scanner 一旦遇到超长 token 就**永久
+	// 停摆**（ErrTooLong 不可恢复），而这里必须做到「单行过大只丢这一行，会话继续」
+	//（大会话 resume 时 pi 会吐超大事件；把整条会话判死是不可接受的）。
+	br := bufio.NewReaderSize(stdout, eventReadBufSize)
+	for {
+		line, err := readEventLine(br, maxEventLineSize)
+		if errors.Is(err, errEventLineTooLong) {
+			fmt.Fprintf(os.Stderr, "[rick] supervisor: worker %s dropped an oversized event line (>%d bytes); continuing\n",
+				w.sessionID, maxEventLineSize)
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Fprintf(os.Stderr, "[rick] supervisor: worker %s stdout EOF (process alive=%v)\n",
+					w.sessionID, !w.IsDead())
+			} else {
+				fmt.Fprintf(os.Stderr, "[rick] supervisor: worker %s stdout read failed: %v (process alive=%v)\n",
+					w.sessionID, err, !w.IsDead())
+			}
+			break
+		}
 		if len(line) == 0 {
 			continue
 		}
-		ev, err := ParseEventLine(line)
-		if err != nil {
+		ev, perr := ParseEventLine(line)
+		if perr != nil {
 			// Wire corruption: log to stderr and keep scanning (the json-mode
 			// executor has the same skip-and-continue posture).
-			fmt.Fprintf(os.Stderr, "[rick] supervisor: skip bad rpc line: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[rick] supervisor: skip bad rpc line: %v\n", perr)
 			continue
 		}
 		w.intercept(ev)
 		w.stage(ev)
 	}
-	// stdout EOF: the process is gone or closed its stdout. Supply ends; the
-	// pump drains the queue and closes the events channel.
 	w.endSupply()
+}
+
+// errEventLineTooLong reports a single event line exceeding the configured cap.
+// The remainder of that line has already been drained, so the caller can simply
+// keep reading the next line.
+var errEventLineTooLong = errors.New("supervisor: event line too long")
+
+// readEventLine reads one '\n'-terminated line (newline stripped). Lines up to
+// limit bytes are returned whole; longer lines are fully drained and reported as
+// errEventLineTooLong so the scan loop can skip them instead of dying. A final
+// line without a trailing newline is returned with io.EOF.
+func readEventLine(br *bufio.Reader, limit int) ([]byte, error) {
+	var buf []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if len(buf)+len(chunk) > limit {
+				if derr := drainEventLine(br); derr != nil {
+					return nil, derr
+				}
+				return nil, errEventLineTooLong
+			}
+			buf = append(buf, chunk...)
+			continue
+		}
+		if err != nil {
+			// io.EOF (or a real read error). ReadSlice hands back the bytes it
+			// managed to read together with the error: a final line WITHOUT a
+			// trailing newline arrives as (data, io.EOF) — 必须把它交出去，否则
+			// 最后一条事件会被静默丢掉（实测：漏掉 session 末尾事件）。
+			if len(chunk) > 0 {
+				if len(buf)+len(chunk) > limit {
+					return nil, errEventLineTooLong
+				}
+				return trimNewline(append(buf, chunk...)), nil
+			}
+			return nil, err // EOF / 真实读错误且无数据
+		}
+		if len(buf)+len(chunk) > limit {
+			return nil, errEventLineTooLong
+		}
+		return trimNewline(append(buf, chunk...)), nil
+	}
+}
+
+// drainEventLine consumes the rest of an oversized line.
+func drainEventLine(br *bufio.Reader) error {
+	skipped := 0
+	for {
+		chunk, err := br.ReadSlice('\n')
+		skipped += len(chunk)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if skipped > maxDroppedLineSize {
+				return fmt.Errorf("oversized event line exceeded %d bytes", maxDroppedLineSize)
+			}
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			return io.EOF
+		}
+		return err
+	}
+}
+
+// trimNewline strips a single trailing '\n' (and a preceding '\r').
+func trimNewline(b []byte) []byte {
+	if n := len(b); n > 0 && b[n-1] == '\n' {
+		b = b[:n-1]
+		if n = len(b); n > 0 && b[n-1] == '\r' {
+			b = b[:n-1]
+		}
+	}
+	return b
 }
 
 // intercept caches housekeeping responses without consuming them — events
