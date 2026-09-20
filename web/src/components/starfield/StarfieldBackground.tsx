@@ -12,7 +12,7 @@ import { drawFlyingSaucer, type FlyingSaucerSpec } from "./FlyingSaucer";
  *   · 星云层：紫 #7b4ea8 / 青绿 #2f5d5f / 橙 #c96f4a 低透明径向渐变（粉紫橙 + 青绿两类）
  *   · 流星：每 6-15s 一颗，斜线拖尾渐隐（保持现状）
  *   · cel-shade 星球（Planet）：1-2 颗，角落偏置，极缓自转，暖金土星式环
- *   · 螺旋涡旋传送门（PortalArt）：1 个，右下视觉锚点，阿基米德螺旋臂旋转
+ *   · 液态涡旋传送门（PortalArt v2）：1 个，右上远处，小尺寸低透明（差速叠层流体）
  *   · 巡航飞船（FlyingSaucer）：1-2 艘在背景飞行（舱内 Rick & Morty 剪影）
  * - 性能：动画帧率限 ~30fps；document 不可见时暂停（visibilitychange）
  * - prefers-reduced-motion: reduce → 静态星点 + 静态星球/传送门/飞船（固定相位）
@@ -53,8 +53,9 @@ const PLANETS: PlanetSpec[] = [
   { x: 0.08, y: 0.86, r: 0.07, alpha: 0.4, ring: false, phase: 2.1, speed: 0.04 },
 ];
 
-// 背景传送门（螺旋涡旋盘面，偏右下视觉锚点；大尺寸、醒目的青柠绿涡旋）
-const PORTAL: PortalSpec = { x: 0.8, y: 0.72, r: 0.26, alpha: 0.6, speed: 0.9 };
+// 背景传送门（液态涡旋 v2）：放「远」——小、淡、慢转，右上远处的一坨绿色
+// 漩涡只是主题暗示（星空/星云/星球才是主画面；用户反馈：不要巨大的漩涡）
+const PORTAL: PortalSpec = { x: 0.87, y: 0.22, r: 0.115, alpha: 0.45, speed: 1.1 };
 
 // 背景巡航飞船（1-2 艘，舱内 Rick & Morty）
 const FLYING_SAUCERS: FlyingSaucerSpec[] = [
