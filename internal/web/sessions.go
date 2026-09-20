@@ -878,9 +878,16 @@ func (m *SessionManager) ImportSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Infer session type from the doing directory layout.
+	// easy_prompt.md may be at doing/easy_prompt.md OR doing/prompts/easy_prompt.md
 	sessionType := SessionTypeDoing // default
-	if _, err := os.Stat(filepath.Join(doingDir, "easy_prompt.md")); err == nil {
-		sessionType = SessionTypeEasy
+	for _, p := range []string{
+		filepath.Join(doingDir, "easy_prompt.md"),
+		filepath.Join(doingDir, "prompts", "easy_prompt.md"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			sessionType = SessionTypeEasy
+			break
+		}
 	}
 
 	// Check for an existing web session with the same pi id (idempotent).
