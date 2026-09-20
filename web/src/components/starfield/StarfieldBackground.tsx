@@ -260,7 +260,7 @@ export default function StarfieldBackground({
       // ---- 副对角线巡航飞船：左下紫色星球(0.08,0.86) ↔ 右上暖金星球(0.84,0.14) ----
       // 三角波插值往返；周期 ~14s
       if (!staticMode) {
-        const CYCLE_S = 26;
+        const CYCLE_S = 260;
         const t = (timeSec % CYCLE_S) / CYCLE_S; // 0..1
         const tri = t < 0.5 ? t * 2 : (1 - t) * 2; // 0→1→0 三角波
         // 左下(0.08,0.86) → 右上(0.84,0.14)
@@ -279,7 +279,7 @@ export default function StarfieldBackground({
       //   中 70%：对角线匀速飞向 A
       //   后 15%：靠近 A 渐隐（alpha 1→0），飞入门内
       if (!staticMode) {
-        const TRIP_S = 22;
+        const TRIP_S = 220;
         const t = (timeSec % TRIP_S) / TRIP_S; // 0..1
         // B(右下 0.87,0.80) → A(左上 0.10,0.14)
         const xB = 0.87, yB = 0.80, xA = 0.10, yA = 0.14;
