@@ -73,7 +73,7 @@ export function drawPortal(
     const layerRot = rot0 * (1 - k * 0.12) + (k * TWO_PI) / (LAYERS * 1.3);
     const squash = 0.82 + k * 0.045;
     // 层透明度：中间层最亮（内外层薄）→ 体积感
-    const layerAlpha = alpha * (0.09 + 0.11 * Math.sin(((k + 0.5) / LAYERS) * Math.PI));
+    const layerAlpha = alpha * (0.14 + 0.16 * Math.sin(((k + 0.5) / LAYERS) * Math.PI));
     // 每层 2 条对角螺线（叠加后 10 条痕，模糊即流体）
     for (let arm = 0; arm < 2; arm++) {
       const theta0 = layerRot + (arm * Math.PI) + k * 0.7;
@@ -109,8 +109,8 @@ export function drawPortal(
   const pulse = staticMode ? 1 : 1 + 0.25 * Math.sin(timeSec * 2.8); // ~2.2s/周期，可感的呼吸
   const coreR = radius * 0.34 * pulse;
   const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2);
-  core.addColorStop(0, hexToRgba(CORE_WHITE, alpha * 0.5));
-  core.addColorStop(0.4, hexToRgba(GREEN_BRIGHT, alpha * 0.28));
+  core.addColorStop(0, hexToRgba(CORE_WHITE, alpha * 0.7));
+  core.addColorStop(0.4, hexToRgba(GREEN_BRIGHT, alpha * 0.4));
   core.addColorStop(1, `rgba(${GREEN_GLOW}, 0)`);
   ctx.fillStyle = core;
   ctx.beginPath();
