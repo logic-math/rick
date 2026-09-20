@@ -180,11 +180,26 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     return list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
   }
 
-  /** 恢复/打开该 job 的会话：active 直接跳；closed/error 先 Resume 再跳；无会话提示 */
-  async function openSession(jobId: string): Promise<void> {
+  /** 恢复/打开该 job 的会话：active 直接跳；closed/error 先 Resume 再跳；
+   *  无 web 会话 → 尝试导入 CLI 启动的会话（读 doing/session_id） */
+  async function openSession(jobId: string, importCli?: boolean): Promise<void> {
     const sess = findSession(jobId);
     if (!sess) {
-      setError(`该 job 没有关联的会话——可从「新建会话」选择 doing/ctrl/learning 并指定 ${jobId}`);
+      if (importCli) {
+        // CLI 启动的 job：导入为 web 会话（后端读 doing/session_id 并立即恢复）
+        setResuming((s) => new Set(s).add(jobId));
+        setError(null);
+        try {
+          const imported = await api.importSession(workspaceId, jobId);
+          navigate(`/session/${imported.id}`);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setResuming((s) => { const n = new Set(s); n.delete(jobId); return n; });
+        }
+      } else {
+        setError(`该 job 没有关联的 web 会话——如它是 CLI 启动的，可点「📥 导入」导入并恢复`);
+      }
       return;
     }
     if (sess.status === "active" || sess.status === "running") {
@@ -194,7 +209,6 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     setResuming((s) => new Set(s).add(jobId));
     setError(null);
     try {
-      // 归档会话先取消归档（回默认列表），再 resume
       if (sess.archived) {
         await api.unarchiveSession(sess.id).catch(() => {});
       }
@@ -202,7 +216,6 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
       navigate(`/session/${sess.id}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
-        // 已 active（列表陈旧）——直接跳转
         navigate(`/session/${sess.id}`);
       } else {
         setError(e instanceof Error ? e.message : String(e));
@@ -261,26 +274,42 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 })()}
               </p>
             </button>
-            {/* 恢复/打开会话：找到关联会话直接跳（closed/error 自动 Resume） */}
+            {/* 恢复/打开会话：有 web 会话直接跳；无会话但 job 有 doing/ → 可导入 CLI 会话 */}
             {(() => {
               const sess = findSession(job.job_id);
-              if (!sess) return null;
               const isBusy = resuming.has(job.job_id);
-              return (
-                <button
-                  type="button"
-                  onClick={() => void openSession(job.job_id)}
-                  disabled={isBusy}
-                  title={
-                    sess.status === "active" || sess.status === "running"
-                      ? `打开会话 ${sess.title || sess.id.slice(0, 8)}（进行中）`
-                      : `恢复会话 ${sess.title || sess.id.slice(0, 8)}（${sess.status} → 重新拉起）`
-                  }
-                  className="flex w-fit items-center gap-1 rounded-md border border-portal/40 px-2 py-0.5 text-[10px] text-portal transition-colors hover:bg-portal/10 disabled:opacity-40"
-                >
-                  {isBusy ? "恢复中…" : sess.status === "active" || sess.status === "running" ? "💬 打开会话" : "▶ 恢复会话"}
-                </button>
-              );
+              if (sess) {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => void openSession(job.job_id)}
+                    disabled={isBusy}
+                    title={
+                      sess.status === "active" || sess.status === "running"
+                        ? `打开会话 ${sess.title || sess.id.slice(0, 8)}（进行中）`
+                        : `恢复会话 ${sess.title || sess.id.slice(0, 8)}（${sess.status} → 重新拉起）`
+                    }
+                    className="flex w-fit items-center gap-1 rounded-md border border-portal/40 px-2 py-0.5 text-[10px] text-portal transition-colors hover:bg-portal/10 disabled:opacity-40"
+                  >
+                    {isBusy ? "恢复中…" : sess.status === "active" || sess.status === "running" ? "💬 打开会话" : "▶ 恢复会话"}
+                  </button>
+                );
+              }
+              // 无 web 会话：job 有 doing 目录（stage=doing/planned 且有 session_id）→ 可导入
+              if (job.stage === "doing" || job.stage === "planned") {
+                return (
+                  <button
+                    type="button"
+                    onClick={() => void openSession(job.job_id, true)}
+                    disabled={isBusy}
+                    title="导入 CLI 启动的会话到 web 并恢复（读 job 目录里的 pi 会话标识）"
+                    className="flex w-fit items-center gap-1 rounded-md border border-rick/50 px-2 py-0.5 text-[10px] text-rick transition-colors hover:bg-rick/10 disabled:opacity-40"
+                  >
+                    {isBusy ? "导入中…" : "📥 导入会话"}
+                  </button>
+                );
+              }
+              return null;
             })()}
             {complete ? (
               <button
