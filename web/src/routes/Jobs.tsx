@@ -122,8 +122,12 @@ function ArchivedSection({
                   {j.tasks.length > 0 ? `${j.tasks.filter((t) => t.status === "success").length}/${j.tasks.length} 完成` : ""}
                 </span>
                 {srcBadge}
-                {/* 打开该 job 关联的会话（含归档会话；closed/error 自动 Resume） */}
-                <OpenSessionButton workspaceId={workspaceId} jobId={j.job_id} />
+                {/* 打开/恢复该 job 的会话；无 web 会话但有 CLI 会话目录 → 📥 导入 */}
+                <OpenSessionButton
+                  workspaceId={workspaceId}
+                  jobId={j.job_id}
+                  canImport={j.stage === "doing" || j.stage === "planned" || j.stage === "started" || j.tasks.length > 0}
+                />
                 {src === "manual" && (
                   <button
                     type="button"
@@ -149,10 +153,26 @@ function ArchivedSection({
  * 查找该 job 关联的最近会话（含归档），active 直接跳转，closed/error 先 Resume。
  * 无关联会话则不渲染（避免无意义的按钮）。
  */
-function OpenSessionButton({ workspaceId, jobId }: { workspaceId: string; jobId: string }) {
+/**
+ * OpenSessionButton：打开/恢复该 job 的 web 会话；**没有 web 会话但 job 目录里
+ * 有 CLI 会话（doing/session_id）时，直接提供「导入」**——归档区的 job 大多是
+ * 已完成自动归档的，它们的 CLI 会话此前在 web 里完全没有入口（用户实测：
+ * job_69 归档后既没有 ▶ 也没有 📥，无法在 web 里继续对话）。
+ */
+function OpenSessionButton({
+  workspaceId,
+  jobId,
+  canImport,
+}: {
+  workspaceId: string;
+  jobId: string;
+  /** job 目录含 CLI 会话（stage=doing/planned/started）→ 可导入 */
+  canImport?: boolean;
+}) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [sess, setSess] = useState<SessionInfo | null>(null);
+  const [probed, setProbed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,16 +187,28 @@ function OpenSessionButton({ workspaceId, jobId }: { workspaceId: string; jobId:
           hit = (page.items ?? []).find((s) => (s.params as { job?: unknown } | undefined)?.job === jobId);
         }
         if (!cancelled) setSess(hit ?? null);
-      } catch { /* 静默 */ }
+      } catch { /* 静默 */ } finally {
+        if (!cancelled) setProbed(true);
+      }
     };
     void find();
     return () => { cancelled = true; };
   }, [workspaceId, jobId]);
 
-  if (!sess) return null;
-  const isActive = sess.status === "active" || sess.status === "running";
+  if (!probed) return null;
+
+  const isActive = sess?.status === "active" || sess?.status === "running";
 
   const go = async () => {
+    if (!sess) {
+      // 无 web 会话 → 导入 CLI 会话（后端读 doing/session_id 并立即恢复）
+      setBusy(true);
+      try {
+        const imported = await api.importSession(workspaceId, jobId);
+        navigate(`/session/${imported.id}`);
+      } catch { /* 失败保持原状（下次点击重试） */ } finally { setBusy(false); }
+      return;
+    }
     if (isActive) { navigate(`/session/${sess.id}`); return; }
     setBusy(true);
     try {
@@ -188,15 +220,25 @@ function OpenSessionButton({ workspaceId, jobId }: { workspaceId: string; jobId:
     } finally { setBusy(false); }
   };
 
+  if (!sess && !canImport) return null;
+
+  const label = busy ? "…" : !sess ? "📥" : isActive ? "💬" : "▶";
+  const title = !sess
+    ? `导入 CLI 启动的会话到 web 并恢复（读 ${jobId} 目录里的 pi 会话标识）`
+    : isActive
+      ? "打开会话（进行中）"
+      : `恢复会话（${sess.status} → 重新拉起）`;
   return (
     <button
       type="button"
       onClick={() => void go()}
       disabled={busy}
-      title={isActive ? `打开会话（进行中）` : `恢复会话（${sess.status} → 重新拉起）`}
-      className="rounded border border-portal/40 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10 disabled:opacity-40"
+      title={title}
+      className={`rounded border px-1.5 py-0.5 text-[10px] hover:bg-white/5 disabled:opacity-40 ${
+        !sess ? "border-rick/50 text-rick" : "border-portal/40 text-portal hover:bg-portal/10"
+      }`}
     >
-      {busy ? "…" : isActive ? "💬" : "▶"}
+      {label}
     </button>
   );
 }
