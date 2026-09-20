@@ -87,8 +87,8 @@ export default function JobFiles({ workspaceId, jobId }: { workspaceId: string; 
   );
 
   return (
-    <div className="grid min-h-0 gap-3 lg:grid-cols-[16rem_1fr]">
-      <aside className="max-h-80 overflow-y-auto rounded-lg border border-line bg-surface/50 p-2 lg:max-h-none">
+    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[18rem_1fr]">
+      <aside className="min-h-0 overflow-y-auto rounded-lg border border-line bg-surface/50 p-2">
         <p className="px-1.5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
           {jobId} 文件
         </p>
@@ -101,7 +101,7 @@ export default function JobFiles({ workspaceId, jobId }: { workspaceId: string; 
           <FileTree entries={entries} selectedPath={selectedPath} onSelect={onSelect} />
         )}
       </aside>
-      <section className="min-w-0 overflow-y-auto rounded-lg border border-line bg-surface/30 p-4">
+      <section className="min-h-0 min-w-0 overflow-y-auto rounded-lg border border-line bg-surface/30 p-4">
         {loading && <Spinner label="读取文件…" />}
         {!loading && error && (
           <p className="rounded-lg border border-line bg-surface px-3 py-6 text-center text-xs text-ink-3">

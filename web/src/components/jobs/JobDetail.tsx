@@ -70,7 +70,7 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* 头部 */}
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-3">
         <Button size="sm" onClick={onBack} aria-label="返回 jobs 列表">
           ←
         </Button>
@@ -92,7 +92,7 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
       </header>
 
       {/* 任务表（横排简化） */}
-      <section aria-label="任务状态">
+      <section aria-label="任务状态" className="shrink-0">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-3">
           Tasks
         </h3>

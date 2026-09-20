@@ -206,7 +206,8 @@ export default function Jobs({ workspaceId }: { workspaceId: string }) {
   const [tick, setTick] = useState(0);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+    // 铺满主内容区（同 Dreams 页修法）：文件树 + 内容面板需要全宽/全高
+    <div className="flex h-full min-h-0 w-full flex-col gap-4">
       <header className="flex items-center gap-3">
         <h1 className="text-xl font-semibold text-ink">Jobs</h1>
       </header>
