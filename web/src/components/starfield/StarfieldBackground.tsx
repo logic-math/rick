@@ -11,9 +11,10 @@ import { drawFlyingSaucer, type FlyingSaucerSpec } from "./FlyingSaucer";
  *   · 静态星点：90% 冷白 #e8ecf8 + 10% 暖黄 #fff4c2（稍大）+ 少量 4 芒十字星光
  *   · 星云层：紫 #7b4ea8 / 青绿 #2f5d5f / 橙 #c96f4a 低透明径向渐变（粉紫橙 + 青绿两类）
  *   · 流星：每 6-15s 一颗，斜线拖尾渐隐（保持现状）
- *   · cel-shade 星球（Planet）：1-2 颗，角落偏置，极缓自转，暖金土星式环
- *   · 液态涡旋传送门（PortalArt v2）：1 个，右上远处，小尺寸低透明（差速叠层流体）
- *   · 巡航飞船（FlyingSaucer）：1-2 艘在背景飞行（舱内 Rick & Morty 剪影）
+ *   · cel-shade 星球（Planet）：右上暖金环 + 左下紫色小星，极缓自转
+ *   · 液态涡旋传送门（PortalArt v2）：**左上 + 右下**对角线各一个
+ *   · 传送之旅飞船：右下门 B → 左上门 A 对角穿越，飞入渐隐 → 从 B 渐显（~12s 循环）
+ *   · 副对角线巡航飞船：左下紫色星球 ↔ 右上暖金星球往返（~14s，舱内 Rick & Morty）
  * - 性能：动画帧率限 ~30fps；document 不可见时暂停（visibilitychange）
  * - prefers-reduced-motion: reduce → 静态星点 + 静态星球/传送门/飞船（固定相位）
  */
@@ -47,21 +48,44 @@ const METEOR_MIN_MS = 6000;
 const METEOR_MAX_MS = 15000;
 const METEOR_TAIL_PX = 90;
 
-// 背景星球（cel-shade 双段）：一颗大（右上带暖金环）+ 一颗小（左下）
+// ============ 背景编排（v3.1：对角线布局） ============
+// 用户设计（更正）：传送门在**左上 + 右下**（对角线）；两艘飞船在**左下 ↔ 右上**
+// （另一条对角线）之间通行。
+//
+// 布局（两条对角线交叉但不重叠——传送门占主对角线，飞船走副对角线）：
+//   左上传送门 A(0.10, 0.14) ───────── 右上暖金星球(0.84, 0.14)
+//        ╲                              ╱
+//         ╲  飞船巡航（左下→右上往返） ╱
+//          ╲                        ╱
+//           ╲─── 传送之旅（右下B→左上A 对角穿越，飞入A渐隐→从B渐显）
+//          ╱                        ╲
+//   左下紫色星球(0.08, 0.86) ──── 右下传送门 B(0.87, 0.80)
+
+// 星球：右上暖金环 + 左下紫色
 const PLANETS: PlanetSpec[] = [
-  { x: 0.84, y: 0.14, r: 0.14, alpha: 0.5, ring: true, phase: 0.6, speed: 0.05 },
-  { x: 0.08, y: 0.86, r: 0.07, alpha: 0.4, ring: false, phase: 2.1, speed: 0.04 },
+  { x: 0.84, y: 0.14, r: 0.12, alpha: 0.5, ring: true, phase: 0.6, speed: 0.05 },
+  // 左下小星球：紫色系（用户要求）——亮 #c4b5fd / 主 #8b5cf6 / 暗 #4c1d95
+  {
+    x: 0.08, y: 0.86, r: 0.07, alpha: 0.4, ring: false, phase: 2.1, speed: 0.04,
+    baseColor: "#8b5cf6", highlightColor: "#c4b5fd", shadowColor: "#4c1d95",
+  },
 ];
 
-// 背景传送门（液态涡旋 v2）：放「远」——小、淡、慢转，右上远处的一坨绿色
-// 漩涡只是主题暗示（星空/星云/星球才是主画面；用户反馈：不要巨大的漩涡）
-const PORTAL: PortalSpec = { x: 0.87, y: 0.22, r: 0.115, alpha: 0.45, speed: 1.1 };
-
-// 背景巡航飞船（1-2 艘，舱内 Rick & Morty）
-const FLYING_SAUCERS: FlyingSaucerSpec[] = [
-  { x: 0.15, y: 0.3, vx: 0.008, vy: 0.0012, size: 0.09, alpha: 0.4, phase: 0.2, flipped: true },
-  { x: 0.7, y: 0.55, vx: -0.005, vy: 0.0008, size: 0.06, alpha: 0.32, phase: 2.6 },
+// 双传送门（液态涡旋）：**左上 A + 右下 B**（用户更正）
+const PORTALS: PortalSpec[] = [
+  { x: 0.10, y: 0.14, r: 0.10, alpha: 0.85, speed: 1.0 },   // A：左上
+  { x: 0.87, y: 0.80, r: 0.10, alpha: 0.85, speed: -0.8 },  // B：右下（反向转）
 ];
+
+// 副对角线巡航飞船：左下紫色星球(0.08,0.86) ↔ 右上暖金星球(0.84,0.14)
+const SAUCER_CRUISE: FlyingSaucerSpec = {
+  x: 0.46, y: 0.5, vx: 0, vy: 0, size: 0.038, alpha: 0.35, phase: 1.2,
+};
+
+// 传送之旅飞船：从右下门 B(0.87,0.80) 飞向左上门 A(0.10,0.14)，飞入渐隐 → 从 B 渐显
+const SAUCER_PORTAL: FlyingSaucerSpec = {
+  x: 0.5, y: 0.5, vx: 0, vy: 0, size: 0.042, alpha: 0.42, phase: 0.0,
+};
 
 // 星云层（低透明径向渐变；R&M 粉紫橙 + 青绿两类）
 const NEBULAE = [
@@ -218,20 +242,63 @@ export default function StarfieldBackground({
       ctx.stroke();
     };
 
-    // 背景装饰层（星球 + 传送门 + 巡航飞船）——叠加在星点/流星之上
+    // 背景装饰层（星球 + 双传送门 + 两种飞船）——叠加在星点/流星之上
     const drawDecor = (timeSec: number, staticMode: boolean) => {
       const w = cssW;
       const h = cssH;
+
+      // 星球
       for (const p of PLANETS) {
         drawPlanet(ctx, p, w, h, timeSec, staticMode);
       }
-      drawPortal(ctx, PORTAL, w, h, timeSec, staticMode);
-      // 巡航飞船：位置由 timeSec 推进（越界环绕）；staticMode 静置起点
-      for (const s of FLYING_SAUCERS) {
-        const x = staticMode ? s.x : (s.x + s.vx * timeSec) % 1;
-        let y = staticMode ? s.y : (s.y + s.vy * timeSec) % 1;
-        if (y < 0) y = 1 - y;
-        drawFlyingSaucer(ctx, { ...s, x, y }, w, h, timeSec, staticMode);
+
+      // 双传送门（先画门，飞船叠在上面）
+      for (const portal of PORTALS) {
+        drawPortal(ctx, portal, w, h, timeSec, staticMode);
+      }
+
+      // ---- 副对角线巡航飞船：左下紫色星球(0.08,0.86) ↔ 右上暖金星球(0.84,0.14) ----
+      // 三角波插值往返；周期 ~14s
+      if (!staticMode) {
+        const CYCLE_S = 14;
+        const t = (timeSec % CYCLE_S) / CYCLE_S; // 0..1
+        const tri = t < 0.5 ? t * 2 : (1 - t) * 2; // 0→1→0 三角波
+        // 左下(0.08,0.86) → 右上(0.84,0.14)
+        const x1 = 0.08, y1 = 0.86, x2 = 0.84, y2 = 0.14;
+        const x = x1 + (x2 - x1) * tri;
+        const y = y1 + (y2 - y1) * tri;
+        const flip = tri > 0.5; // 返程时翻转朝向
+        drawFlyingSaucer(ctx, { ...SAUCER_CRUISE, x, y, flipped: flip }, w, h, timeSec, staticMode);
+      } else {
+        drawFlyingSaucer(ctx, SAUCER_CRUISE, w, h, timeSec, staticMode);
+      }
+
+      // ---- 传送之旅飞船：右下门 B(0.87,0.80) → 左上门 A(0.10,0.14)，对角线穿越 ----
+      // 飞入 A 渐隐 → 从 B 渐显（循环 ~12s）
+      //   前 15%：从 B 渐显（alpha 0→1）
+      //   中 70%：对角线匀速飞向 A
+      //   后 15%：靠近 A 渐隐（alpha 1→0），飞入门内
+      if (!staticMode) {
+        const TRIP_S = 12;
+        const t = (timeSec % TRIP_S) / TRIP_S; // 0..1
+        // B(右下 0.87,0.80) → A(左上 0.10,0.14)
+        const xB = 0.87, yB = 0.80, xA = 0.10, yA = 0.14;
+        const x = xB + (xA - xB) * t;
+        const y = yB + (yA - yB) * t;
+        // 渐入渐出
+        let vis = 1;
+        if (t < 0.15) vis = t / 0.15;
+        else if (t > 0.85) vis = (1 - t) / 0.15;
+        // 轻微弧线偏移（垂直于飞行方向）
+        const arc = Math.sin(t * Math.PI) * 0.04;
+        if (vis > 0.02) {
+          drawFlyingSaucer(
+            ctx, { ...SAUCER_PORTAL, x: x + arc, y: y - arc, alpha: SAUCER_PORTAL.alpha * vis },
+            w, h, timeSec, staticMode,
+          );
+        }
+      } else {
+        drawFlyingSaucer(ctx, SAUCER_PORTAL, w, h, timeSec, staticMode);
       }
     };
 
