@@ -66,7 +66,7 @@ const PLANETS: PlanetSpec[] = [
   { x: 0.84, y: 0.14, r: 0.12, alpha: 0.5, ring: true, phase: 0.6, speed: 0.05 },
   // 左下小星球：紫色系（用户要求）——亮 #c4b5fd / 主 #8b5cf6 / 暗 #4c1d95
   {
-    x: 0.08, y: 0.86, r: 0.07, alpha: 0.4, ring: false, phase: 2.1, speed: 0.04,
+    x: 0.08, y: 0.86, r: 0.11, alpha: 0.4, ring: false, phase: 2.1, speed: 0.04,
     baseColor: "#8b5cf6", highlightColor: "#c4b5fd", shadowColor: "#4c1d95",
   },
 ];
@@ -260,7 +260,7 @@ export default function StarfieldBackground({
       // ---- 副对角线巡航飞船：左下紫色星球(0.08,0.86) ↔ 右上暖金星球(0.84,0.14) ----
       // 三角波插值往返；周期 ~14s
       if (!staticMode) {
-        const CYCLE_S = 14;
+        const CYCLE_S = 26;
         const t = (timeSec % CYCLE_S) / CYCLE_S; // 0..1
         const tri = t < 0.5 ? t * 2 : (1 - t) * 2; // 0→1→0 三角波
         // 左下(0.08,0.86) → 右上(0.84,0.14)
@@ -279,7 +279,7 @@ export default function StarfieldBackground({
       //   中 70%：对角线匀速飞向 A
       //   后 15%：靠近 A 渐隐（alpha 1→0），飞入门内
       if (!staticMode) {
-        const TRIP_S = 12;
+        const TRIP_S = 22;
         const t = (timeSec % TRIP_S) / TRIP_S; // 0..1
         // B(右下 0.87,0.80) → A(左上 0.10,0.14)
         const xB = 0.87, yB = 0.80, xA = 0.10, yA = 0.14;

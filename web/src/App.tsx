@@ -212,6 +212,8 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" }) 
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** 桌面端侧栏折叠（用户可切换；默认展开） */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionWs, setNewSessionWs] = useState<string | null>(null);
   const authRequired = useUiStore((s) => s.authRequired);
@@ -244,9 +246,9 @@ export default function App() {
 
         {/* 侧栏 */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2/80 backdrop-blur transition-transform md:static md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2/80 backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
+          } ${sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-60"}`}
         >
           <div className="flex items-center gap-2 px-4 py-4">
             <Portal size={28} spin />
@@ -279,9 +281,17 @@ export default function App() {
           <header className="flex items-center gap-3 border-b border-line bg-space/70 px-4 py-3 backdrop-blur">
             <button
               type="button"
-              className="rounded-md border border-line px-2 py-1 text-sm text-ink-2 hover:text-ink md:hidden"
-              onClick={() => setSidebarOpen((v) => !v)}
-              aria-label="切换侧栏"
+              className="rounded-md border border-line px-2 py-1 text-sm text-ink-2 hover:text-ink"
+              onClick={() => {
+                // 移动端（<md）：drawer 开关；桌面端：折叠/展开
+                if (window.matchMedia("(min-width: 768px)").matches) {
+                  setSidebarCollapsed((v) => !v);
+                } else {
+                  setSidebarOpen((v) => !v);
+                }
+              }}
+              aria-label={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
+              title={sidebarCollapsed ? "展开侧栏" : "折叠侧栏"}
             >
               ☰
             </button>
