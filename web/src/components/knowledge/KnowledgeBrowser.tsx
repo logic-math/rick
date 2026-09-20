@@ -170,7 +170,16 @@ export default function KnowledgeBrowser({ workspaceId }: KnowledgeBrowserProps)
               <p className="mb-3 truncate font-mono text-xs text-ink-3" title={file.path}>
                 {file.path}
               </p>
-              <FileContentView path={file.path} content={file.content} />
+              <FileContentView
+                path={file.path}
+                content={file.content}
+                // md 里的相对链接就地切换（`.rick/domain/x` 与 `domain/x` 都认），
+                // 外链仍走新标签（LocalAwareLink 的重定向语义）
+                onOpenFile={(p) => {
+                  const rel = p.replace(/^\.?\/?\.rick\//, "").replace(/^\.\//, "");
+                  onSelect(entries.some((e) => e.path === rel) ? rel : p);
+                }}
+              />
             </>
           )}
         </section>

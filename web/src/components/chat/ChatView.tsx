@@ -26,6 +26,8 @@ import {
 } from "./viewModel";
 import type { SlashCommand } from "./ChatInput";
 import Portal from "../starfield/Portal";
+import FileReaderPanel from "../files/FileReaderPanel";
+import { FileReaderProvider, type FileReaderApi } from "../files/FileReaderContext";
 import Collapse from "../common/Collapse";
 import type { HistoryMeta } from "./viewModel";
 import ModelSwitchDialog from "./ModelSwitchDialog";
@@ -568,6 +570,22 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     }
   }, [applyState, sessionId]);
 
+  // 右侧文件阅读器（聊天里点击本地 md/日志就地查阅——不离开对话）
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const readerApi = useMemo<FileReaderApi>(
+    () => ({ open: (p: string) => setOpenFile(p), current: openFile }),
+    [openFile],
+  );
+  // Esc 关闭阅读器（优先于其它快捷键；仅在有文件打开时拦截）
+  useEffect(() => {
+    if (!openFile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenFile(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openFile]);
+
   const unarchive = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -603,7 +621,9 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   const title = info?.title ?? sessionId.slice(0, 8);
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <FileReaderProvider value={readerApi}>
+    <div className="flex h-full min-h-0 w-full">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
       {/* 会话头 */}
       <header className="flex shrink-0 items-center gap-2.5 border-b border-line bg-space/70 px-4 py-2.5 backdrop-blur">
         <Portal size={22} spin />
@@ -733,5 +753,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         />
       </div>
     </div>
+
+      {/* 右侧文件阅读器（本地 md/日志就地查阅；与 Dreams 知识库同一渲染组件） */}
+      <FileReaderPanel
+        workspaceId={info?.workspace_id ?? null}
+        path={openFile}
+        onClose={() => setOpenFile(null)}
+        onOpen={setOpenFile}
+      />
+    </div>
+    </FileReaderProvider>
   );
 }

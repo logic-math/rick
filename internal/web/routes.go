@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -689,6 +690,108 @@ func (deps Deps) handleKnowledgeFile() http.HandlerFunc {
 	}
 }
 
+// handleWorkspaceFile serves GET /api/workspaces/{ws}/file?path=<p> →
+// 200 {"path","content"}. Reads a text file referenced from chat/agent output
+// (e.g. `.rick/jobs/job_1/plan/task1.md`、绝对路径 `/workdir/.../debug/x.md`、
+// 或 file:// URL) so the UI can open it in a side reader instead of navigating
+// away from a live conversation.
+//
+// 安全：路径必须落在工作区根目录（或 ~/.rick 状态目录）之内——相对路径按工作区
+// 根解析，绝对路径必须已在允许根之下；符号链接、目录、超大文件一律拒绝
+// （沿用 readWhitelistedFile 的硬化读取）。工作区之外的路径返回 invalid_path，
+// 前端会显示「不在当前工作区内 + 复制路径」而不是假装成功。
+func (deps Deps) handleWorkspaceFile() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := deps.workspaceFromPath(w, r)
+		if !ok {
+			return
+		}
+		raw := r.URL.Query().Get("path")
+		if strings.TrimSpace(raw) == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing path"))
+			return
+		}
+		rel, err := workspaceRelativeFile(ws.Path, raw)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		root, relPath := rel.root, rel.rel
+		content, err := readWhitelistedFile(root, relPath)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		// 回显可读的展示路径（工作区内 → 相对路径；~/.rick → 带 ~/.rick 前缀，
+		// 让用户一眼知道这个文件不在仓库里）
+		display := relPath
+		if root != filepath.Clean(ws.Path) {
+			display = filepath.Join("~", ".rick", relPath)
+		}
+		writeJSON(w, http.StatusOK, fileResponse{Path: filepath.ToSlash(display), Content: content})
+	}
+}
+
+// resolvedFile is a path pinned to one of the allowed read roots.
+type resolvedFile struct {
+	root string // absolute directory the relative path is resolved against
+	rel  string // slash-separated path relative to root (no leading ./)
+}
+
+// allowedFileRoots returns the directories a chat-referenced file may be read
+// from: the workspace itself, plus ~/.rick (web state / pi sessions / logs).
+// Both are "the agent's own working set"; anything else is refused.
+func allowedFileRoots(workspacePath string) []string {
+	roots := []string{filepath.Clean(workspacePath)}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots, filepath.Join(home, ".rick"))
+	}
+	return roots
+}
+
+// workspaceRelativeFile normalizes a chat-supplied path into (root, rel).
+// Accepts file:// URLs, absolute paths, and workspace-relative paths
+// (`.rick/...`, `doing/...`, `src/x.ts`). NUL bytes and paths that resolve
+// outside every allowed root are rejected.
+func workspaceRelativeFile(workspacePath, raw string) (resolvedFile, error) {
+	p := strings.TrimSpace(raw)
+	// file:///abs/path → /abs/path（Windows 风格 file:///C:/ 也在 TrimPrefix 后仍可被
+	// filepath 处理，这里只关心本机 Linux 语义）
+	if strings.HasPrefix(p, "file://") {
+		p = strings.TrimPrefix(p, "file://")
+		if unescaped, err := url.PathUnescape(p); err == nil {
+			p = unescaped
+		}
+	}
+	// 去掉 markdown 链接里常见的尾部锚点/查询（`x.md#L10`、`x.md?raw=1`）
+	if i := strings.IndexAny(p, "#?"); i >= 0 {
+		p = p[:i]
+	}
+	if p == "" {
+		return resolvedFile{}, newWebError(http.StatusBadRequest, "invalid_params", "empty path")
+	}
+	if strings.ContainsRune(p, 0) {
+		return resolvedFile{}, errInvalidPath("path contains NUL")
+	}
+	roots := allowedFileRoots(workspacePath)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(workspacePath, p)
+	}
+	abs := filepath.Clean(p)
+	for _, root := range roots {
+		if abs == root {
+			return resolvedFile{}, errInvalidPath("path must point at a file inside the workspace: %s", raw)
+		}
+		rel, err := filepath.Rel(root, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return resolvedFile{root: root, rel: filepath.ToSlash(rel)}, nil
+	}
+	return resolvedFile{}, errInvalidPath(
+		"path is outside the workspace (and ~/.rick): %s", raw)
+}
+
 // ---- web customize / reset（env 层函数注入）----
 
 func handleWebCustomize(deps Deps) http.HandlerFunc {
@@ -792,6 +895,7 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/files", authWrap(deps.Token, http.HandlerFunc(deps.handleJobFileList())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/tree", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeTree())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/file", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeFile())))
+	mux.Handle("GET /api/workspaces/{ws}/file", authWrap(deps.Token, http.HandlerFunc(deps.handleWorkspaceFile())))
 
 	// Web 管理（env 层函数注入，task14 前可为 nil → 501）。
 	mux.Handle("POST /api/web/customize", authWrap(deps.Token, http.HandlerFunc(handleWebCustomize(deps))))
