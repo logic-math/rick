@@ -11,50 +11,40 @@
  * 超限（400 file_too_large）→「文件过大，请在仓库查看」。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api/client";
-import type { TaskBrief } from "../../types";
 import FileTree, { type FileTreeEntry } from "../knowledge/FileTree";
 import Spinner from "../common/Spinner";
 import FileContentView from "../knowledge/MarkdownView";
 
 const TOO_LARGE_HINT = "文件过大，请在仓库查看";
 
-interface JobFilesProps {
-  workspaceId: string;
-  jobId: string;
-  tasks: TaskBrief[];
-}
 
-/** tasks → 约定文件清单 */
-function conventionEntries(tasks: TaskBrief[]): FileTreeEntry[] {
-  const entries: FileTreeEntry[] = [];
-  for (const t of tasks) {
-    const id = t.task_id;
-    entries.push({ path: `plan/${id}.md` });
-    entries.push({ path: `doing/tasks/${id}/act-path.md` });
-    entries.push({ path: `doing/tasks/${id}/raw_session_coding.log` });
-    entries.push({ path: `doing/debug/debug_${id}.md` });
-  }
-  entries.push({ path: "doing/tasks.json" });
-  entries.push({ path: "doing/session_id" });
-  entries.push({ path: "doing/raw_session_coding.log" });
-  entries.push({ path: "doing/act-path.md" });
-  entries.push({ path: "doing/prompts/doing_prompt.md" });
-  entries.push({ path: "plan/requirement.md" });
-  // 去重（tasks 空/重复时）+ 字典序
-  const seen = new Set<string>();
-  return entries
-    .filter((e) => {
-      if (seen.has(e.path)) return false;
-      seen.add(e.path);
-      return true;
-    })
-    .sort((a, b) => a.path.localeCompare(b.path));
-}
 
-export default function JobFiles({ workspaceId, jobId, tasks }: JobFilesProps) {
-  const entries = useMemo(() => conventionEntries(tasks), [tasks]);
+export default function JobFiles({ workspaceId, jobId }: { workspaceId: string; jobId: string }) {
+  const [entries, setEntries] = useState<FileTreeEntry[]>([]);
+  const [treeLoading, setTreeLoading] = useState(true);
+  const [treeError, setTreeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTreeLoading(true);
+    setTreeError(null);
+    setEntries([]);
+    api
+      .listJobFiles(workspaceId, jobId)
+      .then((files) => {
+        if (cancelled) return;
+        setEntries(files.map((f) => ({ path: f.path })).sort((a, b) => a.path.localeCompare(b.path)));
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setTreeError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setTreeLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId, jobId]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,9 +90,16 @@ export default function JobFiles({ workspaceId, jobId, tasks }: JobFilesProps) {
     <div className="grid min-h-0 gap-3 lg:grid-cols-[16rem_1fr]">
       <aside className="max-h-80 overflow-y-auto rounded-lg border border-line bg-surface/50 p-2 lg:max-h-none">
         <p className="px-1.5 pb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-          {jobId} 文件（约定视图）
+          {jobId} 文件
         </p>
-        <FileTree entries={entries} selectedPath={selectedPath} onSelect={onSelect} />
+        {treeLoading && <Spinner size={14} label="加载文件列表…" />}
+        {treeError && <p className="px-1.5 text-[11px] text-danger">{treeError}</p>}
+        {!treeLoading && !treeError && entries.length === 0 && (
+          <p className="px-1.5 text-[11px] text-ink-3">暂无文件</p>
+        )}
+        {!treeLoading && entries.length > 0 && (
+          <FileTree entries={entries} selectedPath={selectedPath} onSelect={onSelect} />
+        )}
       </aside>
       <section className="min-w-0 overflow-y-auto rounded-lg border border-line bg-surface/30 p-4">
         {loading && <Spinner label="读取文件…" />}

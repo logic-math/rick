@@ -521,6 +521,63 @@ func (deps Deps) handleReadTasks() http.HandlerFunc {
 	}
 }
 
+// handleJobFileList serves GET /api/workspaces/{ws}/jobs/{job}/files — the actual
+// file tree under the job's plan/doing/grilling/prompts directories (recursive,
+// text files only, 200 max). The frontend previously guessed paths from the
+// "convention" (plan/task1.md etc.) which breaks for easy jobs whose layout differs.
+func (deps Deps) handleJobFileList() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := deps.workspaceFromPath(w, r)
+		if !ok {
+			return
+		}
+		jobID := r.PathValue("job")
+		if jobID == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing job id"))
+			return
+		}
+		rickDir := ws.Path + "/.rick"
+		jobRoot, err := jobRoot(rickDir, jobID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		type FileEntry struct {
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+		}
+		var entries []FileEntry
+		exts := map[string]bool{".md": true, ".log": true, ".json": true, ".txt": true, ".yaml": true, ".yml": true}
+		for _, sub := range []string{"plan", "doing", "grilling", "prompts"} {
+			root := filepath.Join(jobRoot, sub)
+			filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
+					return nil
+				}
+				if len(entries) >= 200 {
+					return filepath.SkipAll
+				}
+				ext := strings.ToLower(filepath.Ext(path))
+				if !exts[ext] {
+					return nil
+				}
+				rel, _ := filepath.Rel(jobRoot, path)
+				st, _ := d.Info()
+				size := int64(0)
+				if st != nil {
+					size = st.Size()
+				}
+				entries = append(entries, FileEntry{Path: filepath.ToSlash(rel), Size: size})
+				return nil
+			})
+		}
+		if entries == nil {
+			entries = []FileEntry{}
+		}
+		writeJSON(w, http.StatusOK, entries)
+	}
+}
+
 // fileResponse is the jobs/knowledge file read body (contract: {"path","content"}).
 type fileResponse struct {
 	Path    string `json:"path"`
@@ -678,6 +735,7 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 	mux.Handle("POST /api/workspaces/{ws}/jobs/{job}/unarchive", authWrap(deps.Token, http.HandlerFunc(deps.handleUnarchiveJob())))
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/tasks", authWrap(deps.Token, http.HandlerFunc(deps.handleReadTasks())))
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/file", authWrap(deps.Token, http.HandlerFunc(deps.handleJobFile())))
+	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/files", authWrap(deps.Token, http.HandlerFunc(deps.handleJobFileList())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/tree", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeTree())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/file", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeFile())))
 

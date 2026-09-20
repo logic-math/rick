@@ -172,8 +172,9 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 		}
 		out = append(out, summary)
 	}
-	// plan 就绪但尚未 doing 的 job：doing/tasks.json 不存在，但 plan/ 已产出
-	// task*.md——这些 job 也必须可被选来执行 doing（否则 plan 完成后无处开始）。
+	// 两类补充发现（确保 CLI 启动的 job 不被漏掉）：
+	// ① plan 就绪但尚未 doing：plan/ 已产出 task*.md（可被选来执行 doing）
+	// ② doing 已启动但 tasks.json 未写（CLI easy 进行中——tasks.json 在会话结束时才写）
 	seen := make(map[string]bool, len(out))
 	for _, j := range out {
 		seen[j.JobID] = true
@@ -189,7 +190,6 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 			if err != nil || !st.IsDir() {
 				continue
 			}
-			// 仅统计真正产出了任务清单的 plan（task*.md）
 			taskFiles, _ := filepath.Glob(filepath.Join(pd, "task*.md"))
 			if len(taskFiles) == 0 {
 				continue
@@ -205,6 +205,27 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 				UpdatedAt: updated,
 				Tasks:     []TaskBrief{},
 				Stage:     "planned",
+			})
+			seen[jobID] = true
+		}
+	}
+	// ② doing/ 有 session_id（CLI 已启动）但没有 tasks.json → stage=started
+	startPattern := filepath.Join(rickDir, workspace.JobsDirName, "*", "doing", "session_id")
+	if sidFiles, err := filepath.Glob(startPattern); err == nil {
+		for _, sf := range sidFiles {
+			jobID := filepath.Base(filepath.Dir(filepath.Dir(sf)))
+			if seen[jobID] {
+				continue
+			}
+			sfi, err := os.Stat(sf)
+			if err != nil {
+				continue
+			}
+			out = append(out, JobSummary{
+				JobID:     jobID,
+				UpdatedAt: sfi.ModTime(),
+				Tasks:     []TaskBrief{},
+				Stage:     "started",
 			})
 			seen[jobID] = true
 		}
