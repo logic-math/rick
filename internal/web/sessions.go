@@ -1703,6 +1703,18 @@ func (m *SessionManager) setBusy(sessionID string, busy bool, reason string) {
 	m.hub.Publish(SessionBusyEvent(sessionID, entry.Status, busy, reason))
 }
 
+// ShutdownWorkers terminates every live pi worker (SIGTERM → grace → SIGKILL).
+// 必须在服务退出前调用：worker 自成一个进程组（Setpgid），父进程退出**不会**
+// 连带杀掉它们——不显式收尸就会留下孤儿 pi 进程继续占着会话文件，下次启动
+// Resume 时出现「新 worker 起不来 / 起来就死」的诡异现象（实测：job_69 导入后
+// 反复变 error 的根因就是上一次服务重启留下的孤儿 worker）。
+func (m *SessionManager) ShutdownWorkers() {
+	if m == nil || m.sup == nil {
+		return
+	}
+	m.sup.CloseAll()
+}
+
 // agentEndWillRetry reports ev.willRetry==true (agent_end is not terminal when
 // the runtime will retry the turn — busy must stay true).
 func agentEndWillRetry(ev *runtime.RpcEvent) bool {
