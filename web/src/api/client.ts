@@ -420,6 +420,20 @@ export class ApiClient {
   }
 
   /** GET /api/workspaces/{ws}/jobs/{job}/file?path=plan/task1.md */
+  /** PUT /api/workspaces/{ws}/jobs/{job}/name — 设置 job 任务名（展示层别名）。
+   *  空字符串 = 清除别名（回到显示 job_N）。不重命名 job 目录、不动 tasks.json。 */
+  setJobName(
+    workspaceId: string,
+    jobId: string,
+    name: string,
+  ): Promise<{ job_id: string; name: string }> {
+    return this.request<{ job_id: string; name: string }>(
+      "PUT",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/name`,
+      { body: { name } },
+    );
+  }
+
   /** GET /api/workspaces/{ws}/jobs/{job}/files — 真实文件树（替代约定推导） */
   listJobFiles(workspaceId: string, jobId: string): Promise<Array<{ path: string; size: number }>> {
     return this.request<Array<{ path: string; size: number }>>(

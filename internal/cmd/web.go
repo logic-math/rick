@@ -90,6 +90,10 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	if err != nil {
 		return fmt.Errorf("load session registry: %w", err)
 	}
+	jobNames, err := web.LoadJobNameStore(web.JobNamesPath())
+	if err != nil {
+		return fmt.Errorf("load job names: %w", err)
+	}
 	hub := web.NewHub(0)
 	sup := runtime.NewSupervisor(runtime.SupervisorConfig{
 		PiPath:    cfg.PiPath,
@@ -97,6 +101,8 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		// MaxActive/IdleTimeout/Heartbeat: supervisor defaults (8 / 30m / 30s).
 	})
 	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil, nil)
+	// 用户自定义 job 任务名（侧栏会话行 + Jobs 页展示）
+	sm.SetJobNames(jobNames)
 	// 重启对账：active/running 但无 worker 的会话标记 error（前端显示 Resume 恢复）
 	sm.ReconcileOnStart()
 	// 后台型会话的历史空标题回填（doing job_N / dream ×N）——旧数据侧栏只显示会话 id
@@ -121,6 +127,7 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		Token:      token,
 		Version:    opts.Version,
 		Archived:   archived,
+		JobNames:   jobNames,
 	}
 	server, err := web.NewServer(serverCfg, deps)
 	if err != nil {

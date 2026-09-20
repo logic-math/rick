@@ -21,6 +21,102 @@ import Spinner from "../common/Spinner";
 import ErrorBanner from "../common/ErrorBanner";
 import EmptyState from "../common/EmptyState";
 
+/**
+ * RenameJobDialog：给 job 起任务名（展示层别名，不改 job 目录）。
+ * 从 Jobs 卡片标题旁的 ✏ 打开；保存后由父级 reload 快照。
+ */
+function RenameJobDialog({
+  workspaceId,
+  job,
+  open,
+  onClose,
+  onSaved,
+}: {
+  workspaceId: string;
+  job: JobSummary;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState(job.name ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!open) return null;
+  const save = async (next: string): Promise<void> => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.setJobName(workspaceId, job.job_id, next);
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-lg border border-line bg-space p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="mb-2 text-sm font-semibold text-ink">
+          重命名 <span className="font-mono text-portal">{job.job_id}</span>
+        </p>
+        <input
+          type="text"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void save(draft);
+            }
+            if (e.key === "Escape") onClose();
+          }}
+          maxLength={60}
+          placeholder="起个有意义的名字（如：BERT 环境搭建）"
+          className="w-full rounded border border-line bg-space-2/60 px-2 py-1.5 text-sm text-ink outline-none placeholder:text-ink-3/60 focus:border-portal/60"
+        />
+        <p className="mt-1.5 text-[10px] leading-relaxed text-ink-3">
+          仅 web 展示用（侧栏会话行 + Jobs 页）。不重命名 job 目录、不动 tasks.json，
+          CLI 与正在跑的任务都不受影响。
+        </p>
+        {err && <p className="mt-1.5 text-[11px] text-danger">{err}</p>}
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void save(draft)}
+            disabled={busy || !draft.trim()}
+            className="rounded-md border border-portal/50 bg-portal/10 px-3 py-1.5 text-xs text-portal hover:bg-portal/20 disabled:opacity-40"
+          >
+            {busy ? "保存中…" : "保存"}
+          </button>
+          {job.name && (
+            <button
+              type="button"
+              onClick={() => void save("")}
+              disabled={busy}
+              className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-3 hover:border-danger/50 hover:text-danger disabled:opacity-40"
+            >
+              清除任务名
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto rounded-md border border-line px-3 py-1.5 text-xs text-ink-3 hover:text-ink"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 任务状态 → 点色 */
 function dotColorOf(status: string): string {
   switch (status) {
@@ -122,6 +218,8 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
   const [error, setError] = useState<string | null>(null);
   // 归档中 job_id 集合（防连击）
   const [archiving, setArchiving] = useState<ReadonlySet<string>>(new Set());
+  // 正在重命名任务名的 job（null = 未打开弹窗）
+  const [renaming, setRenaming] = useState<JobSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -238,15 +336,24 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
         const complete = isComplete(job);
         const busy = archiving.has(job.job_id);
         return (
-          <li key={job.job_id} className="group flex flex-col gap-1.5 rounded-lg border border-line bg-surface/50 p-3 transition-colors hover:border-portal/50">
+          <li key={job.job_id} className="group relative flex flex-col gap-1.5 rounded-lg border border-line bg-surface/50 p-3 transition-colors hover:border-portal/50">
             <button
               type="button"
               onClick={() => onOpen(job.job_id)}
               className="flex w-full flex-col gap-2 text-left"
             >
               <div className="flex items-baseline gap-2">
-                <span className="font-mono text-sm font-semibold text-ink">{job.job_id}</span>
-                <span className="ml-auto text-[10px] text-ink-3" title={job.updated_at}>
+                <span className="font-mono text-xs font-semibold text-ink-3">{job.job_id}</span>
+                {/* 任务名：用户起的名字才是「在干什么」的主要信息 */}
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm font-semibold ${
+                    job.name ? "text-ink" : "text-ink-3/70"
+                  }`}
+                  title={job.name || "未命名——点 ✏ 起个有意义的名字"}
+                >
+                  {job.name || "未命名"}
+                </span>
+                <span className="shrink-0 text-[10px] text-ink-3" title={job.updated_at}>
                   {relativeTime(job.updated_at)}
                 </span>
               </div>
@@ -273,6 +380,15 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                   );
                 })()}
               </p>
+            </button>
+            {/* ✏ 重命名任务名（与「打开详情」分离的独立按钮——弹窗不能嵌在按钮里） */}
+            <button
+              type="button"
+              onClick={() => setRenaming(job)}
+              title={job.name ? `重命名任务名（当前：${job.name}）` : "给它起个有意义的名字"}
+              className="absolute right-2 top-2 rounded px-1 text-[11px] leading-none text-ink-3 opacity-0 transition-opacity hover:text-portal group-hover:opacity-100"
+            >
+              ✏
             </button>
             {/* 恢复/打开会话：有 web 会话直接跳；无会话但 job 有 doing/ → 可导入 CLI 会话 */}
             {(() => {
@@ -337,6 +453,15 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
           </li>
         );
       })}
+      {renaming && (
+        <RenameJobDialog
+          workspaceId={workspaceId}
+          job={renaming}
+          open
+          onClose={() => setRenaming(null)}
+          onSaved={() => void load(workspaceId)}
+        />
+      )}
     </ul>
   );
 }

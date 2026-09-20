@@ -41,6 +41,10 @@ type Deps struct {
 	Static     http.Handler
 	Version    string
 
+	// JobNames is the job display-name store（任务名）: 侧栏/Jobs 页展示用户
+	// 自定义的名字而非 job_N。nil 时优雅降级（不显示别名、改名返回 501）。
+	JobNames *JobNameStore
+
 	// Archived is the web-layer soft-archive store (job 归档：列表默认过滤、
 	// 可恢复；不碰 rick job 文件）。nil 时归档接口返回 state_conflict，
 	// jobs 列表不过滤（老测试/未注入场景优雅降级）。
@@ -409,6 +413,51 @@ func (deps Deps) workspaceFromPath(w http.ResponseWriter, r *http.Request) (Work
 	return e, true
 }
 
+// handleRenameJob serves PUT /api/workspaces/{ws}/jobs/{job}/name →
+// 200 {"job_id","name"}. Body: {"name": "..."}. An empty/whitespace name
+// clears the alias (回到「显示 job_N」). 这是纯展示层别名：不重命名 job 目录，
+// 不动 tasks.json，因此不会影响 CLI 或正在跑的会话。
+func (deps Deps) handleRenameJob() http.HandlerFunc {
+	type body struct {
+		Name string `json:"name"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		ws, ok := deps.workspaceFromPath(w, r)
+		if !ok {
+			return
+		}
+		jobID := r.PathValue("job")
+		if jobID == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing job id"))
+			return
+		}
+		// job 必须真实存在（防止给任意字符串起名 → 侧栏出现幽灵 job）
+		if _, err := jobRoot(ws.Path+"/.rick", jobID); err != nil {
+			writeError(w, err)
+			return
+		}
+		if deps.JobNames == nil {
+			writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "job name store is not configured"))
+			return
+		}
+		var req body
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_body", "request body must be JSON: {\"name\": \"...\"}"))
+			return
+		}
+		normalized, err := ValidateJobName(req.Name)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := deps.JobNames.Set(ws.ID, jobID, normalized); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"job_id": jobID, "name": normalized})
+	}
+}
+
 func (deps Deps) handleListJobs() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ws, ok := deps.workspaceFromPath(w, r)
@@ -428,6 +477,10 @@ func (deps Deps) handleListJobs() http.HandlerFunc {
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// 用户自定义任务名（纯展示层别名；未改名时为空）
+		for i := range jobs {
+			jobs[i].Name = deps.JobNames.Get(ws.ID, jobs[i].JobID)
 		}
 		writeJSON(w, http.StatusOK, jobs)
 	}
@@ -731,6 +784,7 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 
 	// Jobs / knowledge（{ws} 注册工作区）。
 	mux.Handle("GET /api/workspaces/{ws}/jobs", authWrap(deps.Token, http.HandlerFunc(deps.handleListJobs())))
+	mux.Handle("PUT /api/workspaces/{ws}/jobs/{job}/name", authWrap(deps.Token, http.HandlerFunc(deps.handleRenameJob())))
 	mux.Handle("POST /api/workspaces/{ws}/jobs/{job}/archive", authWrap(deps.Token, http.HandlerFunc(deps.handleArchiveJob())))
 	mux.Handle("POST /api/workspaces/{ws}/jobs/{job}/unarchive", authWrap(deps.Token, http.HandlerFunc(deps.handleUnarchiveJob())))
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/tasks", authWrap(deps.Token, http.HandlerFunc(deps.handleReadTasks())))

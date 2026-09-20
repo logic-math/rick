@@ -46,10 +46,13 @@ export default function SessionBadge({
 }) {
   const load = useSessionsStore((s) => s.load);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 标题兜底：优先 title → 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
-  // 后台型会话旧版没有默认 title，侧栏只显示会话 id（用户实测反馈）。
+  // 标题兜底：优先**用户给 job 起的任务名**（server 返回 job_name）→ title →
+  // 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
+  // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
   const jobParam = (session.params as { job?: unknown } | undefined)?.job;
+  const jobName = session.job_name?.trim() || "";
   const title =
+    jobName ||
     session.title ||
     (typeof jobParam === "string" && jobParam ? `${session.type} ${jobParam}` : "") ||
     `${session.type} · ${session.id.slice(0, 8)}`;

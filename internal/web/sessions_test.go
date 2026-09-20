@@ -673,7 +673,7 @@ func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	if code != http.StatusConflict {
 		t.Fatalf("interactive dream with no pending jobs: %d %v (want 409)", code, body)
 	}
-	if e, _ := body["error"].(map[string]any); e == nil || e["Code"] != "no_pending_jobs" {
+	if e, _ := body["error"].(map[string]any); e == nil || e["code"] != "no_pending_jobs" {
 		t.Fatalf("dream 409 should carry code no_pending_jobs: %v", body)
 	}
 
@@ -1441,7 +1441,7 @@ func TestSessionBusyAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := m.sessions.Get(entry.ID)
-	if toSessionInfo(got).Busy {
+	if m.toSessionInfo(got).Busy {
 		t.Fatal("initial busy must be false")
 	}
 
@@ -1451,8 +1451,8 @@ func TestSessionBusyAuthority(t *testing.T) {
 	// agent_start → busy true + 广播
 	m.setBusy(entry.ID, true, "agent_start")
 	got, _ = m.sessions.Get(entry.ID)
-	if !got.Busy || !toSessionInfo(got).Busy {
-		t.Fatalf("after agent_start: entry.Busy=%v info.Busy=%v (want true)", got.Busy, toSessionInfo(got).Busy)
+	if !got.Busy || !m.toSessionInfo(got).Busy {
+		t.Fatalf("after agent_start: entry.Busy=%v info.Busy=%v (want true)", got.Busy, m.toSessionInfo(got).Busy)
 	}
 	evts := coll.waitMatching(t, time.Second, func(e Envelope) bool {
 		return e.Type == EventTypeSessionState && e.SessionID == entry.ID && strings.Contains(string(e.Data), `"busy":true`)
@@ -1474,7 +1474,7 @@ func TestSessionBusyAuthority(t *testing.T) {
 	// agent_settled → busy false + 广播
 	m.setBusy(entry.ID, false, "agent_settled")
 	got, _ = m.sessions.Get(entry.ID)
-	if got.Busy || toSessionInfo(got).Busy {
+	if got.Busy || m.toSessionInfo(got).Busy {
 		t.Fatal("after agent_settled busy must be false")
 	}
 
@@ -1483,7 +1483,7 @@ func TestSessionBusyAuthority(t *testing.T) {
 	_ = m.sessions.Update(got)
 	got.Status = SessionStatusClosed
 	_ = m.sessions.Update(got)
-	if toSessionInfo(got).Busy {
+	if m.toSessionInfo(got).Busy {
 		t.Fatal("closed session must project busy=false regardless of the flag")
 	}
 }
@@ -1550,7 +1550,9 @@ func TestEasyTasksLifecycle(t *testing.T) {
 
 // TestSessionResumeIdempotent 验证 resume 幂等 + 自愈：
 // ① 已 active 且 worker 存活 → 202（already_active），不再 409（用户实测：
-//    会话其实在跑，点 Resume 报 409「nothing to resume」且 UI 不刷新）；
+//
+//	会话其实在跑，点 Resume 报 409「nothing to resume」且 UI 不刷新）；
+//
 // ② active 但 worker 缺失（异常路径）→ 修正状态并重新 spawn（自愈），不卡死。
 func TestSessionResumeIdempotent(t *testing.T) {
 	env := newTestEnv(t)
