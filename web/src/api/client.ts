@@ -420,6 +420,14 @@ export class ApiClient {
   }
 
   /** GET /api/workspaces/{ws}/jobs/{job}/file?path=plan/task1.md */
+  /** GET /api/workspaces/{ws}/jobs/{job}/files — 真实文件树（替代约定推导） */
+  listJobFiles(workspaceId: string, jobId: string): Promise<Array<{ path: string; size: number }>> {
+    return this.request<Array<{ path: string; size: number }>>(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/files`,
+    );
+  }
+
   getJobFile(workspaceId: string, jobId: string, path: string): Promise<JobFileContent> {
     return this.request<JobFileContent>(
       "GET",

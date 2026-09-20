@@ -7,7 +7,8 @@
  * - 数据源：jobs store（同 JobsList 的快照——SSE 实时同步）
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "../../api/client";
 import { useJobsStore } from "../../stores/jobs";
 import Button from "../common/Button";
 import EmptyState from "../common/EmptyState";
@@ -32,7 +33,26 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
   );
   const job = jobs.find((j) => j.job_id === jobId) ?? null;
 
-  if (!job) {
+  // 归档 job 不在默认列表里——挂载时额外拉 include_archived 兜底查找
+  // （否则归档 job 的详情页永远显示「不在快照中」，文件树根本不渲染——用户实测
+  // 「job 页面打开的文件都打不开」的根因）
+  const [archivedJob, setArchivedJob] = useState<typeof job>(null);
+  useEffect(() => {
+    if (job || !workspaceId || !jobId) return;
+    let cancelled = false;
+    api
+      .listJobs(workspaceId, true)
+      .then((list) => {
+        if (cancelled) return;
+        setArchivedJob(list.find((j) => j.job_id === jobId) ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [job, workspaceId, jobId]);
+
+  const effectiveJob = job ?? archivedJob;
+
+  if (!effectiveJob) {
     return (
       <div className="flex flex-col items-center gap-3 py-10">
         <EmptyState message={`${jobId} 不在快照中`} hint="可能尚未加载或 job 目录无 tasks.json" />
@@ -43,9 +63,9 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
     );
   }
 
-  const { done, total, failed } = jobProgress(job);
+  const { done, total, failed } = jobProgress(effectiveJob);
   const lastDiff = useJobsStore.getState().lastDiff;
-  const flashTaskId = lastDiff && lastDiff.job_id === job.job_id ? lastDiff.task_id : null;
+  const flashTaskId = lastDiff && lastDiff.job_id === effectiveJob.job_id ? lastDiff.task_id : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -54,9 +74,9 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
         <Button size="sm" onClick={onBack} aria-label="返回 jobs 列表">
           ←
         </Button>
-        <h2 className="font-mono text-base font-semibold text-ink">{job.job_id}</h2>
-        <span className="text-xs text-ink-3" title={job.updated_at}>
-          {job.updated_at}
+        <h2 className="font-mono text-base font-semibold text-ink">{effectiveJob.job_id}</h2>
+        <span className="text-xs text-ink-3" title={effectiveJob.updated_at}>
+          {effectiveJob.updated_at}
         </span>
         <span
           className={`rounded px-2 py-0.5 text-xs ${
@@ -77,7 +97,7 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
           Tasks
         </h3>
         <ul className="flex flex-col gap-1.5">
-          {job.tasks.map((t) => (
+          {effectiveJob.tasks.map((t) => (
             <TaskCard key={t.task_id} task={t} flash={flashTaskId === t.task_id} compact />
           ))}
         </ul>
@@ -88,7 +108,7 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-ink-3">
           Files
         </h3>
-        <JobFiles workspaceId={workspaceId} jobId={job.job_id} tasks={job.tasks} />
+        <JobFiles workspaceId={workspaceId} jobId={effectiveJob.job_id} />
       </section>
     </div>
   );
