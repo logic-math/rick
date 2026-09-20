@@ -24,25 +24,24 @@ export function sanitizePlainText(s: string | undefined | null): string {
 
 /**
  * Markdown URL 白名单变换（react-markdown urlTransform）：
- * - 相对路径：放行（同源资源）
- * - http(s)/mailto：放行（链接 a 可外跳；图片由 img 组件单独拦截）
+ * - 无 scheme 的相对/绝对路径：放行（本地文件链接交给 a 组件就地打开阅读器）
+ * - http(s)/mailto/file：放行（外链新标签、file: 就地打开——点击语义见
+ *   lib/localPath.ts 的 classifyHref）
  * - 其他协议（javascript:/data:/vbscript:…）：置 '#' 阻断
+ *
+ * 注意：旧实现只放行 `./` `/` `#` 前缀，裸相对路径（`plan/task1.md`）会走
+ * new URL() 抛错分支 → 变成 '#'，**本地 md 链接全被吃掉了**。
  */
 export function safeUrlTransform(url: string): string {
   if (!url) return url;
-  // 相对/锚点/同源
-  if (url.startsWith("/") || url.startsWith("#") || url.startsWith("./") || url.startsWith("../")) {
+  if (url.startsWith("#")) return url;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+  if (!scheme) return url; // 相对/绝对路径：放行
+  const proto = scheme[1].toLowerCase();
+  if (proto === "http" || proto === "https" || proto === "mailto" || proto === "file") {
     return url;
   }
-  try {
-    const u = new URL(url);
-    if (u.protocol === "http:" || u.protocol === "https:" || u.protocol === "mailto:") {
-      return url;
-    }
-    return "#";
-  } catch {
-    return "#";
-  }
+  return "#";
 }
 
 /** 是否外链（非相对路径）——外链图片拦截用 */

@@ -6,6 +6,8 @@
  * - 未启用 rehype-raw：原始 HTML 以文本呈现（XSS 防线一）
  * - urlTransform 白名单（XSS 防线二）
  * - img 组件拦截外链图片（隐私 + 离线友好；XSS 防线三）
+ * - a 组件：外链新标签打开（重定向语义，不破坏常驻对话）；本地文件路径 →
+ *   右侧富文本阅读器（见 files/LocalAwareLink.tsx）
  */
 
 import { memo } from "react";
@@ -13,6 +15,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { isExternalUrl, safeUrlTransform } from "./sanitize";
+import { LocalAwareCode, LocalAwareLink } from "../files/LocalAwareLink";
 import "highlight.js/styles/atom-one-dark.css";
 
 interface MarkdownProps {
@@ -45,6 +48,26 @@ const Markdown = memo(function Markdown({ children, className }: MarkdownProps) 
         urlTransform={safeUrlTransform}
         components={{
           img: ({ src, alt }) => <Img src={typeof src === "string" ? src : undefined} alt={alt} />,
+          // 重定向语义：外链新标签（不把常驻对话导航走）；本地文件 → 右侧阅读器
+          a: ({ href, children }) => <LocalAwareLink href={typeof href === "string" ? href : undefined}>{children}</LocalAwareLink>,
+          // 行内代码里的文件路径也可点击（agent 输出里的路径大多是反引号形式）
+          code: ({ className, children, ...rest }) => {
+            const isBlock = typeof className === "string" && className.includes("language-");
+            if (isBlock) {
+              return (
+                <code className={className} {...rest}>
+                  {children}
+                </code>
+              );
+            }
+            const text = String(children ?? "");
+            return (
+              <LocalAwareCode
+                text={text}
+                className="rounded bg-space px-1 py-0.5 font-mono text-[0.85em] text-portal"
+              />
+            );
+          },
         }}
       >
         {children}

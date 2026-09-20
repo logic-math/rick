@@ -123,7 +123,16 @@ export default function JobFiles({ workspaceId, jobId }: { workspaceId: string; 
             <p className="mb-3 truncate font-mono text-xs text-ink-3" title={selectedPath}>
               {jobId}/{selectedPath}
             </p>
-            <FileContentView path={selectedPath} content={content} />
+            <FileContentView
+              path={selectedPath}
+              content={content}
+              // md 里的相对链接就地切换：`plan/x.md`/`doing/x.md` 都是 job 相对路径，
+              // `.rick/jobs/<job>/doing/x.md` 形式则剥掉前缀（外链仍是新标签）
+              onOpenFile={(p) => {
+                const m = /(?:^|\/)\.rick\/jobs\/[^/]+\/(.+)$/.exec(p);
+                onSelect(m ? m[1] : p.replace(/^\.\//, ""));
+              }}
+            />
           </>
         )}
       </section>

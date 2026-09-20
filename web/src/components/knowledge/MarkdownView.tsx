@@ -8,11 +8,13 @@
  * - 超限（后端 400 file_too_large）：由调用方先行判断，本组件只管渲染
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "../common/hljs-theme.css";
+import { LocalAwareCode, LocalAwareLink } from "../files/LocalAwareLink";
+import { FileReaderProvider, useFileReader, type FileReaderApi } from "../files/FileReaderContext";
 
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
@@ -24,8 +26,22 @@ interface MarkdownViewProps {
 }
 
 /** GFM markdown 渲染（knowledge/job md 文件） */
-export const MarkdownView = memo(function MarkdownView({ content }: { content: string }) {
+export const MarkdownView = memo(function MarkdownView({
+  content,
+  onOpenFile,
+}: {
+  content: string;
+  /** 就地打开另一个本地文件（阅读器内点链接时）；缺省用 context 的能力 */
+  onOpenFile?: (path: string) => void;
+}) {
+  const ctxReader = useFileReader();
+  // 显式 onOpenFile 优先（调用方可能不在 Provider 内）；否则沿用外层 context（聊天页）
+  const api = useMemo<FileReaderApi | null>(
+    () => (onOpenFile ? { open: onOpenFile, current: null } : ctxReader),
+    [onOpenFile, ctxReader],
+  );
   return (
+    <FileReaderProvider value={api}>
     <div className="markdown-body min-w-0 text-sm leading-relaxed text-ink">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -35,7 +51,9 @@ export const MarkdownView = memo(function MarkdownView({ content }: { content: s
           h2: (props) => <h2 className="mb-2 mt-5 border-b border-line/60 pb-1 text-base font-semibold text-ink" {...props} />,
           h3: (props) => <h3 className="mb-2 mt-4 text-sm font-semibold text-ink" {...props} />,
           p: (props) => <p className="my-2 text-sm leading-relaxed" {...props} />,
-          a: (props) => <a className="text-portal underline decoration-portal/40 underline-offset-2 hover:decoration-portal" {...props} />,
+          a: ({ href, children }) => (
+            <LocalAwareLink href={typeof href === "string" ? href : undefined}>{children}</LocalAwareLink>
+          ),
           ul: (props) => <ul className="my-2 list-disc space-y-1 pl-5 text-sm" {...props} />,
           ol: (props) => <ol className="my-2 list-decimal space-y-1 pl-5 text-sm" {...props} />,
           li: (props) => <li className="min-w-0 leading-relaxed" {...props} />,
@@ -48,9 +66,10 @@ export const MarkdownView = memo(function MarkdownView({ content }: { content: s
               return <code className={`${className} font-mono text-xs`} {...rest}>{children}</code>;
             }
             return (
-              <code className="rounded bg-portal-soft px-1 py-0.5 font-mono text-[0.8em] text-portal" {...rest}>
-                {children}
-              </code>
+              <LocalAwareCode
+                text={String(children ?? "")}
+                className="rounded bg-portal-soft px-1 py-0.5 font-mono text-[0.8em] text-portal"
+              />
             );
           },
           pre: (props) => (
@@ -74,6 +93,7 @@ export const MarkdownView = memo(function MarkdownView({ content }: { content: s
         {content}
       </ReactMarkdown>
     </div>
+    </FileReaderProvider>
   );
 });
 
@@ -87,7 +107,11 @@ export const RawTextView = memo(function RawTextView({ content }: { content: str
 });
 
 /** 按路径后缀分派（默认 markdown） */
-export default function FileContentView({ path, content }: MarkdownViewProps): ReactNode {
-  if (isMarkdownPath(path)) return <MarkdownView content={content} />;
+export default function FileContentView({
+  path,
+  content,
+  onOpenFile,
+}: MarkdownViewProps & { onOpenFile?: (path: string) => void }): ReactNode {
+  if (isMarkdownPath(path)) return <MarkdownView content={content} onOpenFile={onOpenFile} />;
   return <RawTextView content={content} />;
 }

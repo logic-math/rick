@@ -434,6 +434,17 @@ export class ApiClient {
     );
   }
 
+  /** GET /api/workspaces/{ws}/file?path=… — 读取聊天里引用的本地文本文件
+   *  （右侧阅读器用）。路径可为相对工作区 / 绝对路径 / file:// URL；
+   *  工作区（与 ~/.rick）之外的路径返回 invalid_path。 */
+  readWorkspaceFile(workspaceId: string, path: string): Promise<JobFileContent> {
+    return this.request<JobFileContent>(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/file`,
+      { query: { path } },
+    );
+  }
+
   /** GET /api/workspaces/{ws}/jobs/{job}/files — 真实文件树（替代约定推导） */
   listJobFiles(workspaceId: string, jobId: string): Promise<Array<{ path: string; size: number }>> {
     return this.request<Array<{ path: string; size: number }>>(
