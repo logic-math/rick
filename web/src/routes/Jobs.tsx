@@ -9,10 +9,11 @@
  */
 
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import JobDetail from "../components/jobs/JobDetail";
 import JobsList from "../components/jobs/JobsList";
-import type { JobSummary } from "../types";
+import { ApiError, type JobSummary, type SessionInfo } from "../types";
 
 /** 归档 job 折叠区：默认折叠；恢复后回主列表 */
 function ArchivedSection({
@@ -121,6 +122,8 @@ function ArchivedSection({
                   {j.tasks.length > 0 ? `${j.tasks.filter((t) => t.status === "success").length}/${j.tasks.length} 完成` : ""}
                 </span>
                 {srcBadge}
+                {/* 打开该 job 关联的会话（含归档会话；closed/error 自动 Resume） */}
+                <OpenSessionButton workspaceId={workspaceId} jobId={j.job_id} />
                 {src === "manual" && (
                   <button
                     type="button"
@@ -138,6 +141,63 @@ function ArchivedSection({
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * OpenSessionButton：在 job 行上显示「打开/恢复会话」按钮。
+ * 查找该 job 关联的最近会话（含归档），active 直接跳转，closed/error 先 Resume。
+ * 无关联会话则不渲染（避免无意义的按钮）。
+ */
+function OpenSessionButton({ workspaceId, jobId }: { workspaceId: string; jobId: string }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [sess, setSess] = useState<SessionInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const find = async () => {
+      try {
+        // 默认列表
+        const live = await api.listSessions(workspaceId);
+        let hit = live.find((s) => (s.params as { job?: unknown } | undefined)?.job === jobId);
+        if (!hit) {
+          // 归档会话
+          const page = await api.listArchivedSessions(workspaceId, { limit: 200, offset: 0 });
+          hit = (page.items ?? []).find((s) => (s.params as { job?: unknown } | undefined)?.job === jobId);
+        }
+        if (!cancelled) setSess(hit ?? null);
+      } catch { /* 静默 */ }
+    };
+    void find();
+    return () => { cancelled = true; };
+  }, [workspaceId, jobId]);
+
+  if (!sess) return null;
+  const isActive = sess.status === "active" || sess.status === "running";
+
+  const go = async () => {
+    if (isActive) { navigate(`/session/${sess.id}`); return; }
+    setBusy(true);
+    try {
+      if (sess.archived) await api.unarchiveSession(sess.id).catch(() => {});
+      await api.resumeSession(sess.id);
+      navigate(`/session/${sess.id}`);
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.status === 409) navigate(`/session/${sess.id}`);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void go()}
+      disabled={busy}
+      title={isActive ? `打开会话（进行中）` : `恢复会话（${sess.status} → 重新拉起）`}
+      className="rounded border border-portal/40 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10 disabled:opacity-40"
+    >
+      {busy ? "…" : isActive ? "💬" : "▶"}
+    </button>
   );
 }
 

@@ -11,6 +11,12 @@ import { useJobsStore } from "../../stores/jobs";
 import { api } from "../../api/client";
 import type { JobSummary, TaskBrief } from "../../types";
 import { jobStageInfo } from "../../lib/jobStage";
+import { useSessionsStore } from "../../stores/sessions";
+import { ApiError } from "../../types";
+import { useNavigate } from "react-router-dom";
+import type { SessionInfo } from "../../types";
+
+const EMPTY_SESSIONS: SessionInfo[] = [];
 import Spinner from "../common/Spinner";
 import ErrorBanner from "../common/ErrorBanner";
 import EmptyState from "../common/EmptyState";
@@ -150,6 +156,62 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     return job.tasks.length > 0 && job.tasks.every((t) => t.status === "success");
   }
 
+  const navigate = useNavigate();
+  const sessions = useSessionsStore((s) => s.byWorkspace.get(workspaceId) ?? EMPTY_SESSIONS);
+  const [resuming, setResuming] = useState<Set<string>>(new Set());
+  // 归档会话也要能找到（大多数会话完成后被自动归档，默认列表不含它们）
+  const [archivedSessions, setArchivedSessions] = useState<SessionInfo[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listArchivedSessions(workspaceId, { limit: 200, offset: 0 })
+      .then((page) => { if (!cancelled) setArchivedSessions(page.items ?? []); })
+      .catch(() => { /* 归档会话拉取失败不阻塞 */ });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  /** 找该 job 关联的最近会话（params.job === jobId，含归档；取最新） */
+  function findSession(jobId: string): SessionInfo | null {
+    const all = [...sessions, ...archivedSessions];
+    const list = all.filter(
+      (s) => (s.params as { job?: unknown } | undefined)?.job === jobId,
+    );
+    if (list.length === 0) return null;
+    return list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+  }
+
+  /** 恢复/打开该 job 的会话：active 直接跳；closed/error 先 Resume 再跳；无会话提示 */
+  async function openSession(jobId: string): Promise<void> {
+    const sess = findSession(jobId);
+    if (!sess) {
+      setError(`该 job 没有关联的会话——可从「新建会话」选择 doing/ctrl/learning 并指定 ${jobId}`);
+      return;
+    }
+    if (sess.status === "active" || sess.status === "running") {
+      navigate(`/session/${sess.id}`);
+      return;
+    }
+    setResuming((s) => new Set(s).add(jobId));
+    setError(null);
+    try {
+      // 归档会话先取消归档（回默认列表），再 resume
+      if (sess.archived) {
+        await api.unarchiveSession(sess.id).catch(() => {});
+      }
+      await api.resumeSession(sess.id);
+      navigate(`/session/${sess.id}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        // 已 active（列表陈旧）——直接跳转
+        navigate(`/session/${sess.id}`);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setResuming((s) => { const n = new Set(s); n.delete(jobId); return n; });
+    }
+  }
+
   if (storeLoading && jobs.length === 0 && !error) return <Spinner center label="加载 jobs…" />;
   if (error) return <ErrorBanner message={error} onDismiss={() => setError(null)} />;
   if (jobs.length === 0) {
@@ -199,6 +261,27 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 })()}
               </p>
             </button>
+            {/* 恢复/打开会话：找到关联会话直接跳（closed/error 自动 Resume） */}
+            {(() => {
+              const sess = findSession(job.job_id);
+              if (!sess) return null;
+              const isBusy = resuming.has(job.job_id);
+              return (
+                <button
+                  type="button"
+                  onClick={() => void openSession(job.job_id)}
+                  disabled={isBusy}
+                  title={
+                    sess.status === "active" || sess.status === "running"
+                      ? `打开会话 ${sess.title || sess.id.slice(0, 8)}（进行中）`
+                      : `恢复会话 ${sess.title || sess.id.slice(0, 8)}（${sess.status} → 重新拉起）`
+                  }
+                  className="flex w-fit items-center gap-1 rounded-md border border-portal/40 px-2 py-0.5 text-[10px] text-portal transition-colors hover:bg-portal/10 disabled:opacity-40"
+                >
+                  {isBusy ? "恢复中…" : sess.status === "active" || sess.status === "running" ? "💬 打开会话" : "▶ 恢复会话"}
+                </button>
+              );
+            })()}
             {complete ? (
               <button
                 type="button"
