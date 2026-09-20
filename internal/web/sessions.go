@@ -257,12 +257,18 @@ type ProgressNote struct {
 	Text string    `json:"text"`
 }
 
-// jobParamOf extracts params["job"] ("" when the session has no job).
+// jobParamOf extracts the session's job id: public params["job"] first, then the
+// reserved "_job_id" plumbing. 历史行（easy/doing 由 web 创建、或 CLI 早期写入）
+// 只有 _job_id —— 不回退的话前端拿不到 job 归属（无徽标、无法重命名任务名、
+// Jobs 页卡片找不到会话）。
 func jobParamOf(e SessionEntry) string {
 	if e.Params == nil {
 		return ""
 	}
-	if v, ok := e.Params["job"].(string); ok {
+	if v, ok := e.Params["job"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := e.Params["_job_id"].(string); ok {
 		return v
 	}
 	return ""
@@ -275,6 +281,12 @@ func (m *SessionManager) toSessionInfo(e SessionEntry) sessionInfo {
 			continue // reserved plumbing (prompt files), not client data
 		}
 		params[k] = v
+	}
+	// 补齐公开的 job 字段（只有 _job_id 的历史/CLI 行也能被前端关联到 job）
+	if _, has := params["job"]; !has {
+		if jobID := jobParamOf(e); jobID != "" {
+			params["job"] = jobID
+		}
 	}
 	info := sessionInfo{
 		ID:          e.ID,
@@ -406,6 +418,11 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 	}
 	if prep.JobID != "" {
 		entry.Params["_job_id"] = prep.JobID
+		// 公开的 job 参数：前端据此显示侧栏 job 徽标、会话设置里的「任务名」重命名
+		// 入口，以及 Jobs 页把卡片与会话关联起来。此前只写 _job_id（保留字段，wire
+		// 投影时被剥离）→ 前端**完全看不到 job 归属**（用户实测：easy job_72 的会话
+		// 在侧栏无法重命名、没有 job 徽标）。
+		entry.Params["job"] = prep.JobID
 	}
 
 	if err := m.sessions.Add(entry); err != nil {
@@ -746,7 +763,7 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 	// running——dream 只学 tasks 全 success 的 job，中断的 easy 会话保持
 	// running 不被学习/归档）。
 	if entry.Type == SessionTypeEasy {
-		if jobID := paramString(entry.Params, "_job_id"); jobID != "" {
+		if jobID := jobParamOf(entry); jobID != "" {
 			if ws, ok := m.workspaces.Get(entry.WorkspaceID); ok {
 				if err := updateEasyTasksStatus(ws.Path+"/.rick", jobID, "success"); err != nil {
 					fmt.Fprintf(os.Stderr, "[rick-web] easy close: mark tasks success failed (job %s): %v\n", jobID, err)
@@ -1701,6 +1718,28 @@ func (m *SessionManager) setBusy(sessionID string, busy bool, reason string) {
 	entry.Busy = busy
 	_ = m.sessions.Update(entry)
 	m.hub.Publish(SessionBusyEvent(sessionID, entry.Status, busy, reason))
+}
+
+// BackfillJobParams writes the public params["job"] for legacy rows that only
+// carry the reserved "_job_id"（web 早期创建的 easy/doing 会话、以及 CLI 写入的
+// 行）。幂等：已有 params.job 的行不动。与 BackfillTitles 一样只在启动时跑。
+func (m *SessionManager) BackfillJobParams() {
+	for _, e := range m.sessions.List() {
+		if m == nil || e.Params == nil {
+			continue
+		}
+		if v, ok := e.Params["job"].(string); ok && v != "" {
+			continue
+		}
+		jobID := jobParamOf(e)
+		if jobID == "" {
+			continue
+		}
+		e.Params["job"] = jobID
+		if err := m.sessions.Update(e); err != nil {
+			fmt.Fprintf(os.Stderr, "[rick-web] backfill job param for %s failed: %v\n", e.ID, err)
+		}
+	}
 }
 
 // ShutdownWorkers terminates every live pi worker (SIGTERM → grace → SIGKILL).

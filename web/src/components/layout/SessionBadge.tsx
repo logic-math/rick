@@ -97,9 +97,11 @@ export default function SessionBadge({
       <button
         type="button"
         aria-label={`${title} 设置`}
-        title="会话设置（归档/恢复）"
+        title="会话设置（任务名重命名 / 归档 / 恢复）"
         onClick={() => setSettingsOpen(true)}
-        className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3 opacity-0 transition-opacity hover:bg-white/10 hover:text-ink group-hover:opacity-100"
+        /* 常显（低对比）+ hover 提亮：触摸设备没有 hover，旧版 opacity-0 会让
+           「重命名/归档」入口**完全点不到**（用户实测：easy job_72 找不到重命名入口）。 */
+        className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3/70 transition-colors hover:bg-white/10 hover:text-ink"
       >
         ⋮
       </button>

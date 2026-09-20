@@ -107,6 +107,8 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	sm.ReconcileOnStart()
 	// 后台型会话的历史空标题回填（doing job_N / dream ×N）——旧数据侧栏只显示会话 id
 	sm.BackfillTitles()
+	// 历史会话的公开 job 参数回填（只有 _job_id 的行 → 前端可见/可重命名）
+	sm.BackfillJobParams()
 
 	addr := fmt.Sprintf("%s:%d", opts.Listen, opts.Port)
 	if opts.Listen == "" && opts.Port == 0 {
