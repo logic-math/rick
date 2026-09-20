@@ -213,9 +213,10 @@ export interface JobSummary {
   archived?: boolean;
   /** 归档来源：manual=手动归档 / dream=已被 dream 学习 / done=已完成自动归档 */
   archived_by?: "manual" | "dream" | "done";
-  /** 进度阶段：planned=plan 已产出（task*.md）但未执行 doing；doing=已有 tasks.json。
-   *  planned 的 job 也必须能被执行 doing/ctrl 的会话表单选到。 */
-  stage?: "planned" | "doing";
+  /** 进度阶段：planned=plan 已产出（task*.md）但未执行 doing；doing=已有 tasks.json；
+   *  started=CLI 已启动（doing/session_id 存在）但 tasks.json 未写（会话结束时才写）。
+   *  planned/started 的 job 也必须能被执行 doing/ctrl 的会话表单选到。 */
+  stage?: "planned" | "doing" | "started";
 }
 
 /** GET /api/workspaces/{ws}/jobs/{job}/file 响应 */

@@ -12,7 +12,7 @@
  */
 import type { JobSummary } from "../types";
 
-export type JobPhase = "planned" | "running" | "failed" | "pending" | "done" | "dreamed";
+export type JobPhase = "planned" | "running" | "failed" | "pending" | "done" | "dreamed" | "started";
 
 export interface JobStageInfo {
   phase: JobPhase;
@@ -32,6 +32,16 @@ export function jobStageInfo(job: JobSummary): JobStageInfo {
   const failed = tasks.filter((t) => t.status === "error").length;
   const running = tasks.filter((t) => t.status === "running").length;
 
+  if (job.stage === "started" || (job.stage === "planned" && tasks.length === 0 && job.stage !== "planned")) {
+    // CLI 已启动但 tasks.json 未写（进行中的 easy/doing 会话）
+    return {
+      phase: "started",
+      badge: "CLI 进行中",
+      nextMode: null,
+      hint: "该 job 的 CLI 会话已启动但任务清单未写（tasks.json 在会话结束时生成）——可用「📥 导入」恢复到 web",
+      tone: "portal",
+    };
+  }
   if (job.stage === "planned" || tasks.length === 0) {
     return {
       phase: "planned",

@@ -296,7 +296,7 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
                 );
               }
               // 无 web 会话：job 有 doing 目录（stage=doing/planned 且有 session_id）→ 可导入
-              if (job.stage === "doing" || job.stage === "planned") {
+              if (job.stage === "doing" || job.stage === "planned" || job.stage === "started") {
                 return (
                   <button
                     type="button"
