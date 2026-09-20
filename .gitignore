@@ -1,5 +1,9 @@
 # Build artifacts
 bin/
+
+# 前端依赖（web/ 与本地临时验证脚本安装的依赖都不入库）
+node_modules/
+web/dist.old/
 coverage.out
 coverage.html
 coverage_git.out
