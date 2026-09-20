@@ -303,6 +303,14 @@ export class ApiClient {
   }
 
   /** POST /api/sessions/{id}/resume → 202（closed→active） */
+  /** POST /api/sessions/import {workspace_id, job} → SessionInfo
+   *  导入 CLI 启动的 job 为 web 会话（读 doing/session_id 里的 pi 会话）并立即恢复。 */
+  importSession(workspaceId: string, jobId: string): Promise<SessionInfo> {
+    return this.request<SessionInfo>("POST", "/api/sessions/import", {
+      body: { workspace_id: workspaceId, job: jobId },
+    });
+  }
+
   resumeSession(id: string): Promise<void> {
     return this.request<void>("POST", `/api/sessions/${encodeURIComponent(id)}/resume`, {
       body: {},

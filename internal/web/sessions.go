@@ -838,6 +838,126 @@ func (m *SessionManager) bgWait(id string) chan struct{} {
 	return m.bgWaits[id]
 }
 
+// ImportSession handles POST /api/sessions/import {workspace_id, job}: creates a
+// web session entry for a **CLI-started** job (the CLI maintains its own session
+// registry — web has no visibility into those). The pi session id is read from
+// <rickDir>/jobs/<job>/doing/session_id; the session type is inferred from the
+// directory layout (easy_prompt.md → easy, ctrl → ctrl, default → doing).
+// After creating the entry, it immediately resumes (spawns a worker).
+func (m *SessionManager) ImportSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkspaceID string `json:"workspace_id"`
+		Job         string `json:"job"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "decode body: %v", err))
+		return
+	}
+	if req.WorkspaceID == "" || req.Job == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "workspace_id and job are required"))
+		return
+	}
+	ws, ok := m.workspaces.Get(req.WorkspaceID)
+	if !ok {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is not registered", req.WorkspaceID))
+		return
+	}
+	rickDir := filepath.Join(ws.Path, ".rick")
+	doingDir := filepath.Join(rickDir, "jobs", req.Job, "doing")
+
+	// Read the CLI-recorded pi session id.
+	piIDBytes, err := os.ReadFile(filepath.Join(doingDir, "session_id"))
+	if err != nil {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "no session_id in %s (not a CLI-started job?)", doingDir))
+		return
+	}
+	piID := strings.TrimSpace(string(piIDBytes))
+	if piID == "" {
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "empty session_id in %s", doingDir))
+		return
+	}
+
+	// Infer session type from the doing directory layout.
+	sessionType := SessionTypeDoing // default
+	if _, err := os.Stat(filepath.Join(doingDir, "easy_prompt.md")); err == nil {
+		sessionType = SessionTypeEasy
+	}
+
+	// Check for an existing web session with the same pi id (idempotent).
+	for _, e := range m.sessions.List() {
+		if e.PISessionID == piID {
+			// Already imported — just return it (and resume if not active).
+			if e.Status == SessionStatusActive || e.Status == SessionStatusRunning {
+				writeJSON(w, http.StatusOK, toSessionInfo(e))
+				return
+			}
+			m.mu.Lock()
+			entry := e
+			m.mu.Unlock()
+			m.resumeEntry(w, entry, ws)
+			return
+		}
+	}
+
+	// Create a new session entry.
+	webID, err := newUUID()
+	if err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "uuid: %v", err))
+		return
+	}
+	entry := SessionEntry{
+		ID:          webID,
+		WorkspaceID: ws.ID,
+		Type:        sessionType,
+		Title:       fmt.Sprintf("%s %s (imported)", sessionType, req.Job),
+		Params: map[string]any{
+			"job": req.Job,
+		},
+		Status:      "pending",
+		PISessionID: piID,
+		CreatedAt:   time.Now(),
+	}
+	if err := m.sessions.Add(entry); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "add session: %v", err))
+		return
+	}
+
+	// Immediately resume (spawn a worker with the existing pi session).
+	m.mu.Lock()
+	e := entry
+	m.mu.Unlock()
+	m.resumeEntry(w, e, ws)
+}
+
+// resumeEntry spawns a worker for the given entry and writes the response.
+// Shared by ImportSession (new imports) and the idempotent re-import path.
+func (m *SessionManager) resumeEntry(w http.ResponseWriter, entry SessionEntry, ws WorkspaceEntry) {
+	spec := runtime.SpawnSpec{
+		SessionID:     entry.ID,
+		Dir:           ws.Path,
+		MethodFile:    paramString(entry.Params, "_method_file"),
+		PromptFile:    paramString(entry.Params, "_prompt_file"),
+		SessionIDFlag: entry.PISessionID,
+		CreateNew:     false,
+	}
+	worker, err := m.sup.Spawn(spec)
+	if err != nil {
+		if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
+			m.updateStatus(entry, SessionStatusActive, "resumed (worker already present)")
+			writeJSON(w, http.StatusOK, toSessionInfo(entry))
+			return
+		}
+		m.updateStatus(entry, SessionStatusError, "import spawn failed: "+err.Error())
+		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
+		return
+	}
+	m.updateStatus(entry, SessionStatusActive, "imported & resumed")
+	m.pumpWorker(entry.ID, worker)
+
+	e2, _ := m.sessions.Get(entry.ID)
+	writeJSON(w, http.StatusCreated, toSessionInfo(e2))
+}
+
 // SessionResume handles POST /api/sessions/{id}/resume: closed → active by
 // re-spawning with `--session <pi_session_id>` (pi resume semantics).
 func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
