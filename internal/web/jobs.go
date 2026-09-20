@@ -23,9 +23,12 @@ const MaxReadFileSize = 2 << 20
 // it directly): Status + stable snake_case Code feed the api-contract error
 // body {"error":{"code","message"}}.
 type WebError struct {
-	Code    string
-	Message string
-	Status  int
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	// Status is the HTTP status this error maps to; it is intentionally not
+	// serialized (the status code already carries it, and the api-contract
+	// error body is exactly {"error":{"code","message"}}).
+	Status int `json:"-"`
 }
 
 func (e *WebError) Error() string {
@@ -108,6 +111,9 @@ type JobSummary struct {
 	//（用户实测：job_17 plan 完成却无法在下拉里选它执行 doing——旧实现只扫
 	// doing/tasks.json，plan 就绪但未开始的 job 完全不在列表里）。
 	Stage string `json:"stage,omitempty"`
+	// Name is the user-assigned display name（任务名）, filled by the routes
+	// layer from the JobNameStore (empty = never renamed → UI shows job_id).
+	Name string `json:"name,omitempty"`
 }
 
 // FileNode is one knowledge file entry (api-contract.md Knowledge 节).
@@ -258,15 +264,19 @@ func ListJobs(rickDir string) ([]JobSummary, error) {
 // ListJobsFiltered returns the job listing with archive filtering applied.
 //
 // Archive sources (a job leaves the active list once any applies):
+//
 //   - dream:  a dream_run_{id}_log.md exists (dream already processed the
 //     job — auto-archived, authoritative)
+//
 //   - manual: id present in the archived store (user archived via UI)
+//
 //   - done:   every task is status=success — completed jobs are auto-archived
 //     so the default view only shows in-flight jobs (user requirement:
 //     finished jobs must not accumulate in the active list)
 //
 //   - includeArchived=false: archived jobs (any source) are omitted entirely
 //     (default view — in-flight work only)
+//
 //   - includeArchived=true: every job is returned and archived ones carry
 //     Archived=true + ArchivedBy, one of "dream" | "manual" | "done"
 //     (dream wins over manual wins over done — dream processing is the

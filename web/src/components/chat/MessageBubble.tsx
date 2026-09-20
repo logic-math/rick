@@ -77,14 +77,14 @@ export const UserBubble = memo(
     return (
       <div className="my-2 flex gap-2.5">
         <div className="mt-0.5 shrink-0" aria-hidden="true">
-          <UserBadge />
+          <HumanBadge />
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 flex items-center gap-2 text-[10px] text-ink-3">
-            <span className="font-semibold uppercase tracking-wide text-ink-2">user</span>
+            <span className="font-semibold uppercase tracking-wide text-nebula">human</span>
             <TimeStamp ts={item.ts} />
           </div>
-          <div className="w-max max-w-full rounded-2xl rounded-tl-sm border border-nebula/40 bg-surface-raised px-4 py-2.5">
+          <div className="w-max max-w-full rounded-2xl rounded-tl-sm border border-nebula/50 bg-nebula/[0.08] px-4 py-2.5">
             <LongText text={item.text} />
           </div>
         </div>
@@ -99,9 +99,9 @@ export const UserBubble = memo(
     prev.item.ts === next.item.ts,
 );
 
-/** 用户标识：cel-shade 青色小星球（R&M 星球规范：亮/暗两段硬边界 + 大气辉光，
- *  主色青色 #5cc8c2 与 AI 的传送门绿 #97ce4c 区分——user/assistant 一眼可辨） */
-function UserBadge() {
+/** HUMAN 标识：cel-shade **紫色小星球**（与星空里的紫色星球同色系 #8b5cf6）。
+ *  用户要求：人 = 紫色星球，AI = 传送门绿，一眼可辨（原为青色星球）。 */
+function HumanBadge() {
   return (
     <svg
       width="20"
@@ -110,19 +110,19 @@ function UserBadge() {
       aria-hidden="true"
       className="mt-0.5"
     >
-      {/* 大气辉光（低透明青色晕） */}
-      <circle cx="10" cy="10" r="9.5" fill="#5cc8c2" opacity="0.25" />
-      {/* 球体：整体青绿底 */}
-      <circle cx="10" cy="10" r="8" fill="#5cc8c2" />
+      {/* 大气辉光（低透明紫色晕） */}
+      <circle cx="10" cy="10" r="9.5" fill="#8b5cf6" opacity="0.28" />
+      {/* 球体：整体紫色底 */}
+      <circle cx="10" cy="10" r="8" fill="#8b5cf6" />
       {/* cel-shade 暗段（右下方硬边界，单一光源左上） */}
       <path
         d="M10 2 A8 8 0 0 0 10 18 A6 8 0 0 1 10 2Z"
-        fill="#2e7d78"
+        fill="#5b21b6"
         opacity="0.9"
       />
       {/* 云带（两条浅色横纹，卡通感） */}
-      <ellipse cx="6.5" cy="7.5" rx="2.6" ry="0.9" fill="#b8ece6" opacity="0.85" transform="rotate(-12 6.5 7.5)" />
-      <ellipse cx="11" cy="11.5" rx="3" ry="0.8" fill="#b8ece6" opacity="0.6" transform="rotate(8 11 11.5)" />
+      <ellipse cx="6.5" cy="7.5" rx="2.6" ry="0.9" fill="#ddd0fb" opacity="0.85" transform="rotate(-12 6.5 7.5)" />
+      <ellipse cx="11" cy="11.5" rx="3" ry="0.8" fill="#ddd0fb" opacity="0.6" transform="rotate(8 11 11.5)" />
     </svg>
   );
 }

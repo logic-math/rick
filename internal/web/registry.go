@@ -46,8 +46,8 @@ const workspaceRegistryVersion = 1
 // code (api-contract.md error body: {"error":{"code","message"}}). HTTP
 // mapping happens in the routes layer (task13).
 type ValidationError struct {
-	Code    string
-	Message string
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 func (e *ValidationError) Error() string {

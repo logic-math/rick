@@ -74,7 +74,12 @@ export default function JobDetail({ workspaceId, jobId, onBack }: JobDetailProps
         <Button size="sm" onClick={onBack} aria-label="返回 jobs 列表">
           ←
         </Button>
-        <h2 className="font-mono text-base font-semibold text-ink">{effectiveJob.job_id}</h2>
+        <h2 className="flex items-baseline gap-2">
+          <span className="font-mono text-xs text-ink-3">{effectiveJob.job_id}</span>
+          <span className={`text-base font-semibold ${effectiveJob.name ? "text-ink" : "text-ink-3/70"}`}>
+            {effectiveJob.name || "未命名"}
+          </span>
+        </h2>
         <span className="text-xs text-ink-3" title={effectiveJob.updated_at}>
           {effectiveJob.updated_at}
         </span>

@@ -52,6 +52,13 @@ func ArchivedPath() string {
 	return filepath.Join(WebStateDir(), "archived.json")
 }
 
+// JobNamesPath returns the job display-name file path
+// (~/.rick/web/job-names.json) — user-assigned job「任务名」别名（展示层数据，
+// 不碰工作区里的 rick job 文件）。
+func JobNamesPath() string {
+	return filepath.Join(WebStateDir(), "job-names.json")
+}
+
 // PidPath returns the singleton liveness file path (~/.rick/web.pid).
 func PidPath() string {
 	home, err := os.UserHomeDir()

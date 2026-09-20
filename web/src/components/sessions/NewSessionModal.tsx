@@ -182,7 +182,7 @@ function useJobOptions(workspaceId: string | null, active: boolean): {
         const nextMark = info.nextMode ? ` · 下一步 ${info.nextMode}` : "";
         return {
           job_id: j.job_id,
-          label: `${j.job_id}（${info.badge}${nextMark}${archivedMark}）`,
+          label: `${j.job_id}${j.name ? ` · ${j.name}` : ""}（${info.badge}${nextMark}${archivedMark}）`,
         };
       });
   }, [list]);

@@ -146,6 +146,9 @@ export interface SessionInfo {
   /** 服务端权威的流式状态（agent 本回合是否在跑）——输入区「发送 vs 终止/steer」
    *  据此渲染；刷新/重连后不依赖客户端事件重放推断。 */
   busy?: boolean;
+  /** 用户给所属 job 起的任务名（「任务名」别名，展示层；未命名为空）。
+   *  侧栏会话行优先显示它——「doing job_3」看不出在干什么。 */
+  job_name?: string;
   /** 后台进度日志（doing/dream；仅单会话查询返回）——监控页首次/事后打开时回填
    *  事件流（这些事件原本只在 hub 环形缓冲里活过一次）。 */
   progress?: Array<{ at: string; kind: string; text: string }>;
@@ -217,6 +220,8 @@ export interface JobSummary {
    *  started=CLI 已启动（doing/session_id 存在）但 tasks.json 未写（会话结束时才写）。
    *  planned/started 的 job 也必须能被执行 doing/ctrl 的会话表单选到。 */
   stage?: "planned" | "doing" | "started";
+  /** 用户自定义任务名（展示层别名；未命名为空 → UI 显示 job_id） */
+  name?: string;
 }
 
 /** GET /api/workspaces/{ws}/jobs/{job}/file 响应 */

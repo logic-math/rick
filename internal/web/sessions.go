@@ -69,6 +69,10 @@ type SessionManager struct {
 	// waiting HTTP requesters via the worker event pumps.
 	pending *pendingResp
 
+	// jobNames holds user-assigned job display names（任务名），由
+	// SetJobNames 注入（nil 时优雅降级：不显示别名）。侧栏/Jobs 页展示用。
+	jobNames *JobNameStore
+
 	// progressLog keeps the recent background-progress notes per session
 	// (bounded; in-memory — 重启后后台任务本就终止，无需持久化)。GetSession 返回它，
 	// 让监控页即使「事后打开」也能看到 doing/dream 跑了什么。
@@ -80,20 +84,25 @@ type SessionManager struct {
 	bgWaits map[string]chan struct{}      // closed when the background goroutine exits
 }
 
+// SetJobNames injects the job display-name store (「任务名」). Optional: a nil
+// store simply yields empty JobName fields. Called once at composition time,
+// before the server starts serving.
+func (m *SessionManager) SetJobNames(s *JobNameStore) { m.jobNames = s }
+
 // NewSessionManager wires the dependencies. doingRunner/dreamRunner may be
 // nil — defaults wrap handler.DoingIn / handler.DreamIn with the CLI
 // runtime (the same Runtime the composition root injects elsewhere).
 func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry, sup *runtime.Supervisor, hub *Hub, rt runtime.Runtime, doing DoingRunner, dream DreamRunner) *SessionManager {
 	m := &SessionManager{
-		sessions:   sessions,
-		workspaces: workspaces,
-		sup:        sup,
-		hub:        hub,
-		pending:    &pendingResp{wait: make(map[string]chan *runtime.RpcEvent)},
+		sessions:    sessions,
+		workspaces:  workspaces,
+		sup:         sup,
+		hub:         hub,
+		pending:     &pendingResp{wait: make(map[string]chan *runtime.RpcEvent)},
 		progressLog: make(map[string][]ProgressNote),
 		cancels:     make(map[string]context.CancelFunc),
-		closing:    make(map[string]bool),
-		bgWaits:    make(map[string]chan struct{}),
+		closing:     make(map[string]bool),
+		bgWaits:     make(map[string]chan struct{}),
 	}
 	m.doingRunner = doing
 	if m.doingRunner == nil {
@@ -228,6 +237,11 @@ type sessionInfo struct {
 	// authoritative source for the frontend's streaming/idle input state
 	// (刷新/重连不得靠客户端事件重放推断：窗口可能丢 agent_start)。
 	Busy bool `json:"busy,omitempty"`
+	// JobName is the user-assigned display name（「任务名」）of the job this
+	// session belongs to (params.job), when the user renamed it in the UI.
+	// 侧栏会话行优先显示它——「doing job_3」看不出在干什么，用户实测要求
+	// 能给 job 起有意义的名字。
+	JobName string `json:"job_name,omitempty"`
 	// Progress carries the session's recent background progress notes
 	// (doing/dream) — populated by GetSession only. Background progress events
 	// are otherwise **live-only** (hub ring buffer), so opening the monitor
@@ -243,7 +257,18 @@ type ProgressNote struct {
 	Text string    `json:"text"`
 }
 
-func toSessionInfo(e SessionEntry) sessionInfo {
+// jobParamOf extracts params["job"] ("" when the session has no job).
+func jobParamOf(e SessionEntry) string {
+	if e.Params == nil {
+		return ""
+	}
+	if v, ok := e.Params["job"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func (m *SessionManager) toSessionInfo(e SessionEntry) sessionInfo {
 	params := make(map[string]any, len(e.Params))
 	for k, v := range e.Params {
 		if strings.HasPrefix(k, "_") {
@@ -261,7 +286,8 @@ func toSessionInfo(e SessionEntry) sessionInfo {
 		PISessionID: e.PISessionID,
 		CreatedAt:   e.CreatedAt,
 		Archived:    e.Archived,
-			Busy:        e.Status == SessionStatusActive && e.Busy,
+		Busy:        e.Status == SessionStatusActive && e.Busy,
+		JobName:     m.jobNames.Get(e.WorkspaceID, jobParamOf(e)),
 	}
 	if !e.ClosedAt.IsZero() {
 		closed := e.ClosedAt
@@ -304,7 +330,7 @@ func (m *SessionManager) CreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toSessionInfo(*entry))
+	writeJSON(w, http.StatusCreated, m.toSessionInfo(*entry))
 }
 
 // createSessionLocked does the creation work.
@@ -519,7 +545,7 @@ func (m *SessionManager) ListSessions(w http.ResponseWriter, r *http.Request) {
 		arch := make([]sessionInfo, 0, len(list))
 		for _, e := range list {
 			if e.Archived {
-				arch = append(arch, toSessionInfo(e))
+				arch = append(arch, m.toSessionInfo(e))
 			}
 		}
 		sort.Slice(arch, func(i, j int) bool {
@@ -563,7 +589,7 @@ func (m *SessionManager) ListSessions(w http.ResponseWriter, r *http.Request) {
 		if e.Archived {
 			continue
 		}
-		out = append(out, toSessionInfo(e))
+		out = append(out, m.toSessionInfo(e))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -574,7 +600,7 @@ func (m *SessionManager) GetSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	info := toSessionInfo(entry)
+	info := m.toSessionInfo(entry)
 	// 后台进度（doing/dream）：随单会话查询返回，供监控页首次/事后打开时回填
 	// （这些事件只在 hub 环形缓冲里活过一次，页面错过就永远看不到了）。
 	info.Progress = m.ProgressNotes(entry.ID)
@@ -895,7 +921,7 @@ func (m *SessionManager) ImportSession(w http.ResponseWriter, r *http.Request) {
 		if e.PISessionID == piID {
 			// Already imported — just return it (and resume if not active).
 			if e.Status == SessionStatusActive || e.Status == SessionStatusRunning {
-				writeJSON(w, http.StatusOK, toSessionInfo(e))
+				writeJSON(w, http.StatusOK, m.toSessionInfo(e))
 				return
 			}
 			m.mu.Lock()
@@ -951,7 +977,7 @@ func (m *SessionManager) resumeEntry(w http.ResponseWriter, entry SessionEntry, 
 	if err != nil {
 		if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
 			m.updateStatus(entry, SessionStatusActive, "resumed (worker already present)")
-			writeJSON(w, http.StatusOK, toSessionInfo(entry))
+			writeJSON(w, http.StatusOK, m.toSessionInfo(entry))
 			return
 		}
 		m.updateStatus(entry, SessionStatusError, "import spawn failed: "+err.Error())
@@ -962,7 +988,7 @@ func (m *SessionManager) resumeEntry(w http.ResponseWriter, entry SessionEntry, 
 	m.pumpWorker(entry.ID, worker)
 
 	e2, _ := m.sessions.Get(entry.ID)
-	writeJSON(w, http.StatusCreated, toSessionInfo(e2))
+	writeJSON(w, http.StatusCreated, m.toSessionInfo(e2))
 }
 
 // SessionResume handles POST /api/sessions/{id}/resume: closed → active by
@@ -1111,6 +1137,7 @@ type entriesResponse struct {
 //   - before+limit: newest-first paging for rehydration — returns at most `limit`
 //     entries that come strictly BEFORE `before` (time order preserved);
 //     `limit` alone returns the most recent `limit` entries.
+//
 // Three-tier resolution (job_36 fix): ① active + live worker → rpc get_entries
 // passthrough (incremental `since` semantics preserved; before/limit applied
 // after); ② worker missing / dead / rpc error (browser refresh, reconnect,
@@ -1994,9 +2021,9 @@ func writeEasyTasksJSON(doingDir string) error {
 		"created_at": now,
 		"updated_at": now,
 		"tasks": []map[string]any{{
-			"task_id":      "easy_session",
-			"task_name":    "Easy Mode Session",
-			"task_file":    "",
+			"task_id":   "easy_session",
+			"task_name": "Easy Mode Session",
+			"task_file": "",
 			// 会话进行中（用户 close 时才标 success——dream 只学 tasks 全 success
 			// 的 job；旧值创建即 success，导致**中断的 easy job 也被 dream 学习**
 			// 并归档（用户实测）。CLI 侧 handler.writeEasyTasksJSON 同病，另行修复。
