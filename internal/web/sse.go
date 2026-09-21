@@ -213,7 +213,7 @@ const sseHeartbeatInterval = 15 * time.Second
 // (and reconnect) receives a state-rebuild signal without waiting for hub
 // traffic or the heartbeat.
 type ServeSSEOptions struct {
-	Heartbeat  time.Duration
+	Heartbeat   time.Duration
 	InitialInfo *Envelope
 }
 
@@ -415,13 +415,17 @@ func FrontendReloadEvent() Envelope {
 }
 
 // ServerInfoEvent is sent when a client connects (and on replay overflow):
-// {"version","rick_version","time"} per the contract.
+// {"version","rick_version","build_id","time"} per the contract.
+//
+// build_id 取进程级指纹（web.BuildID()，组合根注入；未注入 → "dev"）——
+// 保持既有签名不变（既有调用点与测试不受影响），新增字段为叠加语义。
 func ServerInfoEvent(version int, rickVersion string) Envelope {
 	return Envelope{
 		Type: EventTypeServerInfo,
 		Data: mustMarshal(map[string]any{
 			"version":      version,
 			"rick_version": rickVersion,
+			"build_id":     BuildID(),
 			"time":         time.Now().Format(time.RFC3339),
 		}),
 	}

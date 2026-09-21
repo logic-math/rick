@@ -58,8 +58,28 @@ if not wait_up(port1):
 else:
     if not os.path.exists(os.path.join(state_dir, "web.lock")):
         errors.append("① state-dir 下无 web.lock（flock 未生效）")
+    # 状态落位断言：注册表文件是「首次写入才落盘」，所以先注册一个临时工作区再断言
+    ok_ws = os.path.join(tmp, "okws"); os.makedirs(os.path.join(ok_ws, ".rick"), exist_ok=True)
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port1}/api/workspaces",
+              data=json.dumps({"path": ok_ws, "name": "gate7-ok"}).encode(), method="POST",
+              headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+        with opener.open(req, timeout=10) as rr:
+            if rr.status not in (200, 201):
+                errors.append(f"① 注册临时工作区失败 HTTP {rr.status}")
+    except Exception as e:
+        errors.append(f"① 注册临时工作区异常: {e}")
     if not os.path.exists(os.path.join(state_dir, "web.json")):
-        errors.append("① 状态未落在 --state-dir")
+        errors.append("① 注册后 web.json 仍未落在 --state-dir（状态目录未生效）")
+    # 强隔离断言：dev 实例读的是自己的会话注册表 —— 绝不能看到生产那批会话
+    try:
+        with opener.open(urllib.request.Request(f"http://127.0.0.1:{port1}/api/sessions",
+                headers={"Authorization": "Bearer " + token}), timeout=10) as rr:
+            dev_sessions = json.loads(rr.read().decode("utf-8", "replace") or "[]")
+    except Exception as e:
+        dev_sessions = None; errors.append(f"① 读取 dev 会话列表失败: {e}")
+    if dev_sessions is not None and len(dev_sessions) != 0:
+        errors.append(f"① dev 实例看到了 {len(dev_sessions)} 条会话（应为 0）→ 状态目录未真正隔离")
 
 # ② 同 state-dir 第二实例 → flock 拒绝
 port2 = free_port()

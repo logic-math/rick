@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,9 +31,10 @@ import (
 // internal/*, so root.go passes it down — NewRootCmd already holds it).
 func NewWebCmd(version string) *cobra.Command {
 	var (
-		port   int
-		listen string
-		token  string
+		port     int
+		listen   string
+		token    string
+		stateDir string
 	)
 
 	webCmd := &cobra.Command{
@@ -51,12 +53,46 @@ HTTPS 建议交由反向代理（见 wiki/web-ui.md）。
   customize  抽取前端源码基线到 ~/.rick/web/（自迭代入口）
   reset      清除前端自定义层，恢复内嵌 baseline`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 状态目录显式化（--state-dir > RICK_STATE_DIR > $HOME/.rick）：
+			// 默认路径行为与改造前一致。
+			resolved, err := web.ResolveStateDir(stateDir)
+			if err != nil {
+				return err
+			}
+			web.SetStateDir(resolved)
+
+			// dev 隔离守卫（仅在显式指定状态目录时启用）：
+			// ① pi 沙盒必须一并隔离，否则 dev 会覆写生产的 agent runtime；
+			// ② 拒绝注册生产注册表已拥有的工作区（防 dev 会话写生产 .rick）。
+			if web.IsDevStateDir(resolved) {
+				agentDir := strings.TrimSpace(os.Getenv("RICK_PI_AGENT_DIR"))
+				if agentDir == "" {
+					return fmt.Errorf("dev 模式（--state-dir=%s）必须同时显式指定 RICK_PI_AGENT_DIR。"+
+						"\n否则 web 状态隔离了、pi 沙盒仍指向生产（$HOME/.rick/pi/agent），"+
+						"\ndev 跑 tools init-pi/update-pi 会就地覆写生产的 agent runtime。", resolved)
+				}
+				prodState := web.ProductionStateDir()
+				web.SetWorkspaceAddGuard(web.ProdWorkspaceGuard(prodState))
+				fmt.Printf("[rick-web] DEV MODE state-dir=%s agent-dir=%s prod-state=%s\n",
+					resolved, agentDir, orNone(prodState))
+			}
+
+			// flock 强约束：同一状态目录只允许一个实例（pid 文件可被删，
+			// 内核锁不会）。
+			release, err := web.AcquireStateLock(resolved)
+			if err != nil {
+				return err
+			}
+			defer release()
+
 			opts := handler.WebOptions{
-				Port:    port,
-				Listen:  listen,
-				Token:   token,
-				Verbose: GetVerbose(),
-				Version: version,
+				Port:     port,
+				Listen:   listen,
+				Token:    token,
+				Verbose:  GetVerbose(),
+				Version:  version,
+				StateDir: resolved,
+				PidPath:  filepath.Join(resolved, "web.pid"),
 			}
 			return handler.Web(opts, webServeComposition)
 		},
@@ -65,10 +101,20 @@ HTTPS 建议交由反向代理（见 wiki/web-ui.md）。
 	webCmd.Flags().IntVar(&port, "port", 6137, "listen port (C-137)")
 	webCmd.Flags().StringVar(&listen, "listen", "127.0.0.1", "bind address (0.0.0.0 opens to LAN — deliberate)")
 	webCmd.Flags().StringVar(&token, "token", "", "auth token (overrides config web_token; auto-generated when unset)")
+	webCmd.Flags().StringVar(&stateDir, "state-dir", "",
+		"web state directory (default $HOME/.rick; also via RICK_STATE_DIR) — dev isolation: pin it together with RICK_PI_AGENT_DIR")
 
 	webCmd.AddCommand(newWebCustomizeCmd())
 	webCmd.AddCommand(newWebResetCmd())
 	return webCmd
+}
+
+// orNone renders an optional path for the dev banner.
+func orNone(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "(unset)"
+	}
+	return s
 }
 
 // webServeComposition is the composition root injected into handler.Web:

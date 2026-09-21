@@ -43,6 +43,15 @@ type WebOptions struct {
 	Verbose bool
 	// Version is the rick binary version (→ /api/config rick_version).
 	Version string
+	// StateDir is the resolved web state directory (<stateDir>) — used for the
+	// dev-mode banner only; empty means the HOME-derived default.
+	StateDir string
+	// PidPath overrides the singleton pid file path. The cmd composition root
+	// resolves the state directory (--state-dir / RICK_STATE_DIR) and passes
+	// <stateDir>/web.pid here so the pid file lives in the same place as every
+	// other piece of machine-level web state. Empty → HOME-derived default
+	// (backwards compatible).
+	PidPath string
 }
 
 // WebServeFunc assembles and serves the web server for one run. The cmd
@@ -62,7 +71,11 @@ func Web(opts WebOptions, serve WebServeFunc) error {
 	}
 
 	// ① Singleton: pid file + liveness probe (design-tree J2.7).
-	pidPath := webPidPath()
+	// 显式状态目录优先（cmd 已解析；见 internal/web/statedir.go 的 flock 强约束）。
+	pidPath := opts.PidPath
+	if pidPath == "" {
+		pidPath = webPidPath()
+	}
 	if err := checkSingleton(pidPath); err != nil {
 		return err
 	}
@@ -109,15 +122,20 @@ func Web(opts WebOptions, serve WebServeFunc) error {
 	return nil
 }
 
-// webPidPath resolves the singleton pid file path (~/.rick/web.pid). It
-// mirrors internal/web.PidPath without importing internal/web (import
-// cycle: web → handler). HOME-based, same isolation contract.
+// webPidPath resolves the singleton pid file path (<stateDir>/web.pid). It
+// mirrors internal/web.PidPath without importing internal/web (import cycle:
+// web → handler). Precedence: $RICK_STATE_DIR > $HOME/.rick — the same ladder
+// the composition root uses, kept in sync so a bare env-based isolation also
+// lands the pid file in the isolated directory.
 func webPidPath() string {
+	if dir := strings.TrimSpace(os.Getenv("RICK_STATE_DIR")); dir != "" {
+		return filepath.Join(dir, "web.pid")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return home + "/.rick/web.pid"
+	return filepath.Join(home, ".rick", "web.pid")
 }
 
 // checkSingleton enforces one-server-per-machine: a pid file whose pid is

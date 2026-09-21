@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -41,6 +42,17 @@ type Deps struct {
 	Token      string
 	Static     http.Handler
 	Version    string
+
+	// BuildID is the build fingerprint exposed on /api/health (auth-free
+	// probe), /api/config and SSE server_info, so a single curl can tell
+	// whether the freshly built binary is actually the one running
+	// (task18). Empty → the process-level web.BuildID() fallback
+	// ("dev" when never injected).
+	BuildID string
+
+	// StartedAt is when this service instance was assembled (NewServer sets
+	// it). Surfaced on /api/health as started_at.
+	StartedAt time.Time
 
 	// JobNames is the job display-name store（任务名）: 侧栏/Jobs 页展示用户
 	// 自定义的名字而非 job_N。nil 时优雅降级（不显示别名、改名返回 501）。
@@ -70,6 +82,10 @@ type configResponse struct {
 	RickVersion  string `json:"rick_version"`
 	Port         string `json:"port"`
 	AuthRequired bool   `json:"auth_required"`
+	// BuildID is the build fingerprint (task18): rick_version is a static
+	// constant, so two builds of the same version are indistinguishable
+	// without it.
+	BuildID string `json:"build_id"`
 }
 
 // handleConfig serves GET /api/config (contract Server 节). Port is derived
@@ -87,12 +103,42 @@ func handleConfig(deps Deps) http.HandlerFunc {
 			RickVersion:  deps.Version,
 			Port:         port,
 			AuthRequired: deps.Token != "",
+			BuildID:      depsBuildID(deps),
 		})
 	}
 }
 
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+// healthResponse is the /api/health body (auth-free liveness probe).
+// `status` keeps its original semantics (compatibility red line — gate6/E2E
+// and the frontend only read `status`); build_id/started_at are additive.
+type healthResponse struct {
+	Status    string `json:"status"`
+	BuildID   string `json:"build_id"`
+	StartedAt string `json:"started_at,omitempty"`
+}
+
+// depsBuildID resolves the build fingerprint for a Deps value: the
+// per-instance value when set, otherwise the process-level fallback.
+func depsBuildID(deps Deps) string {
+	if deps.BuildID != "" {
+		return deps.BuildID
+	}
+	return BuildID()
+}
+
+// handleHealth serves GET /api/health — auth-free liveness + build fingerprint.
+func handleHealth(deps Deps) http.HandlerFunc {
+	// started_at 总有值：NewServer 装配时会写入精确值；手写 Deps（测试/静态专用）
+	// 则回退到进程级近似启动时刻——探针字段不应因为构造路径不同而时有时无。
+	startedAt := deps.StartedAt
+	if startedAt.IsZero() {
+		startedAt = processStartedAt
+	}
+	started := startedAt.Format(time.RFC3339)
+	build := depsBuildID(deps)
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, healthResponse{Status: "ok", BuildID: build, StartedAt: started})
+	}
 }
 
 // ---- workspaces ----
@@ -846,7 +892,7 @@ func (deps Deps) handleEvents() http.HandlerFunc {
 // them) — production always wires the full Deps via NewServer.
 func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 	// Health & config: health is auth-free (probe), config requires auth.
-	mux.HandleFunc("GET /api/health", handleHealth)
+	mux.HandleFunc("GET /api/health", handleHealth(deps))
 	mux.Handle("GET /api/config", authWrap(deps.Token, http.HandlerFunc(handleConfig(deps))))
 
 	// Workspaces.
@@ -914,7 +960,7 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 // static-focused tests and as the minimal embedding surface).
 func StaticOnlyMux(webFS fs.FS) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", handleHealth)
+	mux.HandleFunc("GET /api/health", handleHealth(Deps{}))
 	mux.Handle("/", StaticHandler(webFS, ""))
 	return mux
 }
