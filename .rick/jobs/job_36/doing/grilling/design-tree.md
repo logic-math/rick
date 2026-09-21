@@ -641,3 +641,18 @@ M1 提升入口（`rick tools release`：门禁校验 → 构建版本目录 →
 **L4 隔离层**：独立 `HOME=$DEV_HOME`（唯一全局开关）+ 新增 `--state-dir` 显式化；独立 `RICK_PI_AGENT_DIR`（种子拷贝 auth/settings，生产 145MB runtime 不可被覆写）；git worktree `$DEV_TREE=/workdir/sunquan20/rick-dev`；`0.0.0.0:8414` + dev 专用 token；修 singleton（flock + 同状态目录拒绝）；启动 fail-fast 校验（HOME≠生产、不注册生产仓库根）；能力进仓库为 `rick` 正式子命令。
 **L5 开发闭环层**：自举 = 开发会话托管在 **prod**、workspace 指向 dev 树（dev 可随意重启）；前端 = overlay 软链（零拷贝）+ 可选 vite HMR（proxy 参数化）；后端 = `build → 唯一命名 → 停旧 → 起新 → 健康 + build_id 校验`；可观测 = build_id 贯穿 health/config/SSE + `build.json` 状态文件；交付前**不影响 prod 任何会话**。
 **L6 提升与恢复层**：入口 = `rick tools release`（人类执行即确认，支持 `--yes/--rollback/--dry-run`）；替换 = `bin/releases/<ver>/{rick,dist}` + `current` 链 + 保留前 3 版；重启 = kill（≤11s）；**平台自动恢复可达**；**会话与后台 job 一律挂起**（新增 suspend 语义 + UI「因平台升级挂起」+ 一键恢复）；doing/dream 恢复时才归一化 `running→pending` 续跑；恢复报告落盘 + 可读；不自动续跑 ⇒ 无重复副作用与配额风暴。
+
+---
+
+## 实现流水线映射（落盘后校正）
+
+依赖 DAG 由工具实测的自然分层为 **4 层**（不是设计树里按 KR 画的 5 层），门禁按此 1:1 对应（gate 编号续接已交付旧流水线的 gate1-6，避免覆盖历史门禁）：
+
+| 流水线层 | task（写域互不相交） | 门禁 | 覆盖的 KR |
+|---|---|---|---|
+| 第 1 层 | task16 隔离底座 · task18 构建指纹/前端参数化 | **gate7** | KR1 + KR3 的前置（指纹） |
+| 第 2 层 | task17 dev-web 闭环 · task19 挂起/人工恢复/报告 | **gate8** | KR2 + KR4 |
+| 第 3 层 | task20 前端挂起 UI · task21 `rick tools release` | **gate9** | KR2（可观测）+ KR3 |
+| 第 4 层 | task22 端到端验收 + 文档 | **gate10** | 全部（验收 + 生产回归） |
+
+**工作树纪律（human 指令 2026-09-21）**：prod 仓库工作树**零写入**——本增量全部产物（流水线规格、gate、代码、文档）落在 dev 工作树 `/workdir/sunquan20/rick-dev`；prod 只在每个 gate 末尾做**只读回归断言**（`sessions.json`/`web.json` 指纹 + 8413 健康）。

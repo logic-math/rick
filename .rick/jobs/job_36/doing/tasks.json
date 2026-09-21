@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-08-29T23:58:56.956Z",
+  "updated_at": "2026-09-21T19:02:57+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -196,6 +196,87 @@
       "created_at": "2026-08-29T11:30:00+08:00",
       "updated_at": "2026-08-29T23:58:56.956Z",
       "commit_hash": "dc5ec2e55716d6ba647d79d7390a69df6ca41a08"
+    },
+    {
+      "task_id": "task16",
+      "task_name": "状态目录显式化 + singleton 加固 + 隔离守卫",
+      "task_file": "task16.md",
+      "status": "pending",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task17",
+      "task_name": "rick tools dev-web：dev 实例编排闭环",
+      "task_file": "task17.md",
+      "status": "pending",
+      "dependencies": [
+        "task16"
+      ],
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task18",
+      "task_name": "构建指纹 build_id + vite proxy 参数化 + overlay 软链",
+      "task_file": "task18.md",
+      "status": "pending",
+      "dependencies": null,
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task19",
+      "task_name": "suspend 语义 + 人工恢复入口 + 恢复报告（后端）",
+      "task_file": "task19.md",
+      "status": "pending",
+      "dependencies": [
+        "task16"
+      ],
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task20",
+      "task_name": "前端挂起态与一键恢复 UI",
+      "task_file": "task20.md",
+      "status": "pending",
+      "dependencies": [
+        "task19"
+      ],
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task21",
+      "task_name": "rick tools release：原子提升/重启/回滚",
+      "task_file": "task21.md",
+      "status": "pending",
+      "dependencies": [
+        "task19"
+      ],
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
+    },
+    {
+      "task_id": "task22",
+      "task_name": "端到端验收 + 运维文档",
+      "task_file": "task22.md",
+      "status": "pending",
+      "dependencies": [
+        "task20",
+        "task21"
+      ],
+      "attempts": 0,
+      "created_at": "2026-09-21T19:02:57+08:00",
+      "updated_at": "2026-09-21T19:02:57+08:00"
     }
   ]
 }
