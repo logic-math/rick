@@ -23,6 +23,7 @@ Available subcommands:
   update-pi       Update pi runtime / extensions / model catalogs (+ quick checks)
   learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
   dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
+  loops_check     Validate .rick/loops/*.md and .rick/skills/*.md format (frontmatter + required sections)
   dev-web         Manage the isolated dev instance (dev worktree + dev HOME) for developing rick itself
   release         Atomically promote the dev build to production, restart it, or roll back
 `,
@@ -36,6 +37,7 @@ Available subcommands:
 	toolsCmd.AddCommand(NewThemeCmd())
 	toolsCmd.AddCommand(NewLearningCheckCmd())
 	toolsCmd.AddCommand(NewDreamCheckCmd())
+	toolsCmd.AddCommand(NewLoopsCheckCmd())
 	toolsCmd.AddCommand(NewDevWebCmd())
 	toolsCmd.AddCommand(NewReleaseCmd())
 
