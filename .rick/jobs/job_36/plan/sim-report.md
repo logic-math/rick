@@ -284,3 +284,61 @@ r = run(["bash", "-c", "pgrep -f '[m]ode rpc' | head -5"])
 | **F4** | `dev-web` 的 dev 树解析跟随 cwd，从 dev 树内执行算成 `<祖父>/rick-dev`（不存在）| 中（用户最常见操作直接失败）| 收尾更新 dev 实例时 `cd <dev-tree> && dev-web restart` | 解析顺序：显式 flag/env → **内容探测 worktree**（`.git` 是文件 + `cmd/rick` + `web/package.json`）→ 回退；`home = <tree>-home`；树校验先于 `EnsureToken` | gate8：从 dev 树内与从生产仓库执行必须报告同一 tree/home |
 
 **共同教训**：门禁必须按**用户/产品实际调用路径**构造（真实命令、真实启动形态、真实宿主形态），而不是按实现者以为的分支；「安全的演练命令」必须被显式断言为**无副作用**；命令的默认参数解析不能依赖 cwd 的偶然形态。
+
+---
+
+# 增量 3 验收报告：rick-rsi-loop（自进化制度化）
+
+> 设计树：`doing/grilling/design-tree.md` 第 3 棵（L0'' OKR + KR1-KR4 + 层映射 + 判断节点 J-RSI-1..3）
+> 流水线：6 task / 4 层 / gate11-14（本文件为层 4 / task28 交付物）
+> 验收方式：`scripts/rsi-loop-e2e.sh`（可重放、幂等、真实生产只读）+ 4 个层门禁
+> 结论：**E2E `pass=true` / `prod_touched=false`（34 步全绿）；gate11-14 全绿**
+
+## 逐条对照（证据 → 结论）
+
+### KR1 制度载体（loop + loops_check）
+| 证据 | 结论 |
+|---|---|
+| `.rick/loops/rick-rsi-loop.md` 存在，frontmatter（name/trigger/scope）+ 五要素小节齐备；E2E 步「loop 文件存在」「loops_check pass」 | ✅ 制度文本落地 |
+| `rick tools loops_check --dir .rick` → `✅ loops_check passed: … (loops 6 / skills 0)`（gate11 + E2E 各跑一次） | ✅ 载体合规可机器校验（该校验器此前只在代码里、无命令入口） |
+| loop 正文含机制命令（`dev-web` / `release` / `rsi_check` / `门禁`）与「必须在 dev 工作区」硬约束（gate11 断言） | ✅ loop 可执行而非愿望清单 |
+| `.rick/loops/README.md` 与实况对齐（补 `go-refactor-migration-loop` 与 `rick-rsi-loop`） | ✅ 修掉已 stale 的目录 |
+
+### KR2 入口绑定（rsi 会话类型 + workspace 硬校验）
+| 证据 | 结论 |
+|---|---|
+| E2E：模拟生产上 `POST /api/sessions {"type":"rsi"}` → **HTTP 201**，随后 `GET /api/sessions/{id}/prompt` 命中 `rick-rsi-loop`、`产出评估`、`dev-web`、`release`、`approval`，且内嵌 loop 正文片段（`S0 设计`、`产出评估（Output Evaluation）`、`停止标准`） | ✅ **启动 RSI 会话 = loop 必然加载**（全文注入 + `_method_file` 供 resume 重注入） |
+| 守卫负例①：workspace = 生产仓库根（`RICK_RSI_PROD_REPO` 显式声明）→ **HTTP 400**，message 含「RSI 会话必须在 dev 工作区运行」 | ✅ 最危险的绕过路径被堵（否则直接改生产源码） |
+| 守卫负例②：缺 `.rick/loops/rick-rsi-loop.md` 的源码树 → **HTTP 400** | ✅ 无 loop 不可启动 |
+| 守卫负例③：非 rick 源码树 → **HTTP 400** | ✅ RSI 产物就是 rick 本身，非源码树无意义 |
+| gate12：`rick rsi --help` 可用；前端类型/入口存在且 `tsc` 通过 | ✅ CLI 与 Web 双入口一致 |
+
+### KR3 闭环执行（release --merge-source，冲突即中止）
+| 证据 | 结论 |
+|---|---|
+| E2E 无冲突用例：`RELEASE_MERGE merged=true`，模拟生产 main 出现 merge commit；提升后 `/api/health` 的 `build_id` == 本次 version | ✅ 源码与二进制**同版生效** |
+| E2E 冲突用例：release **中止（rc=4）**，报错含 `CONFLICT`，随后模拟生产 `git status --porcelain` **为空**、`MERGE_HEAD` 不存在、`HEAD` 与中止前一致（**零副作用**） | ✅ human 裁决 J-RSI-2 兑现：冲突即中止并恢复干净，交 AI 修复 |
+| E2E 修复后重跑：dev 侧解冲突并提交 → 再次 `release --merge-source` → `merged=true` | ✅ 「AI 修复后重跑」路径可用 |
+| gate13：`release --help` 含 `--merge-source`/`--no-merge-source`；merge 单测（含冲突中止/恢复）全绿 | ✅ 语义有单测兜底 |
+
+### KR4 可机器校验产出（rsi_check）
+| 证据 | 结论 |
+|---|---|
+| E2E：缺证据 → fail `0/6` 且逐项给出**中文下一步**（含「跑 dev-web status 把 build_id 贴进 …」） | ✅ 失败可操作 |
+| E2E：`--init` 生成骨架后**仍 fail**（残留 `<!-- TODO` 即视为未填写） | ✅ 防自欺（否则契约退化为走过场） |
+| E2E：补全 6 项证据（含 `APPROVED by=human at=…`）→ **pass 6/6**；其中 `prod-health` 是对模拟生产的**实时探测**且 `build_id` 必须等于 `release.md` 的 version | ✅ 人类确认是硬门槛；「生产真的跑上了」由探测**证伪**而非自述 |
+| E2E 负例：`gates.md` 含 `pass=false` → fail（禁止带病下钻） | ✅ 门禁语义被校验器继承 |
+| E2E 负例：`release.md` 的 `version` ≠ 生产 `build_id` → fail | ✅ 证伪路径有效（自述与事实不符会被抓出） |
+
+### 端到端与生产回归
+| 证据 | 结论 |
+|---|---|
+| `bash scripts/rsi-loop-e2e.sh` 末行 `{"pass": true, "steps": [...34 步全 ok...], "prod_touched": false}` | ✅ 全链路闭环 |
+| 真实生产只读回归：`/api/health` = 200、`sessions.json`/`web.json` 指纹与基线一致、生产树无 `bin/releases` 残留 | ✅ 验收全程零触碰生产 |
+| 真实生产端到端（含真实 release 与重启）**由人类在首次迭代时执行** —— 脚本只覆盖可在隔离环境验证的部分 | ⏭ 已写入手册 §8/§11 的说明 |
+
+## 残留风险（诚实记录）
+1. **真实提升的第一次仍未经生产验证**：`--merge-source` 对真实生产仓库的合并、以及重启后 8413 的挂起/恢复，只在「模拟生产」上验过；首次真实 release 由人类执行并观察。
+2. **`rsi_check` 的第 6 项依赖可达的生产地址**：非本进程所在主机的部署需显式 `--prod-url`/`RICK_RSI_PROD_URL`。
+3. **loop 的纪律靠证据而非强制**：`rsi_check` 保证「没证据不算完成」，但不阻止 agent 绕过 loop 直接改代码（可由人类在 review 时以证据缺失驳回）。
+4. **合并只覆盖 dev 分支 → 生产分支**：多分支/多 dev 工作区并行时的合并顺序未定义（当前设计为单 dev 工作区）。
