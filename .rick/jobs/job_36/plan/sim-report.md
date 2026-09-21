@@ -269,3 +269,18 @@ r = run(["bash", "-c", "pgrep -f '[m]ode rpc' | head -5"])
 - **KR4 ✅**：平台自动回来 + 会话/后台 job 一律**挂起待人工一键恢复**（不自动续跑，规避悬挂 toolCall
   重复副作用与配额静默空转）；doing 续跑前归一化 `running → pending`。
 - **生产零触碰 ✅**：E2E 首尾断言 `sessions.json`/`web.json` 指纹与 8413 健康一致，`prod_touched=false`。
+
+---
+
+# 附：交付期发现并修复的 4 个真实缺陷（增量验收补充）
+
+这 4 个缺陷**全部只在「按产品真实调用路径操作」时暴露**——纯单元测试与「按实现分支构造」的门禁都测不到，是本次增量验收最有价值的产出。
+
+| # | 缺陷 | 严重度 | 暴露方式 | 修复 | 门禁加固 |
+|---|---|---|---|---|---|
+| **F1** | 隔离守卫只在 `--state-dir` 形态安装；`dev-web` 用**换 HOME** 形态 → 守卫等于没装，dev 可注册并写生产工作区（实测 `POST /api/workspaces` 返回 **201**）| 高（绕过 human 裁决的 fail-fast 纪律）| E2E 用**真实启动形态**跑守卫用例 | 新增 `DevModeInfo`（按「= 真实用户生产状态目录」判定，两形态都装守卫；`RICK_PI_AGENT_DIR` 强制仅在 state-dir-only 形态）| gate7 第 ⑨ 条：换 HOME 形态下注册生产工作区必须 4xx |
+| **F2** | `release --dry-run` 被自保检查误拦（检查在 150 行、dry-run 分支在 195 行）| 中（拿不到演练计划）| 在**被生产托管**的会话里跑 dry-run | 拦截条件加 `!opts.dryRun`（警告仍打印）+ 可注入 `hostedByProd` 便于单测 | gate9（release 契约）|
+| **F3** | dry-run 的构建产物写进生产树 `<prod>/bin/releases/<ver>/`（与「不动生产」承诺不符）| 中（污染生产树）| 同一次 dry-run 后核对 prod 树 | dry-run 构建落 `os.MkdirTemp` 暂存并清理；**`Promote()` 拒收 `Staged` 产物**（纵深防御）；输出 `target_bin/target_dist/prod_untouched/cleanup` | gate9 + `TestDryRunNeverTouchesProd` |
+| **F4** | `dev-web` 的 dev 树解析跟随 cwd，从 dev 树内执行算成 `<祖父>/rick-dev`（不存在）| 中（用户最常见操作直接失败）| 收尾更新 dev 实例时 `cd <dev-tree> && dev-web restart` | 解析顺序：显式 flag/env → **内容探测 worktree**（`.git` 是文件 + `cmd/rick` + `web/package.json`）→ 回退；`home = <tree>-home`；树校验先于 `EnsureToken` | gate8：从 dev 树内与从生产仓库执行必须报告同一 tree/home |
+
+**共同教训**：门禁必须按**用户/产品实际调用路径**构造（真实命令、真实启动形态、真实宿主形态），而不是按实现者以为的分支；「安全的演练命令」必须被显式断言为**无副作用**；命令的默认参数解析不能依赖 cwd 的偶然形态。
