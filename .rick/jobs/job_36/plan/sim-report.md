@@ -1,4 +1,8 @@
-# rick web ui 流水线执行前全链路预演报告（sim-report）
+# rick web ui 流水线执行前全链路预演报告（sim-report）—— 第 1 棵设计树（初版 Web UI，已交付）
+
+> 本节是 **job_36 初版 Web UI 流水线（task1-15 / gate1-6）** 的预演报告，保留原文不动；
+> 本增量的「rick 自进化」验收报告见文件末尾的第二节。
+
 
 > 预演视角：import/编译顺序/文件系统/进程/网络/npm/git 语义。输入=task1-15 + gate1-6 + api-contract + design-tree + 真实代码库实证。
 > 方法：逐 task 逐文件核对 import/写域/并行竞争 + gate 逐行审查 + 关键断言本机实证（go build/test 全绿基线、pgrep 自匹配、代理拦截、SSE read 阻塞、embed 多 directive、gitignore 行为均已跑通验证）。
@@ -159,3 +163,109 @@ r = run(["bash", "-c", "pgrep -f '[m]ode rpc' | head -5"])
 - 写域扩充仅 B5（task2+=runtime.go）/B6（task14+=config.go）两处，扩充文件均无同层他 task 写入 → 互斥保持；DAG 零变化。
 - 所有 gate 修订不改变绿判据语义，仅修假红（pgrep/代理/SSE read）与补漏（gate5 handler）。
 - task9/10 验证收缩为 tsc-only 不削弱层判别力（gate3 仍统一跑 build+tsc）。
+
+---
+
+# 仿真/验收报告 —— rick 自进化增量（job_36 收尾功能）
+
+- 范围：设计树第 2 棵（`KR1 隔离实例` / `KR2 开发闭环` / `KR3 受控提升` / `KR4 挂起可恢复`）
+- 交付物：`rick tools dev-web`、`rick tools release`、`--state-dir` + flock singleton + 隔离守卫、
+  build_id 指纹、`suspended` 语义 + `/continue` + `/api/recovery`、前端挂起 UI、本手册与 E2E 脚本
+- 工作树纪律：全部改动落在 **dev 工作树** `/workdir/sunquan20/rick-dev`；生产工作树零写入
+- 验收环境：Linux 云 IDE，Go 1.25，node ≥22，生产实例 8413 在线（`pid 172761`，`bin/rick` md5 `643b54a3…`）
+- 复现命令：`bash scripts/self-evolve-e2e.sh`（末行单行 JSON 结论）
+
+## 0. 生产只读基线（E2E 首尾各测一次）
+
+| 项 | 值 | 结论 |
+|---|---|---|
+| `~/.rick/web/sessions.json` md5 | 单次运行内首尾一致（如 `45e5b780…`） | ✅ |
+| `~/.rick/web.json` md5 | 单次运行内首尾一致（如 `46b78810…`） | ✅ |
+| `http://127.0.0.1:8413/api/health` | `200 {"status":"ok",…}` | 提升/回滚/重启全程在线 ✅ |
+
+> ⚠️ **读数说明**：生产是**活的**——本次验收的 AI 会话本身就托管在生产实例上，每次工具调用都会触发
+> busy/status 等注册表写入（实测 `sessions.json` mtime 与「现在」相差 3 秒）。因此 md5 **不能跨运行比较**，
+> 断言的含义是「**同一次 E2E/gate10 运行内首尾一致**」，以及「8413 全程健康」。E2E 自身的所有状态都写在
+> `$TMP` 的临时 HOME/端口里，对 `~/.rick` 只有 `md5sum` 与 `/api/health` 两种只读访问。
+
+> 说明：E2E 的所有 release/rollback 都针对 **$TMP 下的模拟生产**（临时 repo + 临时 home + 临时端口 +
+> 自带 `start-web.sh`）；对真实生产只做 `md5sum` 与 `/api/health` 的只读断言。
+
+## 1. KR1 隔离实例 —— 证据与结论
+
+| # | 断言 | 证据（实测输出） | 结论 |
+|---|---|---|---|
+| 1.1 | dev 实例用独立 HOME/端口起来且指纹自洽 | `DEV_UP bin=…/devhome/bin/rick.dev.0a47372-260921195122 pid=504924 health_ms=201 build_id=0a47372-260921195122 port=46357` | ✅ |
+| 1.2 | 状态隔离：dev 看不到生产会话 | dev `/api/sessions` → `[]`（生产 8413 有 6 条，md5 `45e5b780…`） | ✅ |
+| 1.3 | flock singleton：同 state-dir 第二实例被拒 | 第二实例退出码非 0，输出含「另一个 rick web 正在使用该状态目录 / lock」 | ✅ |
+| 1.4 | dev 语义实例拒绝注册生产工作区 | `POST /api/workspaces {path:/workdir/sunquan20/BERT_KEETA}` → **HTTP 400** | ✅ |
+| 1.5 | `dev-web down` 只杀经归属断言的 dev 进程 | 生产 8413 进程全程未受影响（health 200 + md5 不变） | ✅ |
+| 1.6 | 生产 singleton 缺陷已修（原先 `~/.rick/web.pid` 缺失即可同 HOME 起第二实例并误杀会话） | flock 由内核保证，pid 文件可删不再构成绕过路径 | ✅（gate7） |
+
+**残留缺口（见 §5 finding F1）**：守卫只在 `--state-dir ≠ $HOME/.rick` 时安装；`dev-web` 的实际形态
+（HOME 换掉、state-dir == `$HOME/.rick`）下守卫未安装 → 该形态可注册生产工作区（E2E 记为 FINDING，非通过项）。
+
+## 2. KR2 开发闭环 —— 证据与结论
+
+| # | 断言 | 证据 | 结论 |
+|---|---|---|---|
+| 2.1 | 前端 overlay 热更即时生效（**不重启进程**） | 两次替换 `<dev-state>/web/dist/index.html` → `GET /` 分别返回 `e2e-overlay-A`/`e2e-overlay-B`；`kill -0 <dev pid>` 仍存活 | ✅ |
+| 2.2 | 后端源码改动经 `restart` **行为可见** | 探针：`cmd/rick/main.go` 的 `VERSION` → `4.4.15+e2e` → `dev-web restart` → `/api/config` 返回 `rick_version=4.4.15+e2e` | ✅ |
+| 2.3 | 重启后构建指纹变化且被复核 | `build_id 0a47372-260921195122 → 0a47372-260921195126`；`dev-web up` 自校验失败即报 `fingerprint` 错 | ✅ |
+| 2.4 | 反馈回路可被 AI 消费（不依赖 SSE） | `DEV_UP`/`DEV_FAIL stage=…` 单行回执 + 退出码 `0/2/3/4` + `/api/health.build_id`（免认证） | ✅ |
+| 2.5 | 自举：开发会话（生产托管、workspace=dev 树）不受 dev 重启影响 | 本增量实施全程即为此形态：dev 侧反复 build/restart/down，会话未断（本次验收过程中 dev 实例被重启 ≥8 次） | ✅（实测观察） |
+
+## 3. KR3 受控提升 —— 证据与结论
+
+| # | 断言 | 证据 | 结论 |
+|---|---|---|---|
+| 3.1 | 提升后运行的就是新构建 | `RELEASE_OK version=0a47372-260921195138` / `RELEASE_RESTART … matches=true`；随后 `/api/health` → `build_id=0a47372-260921195138`（与版本一致） | ✅ |
+| 3.2 | 前端与二进制同版推进 | `<sim-state>/web/dist/index.html` 存在（旧覆盖层留 `dist.prev`） | ✅ |
+| 3.3 | 版本历史 + 原子换链 | `<sim-repo>/bin/releases/<version>/{rick,dist}` + `current` 链；`bin/rick` → `releases/current/rick` | ✅（gate9 单测覆盖换链/GC/`--keep`） |
+| 3.4 | 二次提升 → build_id 递进 | `0a47372-260921195138 → 0a47372-260921195139` | ✅ |
+| 3.5 | 一键回滚 | `release --yes --rollback` → 重启后 `build_id=0a47372-260921195138`（回到上一版）且健康 | ✅ |
+| 3.6 | 失败自动回滚 | gate9 单测：门禁失败不动生产；健康/指纹校验失败 → 自动回滚到 `.last` | ✅（单测） |
+| 3.7 | 提升不误杀无关进程 | `stopProd` 带归属断言（`cwd`/`exe` 前缀/`HOME` 三选一），断言不过记入 `skipped` 而不杀 | ✅（代码 + gate9） |
+| 3.8 | 人类确认语义 | 无 `--yes` 时交互确认；由生产托管的进程执行会被识别为 `hosted_by_prod` 并拒绝（除非 `--yes`/`--detach`） | ✅ |
+
+## 4. KR4 挂起可恢复 —— 证据与结论
+
+| # | 断言 | 证据 | 结论 |
+|---|---|---|---|
+| 4.1 | 优雅关停/重启把在跑会话标 **suspended**（不是 error） | 关停后注册表：`sess-doing=suspended sess-easy=suspended`；重启后仍为 `suspended` | ✅ |
+| 4.2 | intent 落盘 | `<state-dir>/suspend.json` 存在；`GET /api/recovery` 返回 `{at,suspended,recovered,failed}` | ✅ |
+| 4.3 | **不自动恢复**（核心安全语义） | 重启后 `busy != true`；无 worker 被 spawn；代码层反向断言「出现 `AutoResume` 即 gate8 失败」 | ✅ |
+| 4.4 | 人工一键恢复（交互型） | `POST /api/sessions/{id}/continue` 接受挂起会话并尝试 `--session <pi_id>` 恢复（HTTP 202；无真实 pi 时允许 spawn 失败） | ✅ |
+| 4.5 | 人工一键恢复（doing/dream） | `/continue` 先把 `tasks.json` 里遗留 `running → pending`（实测：`task1=success task2=pending`）再续跑剩余 task | ✅ |
+| 4.6 | 幂等与边界 | `/continue` 对不存在会话 → 404；重复点击 → 202 `already_active`（不重复起 worker） | ✅ |
+| 4.7 | 平台自动回来 | 提升/回滚后 `/api/health` 200 且 `build_id` 正确；SSE 陈旧游标 → `replay_overflow` → 前端清游标 + 全量重拉 | ✅ |
+
+## 5. 发现（findings）
+
+| ID | 级别 | 内容 | 复现/证据 | 建议 |
+|---|---|---|---|---|
+| **F1** | 中 | **dev 工作区守卫触发条件偏窄**：守卫只在 `IsDevStateDir`（`--state-dir ≠ $HOME/.rick`）时安装；`dev-web` 的实际形态（换了 HOME，state-dir 恰为 `$HOME/.rick`）不安装 → 可注册生产已注册工作区（201） | E2E 步骤 2c：`FINDING guard_not_installed_for_home_swap … HTTP 201`（步骤 2b 的 dev 语义形态返回 400） | 触发条件改为「`ProductionStateDir() != ""`（当前 HOME ≠ passwd home）**或** `IsDevStateDir`」；补 1 条单测 |
+| **F2** | 中 | **`release --prod-home` 不会连带改默认启动脚本**：`--start-script` 默认仍取真实家目录的 `~/.rick/start-web.sh` → 只改 `--prod-home/--port` 的演练会去跑真生产的启动脚本 | `internal/env/release/defaults.go:19-90`（script 由 `realHomeDir()` 推导，早于 `--prod-home` 覆盖） | 演练纪律：**必须显式传 `--start-script`**（E2E 已如此）；或让 `Validate()` 校验 `StartScript` 落在 `ProdHome` 之下 |
+| F3 | 低 | doing 门禁 `helper.py` 路径硬编码 `UserHomeDir()`，不尊重 `RICK_PI_AGENT_DIR` | `internal/handler/doing.go:235-238` | dev 实例跑 doing 时读生产 helper（只读，无写风险）；后续可参数化 |
+| F4 | 低 | PWA service worker 注册必然失败（`non-precached-url`） | `web/dist/sw.js` precache 不含 `index.html` 却 `createHandlerBoundToURL("index.html")` | 独立议题；修好后必须同时处理 SW 缓存，否则前端热更退化；dev 构建已支持 `RICK_DEV_NO_PWA=1` |
+| F5 | 低 | `web/dist` 入库 + dev 树自带 `.rick` 快照 | `git ls-files web/dist`；worktree 创建于 `a60035a` | dev 会话需生产最新 `.rick` 数据时用绝对路径读生产树 |
+
+## 6. 未覆盖 / 需人工确认
+
+| 项 | 为什么没在脚本里 | 手工验证步骤 |
+|---|---|---|
+| **真实 pi 会话的端到端恢复** | 脚本不愿为验收消耗模型配额（真实会话恢复会加载大上下文）；且需要真实 pi 会话文件 | ① dev UI 建会话并发一条消息 → ② `rick tools dev-web restart` → ③ UI 显示「⏸ 已挂起（平台升级）」且**没有自动跑** → ④ 点「▶ 恢复继续」→ 会话恢复可对话（pi 以 `--session <id>` 加载既有会话） |
+| 真实生产的提升/回滚 | 本次验收**刻意不碰生产**（人类指令：prod 隔离出来） | 需要时由人类执行 `rick tools release --dry-run` → `--yes`；回滚 `--yes --rollback` |
+| 并发多标签页 | 需要浏览器多实例编排 | `sse.ts` 游标重放 + `replay_overflow` 路径已由 gate6/E2E 间接覆盖 |
+
+## 7. 结论
+
+- **KR1 ✅（含 F1 残留缺口）**：状态/进程/端口/二进制/pi 沙盒全部隔离；flock 消除 singleton 缺陷；
+  守卫在 dev 语义形态下生效，但在 `dev-web` 的 HOME-swap 形态下未安装（F1，建议一行修）。
+- **KR2 ✅**：前端热更零重启即时生效；后端改动经 `restart` 行为可见并可被指纹复核；自举形态（会话托管在
+  生产、workspace=dev 树）经本次实施全过程实测成立。
+- **KR3 ✅**：`rick tools release` 门禁→构建→原子换链→同版前端→重启→**build_id 校验**→挂起清单，
+  支持 `--dry-run/--rollback/--keep/--detach`；失败路径自动回滚（单测覆盖）。
+- **KR4 ✅**：平台自动回来 + 会话/后台 job 一律**挂起待人工一键恢复**（不自动续跑，规避悬挂 toolCall
+  重复副作用与配额静默空转）；doing 续跑前归一化 `running → pending`。
+- **生产零触碰 ✅**：E2E 首尾断言 `sessions.json`/`web.json` 指纹与 8413 健康一致，`prod_touched=false`。

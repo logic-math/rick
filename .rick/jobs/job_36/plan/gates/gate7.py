@@ -92,12 +92,24 @@ else:
     if "lock" not in msg and "占用" not in msg:
         errors.append(f"② 被拒但无锁提示: {(p2.stderr+p2.stdout)[-300:]}")
 
-# ③ --state-dir 未显式给 RICK_PI_AGENT_DIR → fail-fast
-p3 = subprocess.run([BIN, "web", "--listen", "127.0.0.1", "--port", str(free_port()), "--token", token,
-                     "--state-dir", state_dir + "-guard"], cwd=ROOT,
-                    env={**os.environ, "HOME": dev_home}, capture_output=True, text=True, timeout=90)
-if p3.returncode == 0:
-    errors.append("③ dev 模式未给 RICK_PI_AGENT_DIR 却被放行（隔离守卫缺失）")
+# ③ **state-dir-only 形态**（HOME 未换 = 真实用户 HOME，只把状态目录指到别处）→
+# 必须强制显式 RICK_PI_AGENT_DIR（否则 web 状态隔离了、pi 沙盒仍指生产）。
+# ⚠️ 注意形态区分：换 HOME 时 pi 沙盒随 HOME 隔离，**不**强制 agent dir（那是
+# home-swapped 形态的正确行为），所以这条断言必须用真实 HOME 才有意义。
+env3 = {k: v for k, v in os.environ.items() if k not in ("RICK_PI_AGENT_DIR", "RICK_STATE_DIR")}
+p3 = subprocess.Popen([BIN, "web", "--listen", "127.0.0.1", "--port", str(free_port()), "--token", token,
+                       "--state-dir", state_dir + "-guard"], cwd=ROOT, env=env3,
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+try:
+    rc3 = p3.wait(timeout=20)
+    out3 = (p3.stdout.read() if p3.stdout else "") + (p3.stderr.read() if p3.stderr else "")
+except subprocess.TimeoutExpired:
+    p3.kill()
+    rc3, out3 = None, "（进程未退出 —— 守卫未生效）"
+if rc3 is None or rc3 == 0:
+    errors.append(f"③ state-dir-only（HOME 未换）未强制 RICK_PI_AGENT_DIR：rc={rc3}")
+elif "RICK_PI_AGENT_DIR" not in out3:
+    errors.append(f"③ 被拒绝但提示未点明 RICK_PI_AGENT_DIR: {out3[-200:]}")
 
 # ④ dev 实例注册生产已注册的工作区 → 拒绝
 if p1.poll() is None:
@@ -156,6 +168,37 @@ for pkg in ["./internal/web/", "./internal/handler/", "./internal/cmd/"]:
     rr = run(["go", "test", pkg, "-timeout", "600s"])
     if rr.returncode != 0:
         errors.append(f"⑧ {pkg} 测试失败:\n{rr.stderr[-1200:]}")
+
+# ⑨ **换 HOME 形态**的隔离守卫（F1 回归钉子）：`rick tools dev-web` 启动 dev 实例
+# 用的就是这种形态（HOME=<dev-home>、状态目录仍是默认 $HOME/.rick）。修复前开关
+# 只看 `resolved != $HOME/.rick` → 恒为 false → 守卫不装，实测可注册生产工作区。
+if p6.poll() is None:
+    try:
+        prodws2 = json.load(open(prod_webjson))["workspaces"]
+    except Exception:
+        prodws2 = []
+    if prodws2:
+        victim2 = prodws2[0]["path"]
+        req = urllib.request.Request(f"http://127.0.0.1:{port6}/api/workspaces",
+              data=json.dumps({"path": victim2, "name": "f1-probe"}).encode(), method="POST",
+              headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+        try:
+            with opener.open(req, timeout=10) as rr: code9 = rr.status
+        except urllib.error.HTTPError as e: code9 = e.code
+        except Exception: code9 = 0
+        if code9 not in (400, 403, 409):
+            errors.append(f"⑨ 换 HOME 形态下注册生产工作区 {victim2} → HTTP {code9}（应 4xx 拒绝；F1 未修复）")
+    # 该实例的会话列表必须为空（读的是自己的状态目录）
+    try:
+        with opener.open(urllib.request.Request(f"http://127.0.0.1:{port6}/api/sessions",
+                headers={"Authorization": "Bearer " + token}), timeout=10) as rr:
+            n6 = len(json.loads(rr.read().decode("utf-8", "replace") or "[]"))
+        if n6 != 0:
+            errors.append(f"⑨ 换 HOME 实例看到了 {n6} 条会话（应为 0）→ 状态目录未隔离")
+    except Exception as e:
+        errors.append(f"⑨ 读取换 HOME 实例会话列表失败: {e}")
+else:
+    errors.append("⑨ 换 HOME 实例已退出，无法验证守卫")
 
 for p in (p1, p6):
     try: p.send_signal(signal.SIGTERM); p.wait(timeout=20)

@@ -61,20 +61,11 @@ HTTPS 建议交由反向代理（见 wiki/web-ui.md）。
 			}
 			web.SetStateDir(resolved)
 
-			// dev 隔离守卫（仅在显式指定状态目录时启用）：
-			// ① pi 沙盒必须一并隔离，否则 dev 会覆写生产的 agent runtime；
-			// ② 拒绝注册生产注册表已拥有的工作区（防 dev 会话写生产 .rick）。
-			if web.IsDevStateDir(resolved) {
-				agentDir := strings.TrimSpace(os.Getenv("RICK_PI_AGENT_DIR"))
-				if agentDir == "" {
-					return fmt.Errorf("dev 模式（--state-dir=%s）必须同时显式指定 RICK_PI_AGENT_DIR。"+
-						"\n否则 web 状态隔离了、pi 沙盒仍指向生产（$HOME/.rick/pi/agent），"+
-						"\ndev 跑 tools init-pi/update-pi 会就地覆写生产的 agent runtime。", resolved)
-				}
-				prodState := web.ProductionStateDir()
-				web.SetWorkspaceAddGuard(web.ProdWorkspaceGuard(prodState))
-				fmt.Printf("[rick-web] DEV MODE state-dir=%s agent-dir=%s prod-state=%s\n",
-					resolved, agentDir, orNone(prodState))
+			// dev 隔离守卫（两种 dev 形态都装 —— F1 修复）：
+			// ① 拒绝注册生产注册表已拥有的工作区（防 dev 会话写生产 .rick）；
+			// ② 只换状态目录（HOME 未换）时强制显式 RICK_PI_AGENT_DIR。
+			if _, err := configureDevIsolation(resolved); err != nil {
+				return err
 			}
 
 			// flock 强约束：同一状态目录只允许一个实例（pid 文件可被删，
@@ -115,6 +106,47 @@ func orNone(s string) string {
 		return "(unset)"
 	}
 	return s
+}
+
+// configureDevIsolation wires the dev-instance isolation guards and returns a
+// human-readable mode label ("" when this is a production instance).
+//
+// F1 修复：旧实现用 IsDevStateDir(resolved)（= resolved != $HOME/.rick）当开关，
+// 而 `rick tools dev-web` 启动 dev 实例用的是**换 HOME**形态（HOME=<dev-home>，
+// 状态目录仍是默认的 $HOME/.rick）→ 开关恒为 false → **守卫根本没装**。实测：
+// 换 HOME 起 dev 后 `POST /api/workspaces` 注册生产工作区 /workdir/.../BERT_KEETA
+// 返回 HTTP 201（本应 4xx），dev 会话因此可以写坏生产工作区的 .rick/。
+//
+// 现在按「状态目录是否等于**真实用户**的生产状态目录」判定，两种形态都装守卫：
+//   - home-swapped  ：HOME 已换 → pi 沙盒随 HOME 隔离，不必强制 RICK_PI_AGENT_DIR；
+//   - state-dir-only：HOME 未换 → pi 沙盒仍指生产，必须显式 RICK_PI_AGENT_DIR。
+func configureDevIsolation(resolved string) (string, error) {
+	isDev, prodState, homeSwapped := web.DevModeInfo(resolved)
+	if !isDev {
+		// 生产实例：确保不残留 guard（进程内单例，测试/重复调用安全）
+		web.SetWorkspaceAddGuard(nil)
+		return "", nil
+	}
+
+	agentDir := strings.TrimSpace(os.Getenv("RICK_PI_AGENT_DIR"))
+	if !homeSwapped && agentDir == "" {
+		return "", fmt.Errorf("dev 模式（--state-dir=%s）必须同时显式指定 RICK_PI_AGENT_DIR。"+
+			"\n否则 web 状态隔离了、pi 沙盒仍指向生产（$HOME/.rick/pi/agent），"+
+			"\ndev 跑 tools init-pi/update-pi 会就地覆写生产的 agent runtime。", resolved)
+	}
+
+	web.SetWorkspaceAddGuard(web.ProdWorkspaceGuard(prodState))
+	mode := "state-dir-only"
+	if homeSwapped {
+		mode = "home-swapped"
+	}
+	agentLabel := agentDir
+	if agentLabel == "" {
+		agentLabel = "(HOME-derived)"
+	}
+	fmt.Printf("[rick-web] DEV MODE mode=%s state-dir=%s agent-dir=%s prod-state=%s\n",
+		mode, resolved, agentLabel, orNone(prodState))
+	return mode, nil
 }
 
 // webServeComposition is the composition root injected into handler.Web:
