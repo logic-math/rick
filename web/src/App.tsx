@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useParams } from "react-router-dom";
+import RecoveryBanner from "./components/recovery/RecoveryBanner";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
 import Portal from "./components/starfield/Portal";
 import Saucer from "./components/starfield/Saucer";
@@ -307,6 +308,9 @@ export default function App() {
               </NavLink>
             </span>
           </header>
+
+          {/* 平台升级/重启后的挂起与恢复台账（人工一键继续；仅在有挂起/失败或 24h 内显示） */}
+          <RecoveryBanner />
 
           {/* 全局错误横幅 */}
           {globalError && (

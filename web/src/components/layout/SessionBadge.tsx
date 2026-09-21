@@ -1,9 +1,10 @@
 /**
  * SessionBadge：侧栏会话条目（工作区展开后的会话列表行）。
  *
- * 三态徽标（与 task-session-state 的状态语义对齐）：
+ * 四态徽标（与 task-session-state 的状态语义对齐）：
  *   - 活跃（active/running）= 传送门绿呼吸点 + 「活跃」
  *   - 终止（error）        = Morty 黄 + 「已中断」
+ *   - 挂起（suspended）    = 灰 + 「⏸ 已挂起（平台升级）」——可一键恢复（不自动）
  *   - 完成（closed）       = 灰 + 「已完成」
  *
  * 整行可点击 → /session/:id（NavLink）；类型徽标 + 标题 + 状态徽标；

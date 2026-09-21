@@ -198,6 +198,8 @@ function OpenSessionButton({
   if (!probed) return null;
 
   const isActive = sess?.status === "active" || sess?.status === "running";
+  /** 因平台升级/服务重启挂起 → 人工一键继续（/continue） */
+  const isSuspended = sess?.status === "suspended";
 
   const go = async () => {
     if (!sess) {
@@ -212,8 +214,13 @@ function OpenSessionButton({
     if (isActive) { navigate(`/session/${sess.id}`); return; }
     setBusy(true);
     try {
-      if (sess.archived) await api.unarchiveSession(sess.id).catch(() => {});
-      await api.resumeSession(sess.id);
+      if (isSuspended) {
+        // 挂起：/continue（doing/dream 会先归一化 running→pending 再续跑）
+        await api.continueSession(sess.id);
+      } else {
+        if (sess.archived) await api.unarchiveSession(sess.id).catch(() => {});
+        await api.resumeSession(sess.id);
+      }
       navigate(`/session/${sess.id}`);
     } catch (e: unknown) {
       if (e instanceof ApiError && e.status === 409) navigate(`/session/${sess.id}`);
@@ -222,12 +229,14 @@ function OpenSessionButton({
 
   if (!sess && !canImport) return null;
 
-  const label = busy ? "…" : !sess ? "📥" : isActive ? "💬" : "▶";
+  const label = busy ? "…" : !sess ? "📥" : isActive ? "💬" : isSuspended ? "⏸▶" : "▶";
   const title = !sess
     ? `导入 CLI 启动的会话到 web 并恢复（读 ${jobId} 目录里的 pi 会话标识）`
     : isActive
       ? "打开会话（进行中）"
-      : `恢复会话（${sess.status} → 重新拉起）`;
+      : isSuspended
+        ? "因平台升级挂起，点一下继续执行（人工触发；doing/dream 会归一化 running→pending 后续跑剩余 task）"
+        : `恢复会话（${sess.status} → 重新拉起）`;
   return (
     <button
       type="button"
@@ -235,7 +244,7 @@ function OpenSessionButton({
       disabled={busy}
       title={title}
       className={`rounded border px-1.5 py-0.5 text-[10px] hover:bg-white/5 disabled:opacity-40 ${
-        !sess ? "border-rick/50 text-rick" : "border-portal/40 text-portal hover:bg-portal/10"
+        !sess ? "border-rick/50 text-rick" : isSuspended ? "border-ink-3/50 text-ink-2" : "border-portal/40 text-portal hover:bg-portal/10"
       }`}
     >
       {label}

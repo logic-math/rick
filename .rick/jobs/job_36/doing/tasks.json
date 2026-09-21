@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-09-21T11:19:39.586Z",
+  "updated_at": "2026-09-21T11:30:07.263Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -212,13 +212,14 @@
       "task_id": "task17",
       "task_name": "rick tools dev-web：dev 实例编排闭环",
       "task_file": "task17.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task16"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-21T19:02:57+08:00",
-      "updated_at": "2026-09-21T19:02:57+08:00"
+      "updated_at": "2026-09-21T11:30:07.263Z",
+      "commit_hash": "8fd4ea91c47f1a1f0a41975473f90b2b60e4bceb"
     },
     {
       "task_id": "task18",
@@ -235,13 +236,14 @@
       "task_id": "task19",
       "task_name": "suspend 语义 + 人工恢复入口 + 恢复报告（后端）",
       "task_file": "task19.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task16"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-21T19:02:57+08:00",
-      "updated_at": "2026-09-21T19:02:57+08:00"
+      "updated_at": "2026-09-21T11:30:07.263Z",
+      "commit_hash": "8fd4ea91c47f1a1f0a41975473f90b2b60e4bceb"
     },
     {
       "task_id": "task20",
