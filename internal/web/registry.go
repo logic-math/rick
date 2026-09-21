@@ -114,6 +114,20 @@ func (r *WorkspaceRegistry) Add(path, name string) (WorkspaceEntry, bool, error)
 	if st, err := os.Stat(rickDir); err != nil || !st.IsDir() {
 		return WorkspaceEntry{}, false, newValidationError("invalid_workspace", "path %s does not contain a .rick directory", abs)
 	}
+	// 隔离守卫（dev 实例注入；默认 nil → 行为与旧版一致）：拒绝注册生产
+	// registry 已拥有的工作区路径。放在 .rick 存在性校验之后、幂等检查之前——
+	// 已注册过的路径仍按幂等语义返回（守卫不该把「本来就在本注册表里」的路径
+	// 误判为越界）。
+	if guard := workspaceAddGuard(); guard != nil {
+		for _, e := range r.Items {
+			if e.Path == abs {
+				return e, false, nil
+			}
+		}
+		if err := guard(abs); err != nil {
+			return WorkspaceEntry{}, false, err
+		}
+	}
 	// Idempotent: same path returns the existing entry.
 	for _, e := range r.Items {
 		if e.Path == abs {

@@ -4,39 +4,37 @@
 //
 // web 状态是机器级（single-instance-per-machine）的，与工作区无关：
 //
-//	~/.rick/web.json          工作区注册表（用户添加的含 .rick 的目录清单）
-//	~/.rick/web/sessions.json 会话注册表（跨重启的会话元数据）
-//	~/.rick/web/              前端可写覆盖层（自迭代的 src/ 与 dist/，见 env.DeployWebScaffold）
-//	~/.rick/web.pid           singleton 判活文件
+//	<stateDir>/web.json          工作区注册表（用户添加的含 .rick 的目录清单）
+//	<stateDir>/web/sessions.json 会话注册表（跨重启的会话元数据）
+//	<stateDir>/web/              前端可写覆盖层（自迭代的 src/ 与 dist/，见 env.DeployWebScaffold）
+//	<stateDir>/web.pid           singleton 判活文件（老机制，保留）
+//	<stateDir>/web.lock          singleton 强约束（flock；见 statedir.go）
 //
-// 注意：web 状态跟随 HOME（os.UserHomeDir()），刻意不跟随 RICK_PI_AGENT_DIR
-// ——后者是 pi 子进程配置的隔离开关（runtime.AgentDir），web 状态与之无关；
-// 测试用 t.Setenv("HOME", t.TempDir()) 隔离即可。
+// 状态目录 <stateDir> 默认 $HOME/.rick，可由 --state-dir / RICK_STATE_DIR 显式
+// 重定向（dev 实例隔离用）；刻意不跟随 RICK_PI_AGENT_DIR——后者是 pi 子进程配置
+// 的隔离开关（runtime.AgentDir）。测试用 t.Setenv("HOME", t.TempDir()) 或
+// SetStateDir(t.TempDir()) 隔离。
 package web
 
 import (
-	"os"
 	"path/filepath"
 )
 
-// WebStateDir returns the machine-level web state directory (~/.rick/web),
+// 路径解析：全部经 StateDir()（见 statedir.go）——它优先返回启动时显式钉住的
+// 状态目录（--state-dir / RICK_STATE_DIR），未钉住时回退 $HOME/.rick。
+// 因此默认行为与改造前**逐字节一致**（生产就是默认路径在跑），而 dev 实例可以
+// 把整套机器级状态重定向到隔离目录。
+
+// WebStateDir returns the machine-level web state directory (<stateDir>/web),
 // which holds the writable frontend overlay (src/, dist/) and the session
-// registry. Tests isolate it via HOME.
+// registry. Tests isolate it via HOME or SetStateDir.
 func WebStateDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".rick", "web")
+	return filepath.Join(StateDir(), "web")
 }
 
-// WebConfigPath returns the workspace registry file path (~/.rick/web.json).
+// WebConfigPath returns the workspace registry file path (<stateDir>/web.json).
 func WebConfigPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".rick", "web.json")
+	return filepath.Join(StateDir(), "web.json")
 }
 
 // SessionsPath returns the session registry file path
@@ -59,11 +57,7 @@ func JobNamesPath() string {
 	return filepath.Join(WebStateDir(), "job-names.json")
 }
 
-// PidPath returns the singleton liveness file path (~/.rick/web.pid).
+// PidPath returns the singleton liveness file path (<stateDir>/web.pid).
 func PidPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".rick", "web.pid")
+	return filepath.Join(StateDir(), "web.pid")
 }

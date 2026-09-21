@@ -16,8 +16,38 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
+
+// buildID is the process-level build fingerprint（构建指纹）：由组合根
+// （internal/cmd.NewRootCmd）在启动时用 SetBuildID 注入，通常来自链接期注入的
+// `-ldflags "-X .../internal/cmd.BuildID=<sha7>-<YYYYMMDDHHMMSS>"`。
+//
+// 为什么需要它：`/api/config` 的 rick_version 是静态常量（两次同版本构建无法
+// 区分），而自进化闭环必须能回答「现在跑的是不是我刚构建的那个二进制」——
+// `/api/health`（免认证）与 `/api/config`、SSE `server_info` 都带上它，
+// 于是一条 curl 即可判定（research-L5 §4）。未注入时回退 "dev"。
+var buildID = "dev"
+
+// processStartedAt 近似进程启动时刻（用于 /api/health 的 started_at 兜底：
+// 任何 handler 构造路径都能拿到一个非空且合理的值）。
+var processStartedAt = time.Now()
+
+// SetBuildID records the build fingerprint for this process. An empty or
+// whitespace-only id resets it to the "dev" fallback (never empty).
+func SetBuildID(id string) { buildID = normalizeBuildID(id) }
+
+// BuildID returns the effective build fingerprint (never empty).
+func BuildID() string { return normalizeBuildID(buildID) }
+
+// normalizeBuildID maps an empty build id to the "dev" fallback.
+func normalizeBuildID(id string) string {
+	if strings.TrimSpace(id) == "" {
+		return "dev"
+	}
+	return id
+}
 
 // ServerConfig carries everything NewServer needs to assemble the service.
 type ServerConfig struct {
@@ -32,6 +62,10 @@ type ServerConfig struct {
 	StateDir string
 	// Version is the rick binary version (→ /api/config rick_version).
 	Version string
+	// BuildID is the build fingerprint (→ /api/health, /api/config, SSE
+	// server_info). Empty → the process-level value from SetBuildID, which
+	// itself falls back to "dev".
+	BuildID string
 }
 
 // DefaultWebPort is the default listen port (C-137 easter egg, design-tree J4.2).
@@ -61,6 +95,17 @@ func NewServer(cfg ServerConfig, deps Deps) (*Server, error) {
 	}
 	if cfg.Version != "" {
 		deps.Version = cfg.Version
+	}
+	// 构建指纹：cfg 优先（测试/多实例可注入），否则用进程级值（组合根注入）。
+	// 注意：**不**写回包级变量——NewServer 可能被调用多次（测试/多实例），
+	// 就地解析避免实例之间互相污染。
+	build := cfg.BuildID
+	if build == "" {
+		build = BuildID()
+	}
+	deps.BuildID = normalizeBuildID(build)
+	if deps.StartedAt.IsZero() {
+		deps.StartedAt = time.Now()
 	}
 	if deps.Static == nil {
 		overlayDist := ""

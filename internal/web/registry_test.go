@@ -625,3 +625,75 @@ func TestRoutes_ReorderWorkspacesHTTP(t *testing.T) {
 		t.Fatalf("PUT order invalid: got %d, want 400", rec.Code)
 	}
 }
+
+// TestWorkspaceAddGuardHook 验证 Add 的隔离守卫钩子：守卫拒绝 → Add 报错；
+// 守卫放行/未设置 → 行为与旧版一致（含幂等语义）；已在本注册表内的路径仍按
+// 幂等返回，不被守卫误判（dev 实例自身工作区不会自我阻塞）。
+func TestWorkspaceAddGuardHook(t *testing.T) {
+	t.Cleanup(func() { SetWorkspaceAddGuard(nil) })
+
+	reg, err := LoadWorkspaceRegistry(registryPathUnder(t))
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	blocked := newTestWorkspace(t)
+	allowed := newTestWorkspace(t)
+
+	var seen []string
+	SetWorkspaceAddGuard(func(absPath string) error {
+		seen = append(seen, absPath)
+		if filepath.Clean(absPath) == filepath.Clean(blocked) {
+			return newValidationError("invalid_workspace", "blocked by test guard: %s", absPath)
+		}
+		return nil
+	})
+
+	// ① 守卫拒绝
+	if _, _, err := reg.Add(blocked, ""); err == nil {
+		t.Fatal("守卫拒绝的路径竟然注册成功")
+	} else if verr, ok := err.(*ValidationError); !ok || verr.Code != "invalid_workspace" {
+		t.Fatalf("拒绝错误应为 invalid_workspace，实为 %T", err)
+	}
+
+	// ② 守卫放行 → 正常注册，且收到的是绝对路径
+	entry, created, err := reg.Add(allowed, "ok")
+	if err != nil || !created {
+		t.Fatalf("放行路径注册失败: created=%v err=%v", created, err)
+	}
+	if len(seen) == 0 || !filepath.IsAbs(seen[len(seen)-1]) {
+		t.Fatalf("守卫收到的应是绝对路径，实为 %v", seen)
+	}
+
+	// ③ 幂等：已注册路径再次 Add 不经过守卫（返回既有条目不报错）
+	seen = nil
+	again, createdAgain, err := reg.Add(allowed, "ok")
+	if err != nil || createdAgain || again.ID != entry.ID {
+		t.Fatalf("幂等语义被守卫破坏: %+v created=%v err=%v", again, createdAgain, err)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("已注册路径不应再次触发守卫，seen=%v", seen)
+	}
+
+	// ④ 清除守卫 → 被拒路径此时可以注册（行为回到旧版）
+	SetWorkspaceAddGuard(nil)
+	if _, created2, err := reg.Add(blocked, ""); err != nil || !created2 {
+		t.Fatalf("清除守卫后应可注册: created=%v err=%v", created2, err)
+	}
+}
+
+// TestWorkspaceAddGuardOffByDefault 验证默认（未注入守卫）时行为与改造前一致。
+func TestWorkspaceAddGuardOffByDefault(t *testing.T) {
+	SetWorkspaceAddGuard(nil)
+	reg, err := LoadWorkspaceRegistry(registryPathUnder(t))
+	if err != nil {
+		t.Fatalf("load registry: %v", err)
+	}
+	ws := newTestWorkspace(t)
+	entry, created, err := reg.Add(ws, "plain")
+	if err != nil || !created {
+		t.Fatalf("默认注册失败: created=%v err=%v", created, err)
+	}
+	if entry.Path != ws || entry.Name != "plain" {
+		t.Fatalf("默认注册字段异常: %+v", entry)
+	}
+}

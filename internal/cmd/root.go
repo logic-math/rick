@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/sunquan/rick/internal/web"
 )
 
 var (
@@ -13,7 +15,31 @@ var (
 	resume  string
 )
 
+// BuildID is the build fingerprint, injected at link time:
+//
+//	-ldflags "-X github.com/sunquan/rick/internal/cmd.BuildID=<sha7>-<YYYYMMDDHHMMSS>"
+//
+// 默认 "dev"（未注入时）。它让「现在跑的是不是我刚构建的那个二进制」可被一条
+// curl 判定（/api/health 免认证携带 build_id；/api/config 与 SSE server_info 同源）
+// ——自进化闭环的反馈回路基石（task17 的 dev-web up 与 task21 的 release 都靠它
+// 校验「新构建真的在跑」，research-L5 §4）。
+var BuildID = "dev"
+
+// FuncVersion returns the effective build fingerprint (empty → "dev"), so
+// no caller has to special-case the un-injected case.
+func FuncVersion() string {
+	if strings.TrimSpace(BuildID) == "" {
+		return "dev"
+	}
+	return BuildID
+}
+
 func NewRootCmd(version string) *cobra.Command {
+	// 把构建指纹交给 web 层（web 不能反向 import cmd，由组合根注入）——
+	// `rick web` 的所有入口都经由本函数，故 /api/health、/api/config、
+	// SSE server_info 总能拿到真实指纹。
+	web.SetBuildID(FuncVersion())
+
 	rootCmd := &cobra.Command{
 		Use:     "rick",
 		Short:   "Rick CLI - A powerful command-line tool for managing development workflows",
