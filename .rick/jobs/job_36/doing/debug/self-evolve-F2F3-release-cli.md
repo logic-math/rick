@@ -30,3 +30,13 @@ RELEASE_DRYRUN prod_untouched=true cleanup=ok
 
 ## 教训
 「安全的演练命令」必须被门禁**显式断言为无副作用**（F3），且其**自保/拦截逻辑的判定顺序**属于契约的一部分（F2）。凡是只在「真实宿主形态」下才出现的分支，都要在 E2E 里覆盖。
+
+---
+
+## F4：`dev-web` 的 dev 树解析跟随 cwd（从 dev 树内执行算错）
+- 现象：`cd <dev-tree> && rick tools dev-web restart` → `DEV_FAIL stage=build detail=dev tree missing web/: stat /workdir/rick-dev/web/package.json`。
+- 根因：`DefaultLayout` 用 `base = dirname(dirname(prodRepo))` 推导 tree/home，而 `prodRepo` 来自 cwd → 从 dev 树内跑时 tree 变成 `<祖父>/rick-dev`（不存在）；错误还被推迟到 build 阶段才暴露。
+- 修复：解析顺序改为 ① `--dev-tree`/`RICK_DEV_TREE` → ② **向上探测到的 dev 工作树**（严格判据：`.git` 是 worktree 标记**文件** + `cmd/rick` + `web/package.json`）→ ③ prodRepo 本身是 dev 树时用它 → ④ 回退 `<prodRepo 祖父>/rick-dev`；`home = <tree>-home` 跟随 tree。
+  配套：`ProdRepoFromDevTree`（从 `.git` 的 `gitdir:` 反解真实生产仓库，修正 prodRepo 退化成 cwd）；`TreePolicy`（显式路径宽松、自动探测严格）；**树校验先于 `EnsureToken`**（否则 `RICK_DEV_TREE=/nonexistent` 会先报 `mkdir permission denied` 掩盖真因）。
+- 门禁：gate8 增加「从 dev 树内执行与从生产仓库执行报告同一 tree/home」断言。
+- 教训：**命令的默认参数解析不能依赖 cwd 的偶然形态**——用户会在他正在工作的目录里敲命令；解析逻辑要么显式（flag/env），要么按内容探测（`gitdir:`/必备文件），不能按「祖父目录」猜。

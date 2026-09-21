@@ -112,12 +112,18 @@ func TestDevWebCommandTree(t *testing.T) {
 func TestStatusReportsDownForFreshLayout(t *testing.T) {
 	root := t.TempDir()
 	prodRepo := filepath.Join(root, "prod", "rick")
-	for _, d := range []string{prodRepo, filepath.Join(root, "dev-tree")} {
+	// dev 树夹具需具备「rick 源码树」形态（cmd/rick + web/package.json）——F4 起
+	// 需要已有树的子命令会在解析阶段校验，空目录会被明确拒绝。
+	devTree := filepath.Join(root, "dev-tree")
+	for _, d := range []string{prodRepo, devTree, filepath.Join(devTree, "cmd", "rick"), filepath.Join(devTree, "web")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv(devweb.EnvTree, filepath.Join(root, "dev-tree"))
+	if err := os.WriteFile(filepath.Join(devTree, "web", "package.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(devweb.EnvTree, devTree)
 	t.Setenv(devweb.EnvHome, filepath.Join(root, "dev-home"))
 	t.Setenv(devweb.EnvPort, "18499")
 

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-09-21T12:10:53.701Z",
+  "updated_at": "2026-09-21T12:24:42.182Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -212,13 +212,13 @@
       "task_id": "task17",
       "task_name": "rick tools dev-web：dev 实例编排闭环",
       "task_file": "task17.md",
-      "status": "success",
+      "status": "pending",
       "dependencies": [
         "task16"
       ],
-      "attempts": 1,
+      "attempts": 2,
       "created_at": "2026-09-21T19:02:57+08:00",
-      "updated_at": "2026-09-21T11:30:07.263Z",
+      "updated_at": "2026-09-21T20:35:00+08:00",
       "commit_hash": "8fd4ea91c47f1a1f0a41975473f90b2b60e4bceb"
     },
     {
@@ -262,14 +262,14 @@
       "task_id": "task21",
       "task_name": "rick tools release：原子提升/重启/回滚",
       "task_file": "task21.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task19"
       ],
-      "attempts": 2,
+      "attempts": 3,
       "created_at": "2026-09-21T19:02:57+08:00",
-      "updated_at": "2026-09-21T20:25:00+08:00",
-      "commit_hash": "0a47372aceee3937eb430bad9908fd4f3421bbc7"
+      "updated_at": "2026-09-21T12:24:42.182Z",
+      "commit_hash": "62c065e803fc0ce23c2ec083afdfe6068b71004b"
     },
     {
       "task_id": "task22",

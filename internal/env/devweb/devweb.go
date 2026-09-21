@@ -110,17 +110,227 @@ func (l Layout) BaseURL() string { return "http://127.0.0.1:" + strconv.Itoa(l.P
 // 覆写（human 裁决 J-L4-2 = 独立 agent dir）。
 var seededFiles = []string{"auth.json", "settings.json", "models-store.json"}
 
-// DefaultLayout 推导 dev 布局。prodRepo 是生产仓库工作树路径；默认布局为
-// `<prodRepo 的祖父目录>/rick-dev{,-home}`（与人工搭建的目录一致），可用
-// RICK_DEV_TREE / RICK_DEV_HOME / RICK_DEV_PORT 覆盖（脚本与测试用）。
-func DefaultLayout(prodRepo string) (Layout, error) {
+// IsDevWorktree 报告 dir 是否像一个 rick dev 工作树。判据刻意用**结构**而非目录名：
+//   - `.git` 是**文件**（git worktree 的标记；生产主工作树的 .git 是目录）
+//   - 文件内容含 `gitdir:`（指向 <repo>/.git/worktrees/<name>）
+//   - 同时存在 `cmd/rick/` 与 `web/package.json`（确实是 rick 源码树）
+func IsDevWorktree(dir string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	// 自动探测必须严：`.git` 是 worktree 标记**文件**（生产主工作树的 .git 是目录，
+	// 借此把「从生产仓库执行」与「从 dev 树执行」分开）。
+	fi, err := os.Lstat(filepath.Join(dir, ".git"))
+	if err != nil || fi.IsDir() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".git"))
+	if err != nil || !strings.Contains(string(data), "gitdir:") {
+		return false
+	}
+	return IsRickSourceTree(dir)
+}
+
+// IsRickSourceTree 判断 dir 是否是一棵 rick 源码树（含 cmd/rick 与
+// web/package.json）。**显式指定的路径**（--dev-tree / RICK_DEV_TREE）用这个宽松
+// 判据：dev 树也可以是普通 clone 而不是 git worktree，不该被无谓拒绝。
+func IsRickSourceTree(dir string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	if wfi, err := os.Stat(filepath.Join(dir, "web", "package.json")); err != nil || wfi.IsDir() {
+		return false
+	}
+	if cfi, err := os.Stat(filepath.Join(dir, "cmd", "rick")); err != nil || !cfi.IsDir() {
+		return false
+	}
+	return true
+}
+
+// DevTreeFromCwd 从 dir 起向上查找 dev 工作树（最多 8 层），供「在树内任意子目录
+// 执行命令」的情形使用。
+func DevTreeFromCwd(dir string) (string, bool) {
+	cur, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	for i := 0; i < 8; i++ {
+		if IsDevWorktree(cur) {
+			return cur, true
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return "", false
+}
+
+// ProdRepoFromDevTree 从 dev 工作树的 `.git`（`gitdir: <repo>/.git/worktrees/<name>`）
+// 反推生产仓库工作树路径。形状不符或目标缺 go.mod 时返回 false。
+func ProdRepoFromDevTree(tree string) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(tree, ".git"))
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSpace(string(data))
+	const prefix = "gitdir:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	gitdir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	if gitdir == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(tree, gitdir)
+	}
+	gitdir = filepath.Clean(gitdir)
+	if filepath.Base(filepath.Dir(gitdir)) != "worktrees" {
+		return "", false
+	}
+	dotGit := filepath.Dir(filepath.Dir(gitdir))
+	if filepath.Base(dotGit) != ".git" {
+		return "", false
+	}
+	repo := filepath.Dir(dotGit)
+	if _, err := os.Stat(filepath.Join(repo, "go.mod")); err != nil {
+		return "", false
+	}
+	return repo, true
+}
+
+// looksLikeProdRepo 判断 dir 是否是生产仓库主工作树（有 go.mod 且 .git 是目录）。
+func looksLikeProdRepo(dir string) bool {
+	if strings.TrimSpace(dir) == "" {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+		return false
+	}
+	fi, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil && fi.IsDir()
+}
+
+// RequireTree 在「需要已存在的 dev 工作树」的子命令（build/up/restart/status/down）
+// 开头校验，给出**可操作的中文错误**——旧实现要等到 build 阶段才报
+// `stat <tree>/web/package.json: no such file or directory`，看不出是树解析错了。
+// init 刻意不调用它（init 的职责就是创建树）。
+func (l Layout) RequireTree() error {
+	if IsRickSourceTree(l.Tree) {
+		return nil
+	}
+	if _, err := os.Stat(l.Tree); err != nil {
+		return fmt.Errorf("dev 工作树不存在：%s\n"+
+			"  尚未初始化 → 先执行：rick tools dev-web init\n"+
+			"  树在别处     → 设置 RICK_DEV_TREE=<路径>，或传 --dev-tree <路径>", l.Tree)
+	}
+	return fmt.Errorf("目录不是 rick 源码树：%s\n"+
+		"  （期望含 cmd/rick 与 web/package.json）\n"+
+		"  请检查 --dev-tree / RICK_DEV_TREE 是否指错目录", l.Tree)
+}
+
+// RequireInitTarget 是 init 的目标校验：不存在 → 允许（init 会创建）；已存在但
+// 不是 dev 工作树 → 明确拒绝，避免把无关目录当成 dev 树去折腾。
+func (l Layout) RequireInitTarget() error {
+	entries, err := os.ReadDir(l.Tree)
+	if err != nil {
+		return nil // 不存在（或不可读）→ init 会创建/报错
+	}
+	if len(entries) == 0 || IsRickSourceTree(l.Tree) {
+		return nil // 空目录可被 git worktree 占用；已是源码树则幂等
+	}
+	return fmt.Errorf("目标 dev 树已存在且非空，但不是 rick 源码树：%s\n"+
+		"  （期望含 cmd/rick 与 web/package.json）\n"+
+		"  如确要用别处目录，请显式设置 --dev-tree / RICK_DEV_TREE", l.Tree)
+}
+
+// TreePolicy 决定解析时是否要求 dev 工作树已经存在。
+//   - RequireExistingTree：build/up/restart/status/down 等「要操作已有树」的命令；
+//     树缺失或不像 dev 树时**在解析阶段**给出可操作中文错误（F4 修复：旧实现要等到
+//     build 阶段才报 `stat <tree>/web/package.json`,更早还会先被 EnsureToken 的
+//     `mkdir <home>` 权限错误掩盖）。
+//   - AllowCreateTree：init 专用（它的职责就是创建树）。
+type TreePolicy int
+
+const (
+	RequireExistingTree TreePolicy = iota
+	AllowCreateTree
+)
+
+// DefaultLayout 推导 dev 布局（等价于 LayoutFor(prodRepo, "")，要求树已存在）。
+func DefaultLayout(prodRepo string) (Layout, error) { return LayoutFor(prodRepo, "") }
+
+// LayoutFor 推导 dev 布局。treeOverride 来自 `--dev-tree`（空则看环境变量）。
+//
+// **dev 树解析顺序**（F4 修复：旧实现只看 prodRepo 的祖父目录，于是从 dev 树内
+// 执行命令会把自己解析成 `<祖父>/rick-dev`，得到一条不存在的路径）：
+//
+//	① treeOverride（--dev-tree）
+//	② RICK_DEV_TREE
+//	③ 当前目录向上查找出的 dev 工作树（判据见 IsDevWorktree：`.git` 是 worktree
+//	   标记**文件** + 含 cmd/rick 与 web/package.json —— 生产主工作树的 .git 是
+//	   目录，因此不会被误判）
+//	④ prodRepo 本身是 dev 工作树时就用它（`go run ./cmd/rick` 的常见情形）
+//	⑤ 回退 `<prodRepo 的祖父目录>/rick-dev`
+//
+// home 默认 = `<tree>-home`（与现网实际布局一致），不再从 base 独立推导——
+// 这样即使 tree 来自 ③④，home 也必然正确；RICK_DEV_HOME 仍可覆盖。
+func LayoutFor(prodRepo, treeOverride string) (Layout, error) {
+	return layout(prodRepo, treeOverride, RequireExistingTree)
+}
+
+// LayoutForInit 与 LayoutFor 同解析逻辑，但允许 dev 工作树尚不存在（init 会创建）。
+func LayoutForInit(prodRepo, treeOverride string) (Layout, error) {
+	return layout(prodRepo, treeOverride, AllowCreateTree)
+}
+
+func layout(prodRepo, treeOverride string, policy TreePolicy) (Layout, error) {
 	absRepo, err := filepath.Abs(prodRepo)
 	if err != nil {
 		return Layout{}, fmt.Errorf("resolve prod repo: %w", err)
 	}
-	base := filepath.Dir(filepath.Dir(absRepo))
-	tree := firstNonEmpty(os.Getenv(EnvTree), filepath.Join(base, "rick-dev"))
-	home := firstNonEmpty(os.Getenv(EnvHome), filepath.Join(base, "rick-dev-home"))
+
+	tree := strings.TrimSpace(treeOverride)
+	if tree == "" {
+		tree = strings.TrimSpace(os.Getenv(EnvTree))
+	}
+	if tree == "" {
+		if wd, err := os.Getwd(); err == nil {
+			if t, ok := DevTreeFromCwd(wd); ok {
+				tree = t
+			}
+		}
+	}
+	if tree == "" {
+		if t, ok := DevTreeFromCwd(absRepo); ok {
+			tree = t
+		}
+	}
+	if tree == "" {
+		tree = filepath.Join(filepath.Dir(filepath.Dir(absRepo)), "rick-dev")
+	}
+	if abs, err := filepath.Abs(tree); err == nil {
+		tree = abs
+	}
+
+	// 生产仓库：传入值本身不像生产仓库（缺 go.mod 或 .git 不是目录）时，
+	// 改从 dev 工作树的 `.git`（`gitdir: <prod>/.git/worktrees/<name>`）反推——
+	// 这条路径是权威的，能修正「从 dev 树内执行导致 prodRepo=cwd=dev 树」。
+	if !looksLikeProdRepo(absRepo) {
+		if repo, ok := ProdRepoFromDevTree(tree); ok {
+			absRepo = repo
+		}
+	}
+
+	home := strings.TrimSpace(os.Getenv(EnvHome))
+	if home == "" {
+		home = tree + "-home"
+	}
+	if abs, err := filepath.Abs(home); err == nil {
+		home = abs
+	}
 	port := DefaultPort
 	if v := strings.TrimSpace(os.Getenv(EnvPort)); v != "" {
 		n, err := strconv.Atoi(v)
@@ -144,9 +354,17 @@ func DefaultLayout(prodRepo string) (Layout, error) {
 		GoModCache: firstNonEmpty(os.Getenv("GOMODCACHE"), filepath.Join(prodHome, "go", "pkg", "mod")),
 		NpmCache:   firstNonEmpty(os.Getenv("npm_config_cache"), filepath.Join(prodHome, ".npm")),
 	}
+	// 关键顺序：先校验 dev 工作树，再准备 HOME（EnsureToken 会 mkdir + 写
+	// DEV_TOKEN）——否则一个指向不存在的树的 RICK_DEV_TREE 会先报
+	// `mkdir <home>: permission denied`，把真正的问题（树解析错了）掩盖掉。
+	if policy == RequireExistingTree {
+		if err := l.RequireTree(); err != nil {
+			return Layout{}, err
+		}
+	}
 	token, err := EnsureToken(l)
 	if err != nil {
-		return Layout{}, err
+		return Layout{}, fmt.Errorf("准备 dev HOME 失败（%s）：%w", l.Home, err)
 	}
 	l.Token = token
 	return l, nil

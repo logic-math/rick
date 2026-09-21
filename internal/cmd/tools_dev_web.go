@@ -29,6 +29,7 @@ const (
 func NewDevWebCmd() *cobra.Command {
 	var (
 		prodRepo   string
+		devTree    string
 		noBuild    bool
 		jsonOutput bool
 	)
@@ -58,21 +59,28 @@ Exit codes:
 		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 
-	newLayout := func() (devweb.Layout, error) {
-		repo := prodRepo
-		if repo == "" {
-			repo = defaultProdRepo()
+	resolveRepo := func() string {
+		if prodRepo != "" {
+			return prodRepo
 		}
-		return devweb.DefaultLayout(repo)
+		return defaultProdRepo()
 	}
+	// F4：--dev-tree 显式优先；否则 devweb 按「env → 当前目录向上找到的 dev 工作树
+	// → prodRepo 的祖父目录」解析（从 dev 树内执行也能正确解析）。需要已有树的
+	// 子命令在解析阶段就会拿到清晰的中文错误。
+	newLayout := func() (devweb.Layout, error) { return devweb.LayoutFor(resolveRepo(), devTree) }
+	newLayoutForInit := func() (devweb.Layout, error) { return devweb.LayoutForInit(resolveRepo(), devTree) }
 
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Prepare the dev worktree, HOME, pi sandbox seed, frontend deps and overlay symlink (idempotent)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			l, err := newLayout()
+			l, err := newLayoutForInit()
 			if err != nil {
 				return err
+			}
+			if err := l.RequireInitTarget(); err != nil {
+				return devFail(cmd, "init", err)
 			}
 			out := cmd.OutOrStdout()
 			if err := devweb.Init(l, out); err != nil {
@@ -193,6 +201,7 @@ Exit codes:
 
 	for _, sub := range []*cobra.Command{initCmd, buildCmd, upCmd, restartCmd, statusCmd, downCmd} {
 		sub.Flags().StringVar(&prodRepo, "prod-repo", "", "生产仓库工作树路径（默认：本 CLI 所在仓库）")
+		sub.Flags().StringVar(&devTree, "dev-tree", "", "dev 工作树路径（默认：RICK_DEV_TREE → 当前目录向上找到的 dev 工作树 → <prodRepo 祖父>/rick-dev）")
 	}
 	upCmd.Flags().BoolVar(&noBuild, "no-build", false, "复用最近一次构建（不重新编译）")
 	restartCmd.Flags().BoolVar(&noBuild, "no-build", false, "复用最近一次构建（不重新编译）")

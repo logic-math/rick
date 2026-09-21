@@ -42,6 +42,13 @@ func TestDefaultLayoutPathsAndEnv(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(prodRepo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// F4：解析会看当前目录（从 dev 树内执行要能识别出来），因此本用例把 cwd 固定在
+	// 被模拟的生产仓库上，才是在验证「默认回退」这条路径。
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(prodRepo); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
 	// 默认：`<prodRepo 的祖父目录>/rick-dev{,-home}`
 	t.Setenv(EnvTree, "")
 	t.Setenv(EnvHome, "")
@@ -50,9 +57,11 @@ func TestDefaultLayoutPathsAndEnv(t *testing.T) {
 	t.Setenv("GOMODCACHE", filepath.Join(root, "gm"))
 	t.Setenv("npm_config_cache", filepath.Join(root, "npm-cache"))
 
-	l, err := DefaultLayout(prodRepo)
+	// 该用例只验证**路径推导**（树尚不存在），故用 init 策略；
+	// 「需要已有树」的策略由 TestLayoutFallbackFromProdRepo 覆盖。
+	l, err := LayoutForInit(prodRepo, "")
 	if err != nil {
-		t.Fatalf("DefaultLayout: %v", err)
+		t.Fatalf("LayoutForInit: %v", err)
 	}
 	wantTree := filepath.Join(root, "base", "rick-dev")
 	if l.Tree != wantTree {
@@ -85,7 +94,7 @@ func TestDefaultLayoutPathsAndEnv(t *testing.T) {
 	t.Setenv(EnvTree, filepath.Join(root, "custom-tree"))
 	t.Setenv(EnvHome, filepath.Join(root, "custom-home"))
 	t.Setenv(EnvPort, "19999")
-	l2, err := DefaultLayout(prodRepo)
+	l2, err := LayoutForInit(prodRepo, "")
 	if err != nil {
 		t.Fatalf("DefaultLayout(override): %v", err)
 	}
@@ -95,11 +104,11 @@ func TestDefaultLayoutPathsAndEnv(t *testing.T) {
 
 	// 非法端口必须报错（而不是静默用默认值）
 	t.Setenv(EnvPort, "not-a-port")
-	if _, err := DefaultLayout(prodRepo); err == nil {
+	if _, err := LayoutForInit(prodRepo, ""); err == nil {
 		t.Fatal("非法 RICK_DEV_PORT 应报错")
 	}
 	t.Setenv(EnvPort, "70000")
-	if _, err := DefaultLayout(prodRepo); err == nil {
+	if _, err := LayoutForInit(prodRepo, ""); err == nil {
 		t.Fatal("越界端口应报错")
 	}
 }
@@ -469,4 +478,244 @@ func asStageError(err error, target **StageError) bool {
 		err = u.Unwrap()
 	}
 	return false
+}
+
+// ---- F4：dev 树解析（从哪执行都要解析到同一棵树）----
+
+// fakeWorktree 造一个「看起来像 dev 工作树」的目录：.git 是 worktree 标记**文件**
+// （内容 `gitdir: <prodRepo>/.git/worktrees/<name>`）+ cmd/rick + web/package.json。
+func fakeWorktree(t *testing.T, root, name, prodRepo string) string {
+	t.Helper()
+	tree := filepath.Join(root, name)
+	for _, d := range []string{filepath.Join(tree, "cmd", "rick"), filepath.Join(tree, "web")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	for _, f := range []string{filepath.Join(tree, "web", "package.json"), filepath.Join(tree, "go.mod")} {
+		if err := os.WriteFile(f, []byte("{}\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", f, err)
+		}
+	}
+	gitdir := filepath.Join(prodRepo, ".git", "worktrees", name)
+	if err := os.MkdirAll(gitdir, 0o755); err != nil {
+		t.Fatalf("mkdir gitdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o644); err != nil {
+		t.Fatalf("write .git: %v", err)
+	}
+	return tree
+}
+
+// TestLayoutFromInsideDevTree 是 F4 的回归测试：从 dev 树内（或其任意子目录）
+// 执行命令，必须解析到**该树**与 `<tree>-home`，而不是 `<祖父>/rick-dev`
+// （旧实现会得到一条不存在的路径，直到 build 阶段才报 stat …/package.json）。
+func TestLayoutFromInsideDevTree(t *testing.T) {
+	root := t.TempDir()
+	prodRepo := filepath.Join(root, "work", "AI_CODING", "rick")
+	if err := os.MkdirAll(filepath.Join(prodRepo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir prod .git: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prodRepo, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatalf("write prod go.mod: %v", err)
+	}
+	tree := fakeWorktree(t, filepath.Join(root, "work"), "rick-dev", prodRepo)
+
+	t.Setenv(EnvTree, "")
+	t.Setenv(EnvHome, "")
+	// 让 HOME 指向临时目录，避免 EnsureToken 落到真实家目录
+	t.Setenv("HOME", filepath.Join(root, "fake-home"))
+
+	for _, cwd := range []string{tree, filepath.Join(tree, "web"), filepath.Join(tree, "internal", "web")} {
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			t.Fatalf("mkdir cwd: %v", err)
+		}
+		old, _ := os.Getwd()
+		if err := os.Chdir(cwd); err != nil {
+			t.Fatalf("chdir: %v", err)
+		}
+		// 模拟「从 dev 树内执行」：prodRepo 参数也退化成 cwd（go run 的真实行为）
+		l, err := LayoutFor(cwd, "")
+		_ = os.Chdir(old)
+		if err != nil {
+			t.Fatalf("从 %s 解析失败: %v", cwd, err)
+		}
+		if l.Tree != tree {
+			t.Fatalf("从 %s：Tree = %q，期望 %q", cwd, l.Tree, tree)
+		}
+		if l.Home != tree+"-home" {
+			t.Fatalf("从 %s：Home = %q，期望 %q", cwd, l.Home, tree+"-home")
+		}
+		// 生产仓库也应从 worktree 的 .git 反推正确（而不是 cwd=dev 树）
+		if l.ProdRepo != prodRepo {
+			t.Fatalf("从 %s：ProdRepo = %q，期望 %q（应从 .git gitdir 反推）", cwd, l.ProdRepo, prodRepo)
+		}
+	}
+}
+
+// TestLayoutFallbackFromProdRepo：从生产仓库执行时仍按 `<祖父>/rick-dev` 解析
+// （dev 树由 init 创建，可能尚不存在）。
+func TestLayoutFallbackFromProdRepo(t *testing.T) {
+	root := t.TempDir()
+	prodRepo := filepath.Join(root, "work", "AI_CODING", "rick")
+	if err := os.MkdirAll(filepath.Join(prodRepo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prodRepo, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv(EnvTree, "")
+	t.Setenv(EnvHome, "")
+	t.Setenv("HOME", filepath.Join(root, "fake-home"))
+
+	old, _ := os.Getwd()
+	if err := os.Chdir(prodRepo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(old) }()
+
+	// init 语义：树尚不存在也允许解析
+	l, err := LayoutForInit(prodRepo, "")
+	if err != nil {
+		t.Fatalf("LayoutForInit: %v", err)
+	}
+	wantTree := filepath.Join(root, "work", "rick-dev")
+	if l.Tree != wantTree {
+		t.Fatalf("Tree = %q，期望 %q", l.Tree, wantTree)
+	}
+	if l.Home != wantTree+"-home" {
+		t.Fatalf("Home = %q，期望 %q（home 跟随 tree，而不是独立从 base 推导）", l.Home, wantTree+"-home")
+	}
+
+	// 非 init 语义：树不存在 → 清晰中文错误，且**不得**先报 mkdir 噪音
+	if _, err := LayoutFor(prodRepo, ""); err == nil {
+		t.Fatal("树不存在时 LayoutFor 应当报错")
+	} else {
+		msg := err.Error()
+		if !strings.Contains(msg, "dev 工作树不存在") {
+			t.Fatalf("错误信息不清晰: %q", msg)
+		}
+		if !strings.Contains(msg, "dev-web init") || !strings.Contains(msg, EnvTree) {
+			t.Fatalf("错误信息缺少可操作指引: %q", msg)
+		}
+		if strings.Contains(msg, "mkdir") {
+			t.Fatalf("错误被 mkdir 噪音掩盖: %q", msg)
+		}
+	}
+}
+
+// TestLayoutExplicitOverrideAndValidation：显式 override/env 优先，且指向无效目录
+// 时给出明确错误（而不是等到 build 阶段）；init 允许树不存在但拒绝「已存在却不是
+// dev 工作树」的目录。
+func TestLayoutExplicitOverrideAndValidation(t *testing.T) {
+	root := t.TempDir()
+	prodRepo := filepath.Join(root, "work", "AI_CODING", "rick")
+	if err := os.MkdirAll(filepath.Join(prodRepo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prodRepo, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	tree := fakeWorktree(t, filepath.Join(root, "elsewhere"), "custom-dev", prodRepo)
+	t.Setenv("HOME", filepath.Join(root, "fake-home"))
+
+	// 另一个已存在的 dev 树，用于验证 env 的优先级
+	envTree := fakeWorktree(t, filepath.Join(root, "from-env-base"), "env-dev", prodRepo)
+
+	// ① --dev-tree 优先于 env 与默认
+	t.Setenv(EnvTree, envTree)
+	l, err := LayoutFor(prodRepo, tree)
+	if err != nil {
+		t.Fatalf("override 解析失败: %v", err)
+	}
+	if l.Tree != tree || l.Home != tree+"-home" {
+		t.Fatalf("override 未生效: Tree=%q Home=%q", l.Tree, l.Home)
+	}
+
+	// ② env 次之（override 为空时用 EnvTree）
+	l, err = LayoutFor(prodRepo, "")
+	if err != nil {
+		t.Fatalf("env 解析失败: %v", err)
+	}
+	if l.Tree != envTree || l.Home != envTree+"-home" {
+		t.Fatalf("env 未生效: Tree=%q Home=%q，期望 %q", l.Tree, l.Home, envTree)
+	}
+
+	// ②-b env 指向不存在的目录 → 明确中文错误（需求：不要等到 build 阶段）
+	t.Setenv(EnvTree, filepath.Join(root, "env-missing"))
+	if _, err := LayoutFor(prodRepo, ""); err == nil {
+		t.Fatal("env 指向不存在的目录应当报错")
+	} else if !strings.Contains(err.Error(), "dev 工作树不存在") || strings.Contains(err.Error(), "mkdir") {
+		t.Fatalf("env 缺失时的错误不清晰: %v", err)
+	}
+	t.Setenv(EnvTree, envTree)
+
+	// ③ 指向存在的普通目录 → 明确拒绝
+	plain := filepath.Join(root, "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// 目录里有无关内容 → 不是待 git worktree 占用的空位
+	if err := os.WriteFile(filepath.Join(plain, "unrelated.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := LayoutFor(prodRepo, plain); err == nil {
+		t.Fatal("普通目录不应被当成 dev 工作树")
+	} else if !strings.Contains(err.Error(), "不是 rick 源码树") {
+		t.Fatalf("错误信息不明确: %v", err)
+	}
+	if err := (Layout{Tree: plain}).RequireInitTarget(); err == nil {
+		t.Fatal("init 应拒绝「非空且非 rick 源码树」的目标")
+	}
+	// 空目录可被 git worktree 占用 → init 允许；尚不存在的路径同样允许
+	empty := filepath.Join(root, "empty-target")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := (Layout{Tree: empty}).RequireInitTarget(); err != nil {
+		t.Fatalf("init 应允许空目录: %v", err)
+	}
+	if err := (Layout{Tree: filepath.Join(root, "does-not-exist-yet")}).RequireInitTarget(); err != nil {
+		t.Fatalf("init 应允许尚不存在的目标: %v", err)
+	}
+
+	// ④ ProdRepoFromDevTree：形状不符时返回 false
+	if _, ok := ProdRepoFromDevTree(plain); ok {
+		t.Fatal("普通目录不应反推出生产仓库")
+	}
+	if got, ok := ProdRepoFromDevTree(tree); !ok || got != prodRepo {
+		t.Fatalf("ProdRepoFromDevTree = %q,%v，期望 %q,true", got, ok, prodRepo)
+	}
+}
+
+// TestIsDevWorktreeDiscriminatesProdRepo：生产主工作树的 .git 是**目录**，绝不能
+// 被误判为 dev 工作树（否则从生产仓库执行会解析到生产仓库自己）。
+func TestIsDevWorktreeDiscriminatesProdRepo(t *testing.T) {
+	root := t.TempDir()
+	prod := filepath.Join(root, "prod-repo")
+	for _, d := range []string{filepath.Join(prod, ".git"), filepath.Join(prod, "cmd", "rick"), filepath.Join(prod, "web")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(prod, "web", "package.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if IsDevWorktree(prod) {
+		t.Fatal("生产主工作树（.git 是目录）不得被判定为 dev 工作树")
+	}
+	if _, ok := DevTreeFromCwd(prod); ok {
+		t.Fatal("从生产仓库向上查找不应命中 dev 工作树")
+	}
+	// .git 是文件但缺 cmd/rick → 也不是
+	half := filepath.Join(root, "half")
+	if err := os.MkdirAll(half, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(half, ".git"), []byte("gitdir: /x/.git/worktrees/y\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if IsDevWorktree(half) {
+		t.Fatal("缺 cmd/rick 的目录不得被判定为 dev 工作树")
+	}
 }
