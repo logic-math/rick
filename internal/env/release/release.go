@@ -111,6 +111,11 @@ type Plan struct {
 	GoModCache string
 	NpmCache   string
 
+	// MergeVersion 是「--merge-source 合并提交信息里写哪个版本号」。
+	// CLI 在构建后把它设为本次提升的版本（rel.Version），使 merge commit 与
+	// 二进制版本一一对应；留空则用 NewVersion() 现取。
+	MergeVersion string
+
 	KeepVersions  int
 	HealthWait    time.Duration
 	StopGrace     time.Duration
@@ -300,7 +305,9 @@ type Result struct {
 	GCRemoved  []string       `json:"gc_removed,omitempty"`
 	Overlay    string         `json:"overlay,omitempty"`
 	Restart    *RestartResult `json:"restart,omitempty"`
-	Plan       PlanSummary    `json:"plan"`
+	// Merge 记录 --merge-source 的源码合并结果（未开启时为 nil）。
+	Merge *MergeResult `json:"merge,omitempty"`
+	Plan  PlanSummary  `json:"plan"`
 }
 
 // PlanSummary 是可打印的「提升计划」（人类审核的报价单主体）。

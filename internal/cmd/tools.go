@@ -26,6 +26,7 @@ Available subcommands:
   loops_check     Validate .rick/loops/*.md and .rick/skills/*.md format (frontmatter + required sections)
   dev-web         Manage the isolated dev instance (dev worktree + dev HOME) for developing rick itself
   release         Atomically promote the dev build to production, restart it, or roll back
+  rsi_check       Validate the rsi-loop evidence of one self-evolution iteration (6 machine checks)
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -40,6 +41,7 @@ Available subcommands:
 	toolsCmd.AddCommand(NewLoopsCheckCmd())
 	toolsCmd.AddCommand(NewDevWebCmd())
 	toolsCmd.AddCommand(NewReleaseCmd())
+	toolsCmd.AddCommand(NewRSICheckCmd())
 
 	return toolsCmd
 }

@@ -31,6 +31,10 @@ const releaseDetachEnv = "RICK_RELEASE_DETACHED"
 //   - 非 dry-run → 依然要求 `--yes`/`--detach`
 var hostedByProd = release.HostedByProd
 
+// mergeSourceFn 是「源码合并」的测试注入点：CLI 单测据此断言
+// ① 默认（不带 --merge-source）**不会**调用它；② 开启时按预期调用并打印回执。
+var mergeSourceFn = func(p release.Plan) (release.MergeResult, error) { return p.MergeSource() }
+
 var releasePlanFor = func(opts releaseOptions) (release.Plan, error) {
 	p, err := release.DefaultPlan(opts.prodRepo, opts.devTree, opts.port)
 	if err != nil {
@@ -70,6 +74,11 @@ type releaseOptions struct {
 	rollback     bool
 	detach       bool
 	jsonOut      bool
+	// mergeSource 开启「源码合并」：把 dev 分支合并进生产分支后再提升产物，
+	// 让源码与二进制同版生效。默认关（保持既有语义不变）。
+	mergeSource bool
+	// noMergeSource 显式关闭合并（与 mergeSource 互斥；用于脚本里覆盖默认/别名）。
+	noMergeSource bool
 }
 
 // NewReleaseCmd 创建 `rick tools release`：把 dev 工作树的产物原子提升为生产、
@@ -105,7 +114,7 @@ func NewReleaseCmd() *cobra.Command {
 		Short: "Atomically promote the dev build to production, restart it, or roll back",
 		Long: `Promote the dev worktree's artifacts (binary + frontend) to production, restart
 production, and verify that the running build really is the new one. Supports one
-command rollback.
+command rollback and (with --merge-source) source promotion.
 
   生产 = 仓库工作树（<prod-repo>/bin/rick → releases/current/rick）+ <prod-home>/.rick
   dev  = git worktree + 独立 HOME（rick tools dev-web 管理）
@@ -114,10 +123,17 @@ What it does:
   1) 门禁（go test ./... + npm run build）—— 在 **dev 树**里跑，绝不写生产 bin/
   2) 构建到 <prod-repo>/bin/releases/<version>/{rick,dist}（版本号=<sha7>-<时间戳>，
      并以 -ldflags 注入 build_id）
-  3) 记录回滚点 → 原子换链（current）→ bin/rick → releases/current/rick
-  4) 前端同版推进到 <state>/.rick/web/dist（旧覆盖层留 dist.prev）
-  5) 重启生产 → 轮询 /api/health 并要求 build_id == 本次版本（不是则失败）
-  6) 打印恢复报告：谁因重启被挂起（去 web UI 点「恢复继续」）
+  3) 人类确认（终端里的 y / 版本号；--yes 跳过）
+  4) --merge-source 时：把 dev 分支合并进生产分支（**冲突即中止报错**，交 AI 修复后
+     重跑）—— 源码与二进制同版生效；不带该 flag 则只提升产物
+  5) 记录回滚点 → 原子换链（current）→ bin/rick → releases/current/rick
+  6) 前端同版推进到 <state>/.rick/web/dist（旧覆盖层留 dist.prev）
+  7) 重启生产 → 轮询 /api/health 并要求 build_id == 本次版本（不是则失败）
+  8) 打印恢复报告：谁因重启被挂起（去 web UI 点「恢复继续」）
+
+源码合并（--merge-source）前置条件：生产工作树必须干净（否则中止且零改动）；
+生产仓库若存在未完成的合并（MERGE_HEAD）也会被拒绝。
+--rollback **只回滚产物**（二进制/覆盖层），不回滚源码——需要回退源码请用 git。
 
 Impact: 生产会重启，期间浏览器自动重连；所有在跑会话/后台 job 变为「挂起」，
 不会自动续跑（避免重复副作用）——这是刻意设计，不是故障。
@@ -143,12 +159,23 @@ Exit codes:
 	f.IntVar(&opts.keep, "keep", 0, "保留最近 N 个版本（默认 3）")
 	f.BoolVar(&opts.noGates, "no-gates", false, "跳过门禁（仅演练/测试；正式提升会打印警告）")
 	f.BoolVar(&opts.skipFrontend, "skip-frontend", false, "不提升前端（只换二进制）")
+	f.BoolVar(&opts.mergeSource, "merge-source", false,
+		"提升前把 dev 分支合并进生产分支（源码随二进制同版生效）；冲突即中止报错，交 AI 修复后重跑")
+	f.BoolVar(&opts.noMergeSource, "no-merge-source", false,
+		"显式只提升产物、不合并源码（与 --merge-source 互斥）")
 	f.BoolVar(&opts.jsonOut, "json", false, "结尾输出 JSON 结果（脚本/AI 解析用）")
 	return cmd
 }
 
 func runRelease(cmd *cobra.Command, opts releaseOptions) error {
 	out := cmd.OutOrStdout()
+
+	// 参数互斥：--merge-source 与 --no-merge-source 不能同时给（否则语义不明）
+	if opts.mergeSource && opts.noMergeSource {
+		return releaseFail(cmd, "promote", fmt.Errorf(
+			"参数冲突：--merge-source 与 --no-merge-source 不能同时使用（前者合并源码、后者只提升产物）"))
+	}
+
 	plan, err := releasePlanFor(opts)
 	if err != nil {
 		return releaseFail(cmd, "promote", err)
@@ -182,6 +209,9 @@ func runRelease(cmd *cobra.Command, opts releaseOptions) error {
 
 	// ---- 回滚路径（不构建）----
 	if opts.rollback {
+		if opts.mergeSource {
+			fmt.Fprintln(out, "RELEASE_WARN rollback_does_not_revert_source=true（--rollback 只回滚产物：二进制/覆盖层；源码需用 git 回退）")
+		}
 		if !opts.yes && !confirm(cmd, plan, "rollback") {
 			fmt.Fprintln(out, "RELEASE_ABORTED by=user")
 			return nil
@@ -204,6 +234,11 @@ func runRelease(cmd *cobra.Command, opts releaseOptions) error {
 
 	// ---- dry-run（构建 + 打印，不动生产）----
 	if opts.dryRun {
+		if opts.mergeSource {
+			// 演练不产生任何改动 → 也不合并源码。必须说清楚，否则会误以为
+			// 「dry-run 过了 = 源码合并也验证过了」。
+			fmt.Fprintln(out, "RELEASE_WARN merge_source_skipped=dry-run（演练不做源码合并；正式提升才会合并）")
+		}
 		res, err := plan.DryRun(out)
 		if err != nil {
 			return releaseFail(cmd, stageName(err), err)
@@ -222,7 +257,24 @@ func runRelease(cmd *cobra.Command, opts releaseOptions) error {
 		return nil
 	}
 
+	// ---- 源码合并（--merge-source）：在人类确认之后、动发布链之前 ----
+	// 顺序依据（task27 规格：门禁 → 构建 → 合并 → 回滚点 → 换链 → 前端 → 重启）：
+	// 放在确认之后，是为了让「人类否决」时生产仓库**一个字节都不改**（合并会提交）。
+	var mergeRes *release.MergeResult
+	if opts.mergeSource {
+		plan.MergeVersion = rel.Version // merge commit 与本次二进制版本一一对应
+		mr, mErr := mergeSourceFn(plan)
+		mergeRes = &mr
+		if mErr != nil {
+			st := release.ReleaseState{Action: "release", Version: rel.Version, Stage: "merge", OK: false, Error: mErr.Error()}
+			_ = plan.WriteState(st)
+			return releaseFail(cmd, "merge", mErr)
+		}
+		printMerge(out, mr)
+	}
+
 	res, err := plan.Rollout(rel, out)
+	res.Merge = mergeRes
 	if err != nil {
 		return finishFail(cmd, plan, res, err)
 	}
@@ -288,6 +340,19 @@ func printQuote(out io.Writer, p release.Plan, rel release.Release) {
 		}
 	}
 	fmt.Fprintf(out, "RELEASE_CONFIRM 输入 y 确认提升到 %s（或回车放弃）: ", rel.Version)
+}
+
+// printMerge 打印源码合并回执。
+// merged=false reason="already up to date" 是**成功**语义（dev 没有新提交），
+// 不是失败。
+func printMerge(out io.Writer, mr release.MergeResult) {
+	if !mr.Merged {
+		fmt.Fprintf(out, "RELEASE_MERGE merged=false branch=%s main=%s reason=%s\n",
+			mr.Branch, mr.Main, firstNonEmptyStr(mr.Reason, "already up to date"))
+		return
+	}
+	fmt.Fprintf(out, "RELEASE_MERGE merged=true branch=%s main=%s commit=%s files=%d\n",
+		mr.Branch, mr.Main, mr.Commit, mr.Files)
 }
 
 // printRestart 打印重启结果 + 挂起清单。

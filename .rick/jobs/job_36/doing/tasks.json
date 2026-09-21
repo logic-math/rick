@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2026-08-29T11:30:00+08:00",
-  "updated_at": "2026-09-21T16:40:49.300Z",
+  "updated_at": "2026-09-21T16:52:19.171Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -300,25 +300,27 @@
       "task_id": "task24",
       "task_name": "rsi 会话类型后端：loop 注入 + workspace 硬校验 + rick rsi",
       "task_file": "task24.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task23"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-22T00:35:56+08:00",
-      "updated_at": "2026-09-22T00:35:56+08:00"
+      "updated_at": "2026-09-21T16:52:19.171Z",
+      "commit_hash": "1b747bb6edff6934d1631d791dcc104d611b5290"
     },
     {
       "task_id": "task25",
       "task_name": "前端 RSI 自进化入口（类型 + 校验提示）",
       "task_file": "task25.md",
-      "status": "pending",
+      "status": "success",
       "dependencies": [
         "task23"
       ],
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-22T00:35:56+08:00",
-      "updated_at": "2026-09-22T00:35:56+08:00"
+      "updated_at": "2026-09-21T16:52:19.171Z",
+      "commit_hash": "1b747bb6edff6934d1631d791dcc104d611b5290"
     },
     {
       "task_id": "task26",
