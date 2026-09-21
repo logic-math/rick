@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
 import type { SessionInfo, SessionType } from "../../types";
+import { RSI_LOOP_REL_PATH } from "../../lib/rsi";
 import Dialog from "../common/Dialog";
 
 const TYPE_LABEL: Record<SessionType, string> = {
@@ -22,6 +23,7 @@ const TYPE_LABEL: Record<SessionType, string> = {
   learning: "LEARNING",
   dream: "DREAM",
   doing: "DOING",
+  rsi: "RSI",
 };
 
 const TYPE_TONE: Record<SessionType, string> = {
@@ -32,6 +34,8 @@ const TYPE_TONE: Record<SessionType, string> = {
   learning: "border-portal/40 bg-portal-soft text-portal",
   dream: "border-nebula/50 bg-nebula/10 text-nebula",
   doing: "border-rick/40 bg-rick/10 text-rick",
+  // RSI 自进化：星云紫（与 dream 同色系，靠 label 区分）
+  rsi: "border-nebula/50 bg-nebula/10 text-nebula",
 };
 
 export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNode {
@@ -145,6 +149,9 @@ function SettingsBody({
   const job = typeof jobParamRaw === "string" && jobParamRaw ? jobParamRaw : null;
   const ws = useWorkspacesStore((st) => st.list.find((w) => w.id === session.workspace_id));
   const jobDir = job && ws ? `${ws.path}/.rick/jobs/${job}` : null;
+  // RSI 会话：展示 loop 的来源路径（相对工作区根）
+  const loopRelPath = RSI_LOOP_REL_PATH;
+  const workspacePath = ws?.path ?? null;
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text).catch(() => {});
   };
@@ -269,6 +276,34 @@ function SettingsBody({
               {session.pi_session_id}
             </dd>
           </div>
+          {/* RSI 自进化：本会话的方法来源就是那条 loop（不是内置 prompt） */}
+          {session.type === "rsi" && (
+            <div className="flex gap-2">
+              <dt className="w-16 shrink-0 text-ink-3">驱动</dt>
+              <dd className="flex min-w-0 flex-col gap-1">
+                <span className="flex items-center gap-2">
+                  <span className="rounded border border-nebula/50 bg-nebula/10 px-1.5 py-0.5 text-[10px] text-nebula">
+                    本会话由 rick-rsi-loop 驱动
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copy(loopRelPath)}
+                    className="rounded border border-line px-1.5 py-0.5 text-[10px] text-ink-3 hover:border-portal/50 hover:text-portal"
+                    title="复制 loop 路径（在工作区根下）"
+                  >
+                    复制
+                  </button>
+                </span>
+                <span className="min-w-0 break-all font-mono text-[10px] text-ink-3">
+                  {workspacePath ? `${workspacePath}/${loopRelPath}` : loopRelPath}
+                </span>
+                <span className="text-[10px] leading-relaxed text-ink-3">
+                  loop 全文已注入系统提示词；产出（dev 迭代/门禁/人类确认/release 记录）由
+                  rick tools rsi_check 校验。
+                </span>
+              </dd>
+            </div>
+          )}
           {job && (
             <div className="flex gap-2">
               <dt className="w-16 shrink-0 text-ink-3">Job</dt>

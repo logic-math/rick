@@ -7,6 +7,8 @@
  * - easy:       requirement + ctx_path 可选
  * - ctrl/learning/doing: job（下拉，取该工作区 jobs 列表）
  * - human-loop: topic
+ * - rsi:        无参数——后端把 .rick/loops/rick-rsi-loop.md 注入为 method 系统提示词
+ *               （workspace 必须是 dev 工作区；后端硬校验，前端只做醒目提示）
  * - dream:      job_num（数字，默认 5）+ mode（interactive/background 单选）
  * 必填缺失时禁用提交；提交成功跳转 /session/:id。
  */
@@ -17,6 +19,7 @@ import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
 import { jobStageInfo, modeFitWarning } from "../../lib/jobStage";
+import { rsiWorkspaceHint, RSI_PARAMS_EXPLAIN } from "../../lib/rsi";
 import { ApiError } from "../../types";
 import type {
   CreateSessionRequest,
@@ -117,6 +120,19 @@ const CMD_META: CmdMeta[] = [
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M17 4h4M19 2v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "rsi",
+    label: "RSI 自进化",
+    desc: "加载 rick-rsi-loop：隔离 dev 开发 → 门禁 → 人类确认 → release",
+    icon: (a) => (
+      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
+        {/* 自指循环：环 + 回箭头 + 中心核（改进自身） */}
+        <path d="M20 12a8 8 0 1 1-2.4-5.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M20 4v4.2h-4.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.6" />
       </svg>
     ),
   },
@@ -354,6 +370,22 @@ export default function NewSessionModal({
           </select>
         </label>
 
+        {/* RSI 专属：workspace 前置提示（后端会硬校验，这里先引导，避免白填一遍吃 400） */}
+        {cmdType === "rsi" &&
+          (() => {
+            const ws = workspaces.find((w) => w.id === workspaceId) ?? null;
+            const hint = rsiWorkspaceHint(ws);
+            const cls =
+              hint.tone === "portal"
+                ? "border-portal/40 bg-portal/5 text-portal"
+                : "border-morty/40 bg-morty/10 text-ink-2";
+            return (
+              <p className={`rounded-md border px-2.5 py-1.5 text-xs leading-relaxed ${cls}`}>
+                {hint.text}
+              </p>
+            );
+          })()}
+
         {/* ② cmd 类型卡片组 */}
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium uppercase tracking-wide text-ink-3">命令类型</span>
@@ -390,6 +422,19 @@ export default function NewSessionModal({
             <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
               参数（{cmdType}）
             </span>
+
+            {cmdType === "rsi" && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm text-ink-2">本会话由 rick-rsi-loop 驱动</span>
+                <ul className="flex flex-col gap-1 rounded-md border border-nebula/40 bg-nebula/5 px-3 py-2">
+                  {RSI_PARAMS_EXPLAIN.map((line) => (
+                    <li key={line} className="text-[11px] leading-relaxed text-ink-2">
+                      · {line}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {(cmdType === "plan" || cmdType === "easy") && (
               <label className="flex flex-col gap-1.5">
@@ -638,6 +683,9 @@ function buildParams(input: {
       return { job: input.jobId };
     case "human-loop":
       return { topic: input.topic.trim() };
+    case "rsi":
+      // 无表单参数：loop 由后端按 workspace 解析并注入（task24）
+      return {};
     case "dream": {
       // web UI 只保留交互模式（后台模式移除：无进度反馈、与交互语义重复；
       // CLI 侧后台 dream 不受影响）。

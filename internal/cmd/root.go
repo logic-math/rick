@@ -72,6 +72,7 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.AddCommand(NewHumanLoopCmd())
 	rootCmd.AddCommand(NewCtrlCmd())
 	rootCmd.AddCommand(NewEasyCmd())
+	rootCmd.AddCommand(NewRSICmd())
 	rootCmd.AddCommand(NewWebCmd(version))
 
 	return rootCmd
