@@ -656,3 +656,39 @@ M1 提升入口（`rick tools release`：门禁校验 → 构建版本目录 →
 | 第 4 层 | task22 端到端验收 + 文档 | **gate10** | 全部（验收 + 生产回归） |
 
 **工作树纪律（human 指令 2026-09-21）**：prod 仓库工作树**零写入**——本增量全部产物（流水线规格、gate、代码、文档）落在 dev 工作树 `/workdir/sunquan20/rick-dev`；prod 只在每个 gate 末尾做**只读回归断言**（`sessions.json`/`web.json` 指纹 + 8413 健康）。
+
+---
+
+# 增量设计树（第 3 棵）：rick-rsi-loop —— 把「改进 rick 自身」制度化
+
+> human 指令（2026-09-21）：不注册工作区那种零散做法不够——**每次启动「改进 rick」都必须加载 rick 源码里的 `rick-rsi-loop`**，用它驱动 rick 提供的工具完成自进化；并且**在生产 UI 里启动一个 rick 会话，若任务是改进自己，就自动加载这个 loop 并把流程走完**。
+> 事实消解声明：loop 格式（五要素 + frontmatter）、`LoadLoopsContext` 只注入 name+trigger（软触发）、会话类型扩展点（`human-loop` 同构）、`git merge` 冲突/中止语义（**本轮实测**：冲突 exit=1 + `CONFLICT` + `git diff --diff-filter=U` 可列举 + `git merge --abort` 完全恢复；脏工作树被拒）——均已由本轮轻量自查/实测消解，**无遗留判断节点**；两个取舍点由 human 直接裁决（下方 J 表）。
+
+## 根层（L0''）— OKR
+
+**O**：「改进 rick 自身」这件事本身固化为 rick 的一条 loop —— `rick-rsi-loop`，且它是**唯一入口**：在生产/开发的 Web UI 里启动「RSI 自进化」会话即自动加载该 loop，loop 全程驱动 `rick tools dev-web` / 门禁 / `rick tools release`（含源码合并）完成自进化，产出可被机器校验。
+
+**KR 集（充分性：KR1 ∧ KR2 ∧ KR3 ∧ KR4 ⟹ O）**
+
+| KR | 内容 | 验证 |
+|---|---|---|
+| KR1 制度载体 | `.rick/loops/rick-rsi-loop.md` 存在且符合五要素规范；loops 目录 README 与实况一致；`rick tools loops_check` 可校验（把已有 `runLoopsAndSkillsCheck` 挂成子命令） | gate11 |
+| KR2 入口绑定 | 新会话类型 `rsi`（CLI `rick rsi` + Web「RSI 自进化」）把 loop **全文注入系统提示词**；workspace 硬校验（必须是 rick 源码树、必须含该 loop、**不得是生产仓库根**）| gate12 |
+| KR3 闭环执行 | `rick tools release --merge-source`：把 dev 分支合并进生产 main，**冲突即中止报错**（保留回滚点与现场供 AI 修复），无冲突才继续 binary/dist 原子提升 + 重启 + build_id 校验 | gate13 |
+| KR4 可校验产出 | `rick tools rsi_check` 校验 loop 产出评估表：dev 实例 build_id 记录 / 门禁全绿 / **人类确认痕迹** / release 版本 + `.last` 回滚点 / 挂起-恢复记录 | gate13 |
+
+**充分性自检**：KR1 给出「制度文本」→ KR2 把它绑定到启动动作（**"必须"才成立**）→ KR3 让 loop 的收尾动作可一条命令完成且失败安全 → KR4 让 loop 的承诺可被机器检查（从文档变成契约）。四者联合 ⟹「启动 RSI 会话就能把自进化流程走完」✅（维度：文本 / 入口 / 执行 / 校验，MECE）
+
+## 层映射
+
+| 层 | task | 门禁 |
+|---|---|---|
+| 第 1 层 | task23 loop 文档 + `loops_check` 挂载 + README 修正 | gate11 |
+| 第 2 层 | task24 `rsi` 会话类型后端（校验 + method 注入 + `rick rsi`）· task25 前端 RSI 入口 | gate12 |
+| 第 3 层 | task26 `rick tools rsi_check` · task27 `release --merge-source`（冲突即中止）| gate13 |
+| 第 4 层 | task28 端到端（模拟生产）+ 文档 + prod 注册 rick-dev 操作手册 | gate14 |
+
+## 判断节点（human 已裁决）
+- **J-RSI-1 唯一入口**：loop 必须由**会话类型**绑定（不是靠 agent 自觉读文档）→ 裁决：**是**（否则"必须"无法保证）
+- **J-RSI-2 源码合并**：release 合并 dev→main；**冲突即终止报错**，由 AI 修复后重新 release（human 原话）→ 裁决：**是**（不自动解决冲突）
+- **J-RSI-3 运行位置**：RSI 会话的 workspace 必须是 **dev 工作区**（生产仓库根被硬拒，否则直接改生产源码）→ 裁决：**是**
