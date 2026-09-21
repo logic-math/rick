@@ -183,3 +183,109 @@ E2E 断言覆盖：隔离（状态/flock/守卫）、前端热更（进程不重
 
 > 生产是活的（在被使用的实例上，每次会话活动都会写注册表），所以「指纹不变」只在**同一次运行内**有意义——
 > E2E/gate10 都是首尾各测一次、在单次运行内比对，不做跨运行比较。
+
+---
+
+## 8. RSI 自进化：让 rick 改进 rick（制度化的唯一入口）
+
+自进化**不是**靠人肉记住流程，而是靠一条 loop —— `.rick/loops/rick-rsi-loop.md`（`rsi-loop`）。
+它是 rick 源码的一部分，与代码同仓、同发布链，因此流程本身也会随迭代演进。
+
+### 8.1 怎么用（三步）
+
+1. **在生产 UI 里新建会话** → 类型选 **`RSI 自进化`**（`rsi`）→ 工作区选 **dev 工作区**（`rick-dev`，见 §10 注册步骤）
+   - CLI 等价入口：`rick rsi`（在 dev 工作树内执行）
+2. **loop 自动加载**：后端把 `rick-rsi-loop` 的**全文**注入本次会话的系统提示词，并把 loop 文件登记为
+   `_method_file`（resume 后由 `--append-system-prompt` 重新注入，所以 loop 的后续修改在 resume 后依然生效）。
+   → 也就是说：**启动这个会话 = 必然按 loop 执行**，不依赖 agent 自觉读文档。
+3. **按 loop 的状态机 S0→S7 走完**一次迭代：
+
+| 状态 | 做什么 | 命令 | 出口判据 |
+|---|---|---|---|
+| S0 设计 | grilling 出设计树，判断节点交人类裁决 | — | 设计树每层达标 + `grilling_gate` |
+| S1 隔离开发 | 只在 dev 工作区改；前端热更 / 后端重建 | `rick tools dev-web init/status/up`；前端 `npm run build`（dev 树）；后端 `rick tools dev-web restart` | dev 侧 `build_id` 已换（新构建真的在跑） |
+| S2 层门禁 | 逐层跑门禁 | `python3 .rick/jobs/<job>/plan/gates/gateN.py` | 全绿才下钻 |
+| S3 演练 | 给人类看计划 | `rick tools release --dry-run` | `prod_untouched=true` |
+| **S4 人类确认** | 唯一放行点：把计划 + 影响面呈报人类 | 人工 | `doing/rsi/approval.md` 写入 `APPROVED by=human at=<时间>` |
+| S5 提升 | 源码合并 + 产物换链 + 重启 + 指纹校验 | `rick tools release --merge-source` | `/api/health` 的 `build_id` == 本次 version |
+| S6 恢复 | 重启后会话**挂起**，人类在 UI 逐条点「恢复继续」 | UI 按钮 / `POST /api/sessions/{id}/continue` | `doing/rsi/resume.md` |
+| S7 留痕校验 | 机器校验产出评估表 | `rick tools rsi_check --job <job> --json` | `pass=true` → 迭代成功退出 |
+
+**人类确认点只有一个：S4。** 其余步骤都可自动执行，但**没有 S4 的证据就不算完成** ——
+`rsi_check` 把 `approval.md` 里是否有 `APPROVED by=human` + 时间戳作为最关键的硬门槛。
+
+### 8.2 为什么必须走 loop（而不是"记得这么干"）
+
+- **机制 vs 制度**：`dev-web` / 门禁 / `release` / 挂起恢复是**机制**；loop 是**制度**。只有机制时，
+  每次（或换个人、换个会话）改 rick 都要重走试错；loop 把「怎么安全地改」固化成可复制流程。
+- **注入而非自觉**：`rsi` 会话类型把 loop 全文塞进系统提示词 —— "必须使用"由入口保证，不靠 agent 记性。
+- **产出可机器校验**：loop 的「产出评估」表（6 项）由 `rsi_check` 逐项校验。
+  证据目录：`<ws>/.rick/jobs/<job>/doing/rsi/{dev-iterations,gates,approval,release,resume}.md`；
+  第 6 项 `prod-health` 是**实时探测** `GET /api/health` 并要求 `build_id` == release 记录的 version ——
+  这是**证伪**手段（`release.md` 只是自述，只有探测能证明生产真的跑上了这次构建）。
+- **防自欺**：`rsi_check --init` 生成的骨架**永远不通过**（残留 `<!-- TODO` 标记即视为未填写）。
+- **工作区守卫**：`rsi` 会话拒绝三种非法工作区（HTTP 400 + 中文原因）：
+  非 rick 源码树 / 缺 `.rick/loops/rick-rsi-loop.md` / **指向生产仓库根**（后者最危险：会绕过 release 门禁直接改生产源码）。
+
+## 9. 源码合并：`release --merge-source`
+
+`release` 的默认行为只提升**产物**（二进制 + 前端覆盖层）。带上 `--merge-source` 才把 **dev 分支合并进生产分支**，
+让源码与二进制同版生效：
+
+```bash
+rick tools release --merge-source --dry-run     # 先看计划（不碰生产）
+rick tools release --merge-source               # 人类确认后执行
+rick tools release --no-merge-source            # 显式只要产物、不动源码
+```
+
+- **前置条件**：生产工作树必须干净（否则中止且**零改动**，报错会列出脏文件）；生产仓库若存在未完成的合并（`MERGE_HEAD`）也会被拒绝。
+- **冲突语义（刻意设计）**：冲突发生 → 执行 `git merge --abort` 把生产工作树**恢复到干净状态** → 命令报错并列出冲突文件清单。
+  **交 AI 修复后重跑**：在 dev 树内 `git merge main` → 解冲突 → 提交 → 重新 `rick tools release --merge-source`。
+  （刻意不做自动解冲突：错误合并的代价远高于多跑一次。）
+- **回滚语义**：`rick tools release --rollback` **只回滚产物**（二进制/覆盖层切回上一版），**不回滚源码** ——
+  需要回退源码请用 `git`（例如 `git revert` 那个 merge commit）。
+- 留痕：`RELEASE_MERGE merged=true branch=<dev 分支> main=<生产分支> commit=<merge commit> files=<n>`；
+  合并结果同时写进 `doing/rsi/release.md` 的 `version=` / `rollback_point=` 供 `rsi_check` 校验。
+
+## 10. 把 dev 工作区注册到生产 UI（让 RSI 会话能在生产里启动）
+
+RSI 会话必须在 **dev 工作区**运行（生产仓库根会被守卫拒绝），所以要让**生产 UI** 能选到它，需要在生产实例的
+注册表里加一条 **additive 且可逆** 的记录：
+
+```bash
+PROD_TOKEN="$(python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.rick/config.json")))["web_token"])')"
+
+# 1) 注册 dev 工作区（rick-dev）——只新增一条记录，不影响任何现有会话/job
+curl -s --noproxy '*' -X POST -H "Authorization: Bearer $PROD_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"path":"/workdir/sunquan20/rick-dev","name":"rick-dev"}' \
+  http://127.0.0.1:8413/api/workspaces
+
+# 2) 复查：应能看到 rick-dev（其余工作区原样）
+curl -s --noproxy '*' -H "Authorization: Bearer $PROD_TOKEN" http://127.0.0.1:8413/api/workspaces
+
+# 3) 撤销（可逆）：删掉该工作区注册（只移除注册，不删目录、不动它的 .rick）
+curl -s --noproxy '*' -X DELETE -H "Authorization: Bearer $PROD_TOKEN" \
+  http://127.0.0.1:8413/api/workspaces/<rick-dev 的 id>
+```
+
+之后在**生产 UI**：新建会话 → 类型 `RSI 自进化` → 工作区 `rick-dev` → agent 会按 loop 走完 S0→S7。
+
+> 若不想动生产注册表：**dev 实例自己的 UI**（`http://<host>:8414/?token=<dev token>`）注册表里已经有 `rick-dev`，
+> 可以作为 RSI 会话的替代入口 —— 两种入口跑的是同一套 loop 与工具。
+
+## 11. 验收（本增量）
+
+```bash
+bash scripts/rsi-loop-e2e.sh                     # RSI 全链路（模拟生产；末行 {"pass":true,...,"prod_touched":false}）
+python3 .rick/jobs/job_36/plan/gates/gate11.py   # loop 制度载体 + loops_check
+python3 .rick/jobs/job_36/plan/gates/gate12.py   # rsi 入口绑定 + 守卫
+python3 .rick/jobs/job_36/plan/gates/gate13.py   # rsi_check + release --merge-source
+python3 .rick/jobs/job_36/plan/gates/gate14.py   # E2E + 文档 + 生产回归
+```
+
+`rsi-loop-e2e.sh` 覆盖：loop 注入（提示词含 loop 全文与机制命令）、三类非法工作区守卫（400 + 中文原因）、
+`rsi_check` 的 fail/骨架-fail/pass 与两条负例（门禁 `pass=false`、`version` 与生产 `build_id` 不符）、
+`--merge-source` 的「无冲突成功 / 冲突中止且工作树恢复干净 / AI 修复后重跑成功」、以及真实生产只读回归。
+
+> **真实生产的第一次端到端仍由人类执行**：脚本只覆盖可在隔离环境验证的部分；真实 release 会重启生产
+> （所有在跑会话变「挂起」，需人工逐条恢复）。
