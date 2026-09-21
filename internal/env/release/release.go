@@ -90,6 +90,14 @@ type Plan struct {
 	// 「生产用了 --state-dir」的部署。
 	StateDir string
 
+	// StagingDir 覆盖「本次构建写到哪」：
+	//   - 空（默认）：<ProdRepo>/bin/releases/<version> —— 真实提升的发布目录；
+	//   - 非空：<StagingDir>/<version> —— dry-run 用的一次性暂存目录。
+	// 存在的理由：`--dry-run` 承诺「不动生产」，而旧实现复用 Build()，会把产物
+	// 写进生产树 <ProdRepo>/bin/releases/<version>（实测残留 bin/releases/1091f62-…）。
+	// 暂存目录里的产物**永远不可提升**（Promote 显式拒绝 Staged 产物）。
+	StagingDir string
+
 	Port   int    // 生产监听端口（从部署脚本解析，**不硬编码**）
 	Listen string // 生产监听地址（默认 0.0.0.0）
 
@@ -199,6 +207,15 @@ func (p Plan) VersionDir(version string) string {
 	return filepath.Join(p.ReleasesDir(), version)
 }
 
+// BuildDir 返回本次构建**实际写入**的目录。默认就是 VersionDir（发布目录）；
+// 只有 dry-run 通过 StagingDir 把它指向一次性暂存目录，从而在生产树上零写入。
+func (p Plan) BuildDir(version string) string {
+	if strings.TrimSpace(p.StagingDir) != "" {
+		return filepath.Join(p.StagingDir, version)
+	}
+	return p.VersionDir(version)
+}
+
 // ---- 失败阶段（CLI 据此映射退出码）----
 
 // StageError 携带失败阶段：gate / build / promote / restart / health。
@@ -218,8 +235,14 @@ func stageErr(stage string, format string, args ...any) error {
 
 // Release 是一次构建的产物（版本目录内的东西）。
 type Release struct {
-	Version   string
-	Dir       string
+	Version string
+	// Dir 是**实际构建落点**（真实提升=发布目录；dry-run=暂存目录）。
+	Dir string
+	// TargetDir 是「正式提升时产物应当所在」的发布目录（<prodRepo>/bin/releases/<ver>）。
+	// dry-run 用它把「本来会落到哪」告诉人类，避免暂存路径造成误解。
+	TargetDir string
+	// Staged 为真表示这是暂存（dry-run）产物 —— Promote 会拒绝提升它。
+	Staged    bool
 	Bin       string
 	Dist      string
 	DistFiles int
@@ -264,16 +287,20 @@ type RestartResult struct {
 
 // Result 是提升/回滚的结果（一行真相 + 给 AI 会话解析的结构）。
 type Result struct {
-	Action      string         `json:"action"` // promote | rollback | dry-run
-	Version     string         `json:"version"`
-	PrevVersion string         `json:"prev_version,omitempty"`
-	Bin         string         `json:"bin,omitempty"`
-	DistFiles   int            `json:"dist_files,omitempty"`
-	SHA256      string         `json:"sha256,omitempty"`
-	GCRemoved   []string       `json:"gc_removed,omitempty"`
-	Overlay     string         `json:"overlay,omitempty"`
-	Restart     *RestartResult `json:"restart,omitempty"`
-	Plan        PlanSummary    `json:"plan"`
+	Action      string `json:"action"` // promote | rollback | dry-run
+	Version     string `json:"version"`
+	PrevVersion string `json:"prev_version,omitempty"`
+	Bin         string `json:"bin,omitempty"`
+	DistFiles   int    `json:"dist_files,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	// dry-run 专用：正式提升本会写到的目标路径 + 本次临时暂存路径
+	TargetBin  string         `json:"target_bin,omitempty"`
+	TargetDist string         `json:"target_dist,omitempty"`
+	StagingDir string         `json:"staging_dir,omitempty"`
+	GCRemoved  []string       `json:"gc_removed,omitempty"`
+	Overlay    string         `json:"overlay,omitempty"`
+	Restart    *RestartResult `json:"restart,omitempty"`
+	Plan       PlanSummary    `json:"plan"`
 }
 
 // PlanSummary 是可打印的「提升计划」（人类审核的报价单主体）。
@@ -318,7 +345,9 @@ func (p Plan) Build(out io.Writer) (Release, error) {
 		out = io.Discard
 	}
 	version := p.NewVersion()
-	rel := Release{Version: version, Dir: p.VersionDir(version), BuildID: version}
+	target := p.VersionDir(version)
+	dir := p.BuildDir(version)
+	rel := Release{Version: version, Dir: dir, TargetDir: target, Staged: dir != target, BuildID: version}
 	rel.Bin = filepath.Join(rel.Dir, "rick")
 	rel.Dist = filepath.Join(rel.Dir, "dist")
 
@@ -504,6 +533,10 @@ func smokeCheck(bin string) error {
 // ⑤ 保留最近 N 版并 GC。**不重启**（重启由调用方显式发起，便于先打印计划）。
 func (p Plan) Promote(rel Release) (Result, error) {
 	res := Result{Action: "promote", Version: rel.Version, Plan: p.Summary()}
+	if rel.Staged {
+		return res, stageErr("promote",
+			"拒绝提升暂存（dry-run）产物: %s —— 暂存目录不属于发布目录，请走真实提升路径重新构建", rel.Dir)
+	}
 	if fi, err := os.Stat(rel.Dir); err != nil || !fi.IsDir() {
 		return res, stageErr("promote", "版本目录不存在: %s", rel.Dir)
 	}
@@ -940,16 +973,47 @@ func (p Plan) Rollback() (Result, error) {
 }
 
 // DryRun 只做门禁 + 构建 + 打印计划，**不动生产、不重启**。
+// DryRun 演练完整构建（门禁 + 二进制 + 前端），但**生产树零写入**：
+// 产物落到 os.MkdirTemp 的一次性暂存目录，打印「正式提升本会落到哪」，
+// 结束后清理暂存目录（清理失败会明确报告残留路径，不静默）。
 func (p Plan) DryRun(out io.Writer) (Result, error) {
-	rel, err := p.Build(out)
-	if err != nil {
-		return Result{Action: "dry-run", Plan: p.Summary()}, err
+	if out == nil {
+		out = io.Discard
 	}
+	staging, err := os.MkdirTemp("", "rick-release-dryrun-")
+	if err != nil {
+		return Result{Action: "dry-run", Plan: p.Summary()},
+			stageErr("build", "创建 dry-run 暂存目录: %v", err)
+	}
+	staged := p
+	staged.StagingDir = staging
+
+	rel, buildErr := staged.Build(out)
+	if buildErr != nil {
+		// 构建失败也要清场（暂存目录可能已有半成品）
+		if rmErr := os.RemoveAll(staging); rmErr != nil {
+			fmt.Fprintf(out, "RELEASE_WARN dryrun_staging_left=%s err=%v（请手工清理）\n", staging, rmErr)
+		}
+		return Result{Action: "dry-run", Plan: p.Summary()}, buildErr
+	}
+
 	res := Result{Action: "dry-run", Version: rel.Version, Bin: rel.Bin,
-		DistFiles: rel.DistFiles, SHA256: rel.SHA256, Plan: p.Summary()}
-	if out != nil {
-		fmt.Fprintf(out, "RELEASE_DRYRUN version=%s bin=%s dist_files=%d (未触碰生产、未重启)\n",
-			rel.Version, rel.Bin, rel.DistFiles)
+		TargetBin:  filepath.Join(rel.TargetDir, "rick"),
+		TargetDist: filepath.Join(rel.TargetDir, "dist"),
+		StagingDir: rel.Dir,
+		DistFiles:  rel.DistFiles, SHA256: rel.SHA256, Plan: p.Summary()}
+	fmt.Fprintf(out, "RELEASE_DRYRUN version=%s dist_files=%d sha256=%s\n",
+		rel.Version, rel.DistFiles, short(rel.SHA256))
+	fmt.Fprintf(out, "RELEASE_DRYRUN target_bin=%s\n", res.TargetBin)
+	fmt.Fprintf(out, "RELEASE_DRYRUN target_dist=%s\n", res.TargetDist)
+	fmt.Fprintf(out, "RELEASE_DRYRUN staging=%s (临时；不影响生产树)\n", rel.Dir)
+	fmt.Fprintln(out, "RELEASE_DRYRUN prod_untouched=true（未写生产树、未换链、未重启；所有会话/任务不会被打断）")
+
+	// 清理暂存：失败必须显式报告（不静默留垃圾）
+	if rmErr := os.RemoveAll(staging); rmErr != nil {
+		fmt.Fprintf(out, "RELEASE_WARN dryrun_staging_left=%s err=%v（请手工清理）\n", staging, rmErr)
+	} else {
+		fmt.Fprintln(out, "RELEASE_DRYRUN cleanup=ok")
 	}
 	return res, nil
 }
