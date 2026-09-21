@@ -24,6 +24,13 @@ const releaseDetachEnv = "RICK_RELEASE_DETACHED"
 
 // releasePlanFor 是 Plan 解析的间接层：测试可替换它，从而在**不碰真实生产**的
 // 前提下验证 CLI 行为（默认实现从部署事实推导，见 release.DefaultPlan）。
+// hostedByProd 是自保判定的**测试注入点**（生产取值：release.HostedByProd）。
+// 真实实现要沿 /proc 父链判断「本进程是否被生产实例托管」，单测无法构造该场景，
+// 因此留一个最小 seam，让测试能精确断言：
+//   - `--dry-run` 不重启任何东西 → 自保拦截**不适用**（仍如实打印警告）
+//   - 非 dry-run → 依然要求 `--yes`/`--detach`
+var hostedByProd = release.HostedByProd
+
 var releasePlanFor = func(opts releaseOptions) (release.Plan, error) {
 	p, err := release.DefaultPlan(opts.prodRepo, opts.devTree, opts.port)
 	if err != nil {
@@ -148,10 +155,13 @@ func runRelease(cmd *cobra.Command, opts releaseOptions) error {
 	}
 
 	// ---- 自保：本进程是否被生产实例托管（我们正要去重启它）----
-	hosted, why := release.HostedByProd(plan)
+	// --dry-run 只跑门禁+构建+打印计划，**不重启任何东西** → 自保拦截对它不适用：
+	// 否则「由生产实例托管的会话做一次发布演练」这条最常见路径会被自己的保护挡住
+	// （实测 RELEASE_FAIL stage=restart，用户拿不到计划）。dry-run 仍如实打印警告。
+	hosted, why := hostedByProd(plan)
 	if hosted && !opts.detach {
 		fmt.Fprintf(out, "RELEASE_WARN hosted_by_prod=true (%s)\n", why)
-		if !opts.yes {
+		if !opts.yes && !opts.dryRun {
 			return releaseFail(cmd, "restart", fmt.Errorf(
 				"本命令会重启承载当前会话的生产实例，进程可能半途被杀；请加 --yes 明确同意，或用 --detach 脱离进程组执行"))
 		}

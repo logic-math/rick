@@ -190,6 +190,16 @@ func TestBuildProducesVersionedArtifacts(t *testing.T) {
 	if rel.SHA256 == "" {
 		t.Fatal("缺少二进制 sha256")
 	}
+	// 真实提升（未设 StagingDir）必须落到发布目录 <prodRepo>/bin/releases/<ver>/
+	if rel.Dir != p.VersionDir(rel.Version) {
+		t.Fatalf("真实提升构建落点应为发布目录 %s，实际 %s", p.VersionDir(rel.Version), rel.Dir)
+	}
+	if rel.Staged {
+		t.Fatal("非 dry-run 构建不应标记 Staged")
+	}
+	if !strings.HasPrefix(rel.Bin, p.ReleasesDir()) {
+		t.Fatalf("产物必须落在 <prodRepo>/bin/releases/ 下: %s", rel.Bin)
+	}
 	// 构建不得触碰生产入口与覆盖层
 	if fileExists(p.ProdBinLink()) {
 		t.Fatal("构建阶段不应创建生产 bin/rick")
@@ -517,7 +527,8 @@ func TestRollbackWithoutRollbackPointFails(t *testing.T) {
 
 func TestDryRunNeverTouchesProd(t *testing.T) {
 	p := newFakeProd(t)
-	res, err := p.DryRun(io.Discard)
+	var out strings.Builder
+	res, err := p.DryRun(&out)
 	if err != nil {
 		t.Fatalf("DryRun: %v", err)
 	}
@@ -530,6 +541,71 @@ func TestDryRunNeverTouchesProd(t *testing.T) {
 	if pids := findProdPIDs(p); len(pids) != 0 {
 		t.Fatalf("dry-run 启动了生产进程: %v", pids)
 	}
+
+	// F3：dry-run 的**构建产物**也不得落进生产树。
+	// 旧实现复用 Build()，会写 <ProdRepo>/bin/releases/<version>/{rick,dist}
+	//（实测残留 bin/releases/1091f62-260921201517/）。
+	if got := listFilesUnder(p.ReleasesDir()); len(got) != 0 {
+		t.Fatalf("dry-run 在生产树写了构建产物（应零写入）: %v", got)
+	}
+	// 产物必须落在临时暂存目录里，且该目录在 dry-run 结束时被清理
+	if res.StagingDir == "" || res.TargetBin == "" || res.TargetDist == "" {
+		t.Fatalf("dry-run 未报告暂存/目标路径: %+v", res)
+	}
+	if dirExists(res.StagingDir) {
+		t.Fatalf("dry-run 未清理暂存目录: %s", res.StagingDir)
+	}
+	if !strings.Contains(res.StagingDir, os.TempDir()) {
+		t.Fatalf("暂存目录应位于系统临时目录下，实际 %s", res.StagingDir)
+	}
+	// 目标路径必须预告「正式提升本会落到哪」（相对生产树）
+	wantBin := filepath.Join(p.ProdRepo, "bin", ReleasesDirName, res.Version, "rick")
+	if res.TargetBin != wantBin {
+		t.Fatalf("target_bin = %s, want %s", res.TargetBin, wantBin)
+	}
+	body := out.String()
+	for _, want := range []string{"RELEASE_DRYRUN", "prod_untouched=true", "cleanup=ok", wantBin} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dry-run 输出缺少 %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestPromoteRejectsStagedRelease 纵深防御：暂存（dry-run）产物即使被手工塞进
+// Promote 也必须被拒绝 —— 否则「暂存目录 → 生产链」的路径就绕过了 DryRun 的承诺。
+func TestPromoteRejectsStagedRelease(t *testing.T) {
+	p := newFakeProd(t)
+	staged := p
+	staged.StagingDir = t.TempDir()
+	rel, err := staged.Build(io.Discard)
+	if err != nil {
+		t.Fatalf("staged Build: %v", err)
+	}
+	if !rel.Staged {
+		t.Fatal("StagingDir 生效时 rel.Staged 应为 true")
+	}
+	if _, err := p.Promote(rel); err == nil {
+		t.Fatal("Promote 竟然接受了暂存产物")
+	} else if stageOf(t, err) != "promote" {
+		t.Fatalf("失败阶段 = %s, want promote", stageOf(t, err))
+	}
+	if fileExists(p.CurrentLink()) {
+		t.Fatal("被拒绝的提升不该留下 current 链")
+	}
+}
+
+// listFilesUnder 递归列出目录下所有条目（相对路径）；目录不存在返回 nil。
+func listFilesUnder(root string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || path == root {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		out = append(out, rel)
+		return nil
+	})
+	return out
 }
 
 func TestStatusReportsVersionsAndRecovery(t *testing.T) {

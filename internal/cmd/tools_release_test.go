@@ -171,8 +171,12 @@ func TestReleaseCmdDryRunUsesInjectedPlanAndNeverPromotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry-run: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "RELEASE_DRYRUN") || !strings.Contains(out, "未触碰生产") {
-		t.Fatalf("dry-run 回执缺失:\n%s", out)
+	// 回执契约（F3 后）：版本/目标路径/暂存路径/零触碰/清理结果
+	for _, want := range []string{"RELEASE_DRYRUN", "target_bin=", "target_dist=", "staging=",
+		"prod_untouched=true", "cleanup=ok"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("dry-run 回执缺少 %q:\n%s", want, out)
+		}
 	}
 	if _, err := os.Lstat(plan.CurrentLink()); !os.IsNotExist(err) {
 		t.Fatal("dry-run 不该切 current 链")
@@ -180,10 +184,53 @@ func TestReleaseCmdDryRunUsesInjectedPlanAndNeverPromotes(t *testing.T) {
 	if _, err := os.Lstat(plan.ProdBinLink()); !os.IsNotExist(err) {
 		t.Fatal("dry-run 不该创建 bin/rick")
 	}
+	// F3：dry-run 的构建产物**不得**落进生产树（模拟生产 = 假生产 repo）。
+	if entries := listUnder(plan.ReleasesDir()); len(entries) != 0 {
+		t.Fatalf("dry-run 在生产树写了产物（应零写入）: %v", entries)
+	}
+	// 目标路径必须是「正式提升本会落到」的生产发布目录
+	if !strings.Contains(out, filepath.Join(plan.ReleasesDir(), "")) {
+		t.Fatalf("回执未预告正式提升的目标发布目录 %s:\n%s", plan.ReleasesDir(), out)
+	}
+	// 暂存必须是系统临时目录且已清理
+	staging := extractField(out, "RELEASE_DRYRUN staging=")
+	if staging == "" || !strings.HasPrefix(staging, os.TempDir()) {
+		t.Fatalf("暂存目录应位于系统临时目录: %q", staging)
+	}
+	if _, err := os.Stat(strings.SplitN(staging, " ", 2)[0]); !os.IsNotExist(err) {
+		t.Fatalf("dry-run 未清理暂存目录: %s", staging)
+	}
 	// 产物只落在临时模拟生产内
 	if !strings.HasPrefix(root, os.TempDir()) {
 		t.Fatalf("模拟生产不在临时目录: %s", root)
 	}
+}
+
+// listUnder 递归列出目录下所有条目（相对路径）；目录不存在返回 nil。
+func listUnder(root string) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || path == root {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, path)
+		out = append(out, rel)
+		return nil
+	})
+	return out
+}
+
+// extractField 从回执里取 "PREFIX=<token>" 形式的值（取到第一个空格为止）。
+func extractField(out, prefix string) string {
+	i := strings.Index(out, prefix)
+	if i < 0 {
+		return ""
+	}
+	rest := out[i+len(prefix):]
+	if j := strings.IndexAny(rest, " \n"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimSpace(rest)
 }
 
 func TestReleaseCmdDeclineAbortsWithoutPromoting(t *testing.T) {
@@ -260,5 +307,73 @@ func TestReleaseCmdNoGatesWarns(t *testing.T) {
 	}
 	if !strings.Contains(out, "RELEASE_WARN no_gates=true") {
 		t.Fatalf("未告警跳过门禁:\n%s", out)
+	}
+}
+
+// withHostedByProd 注入「被生产实例托管」的判定（默认实现依赖真实 /proc 祖谱）。
+func withHostedByProd(t *testing.T, hosted bool, why string) {
+	t.Helper()
+	restore := hostedByProd
+	hostedByProd = func(release.Plan) (bool, string) { return hosted, why }
+	t.Cleanup(func() { hostedByProd = restore })
+}
+
+// TestReleaseCmdDryRunBypassesHostedSelfProtection 覆盖 F2：由生产实例托管的会话
+// 执行 `release --dry-run` 必须成功（dry-run 不重启任何东西，自保拦截不适用），
+// 但仍要如实打印 hosted_by_prod 警告，且绝不产生提升副作用。
+func TestReleaseCmdDryRunBypassesHostedSelfProtection(t *testing.T) {
+	plan, root := fakeReleaseProd(t)
+	withFakePlan(t, plan)
+	withHostedByProd(t, true, "祖先进程 12345 是生产实例")
+
+	out, err := runReleaseCmd(t, "", "--dry-run")
+	if err != nil {
+		t.Fatalf("hosted 场景下 dry-run 应成功（F2 回归）: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "RELEASE_WARN hosted_by_prod=true") {
+		t.Fatalf("dry-run 仍应如实打印托管警告:\n%s", out)
+	}
+	if !strings.Contains(out, "RELEASE_DRYRUN") {
+		t.Fatalf("dry-run 未输出计划回执:\n%s", out)
+	}
+	// 纯演练：不得切换 current 链 / 不得创建生产 bin/rick / 不得重启
+	if _, err := os.Lstat(plan.CurrentLink()); !os.IsNotExist(err) {
+		t.Fatal("dry-run 不该切 current 链")
+	}
+	if _, err := os.Lstat(plan.ProdBinLink()); !os.IsNotExist(err) {
+		t.Fatal("dry-run 不该创建 bin/rick")
+	}
+	if !strings.HasPrefix(root, os.TempDir()) {
+		t.Fatalf("模拟生产不在临时目录: %s", root)
+	}
+}
+
+// TestReleaseCmdHostedNonDryRunStillRequiresConsent 反向断言：自保语义在非 dry-run
+// 路径上**没有被削弱** —— 仍要求 --yes（或 --detach）。
+func TestReleaseCmdHostedNonDryRunStillRequiresConsent(t *testing.T) {
+	plan, _ := fakeReleaseProd(t)
+	withFakePlan(t, plan)
+	withHostedByProd(t, true, "祖先进程 12345 是生产实例")
+
+	// releaseFail 会走 devExit（生产是 os.Exit）——测试里替换成记录函数，绝不真退出
+	recorded := -1
+	restoreExit := devExit
+	devExit = func(code int) { recorded = code }
+	defer func() { devExit = restoreExit }()
+
+	out, err := runReleaseCmd(t, "y\n")
+	if err == nil {
+		t.Fatalf("非 dry-run 且未给 --yes 时应被自保拦下:\n%s", out)
+	}
+	if recorded != release.ExitRestart {
+		t.Fatalf("退出码 = %d，期望 %d（restart）", recorded, release.ExitRestart)
+	}
+	if !strings.Contains(out, "RELEASE_WARN hosted_by_prod=true") ||
+		!strings.Contains(out, "承载当前会话") {
+		t.Fatalf("自保拦截回执缺失:\n%s", out)
+	}
+	// 断言没有真正提升（当前链不存在）
+	if _, statErr := os.Lstat(plan.CurrentLink()); !os.IsNotExist(statErr) {
+		t.Fatal("被自保拦下时不该产生提升副作用")
 	}
 }
