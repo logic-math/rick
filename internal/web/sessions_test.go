@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sunquan/rick/internal/handler"
+	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -1873,4 +1874,218 @@ func TestSessionContinue_DoingNormalizesAndReruns(t *testing.T) {
 
 	// 收尾：取消后台 runner，避免 goroutine 泄漏
 	post(t, m.SessionClose, "/api/sessions/susp-doing/close", nil)
+}
+
+// ---- RSI（自进化）会话类型：loop 必然注入 + workspace 硬校验 ----
+
+// makeRSIWorkspace 把测试工作区改造成「像 rick 源码树 + 带 loop」的形态。
+// ws 来自 newTestEnv（其 .rick 已建好 loops/ 目录）。
+func makeRSIWorkspace(t *testing.T, ws string, withLoop bool) {
+	t.Helper()
+	for f, content := range map[string]string{
+		filepath.Join(ws, "cmd", "rick", "main.go"):    "package main\nfunc main() {}\n",
+		filepath.Join(ws, "internal", "web", "web.go"): "package web\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if withLoop {
+		loop := prompt.RSILoopPath(ws)
+		if err := os.MkdirAll(filepath.Dir(loop), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(loop, []byte(rsiTestLoop), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+const rsiTestLoop = `---
+name: rick-rsi-loop
+trigger: "改 rick 自身时触发"
+scope: "全局"
+---
+
+## 目标
+安全送达生产。
+
+## 上下文管理
+保留改动清单。
+
+## 可调用工具
+- rick tools dev-web restart
+- rick tools release --merge-source
+
+## 产出评估
+由 rsi_check 校验。
+
+## 停止标准
+rsi_check pass=true。
+`
+
+// TestValidateSessionRequestRSI：rsi 不接受其它类型的参数（表单串类型要明确拒绝）。
+func TestValidateSessionRequestRSI(t *testing.T) {
+	cases := []struct {
+		name    string
+		params  map[string]any
+		wantErr string
+	}{
+		{"rsi ok empty params", map[string]any{}, ""},
+		{"rsi ok nil-ish empty strings", map[string]any{"requirement": "", "job": ""}, ""},
+		{"rsi rejects requirement", map[string]any{"requirement": "改点什么"}, "requirement"},
+		{"rsi rejects job", map[string]any{"job": "job_36"}, "job"},
+		{"rsi rejects topic", map[string]any{"topic": "t"}, "topic"},
+		{"rsi rejects job_num", map[string]any{"job_num": 3}, "job_num"},
+		{"rsi rejects mode", map[string]any{"mode": "background"}, "mode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSessionRequest(SessionTypeRSI, tc.params)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("expected valid, got %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q does not mention %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestCreateSessionRSI_InjectsLoop：合规工作区 → 创建成功，且 loop 全文被注入
+// （prompt 文件内嵌 + methodFile 指向 loop 本体），会话落在 draft/rsi/rsi_N。
+func TestCreateSessionRSI_InjectsLoop(t *testing.T) {
+	env := newTestEnv(t)
+	t.Setenv(prompt.RSIProdRepoEnv, t.TempDir()) // 与测试工作区无关的生产根（判定确定性）
+	t.Setenv(prompt.RSIAllowProdTreeEnv, "")
+
+	ws := filepath.Dir(env.rickDir)
+	makeRSIWorkspace(t, ws, true)
+
+	m := env.managerWith(t, nil, nil)
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeRSI, map[string]any{})
+	if code != http.StatusCreated {
+		t.Fatalf("create rsi session: status %d body %v", code, body)
+	}
+	if body["type"] != SessionTypeRSI {
+		t.Fatalf("session type = %v, want %s", body["type"], SessionTypeRSI)
+	}
+	if got := body["title"]; got != "RSI rsi_1" {
+		t.Fatalf("title = %v, want %q", got, "RSI rsi_1")
+	}
+
+	entry, ok := env.sessions.Get(id)
+	if !ok {
+		t.Fatal("session not persisted")
+	}
+	// 保留字段（wire 投影会剥离，因此断言注册表而非响应体）
+	promptFile, _ := entry.Params["_prompt_file"].(string)
+	methodFile, _ := entry.Params["_method_file"].(string)
+	if promptFile == "" || methodFile == "" {
+		t.Fatalf("_prompt_file/_method_file must be set (got %q / %q)", promptFile, methodFile)
+	}
+	if filepath.Clean(methodFile) != filepath.Clean(prompt.RSILoopPath(ws)) {
+		t.Fatalf("methodFile = %q, want the loop itself %q", methodFile, prompt.RSILoopPath(ws))
+	}
+	if !strings.Contains(promptFile, filepath.Join(".rick", "draft", "rsi", "rsi_1")) {
+		t.Fatalf("prompt file should live under draft/rsi/rsi_1, got %q", promptFile)
+	}
+	data, err := os.ReadFile(promptFile)
+	if err != nil {
+		t.Fatalf("read prompt file: %v", err)
+	}
+	for _, want := range []string{"rick-rsi-loop", "## 停止标准", "dev-web", "release --merge-source", "rsi_check"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("injected prompt missing %q", want)
+		}
+	}
+	// 会话可被 CLI 语义恢复：session_id 落盘
+	if sid, err := os.ReadFile(filepath.Join(filepath.Dir(promptFile), "session_id")); err != nil || strings.TrimSpace(string(sid)) == "" {
+		t.Fatalf("session_id not persisted next to the prompt: %v", err)
+	}
+}
+
+// TestCreateSessionRSI_RejectsBadWorkspaces：缺 loop / 非源码树 / 生产仓库根 → 400 且不落会话。
+func TestCreateSessionRSI_RejectsBadWorkspaces(t *testing.T) {
+	env := newTestEnv(t)
+	t.Setenv(prompt.RSIAllowProdTreeEnv, "")
+	ws := filepath.Dir(env.rickDir)
+	makeRSIWorkspace(t, ws, false) // 有源码树形态，但缺 loop
+
+	// 另注册两个工作区：非源码树 / 生产仓库根（用 env 声明）
+	notTree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(notTree, ".rick"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	notTreeEntry, created, err := env.workspaces.Add(notTree, "not-a-tree")
+	if err != nil || !created {
+		t.Fatalf("register not-a-tree workspace: %v created=%v", err, created)
+	}
+	prodWS := t.TempDir()
+	makeRSIWorkspace(t, prodWS, true)
+	prodEntry, created, err := env.workspaces.Add(prodWS, "prod-like")
+	if err != nil || !created {
+		t.Fatalf("register prod-like workspace: %v created=%v", err, created)
+	}
+
+	m := env.managerWith(t, nil, nil)
+	before := len(env.sessions.List())
+
+	cases := []struct {
+		name   string
+		wsID   string
+		envErr string // 期望错误信息子串（映射为 400 invalid_workspace）
+	}{
+		{"workspace without loop", env.wsEntry.ID, prompt.RSILoopFileName},
+		{"workspace is not a rick source tree", notTreeEntry.ID, "cmd/rick/main.go"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, code, body := createSessionViaHTTP(t, m, tc.wsID, SessionTypeRSI, map[string]any{})
+			if code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body %v)", code, body)
+			}
+			msg := extractErrMessage(body)
+			if !strings.Contains(msg, tc.envErr) {
+				t.Fatalf("error message %q does not mention %q", msg, tc.envErr)
+			}
+		})
+	}
+
+	t.Run("production repo root is rejected", func(t *testing.T) {
+		t.Setenv(prompt.RSIProdRepoEnv, prodWS)
+		_, code, body := createSessionViaHTTP(t, m, prodEntry.ID, SessionTypeRSI, map[string]any{})
+		if code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 (body %v)", code, body)
+		}
+		if msg := extractErrMessage(body); !strings.Contains(msg, "dev 工作区") {
+			t.Fatalf("error message %q should point at the dev workspace requirement", msg)
+		}
+	})
+
+	if after := len(env.sessions.List()); after != before {
+		t.Fatalf("rejected RSI creations must not persist sessions: before=%d after=%d", before, after)
+	}
+}
+
+// extractErrMessage 从错误响应体里取 {error:{message}}（代码契约）。
+func extractErrMessage(body map[string]any) string {
+	if body == nil {
+		return ""
+	}
+	raw, ok := body["error"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	msg, _ := raw["message"].(string)
+	return msg
 }

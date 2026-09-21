@@ -74,7 +74,10 @@ export type SessionType =
   | "human-loop"
   | "learning"
   | "dream"
-  | "doing";
+  | "doing"
+  /** RSI 自进化：后端把 .rick/loops/rick-rsi-loop.md 全文注入为 method 系统提示词；
+   *  workspace 必须是 rick 源码的 **dev 工作区**（后端硬校验，见 task24）。 */
+  | "rsi";
 
 /**
  * 会话状态（server 权威）。五态语义：
@@ -121,6 +124,9 @@ export interface DoingParams {
   job: string;
 }
 
+/** rsi（RSI 自进化）：无表单参数——loop 由后端按 workspace 解析并注入（task24） */
+export type RsiParams = Record<string, never>;
+
 export type SessionParams =
   | PlanParams
   | EasyParams
@@ -128,7 +134,8 @@ export type SessionParams =
   | HumanLoopParams
   | LearningParams
   | DreamParams
-  | DoingParams;
+  | DoingParams
+  | RsiParams;
 
 /** POST /api/sessions 请求体 */
 export interface CreateSessionRequest {

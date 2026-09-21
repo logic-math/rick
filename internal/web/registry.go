@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -20,6 +21,12 @@ const (
 	SessionTypeLearning  = "learning"
 	SessionTypeDream     = "dream"
 	SessionTypeDoing     = "doing"
+
+	// SessionTypeRSI 是「rick 自进化」会话：后端把 <ws>/.rick/loops/rick-rsi-loop.md
+	// 全文注入系统提示词，使「启动 rick 改进」这个动作必然携带制度化流程
+	// （loop 的产出评估由 `rick tools rsi_check` 机器校验）。工作区必须是 rick
+	// 源码树、必须含该 loop、且不得是生产仓库根（否则会直接改生产源码）。
+	SessionTypeRSI = "rsi"
 )
 
 // Session status constants (api-contract.md SessionInfo.status).
@@ -421,6 +428,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 //	  dream:      job_num (optional positive number, default 5),
 //	              mode (optional "interactive"|"background", default background)
 //	  doing:      job (required string)
+//	  rsi:        （无参数；loop 由工作区的 .rick/loops/rick-rsi-loop.md 自动加载）
 func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	strParam := func(key string) (string, bool) {
 		v, ok := params[key]
@@ -468,6 +476,22 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 		if err := requireStr("topic"); err != nil {
 			return err
 		}
+	case SessionTypeRSI:
+		// rsi 的全部输入就是工作区：loop 的加载与工作区硬校验都在
+		// prepareInteractive 里完成，create 请求不应携带其它类型的参数
+		// （前端若误传 requirement/job/topic… 说明表单串了类型 → 明确拒绝，
+		// 而不是静默忽略后跑出一个「半个 RSI」会话）。
+		for _, k := range rsiForeignParamKeys {
+			v, present := params[k]
+			if !present || v == nil {
+				continue
+			}
+			if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
+				continue // 空字符串等价于未提供
+			}
+			return newValidationError("invalid_params",
+				"rsi sessions take no %q parameter (the RSI loop is loaded automatically from the workspace)", k)
+		}
 	case SessionTypeDream:
 		if v, present := params["job_num"]; present && v != nil {
 			f, ok := toFloat(v)
@@ -486,6 +510,10 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	}
 	return nil
 }
+
+// rsiForeignParamKeys 是 rsi 会话不得携带的其它类型参数（见 ValidateSessionRequest
+// 的 rsi 分支；空值不算“提供了”）。
+var rsiForeignParamKeys = []string{"requirement", "job", "topic", "ctx_path", "job_num", "mode"}
 
 // toFloat accepts any JSON number flavor (float64 from encoding/json, or
 // json.Number) and reports whether it is a plain number.

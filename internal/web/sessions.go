@@ -41,6 +41,7 @@ import (
 
 	"github.com/sunquan/rick/internal/builder"
 	"github.com/sunquan/rick/internal/handler"
+	"github.com/sunquan/rick/internal/prompt"
 	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/workspace"
 )
@@ -2034,6 +2035,33 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 			return nil, err
 		}
 		return &prep{promptFile: mainFile, methodFile: methodFile, persistDir: loopDir, title: "human-loop " + filepath.Base(loopDir)}, nil
+
+	case SessionTypeRSI:
+		// RSI 会话：loop 全文注入 + 工作区 fail-fast 硬校验（rick 源码树 / 含 loop /
+		// 非生产仓库根）。校验在 prompt.BuildRSIPrompt 内完成（与 CLI `rick rsi`
+		// 共用同一套判据）；失败一律 400 invalid_workspace，message 直接给用户看。
+		wsPath := filepath.Dir(rickDir)
+		promptText, loopFile, err := prompt.BuildRSIPrompt(wsPath)
+		if err != nil {
+			return nil, newWebError(http.StatusBadRequest, "invalid_workspace", "%v", err)
+		}
+		rsiDir, err := prompt.EnsureRSIDirs(rickDir)
+		if err != nil {
+			return nil, fmt.Errorf("prepare RSI dirs: %w", err)
+		}
+		promptFile := filepath.Join(rsiDir, "prompt.md")
+		if err := os.WriteFile(promptFile, []byte(promptText), 0644); err != nil {
+			return nil, fmt.Errorf("write RSI prompt: %w", err)
+		}
+		// methodFile = loop 自身的绝对路径：spawn/resume 时由 --append-system-prompt
+		// 重新注入，因此 loop 的后续修改在 resume 后依然生效
+		// （prompt 文件内嵌的副本只是 bootstrap；两份同源）。
+		return &prep{
+			promptFile: promptFile,
+			methodFile: loopFile,
+			persistDir: rsiDir,
+			title:      "RSI " + filepath.Base(rsiDir),
+		}, nil
 
 	case SessionTypeLearning:
 		jobID := paramString(params, "job")
