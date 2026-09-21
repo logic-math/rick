@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -375,5 +377,219 @@ func TestReleaseCmdHostedNonDryRunStillRequiresConsent(t *testing.T) {
 	// 断言没有真正提升（当前链不存在）
 	if _, statErr := os.Lstat(plan.CurrentLink()); !os.IsNotExist(statErr) {
 		t.Fatal("被自保拦下时不该产生提升副作用")
+	}
+}
+
+// errMergeConflictStub 是一个 stage=merge 的假冲突错误（CLI 单测不碰真实 git）。
+var errMergeConflictStub = errors.New("源码合并存在冲突：f.txt（已 git merge --abort 回滚）")
+
+// stubReleaseExit 让 releaseFail 不真的 os.Exit（生产是 os.Exit，测试里会直接
+// 结束测试进程——之前的 exit status 5 就是这么来的）。
+func stubReleaseExit(t *testing.T) *int {
+	t.Helper()
+	code := -1
+	restore := devExit
+	devExit = func(c int) { code = c }
+	t.Cleanup(func() { devExit = restore })
+	return &code
+}
+
+// fastProdPlan 把健康轮询/停机宽限压到 200ms：这些单测只关心「步骤顺序与回执」，
+// 不关心真的把生产拉起来（假生产没有服务在 18999 监听，重启阶段必然失败）。
+func fastProdPlan(p release.Plan) release.Plan {
+	p.HealthWait = 200 * time.Millisecond
+	p.StopGrace = 200 * time.Millisecond
+	return p
+}
+
+// withMergeSourceFn 替换源码合并的调用点，记录是否被调用 + 可控返回。
+func withMergeSourceFn(t *testing.T, fn func(release.Plan) (release.MergeResult, error)) *int {
+	t.Helper()
+	calls := 0
+	restore := mergeSourceFn
+	mergeSourceFn = func(p release.Plan) (release.MergeResult, error) {
+		calls++
+		return fn(p)
+	}
+	t.Cleanup(func() { mergeSourceFn = restore })
+	return &calls
+}
+
+// TestReleaseCmdRejectsConflictingMergeFlags：--merge-source 与 --no-merge-source 互斥。
+func TestReleaseCmdRejectsConflictingMergeFlags(t *testing.T) {
+	plan, _ := fakeReleaseProd(t)
+	withFakePlan(t, plan)
+
+	recorded := -1
+	restoreExit := devExit
+	devExit = func(code int) { recorded = code }
+	defer func() { devExit = restoreExit }()
+
+	out, err := runReleaseCmd(t, "y\n", "--merge-source", "--no-merge-source", "--yes")
+	if err == nil {
+		t.Fatal("互斥 flag 必须报错")
+	}
+	if !strings.Contains(out, "参数冲突") {
+		t.Fatalf("回执未指出参数冲突:\n%s", out)
+	}
+	if !strings.Contains(out, "RELEASE_FAIL stage=promote") {
+		t.Fatalf("回执未标出 promote 阶段:\n%s", out)
+	}
+	if recorded != release.ExitRestart {
+		t.Fatalf("退出码 = %d，期望 %d", recorded, release.ExitRestart)
+	}
+	// 冲突检查发生在任何构建/提升之前：产物目录不应出现
+	if _, err := os.Lstat(plan.CurrentLink()); !os.IsNotExist(err) {
+		t.Fatal("参数冲突时不得切 current 链")
+	}
+}
+
+// TestReleaseCmdDefaultDoesNotMergeSource：不带 --merge-source 时**绝不**调用合并
+// （默认语义与改造前完全一致）。
+func TestReleaseCmdDefaultDoesNotMergeSource(t *testing.T) {
+	plan, _ := fakeReleaseProd(t)
+	plan = fastProdPlan(plan)
+	withFakePlan(t, plan)
+	stubReleaseExit(t) // 假生产没有服务监听 → 重启阶段会失败并走到 releaseFail
+	calls := withMergeSourceFn(t, func(p release.Plan) (release.MergeResult, error) {
+		t.Error("默认路径不应调用源码合并")
+		return release.MergeResult{}, nil
+	})
+
+	out, _ := runReleaseCmd(t, "y\n", "--yes")
+	if *calls != 0 {
+		t.Fatalf("合并被调用 %d 次，期望 0", *calls)
+	}
+	if strings.Contains(out, "RELEASE_MERGE") {
+		t.Fatalf("默认路径不应打印合并回执:\n%s", out)
+	}
+}
+
+// TestReleaseCmdMergeSourceRunsBeforePromote：开启合并时先合并、且回执打印结果；
+// 合并失败则**中止且不切链**（不继续提升）。
+func TestReleaseCmdMergeSourceRunsBeforePromote(t *testing.T) {
+	t.Run("merge ok then promote", func(t *testing.T) {
+		plan, _ := fakeReleaseProd(t)
+		plan = fastProdPlan(plan)
+		withFakePlan(t, plan)
+		stubReleaseExit(t)
+		var gotVersion string
+		withMergeSourceFn(t, func(p release.Plan) (release.MergeResult, error) {
+			gotVersion = p.MergeVersion
+			return release.MergeResult{Merged: true, Branch: "dev/self-evolve", Main: "main", Commit: "abc1234", Files: 3}, nil
+		})
+
+		// 假生产没有服务在监听：提升会走到重启阶段失败——但**合并必须已经发生且已换链**，
+		// 且失败阶段不能是 merge（那才是本用例要防的回归）。
+		out, _ := runReleaseCmd(t, "y\n", "--merge-source", "--yes")
+		if strings.Contains(out, "RELEASE_FAIL stage=merge") {
+			t.Fatalf("合并成功后不应在 merge 阶段失败:\n%s", out)
+		}
+		if !strings.Contains(out, "RELEASE_MERGE merged=true branch=dev/self-evolve main=main commit=abc1234 files=3") {
+			t.Fatalf("缺少合并回执:\n%s", out)
+		}
+		// MergeVersion 必须是本次构建的版本号（merge commit 与二进制同版本）
+		if gotVersion == "" {
+			t.Fatal("调用合并时 MergeVersion 为空（应与本次构建版本一致）")
+		}
+		if !strings.Contains(out, "sha256=") || !strings.Contains(out, gotVersion) {
+			t.Fatalf("MergeVersion 与报价单版本不一致（got %q）:\n%s", gotVersion, out)
+		}
+		if _, err := os.Lstat(plan.CurrentLink()); err != nil {
+			t.Fatalf("提升应切换 current 链: %v", err)
+		}
+	})
+
+	t.Run("already up to date is not a failure", func(t *testing.T) {
+		plan, _ := fakeReleaseProd(t)
+		plan = fastProdPlan(plan)
+		withFakePlan(t, plan)
+		stubReleaseExit(t)
+		withMergeSourceFn(t, func(p release.Plan) (release.MergeResult, error) {
+			return release.MergeResult{Merged: false, Branch: "dev/self-evolve", Main: "main", Reason: "already up to date"}, nil
+		})
+
+		out, _ := runReleaseCmd(t, "y\n", "--merge-source", "--yes")
+		if strings.Contains(out, "RELEASE_FAIL stage=merge") {
+			t.Fatalf("already up to date 不应被当成 merge 失败:\n%s", out)
+		}
+		if !strings.Contains(out, "RELEASE_MERGE merged=false") || !strings.Contains(out, "already up to date") {
+			t.Fatalf("幂等回执缺失:\n%s", out)
+		}
+		if _, err := os.Lstat(plan.CurrentLink()); err != nil {
+			t.Fatalf("幂等路径仍应完成提升: %v", err)
+		}
+	})
+
+	t.Run("merge conflict aborts promote", func(t *testing.T) {
+		plan, _ := fakeReleaseProd(t)
+		withFakePlan(t, plan)
+		withMergeSourceFn(t, func(p release.Plan) (release.MergeResult, error) {
+			return release.MergeResult{}, &release.StageError{Stage: "merge", Err: errMergeConflictStub}
+		})
+
+		recorded := stubReleaseExit(t)
+
+		out, err := runReleaseCmd(t, "y\n", "--merge-source", "--yes")
+		if err == nil {
+			t.Fatal("合并失败必须中止（不得继续提升）")
+		}
+		if !strings.Contains(out, "RELEASE_FAIL stage=merge") {
+			t.Fatalf("回执未标出 merge 阶段:\n%s", out)
+		}
+		if *recorded != release.ExitRestart {
+			t.Fatalf("退出码 = %d，期望 %d（提升失败类）", *recorded, release.ExitRestart)
+		}
+		// 关键：源码合并失败 → **不切链**（生产产物保持原样）
+		if _, err := os.Lstat(plan.CurrentLink()); !os.IsNotExist(err) {
+			t.Fatal("合并失败后不得切换 current 链")
+		}
+		// 失败留痕要能被人/AI 看到阶段=merge
+		st, err := plan.ReadState()
+		if err != nil {
+			t.Fatalf("读留痕失败: %v", err)
+		}
+		if st.Stage != "merge" || st.OK {
+			t.Fatalf("留痕 = %+v，期望 stage=merge ok=false", st)
+		}
+	})
+}
+
+// TestReleaseCmdMergeSourceWithDryRunWarns：演练不合并源码，但必须明确告知。
+func TestReleaseCmdMergeSourceWithDryRunWarns(t *testing.T) {
+	plan, _ := fakeReleaseProd(t)
+	withFakePlan(t, plan)
+	calls := withMergeSourceFn(t, func(p release.Plan) (release.MergeResult, error) {
+		t.Error("dry-run 不应合并源码")
+		return release.MergeResult{}, nil
+	})
+
+	out, err := runReleaseCmd(t, "", "--dry-run", "--merge-source")
+	if err != nil {
+		t.Fatalf("dry-run 应成功: %v\n%s", err, out)
+	}
+	if *calls != 0 {
+		t.Fatalf("dry-run 调用了合并 %d 次，期望 0", *calls)
+	}
+	if !strings.Contains(out, "merge_source_skipped=dry-run") {
+		t.Fatalf("dry-run 未提示「不合并源码」:\n%s", out)
+	}
+}
+
+// TestReleaseCmdRollbackWarnsSourceNotReverted：--rollback 只回滚产物。
+func TestReleaseCmdRollbackWarnsSourceNotReverted(t *testing.T) {
+	plan, _ := fakeReleaseProd(t)
+	withFakePlan(t, plan)
+
+	// 本用例走到失败路径（没有回滚点）→ releaseFail 会调 devExit，必须替换掉，
+	// 否则 os.Exit 直接结束测试进程（观察到的 exit status 5 就是这个）。
+	stubReleaseExit(t)
+
+	out, err := runReleaseCmd(t, "", "--rollback", "--yes", "--merge-source")
+	if err == nil {
+		t.Fatalf("没有回滚点时应失败（本用例只断言告警先打印）:\n%s", out)
+	}
+	if !strings.Contains(out, "rollback_does_not_revert_source=true") {
+		t.Fatalf("回滚未说明「不含源码回滚」:\n%s", out)
 	}
 }
