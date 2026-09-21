@@ -12,12 +12,14 @@ import {
   type AddWorkspaceRequest,
   type ArchivedSessionsPage,
   type CreateSessionRequest,
+  type ContinueSessionResult,
   type CustomizeResult,
   type HealthInfo,
   type JobFileContent,
   type JobSummary,
   type KnowledgeFileContent,
   type KnowledgeTree,
+  type RecoveryReport,
   type ResetResult,
   type ServerConfig,
   type SessionEntries,
@@ -315,6 +317,26 @@ export class ApiClient {
     return this.request<void>("POST", `/api/sessions/${encodeURIComponent(id)}/resume`, {
       body: {},
     });
+  }
+
+  /**
+   * POST /api/sessions/{id}/continue —— **人工确认继续**（平台升级后挂起的会话/任务）。
+   *
+   * 与 resume 的区别：交互型会话等价 resume（spawn `--session <pi_id>`）；doing/后台
+   * dream 则先归一化 tasks.json 里遗留的 running → pending，再重跑剩余 task。
+   * 永远由人触发——前端不得自动调用（human 裁决：避免重复副作用）。
+   */
+  continueSession(id: string): Promise<ContinueSessionResult> {
+    return this.request<ContinueSessionResult>(
+      "POST",
+      `/api/sessions/${encodeURIComponent(id)}/continue`,
+      { body: {} },
+    );
+  }
+
+  /** GET /api/recovery —— 最近一次平台升级/重启的挂起与恢复台账 */
+  getRecoveryReport(): Promise<RecoveryReport> {
+    return this.request<RecoveryReport>("GET", "/api/recovery");
   }
 
   /** POST /api/sessions/{id}/ui_response {request_id, value?|confirmed?|cancelled} → 202 */

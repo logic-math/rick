@@ -278,8 +278,33 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     return list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
   }
 
-  /** 恢复/打开该 job 的会话：active 直接跳；closed/error 先 Resume 再跳；
-   *  无 web 会话 → 尝试导入 CLI 启动的会话（读 doing/session_id） */
+  /** 人工继续（/continue）：suspended 的会话 —— 交互型等价 resume；doing/后台 dream
+   *  会先归一化 tasks.json 遗留 running→pending 再续跑剩余 task（后端语义）。
+   *  只由点击触发，绝不自动重试。 */
+  async function continueJob(jobId: string): Promise<void> {
+    const sess = findSession(jobId);
+    if (!sess) return;
+    setResuming((s) => new Set(s).add(jobId));
+    setError(null);
+    try {
+      await api.continueSession(sess.id);
+      navigate(`/session/${sess.id}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        navigate(`/session/${sess.id}`);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setResuming((s) => { const n = new Set(s); n.delete(jobId); return n; });
+    }
+  }
+
+  /** 恢复/打开该 job 的会话：
+   *  - active 直接跳；
+   *  - **suspended（平台升级挂起）→ /continue**（人工确认）；
+   *  - closed/error 先 Resume 再跳；
+   *  - 无 web 会话 → 尝试导入 CLI 启动的会话（读 doing/session_id） */
   async function openSession(jobId: string, importCli?: boolean): Promise<void> {
     const sess = findSession(jobId);
     if (!sess) {
@@ -302,6 +327,10 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
     }
     if (sess.status === "active" || sess.status === "running") {
       navigate(`/session/${sess.id}`);
+      return;
+    }
+    if (sess.status === "suspended") {
+      await continueJob(jobId);
       return;
     }
     setResuming((s) => new Set(s).add(jobId));
@@ -396,6 +425,25 @@ export default function JobsList({ workspaceId, onOpen }: JobsListProps) {
               const sess = findSession(job.job_id);
               const isBusy = resuming.has(job.job_id);
               if (sess) {
+                // 挂起（平台升级/服务重启）：专属按钮——不能说「恢复会话」（那是 closed
+                // 的语义），也不能自动跑；doing/dream 点后会先归一化 running→pending 再续跑。
+                if (sess.status === "suspended") {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => void continueJob(job.job_id)}
+                      disabled={isBusy}
+                      title={
+                        sess.type === "doing" || sess.type === "dream"
+                          ? "继续执行：先把遗留的 running task 归一化为 pending，再续跑剩余 task（人工触发，不自动）"
+                          : "恢复继续：因平台升级挂起，点一下重新拉起会话（不会自动续跑）"
+                      }
+                      className="flex w-fit items-center gap-1 rounded-md border border-ink-3/50 px-2 py-0.5 text-[10px] text-ink-2 transition-colors hover:border-portal/50 hover:text-portal disabled:opacity-40"
+                    >
+                      {isBusy ? "继续中…" : "⏸ 已挂起 · 点继续执行"}
+                    </button>
+                  );
+                }
                 return (
                   <button
                     type="button"

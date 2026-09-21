@@ -51,6 +51,19 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
       </span>
     );
   }
+  // 挂起（平台升级/服务重启）：与「已中断（error=执行失败）」「已完成（closed）」
+  // 三态明确区分——人类要求重启后**不自动恢复**，靠这个徽标 + 一键恢复入口。
+  if (status === "suspended") {
+    return (
+      <span
+        className="flex w-fit items-center gap-1 rounded-full border border-ink-3/40 bg-ink-3/10 px-1.5 py-0.5 text-[9px] leading-none text-ink-2"
+        title="因平台升级/服务重启挂起：进程不在但状态完整，点「恢复继续」重新拉起（不会自动续跑）"
+      >
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
+        ⏸ 已挂起（平台升级）
+      </span>
+    );
+  }
   return (
     <span className="flex w-fit items-center gap-1 rounded-full border border-ink-3/30 bg-ink-3/10 px-1.5 py-0.5 text-[9px] leading-none text-ink-3">
       <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
@@ -107,6 +120,8 @@ function SettingsBody({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 「恢复继续」结果回显（归一化了几条 task / 已存活） */
+  const [continueMsg, setContinueMsg] = useState<string | null>(null);
   // 任务名（job 展示别名）编辑态：初值 = 服务端当前值
   const [nameDraft, setNameDraft] = useState<string>(session.job_name ?? "");
   const [nameBusy, setNameBusy] = useState(false);
@@ -114,6 +129,16 @@ function SettingsBody({
 
   const archived = session.archived === true;
   const live = session.status === "active" || session.status === "running";
+  /** 因平台升级/服务重启挂起（可一键恢复；与 error=执行失败 区分） */
+  const suspended = session.status === "suspended";
+  /**
+   * 后台型（doing / background dream）：恢复语义是「归一化 running→pending 后重跑剩余
+   * task」而不是 spawn 交互 worker——文案需要区分（与后端 continueSession 分派一致）。
+   */
+  const isBackground =
+    session.type === "doing" ||
+    (session.type === "dream" &&
+      (session.params as { mode?: unknown } | undefined)?.mode === "background");
   // Job 归属（doing/ctrl/learning 等）：会话被命名后侧栏不再显示编号，用户需要
   // 一个能查到「这是哪个 job / 它的工作目录在哪」的地方（实测反馈）。
   const jobParamRaw = (session.params as { job?: unknown } | undefined)?.job;
@@ -164,6 +189,33 @@ function SettingsBody({
       await api.unarchiveSession(session.id);
       onDone();
       onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * 人工恢复因平台升级挂起的会话/任务：/continue（交互型 = resume worker；
+   * doing/后台 dream = 归一化 running→pending 后重跑剩余 task）。
+   * **只由点击触发**，绝不自动重试。成功后留在弹窗并刷新列表（用户可能继续看信息）。
+   */
+  async function continueRun(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setContinueMsg(null);
+    try {
+      const res = await api.continueSession(session.id);
+      const normalized = res.normalized_tasks ?? [];
+      setContinueMsg(
+        res.already_active
+          ? "该会话本就活着（已重新同步状态）✓"
+          : normalized.length > 0
+            ? `已继续：归一化 ${normalized.length} 个遗留 running task（→ pending）并重跑剩余 task ✓`
+            : "已继续运行 ✓",
+      );
+      onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -312,6 +364,26 @@ function SettingsBody({
 
         {/* 动作 */}
         <div className="border-t border-line pt-3">
+          {suspended && (
+            <div className="mb-3 flex flex-col gap-2">
+              <p className="text-xs leading-relaxed text-ink-2">
+                ⏸ 该会话因<b>平台升级/服务重启</b>挂起：agent 进程不在，但对话与任务状态完整。
+                点下方「恢复继续」重新拉起（{isBackground
+                  ? "doing/dream 会先把遗留的 running task 归一化为 pending，再续跑剩余 task"
+                  : "用 pi 会话恢复，继续对话"}）。
+                <span className="text-ink-3">不会自动恢复——避免重复副作用。</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => void continueRun()}
+                disabled={busy}
+                className="w-full rounded-md border border-portal/50 bg-portal/10 px-3 py-2 text-xs text-portal transition-colors hover:bg-portal/20 disabled:opacity-40"
+              >
+                {busy ? "恢复中…" : "▶ 恢复继续"}
+              </button>
+              {continueMsg && <p className="text-[11px] text-portal">{continueMsg}</p>}
+            </div>
+          )}
           {archived ? (
             <>
               <p className="mb-2 text-xs leading-relaxed text-ink-3">

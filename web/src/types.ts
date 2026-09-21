@@ -76,7 +76,15 @@ export type SessionType =
   | "dream"
   | "doing";
 
-export type SessionStatus = "active" | "running" | "closed" | "error";
+/**
+ * 会话状态（server 权威）。五态语义：
+ * - active/running：worker 在跑
+ * - closed：正常结束（用户 close 或任务完成）
+ * - error：执行失败（spawn 失败/doing 任务失败）
+ * - suspended：**因平台升级/服务重启挂起** —— 进程不在但状态完整，可一键恢复；
+ *   与 error 明确区分（人类裁决：重启后不自动恢复、不自动续跑，等人工确认）
+ */
+export type SessionStatus = "active" | "running" | "closed" | "error" | "suspended";
 
 /** dream 的双模 */
 export type DreamMode = "interactive" | "background";
@@ -152,6 +160,42 @@ export interface SessionInfo {
   /** 后台进度日志（doing/dream；仅单会话查询返回）——监控页首次/事后打开时回填
    *  事件流（这些事件原本只在 hub 环形缓冲里活过一次）。 */
   progress?: Array<{ at: string; kind: string; text: string }>;
+  /** 最近一次状态跃迁原因（服务端持久化；用于解释「为何挂起/中断」）。
+   *  后端当前列表/单会话投影未暴露该字段时为空——UI 用通用文案兜底。 */
+  last_reason?: string;
+}
+
+/** 恢复报告里的一行（谁被挂起 / 谁已恢复 / 谁恢复失败） */
+export interface RecoveryItem {
+  id: string;
+  type?: string;
+  title?: string;
+  job_id?: string;
+  reason?: string;
+  /** RFC3339 */
+  at: string;
+}
+
+/** GET /api/recovery —— 平台升级/重启后的挂起与恢复台账 */
+export interface RecoveryReport {
+  version: number;
+  /** RFC3339（报告生成时刻） */
+  at: string;
+  suspended: RecoveryItem[];
+  recovered: RecoveryItem[];
+  failed: RecoveryItem[];
+}
+
+/** POST /api/sessions/{id}/continue 响应（202 幂等；doing/dream 返回归一化明细） */
+export interface ContinueSessionResult {
+  ok: boolean;
+  already_active?: boolean;
+  resumed?: boolean;
+  /** doing/dream 的会话类型 */
+  kind?: SessionType;
+  job?: string;
+  /** doing 续跑时被归一化的遗留 running task（running → pending） */
+  normalized_tasks?: string[];
 }
 
 /** GET /api/sessions?workspace=..&archived=true 分页响应（区别于裸数组的默认列表） */

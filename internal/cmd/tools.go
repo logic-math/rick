@@ -24,6 +24,7 @@ Available subcommands:
   learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
   dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
   dev-web         Manage the isolated dev instance (dev worktree + dev HOME) for developing rick itself
+  release         Atomically promote the dev build to production, restart it, or roll back
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -36,6 +37,7 @@ Available subcommands:
 	toolsCmd.AddCommand(NewLearningCheckCmd())
 	toolsCmd.AddCommand(NewDreamCheckCmd())
 	toolsCmd.AddCommand(NewDevWebCmd())
+	toolsCmd.AddCommand(NewReleaseCmd())
 
 	return toolsCmd
 }

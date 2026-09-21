@@ -4,12 +4,20 @@
  * - active + streaming：Abort 按钮 + steer 输入（ChatInput 复用，发送即 steer）
  * - active + idle：prompt 输入（发送即 prompt）
  * - closed / error：Resume 按钮 + 说明
+ * - suspended：因**平台升级/服务重启**挂起——专属文案 +「▶ 恢复继续」
+ *   （与 error 的「已中断」文案严格区分：语义不同，且恢复路径也不同）
  */
 
 import ChatInput, { type SlashCommand } from "./ChatInput";
 import Saucer from "../starfield/Saucer";
 
-export type SessionPhase = "idle" | "streaming" | "closed" | "error" | "loading";
+export type SessionPhase =
+  | "idle"
+  | "streaming"
+  | "closed"
+  | "error"
+  | "suspended"
+  | "loading";
 
 interface SteerBarProps {
   phase: SessionPhase;
@@ -19,6 +27,8 @@ interface SteerBarProps {
   onCommand: (cmd: SlashCommand) => void;
   onAbort: () => void;
   onResume: () => void;
+  /** suspended：人工确认继续（/continue；doing/dream 会归一化后续跑）。缺省回退 onResume。 */
+  onContinue?: () => void;
   /** 请求进行中（防连击） */
   busy?: boolean;
   /** compacting 提示（上下文压缩中——steer 仍可排队） */
@@ -31,6 +41,7 @@ export default function SteerBar({
   onCommand,
   onAbort,
   onResume,
+  onContinue,
   busy,
   compacting,
 }: SteerBarProps) {
@@ -39,6 +50,25 @@ export default function SteerBar({
       <div className="flex items-center justify-center gap-2 px-4 py-4 text-xs text-ink-3">
         <Saucer size={26} flying />
         会话加载中…
+      </div>
+    );
+  }
+
+  // 挂起（平台升级/服务重启）：**不自动恢复**——需要人点一下。
+  if (phase === "suspended") {
+    return (
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+        <span className="text-xs text-ink-2">
+          ⏸ 会话因<b>平台升级</b>挂起 —— 点击恢复继续（不会自动续跑，避免副作用）
+        </span>
+        <button
+          type="button"
+          onClick={onContinue ?? onResume}
+          disabled={busy}
+          className="ml-auto rounded-lg border border-portal/50 bg-portal/10 px-4 py-1.5 text-xs font-medium text-portal hover:bg-portal/20 disabled:opacity-40"
+        >
+          ▶ 恢复继续
+        </button>
       </div>
     );
   }

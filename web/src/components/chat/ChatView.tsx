@@ -65,6 +65,15 @@ const TYPE_TONE: Record<SessionType, string> = {
   doing: "border-morty/50 bg-morty/10 text-morty",
 };
 
+/** 会话头状态文案（挂起说「已挂起」而不是原始英文状态——用户看不出 suspended 是啥） */
+const STATUS_LABEL: Record<SessionStatus, string> = {
+  active: "active",
+  running: "running",
+  closed: "closed",
+  error: "error",
+  suspended: "已挂起（平台升级）",
+};
+
 function StatusDot({ status, streaming }: { status: SessionStatus; streaming: boolean }) {
   if (streaming) {
     // 生成中：传送门绿呼吸（快）
@@ -91,6 +100,13 @@ function StatusDot({ status, streaming }: { status: SessionStatus; streaming: bo
       return <span className="inline-block h-2.5 w-2.5 rounded-full bg-ink-3/60" aria-label="已关闭" />;
     case "error":
       return <span className="inline-block h-2.5 w-2.5 rounded-full bg-danger" aria-label="错误" />;
+    case "suspended":
+      // 挂起（平台升级）：静态灰点 + ⏸ —— 与 error 红点、closed 灰点区分
+      return (
+        <span className="text-ink-3" aria-label="已挂起（平台升级）">
+          ⏸
+        </span>
+      );
   }
 }
 
@@ -423,6 +439,10 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     if (!info && !sseState && history === null) return "loading";
     if (status === "closed") return "closed";
     if (status === "error") return "error";
+    // 平台升级/重启后挂起：**不自动恢复**（server 权威 status），输入区换成
+    // 「恢复继续」入口。必须排在 streaming 判定之前——挂起时 busy 必为 false，
+    // 但若列为 idle 就会出现「能输入但发不出去」的假可用态。
+    if (status === "suspended") return "suspended";
     return streaming ? "streaming" : "idle";
   }, [info, sseState, history, status, streaming]);
 
@@ -447,10 +467,16 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       } catch (err) {
         setOptimisticUser(null);
         // 用户反馈：非活跃会话发送报 409（state_conflict/worker not alive）——
-        // 本地立即降级为 error（终止）态并引导 Resume，而非停留在 active 反复报错。
+        // 本地立即降级并引导恢复，而非停留在 active 反复报错。
         if (err instanceof ApiError && err.status === 409) {
-          applyState(sessionId, "error", "worker lost");
-          setError("会话已中断（agent 进程不在）——点击 Resume 重新加载历史并恢复");
+          // 挂起会话（平台升级）与「异常中断」文案/态不同——别把它们混为一谈。
+          if (status === "suspended") {
+            applyState(sessionId, "suspended", "suspended; continue requires human confirmation");
+            setError("会话因平台升级挂起——点击「▶ 恢复继续」重新拉起（不会自动续跑）");
+          } else {
+            applyState(sessionId, "error", "worker lost");
+            setError("会话已中断（agent 进程不在）——点击 Resume 重新加载历史并恢复");
+          }
         } else {
           setError(err instanceof Error ? err.message : String(err));
         }
@@ -458,7 +484,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         setBusy(false);
       }
     },
-    [phase, sessionId, applyState],
+    [phase, sessionId, applyState, status],
   );
 
   // 历史分页：滚动到顶/顶部按钮 → 用最早已加载 entry 作 before 拉更早一页，前置合并
@@ -549,6 +575,32 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     }
   }, [sessionId]);
 
+  // 人工确认继续（/continue）：与 resume 分开——doing/后台 dream 走归一化续跑，
+  // 交互型等价 resume；202 already_active 同样视为「已在跑」以服务端为准刷新。
+  const continueRun = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.continueSession(sessionId);
+      applyState(sessionId, "active");
+      setHistoryRefresh((n) => n + 1); // worker 可能已推进（或 doing 已续跑）
+      const normalized = res.normalized_tasks ?? [];
+      if (normalized.length > 0) {
+        setModelHint(`已继续：归一化 ${normalized.length} 个遗留 running task（→ pending）并重跑剩余 task`);
+      }
+    } catch (err) {
+      // 409 = 服务端说会话本就 active（本地列表状态陈旧）——以服务端为准刷新。
+      if (err instanceof ApiError && err.status === 409) {
+        applyState(sessionId, "active");
+        setHistoryRefresh((n) => n + 1);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [applyState, sessionId]);
+
   const resume = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -637,7 +689,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         </span>
         <span className="flex items-center gap-1.5 text-xs text-ink-3">
           <StatusDot status={status} streaming={vm.streaming} />
-          {vm.streaming ? "streaming" : status}
+          {vm.streaming ? "streaming" : STATUS_LABEL[status] ?? status}
         </span>
         {vm.compacting && <span className="text-xs text-morty">压缩中</span>}
         {/* 归档状态可见 + 一键取消归档：归档是「从列表隐藏」，会话页本身不会变化——
@@ -748,6 +800,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           onCommand={(c) => void runCommand(c)}
           onAbort={() => void abort()}
           onResume={() => void resume()}
+          onContinue={() => void continueRun()}
           busy={busy}
           compacting={vm.compacting}
         />
