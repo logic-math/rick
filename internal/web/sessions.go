@@ -152,24 +152,36 @@ func (m *SessionManager) BackfillTitles() {
 }
 
 // ReconcileOnStart 服务启动对账：注册表里 status=active/running 的会话在本次进程
-// 重启后没有对应 worker/goroutine（旧进程已死）——统一标记为 error（worker lost
-// on server restart），前端据此显示 Resume 按钮恢复（SessionResume 支持 error→active）。
-// 这是「重启后发送消息 409 session worker is not alive」的根治（job_36 验收期实测）。
+// 重启后没有对应 worker/goroutine（旧进程已死）——统一标记为 **suspended**（因平台
+// 升级/重启掉起），而不是 error。
+//
+// 为何改语义（human 裁决 J-L6-6/J-L6-7）：重启后进程不在是「平台升级」的必然结果，
+// 不是执行失败；误写成 error 会让 UI 显示「已中断（agent 进程不在）」，人无法分辨
+// 「平台升级掉起」与「真的炸了」。suspended 表示状态完整、可一键继续。
+//
+// ⚠️ 这里**不 spawn 任何 worker**——恢复动作只能由人显式触发
+// （POST /api/sessions/{id}/continue）。调研依据 research-L6 §3.3 P1：pi resume
+// 不自动续跑；而悬挂 toolCall 自动续跑会重复副作用（§3.5）。
 func (m *SessionManager) ReconcileOnStart() {
 	for _, e := range m.sessions.List() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue
 		}
 		if e.Type == SessionTypeDoing || e.Type == SessionTypeDream {
-			// 后台型 goroutine 随进程消亡——一律标记 error（可重新发起）
-			m.updateStatus(e, SessionStatusError, "server restarted: background task lost")
+			// 后台型 goroutine 随进程消亡——掉起（可人工继续重跑剩余 task）
+			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
 			continue
 		}
-		w := m.sup.Get(e.ID)
-		if w == nil || w.IsDead() {
-			m.updateStatus(e, SessionStatusError, "server restarted: worker lost")
+		if m.sup == nil {
+			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
+			continue
+		}
+		if w := m.sup.Get(e.ID); w == nil || w.IsDead() {
+			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
 		}
 	}
+	// 恢复报告：suspended 清单以注册表为权威（人据此一键继续）
+	m.refreshSuspendedReport()
 }
 
 // ---- HTTP handlers ----
@@ -1008,36 +1020,119 @@ func (m *SessionManager) resumeEntry(w http.ResponseWriter, entry SessionEntry, 
 	writeJSON(w, http.StatusCreated, m.toSessionInfo(e2))
 }
 
-// SessionResume handles POST /api/sessions/{id}/resume: closed → active by
-// re-spawning with `--session <pi_session_id>` (pi resume semantics).
+// SessionResume handles POST /api/sessions/{id}/resume. 与 /continue 同义
+// （保留该端点：前端/脚本的既有入口），语义 = 「人工确认继续」。
 func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 	entry, ok := m.lookup(w, r)
 	if !ok {
 		return
 	}
-	switch entry.Type {
-	case SessionTypeDoing:
-		writeError(w, newWebError(http.StatusConflict, "state_conflict", "doing sessions are monitor-only; re-run via a new doing session"))
+	m.continueSession(w, entry)
+}
+
+// SessionContinue handles POST /api/sessions/{id}/continue —— 人工确认继续。
+//
+// 为什么要有这个端点（human 裁决 J-L6-6/J-L6-7）：平台升级/重启后，所有「原来在
+// 跑」的会话被标为 suspended，但**绝不自动恢复、绝不自动续跑**——调研实测 pi 不
+// 修复悬挂 toolCall（自动续跑会重复副作用）、配额耗尽不报错（自动恢复会静默空转）。
+// 因此恢复必须是一次显式的人类动作，本端点就是那个动作（幂等：重复点击不重复起）。
+func (m *SessionManager) SessionContinue(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
 		return
-	case SessionTypeDream:
-		if dreamMode(entry.Params) == DreamModeBackground {
-			writeError(w, newWebError(http.StatusConflict, "state_conflict", "background dream sessions cannot be resumed; start a new one"))
+	}
+	m.continueSession(w, entry)
+}
+
+// continueSession 分派两类恢复语义：
+//   - 后台型（doing / 后台 dream）：不是 spawn worker，而是**归一化 tasks.json 里
+//     遗留的 running → pending** 后重跑剩余 task（research-L6 §3.7：确定性门禁把
+//     遗留 running 判为 zombie，不归一化则续跑第一轮就被自己的门禁判失败）
+//   - 交互型（plan/easy/ctrl/human-loop/learning/交互 dream）：spawn
+//     `--session <pi_session_id>`（既有 resume 语义）
+func (m *SessionManager) continueSession(w http.ResponseWriter, entry SessionEntry) {
+	if entry.Type == SessionTypeDoing ||
+		(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
+		m.continueBackground(w, entry)
+		return
+	}
+	m.continueInteractive(w, entry)
+}
+
+// continueBackground 人工继续一个后台型会话（doing / 后台 dream）：归一化 +
+// 复用 startBackground 重跑剩余 task。幂等：已在跑 → 202 already_active。
+func (m *SessionManager) continueBackground(w http.ResponseWriter, entry SessionEntry) {
+	m.mu.Lock()
+	_, running := m.cancels[entry.ID]
+	m.mu.Unlock()
+	if running || entry.Status == SessionStatusRunning {
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+		return
+	}
+	ws, ok := m.workspaces.Get(entry.WorkspaceID)
+	if !ok {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+		return
+	}
+	if entry.Type == SessionTypeDoing && m.doingRunner == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "doing runner is not configured"))
+		return
+	}
+	if entry.Type == SessionTypeDream && m.dreamRunner == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "dream runner is not configured"))
+		return
+	}
+
+	rickDir := filepath.Join(ws.Path, workspace.RickDirName)
+	normalized := []string{}
+	if entry.Type == SessionTypeDoing {
+		jobID := jobParamOf(entry)
+		if jobID == "" {
+			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "doing session has no job id"))
 			return
 		}
+		moved, err := handler.NormalizeRunningTasks(rickDir, jobID)
+		if err != nil {
+			reason := "normalize tasks failed: " + err.Error()
+			m.updateStatus(entry, SessionStatusError, reason)
+			m.recordFailed(recoveryItemOf(entry, reason))
+			writeError(w, newWebError(http.StatusInternalServerError, "normalize_failed", "%v", err))
+			return
+		}
+		normalized = moved
 	}
+
+	current, ok := m.sessions.Get(entry.ID)
+	if !ok {
+		current = entry
+	}
+	m.startBackground(&current, rickDir, ws)
+	m.recordRecovered(recoveryItemOf(entry, "continued by human"))
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"ok":               true,
+		"resumed":          true,
+		"kind":             entry.Type,
+		"job":              jobParamOf(entry),
+		"normalized_tasks": normalized,
+	})
+}
+
+// continueInteractive 人工继续一个交互型会话：spawn `--session <pi_session_id>`。
+func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry SessionEntry) {
 	if entry.Status == SessionStatusActive || entry.Status == SessionStatusRunning {
 		// 幂等：worker 仍在 → 视为「已恢复」，202 成功并重播状态让客户端收敛。
-		// 前端可能因陈旧列表/其他标签页仍显示 Resume——重复点击不应 409
-		//（用户实测：会话其实在跑（worker 存活 5h+），点 Resume 却报
-		//  「session is active; nothing to resume」且 UI 不刷新）。
-		if m.sup.Get(entry.ID) != nil {
-			m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
-			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
-			return
+		// 前端可能因陈旧列表/其他标签页仍显示挂起——重复点击不应冲突
+		//（用户实测：会话其实在跑（worker 存活 5h+），点 Resume 却报 409 且 UI 不刷新）。
+		if m.sup != nil {
+			if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
+				m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
+				writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+				return
+			}
 		}
 		// active/running 但 worker 已不存在（崩溃逃过 markWorkerLost 等异常路径）：
 		// 先修正状态再走 spawn 自愈，避免会话永久卡在「active 但不可用、resume 又 409」。
-		m.updateStatus(entry, SessionStatusError, "worker missing; recovering on resume")
+		m.updateStatus(entry, SessionStatusSuspended, "worker missing; recovering on resume")
 		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
 			entry = e2
 		}
@@ -1045,6 +1140,10 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
 		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+		return
+	}
+	if m.sup == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
 		return
 	}
 
@@ -1058,7 +1157,7 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 	}
 	worker, err := m.sup.Spawn(spec)
 	if err != nil {
-		// 并发 resume（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
+		// 并发 continue（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
 		// **活 worker** → 说明另一个请求已成功恢复——视为 already_active（202），
 		// 不再把状态误标 error（旧行为造成「error + worker 存活」永久不一致：
 		// 之后每次 resume 都 500 already has a worker，会话卡死不可恢复）。
@@ -1067,7 +1166,9 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
 			return
 		}
-		m.updateStatus(entry, SessionStatusError, "resume spawn failed: "+err.Error())
+		reason := "resume spawn failed: " + err.Error()
+		m.updateStatus(entry, SessionStatusError, reason)
+		m.recordFailed(recoveryItemOf(entry, reason))
 		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
 		return
 	}
@@ -1082,7 +1183,8 @@ func (m *SessionManager) SessionResume(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	m.pumpWorker(entry.ID, worker)
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+	m.recordRecovered(recoveryItemOf(entry, "resumed by human"))
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "resumed": true})
 }
 
 // SessionUIResponse handles POST /api/sessions/{id}/ui_response: answer a
@@ -1748,7 +1850,14 @@ func (m *SessionManager) BackfillJobParams() {
 // Resume 时出现「新 worker 起不来 / 起来就死」的诡异现象（实测：job_69 导入后
 // 反复变 error 的根因就是上一次服务重启留下的孤儿 worker）。
 func (m *SessionManager) ShutdownWorkers() {
-	if m == nil || m.sup == nil {
+	if m == nil {
+		return
+	}
+	// 先把「在跑的会话」写成挂起（关停快照 + 注册表状态落盘），再收 worker。
+	// 顺序不可调换：CloseAll 之后 pump 的 markWorkerLost 会把还处于
+	// active/running 的行刷成 error（userClosing 除外），把升级掉起弄成「失败」。
+	m.suspendRunning(SuspendReasonRelease)
+	if m.sup == nil {
 		return
 	}
 	m.sup.CloseAll()
@@ -1780,8 +1889,13 @@ func (m *SessionManager) markWorkerLost(entry SessionEntry) {
 }
 
 // updateStatus persists a status transition and broadcasts it on the hub.
+// reason 同时落盘（LastReason）——重启后 UI 仍能解释「为何它是挂起/错误」
+// （旧实现 reason 只活一次 SSE 事件，进程一重启就丢）：research-L6 F3。
 func (m *SessionManager) updateStatus(entry SessionEntry, status, reason string) {
 	entry.Status = status
+	if strings.TrimSpace(reason) != "" {
+		entry.LastReason = reason
+	}
 	if status == SessionStatusClosed || status == SessionStatusError {
 		entry.ClosedAt = time.Now()
 	}

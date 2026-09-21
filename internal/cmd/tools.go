@@ -23,6 +23,7 @@ Available subcommands:
   update-pi       Update pi runtime / extensions / model catalogs (+ quick checks)
   learning_check  Validate the learning directory structure for a job (incl. loops/skills format)
   dream_check     Validate dream_run_{job_id}_log.md files in .rick/dream/ (incl. loops/skills format)
+  dev-web         Manage the isolated dev instance (dev worktree + dev HOME) for developing rick itself
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -34,6 +35,7 @@ Available subcommands:
 	toolsCmd.AddCommand(NewThemeCmd())
 	toolsCmd.AddCommand(NewLearningCheckCmd())
 	toolsCmd.AddCommand(NewDreamCheckCmd())
+	toolsCmd.AddCommand(NewDevWebCmd())
 
 	return toolsCmd
 }
