@@ -228,7 +228,7 @@ func DoingIn(ctx context.Context, rickDir string, jobID string, opts Options, rt
 // v4.4.6: 工作仓库的 .rick/skills/rick-gates/ 可能不存在（非 rick 仓库的
 // doing 工作区）——降级到 env 已部署副本（~/.rick/pi/agent/extensions/
 // rick-gates/helper.py，init-pi 职责 3 落盘）；两处都没有则跳过本兜底
-//（层门禁 pipeline_gate/level_complete 才是主验收，helper 只做终态校验）。
+// （层门禁 pipeline_gate/level_complete 才是主验收，helper 只做终态校验）。
 func runDoingGate(rickDir, doingDir string) error {
 	helper := filepath.Join(rickDir, "skills", "rick-gates", "helper.py")
 	if _, err := os.Stat(helper); err != nil {
@@ -489,4 +489,77 @@ func shortHash(h string) string {
 		return h[:8]
 	}
 	return h
+}
+
+// NormalizeRunningTasks rewrites leftover `running` tasks to `pending` in
+// <rickDir>/jobs/<jobID>/doing/tasks.json and returns the normalized task ids
+// (empty when nothing needed changing). Idempotent.
+//
+// 为什么必须存在（research-L6 §3.7 坑 1）：doing 的确定性门禁把 task status=
+// running 判为 zombie 而 fail（.rick/skills/rick-gates/helper.py），所以「人工
+// 恢复一个被平台升级打断的 doing job」如果不先归一化，续跑第一轮就会被自己的
+// 门禁判失败。
+//
+// 边界（保守优先）：
+//   - 只把 running → pending；**绝不**把 success/error 改回 pending（已完成 task
+//     及其 commit_hash 必须原样保留，doing 的重跑正是靠这个前沿收敛的）
+//   - 写盘前备份 tasks.json.bak（尽力而为，备份失败不阻断），写盘用 tmp+rename 原子替换
+//   - 无变化的调用完全不动文件（幂等，避免无谓地扰动 mtime/watcher）
+func NormalizeRunningTasks(rickDir, jobID string) ([]string, error) {
+	if strings.TrimSpace(rickDir) == "" || strings.TrimSpace(jobID) == "" {
+		return nil, fmt.Errorf("normalize running tasks: rickDir and jobID are required")
+	}
+	path := filepath.Join(rickDir, "jobs", jobID, "doing", "tasks.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read tasks.json: %w", err)
+	}
+
+	// map + UseNumber：保留未知字段与数字原样（tasks.json 由 hook 写入，字段面
+	// 比本包关心的更宽——反序列化到窄结构体会静默丢字段）。
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec.UseNumber()
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("parse tasks.json: %w", err)
+	}
+
+	moved := []string{}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if tasks, ok := doc["tasks"].([]any); ok {
+		for _, raw := range tasks {
+			task, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if status, _ := task["status"].(string); status == "running" {
+				task["status"] = "pending"
+				task["updated_at"] = now
+				if id, _ := task["task_id"].(string); id != "" {
+					moved = append(moved, id)
+				}
+			}
+		}
+	}
+	if len(moved) == 0 {
+		return []string{}, nil
+	}
+	doc["updated_at"] = now
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal tasks.json: %w", err)
+	}
+	if err := os.WriteFile(path+".bak", data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "[WARN] backup tasks.json failed (%s): %v\n", path, err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0644); err != nil {
+		return nil, fmt.Errorf("write tasks.json: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return nil, fmt.Errorf("replace tasks.json: %w", err)
+	}
+	return moved, nil
 }

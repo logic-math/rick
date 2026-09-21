@@ -28,6 +28,15 @@ const (
 	SessionStatusRunning = "running" // 后台型：goroutine 执行中
 	SessionStatusClosed  = "closed"  // 已关闭（可离线浏览 / resume）
 	SessionStatusError   = "error"   // 执行失败
+	// SessionStatusSuspended = 因平台升级/重启而挂起：进程不在了，但**状态完整、
+	// 语义明确、可一键恢复**（与 error=执行失败、closed=正常结束区分）。
+	//
+	// 为什么需要独立状态：旧实现把「重启后在跑的会话」一律写成 error，UI 只能显示
+	// 「已中断（agent 进程不在）」——用户无法分辨「平台升级挂起」与「真的炸了」。
+	// ⚠️ 挂起**绝不自动恢复、绝不自动续跑**（human 裁决 J-L6-6/J-L6-7）：实测 pi
+	// 不修复悬挂 toolCall（自动续跑有重复副作用）、配额耗尽不报错（会静默空转），
+	// 因此恢复动作必须由人显式触发（POST /api/sessions/{id}/continue）。
+	SessionStatusSuspended = "suspended"
 )
 
 // Dream mode constants (api-contract.md dream params).
@@ -257,6 +266,10 @@ type SessionEntry struct {
 	ClosedAt    time.Time      `json:"closed_at,omitzero"`
 	Archived    bool           `json:"archived,omitempty"`
 	ArchivedAt  time.Time      `json:"archived_at,omitzero"`
+	// LastReason 是最近一次状态跃迁的原因（持久化）：重启后 UI 要能解释「为什么
+	// 它是挂起/错误」。此前 reason 只存在于实时 SSE 事件里，进程一重启就丢了，
+	// 前端只能干瘪地显示「已中断」（research-L6 F3）。
+	LastReason string `json:"last_reason,omitempty"`
 
 	// Busy = the agent is currently streaming a turn (agent_start seen, not yet
 	// settled). Server-authoritative UI state: the frontend must not infer it
@@ -277,6 +290,16 @@ type SessionRegistry struct {
 	path    string
 	Version int            `json:"version"`
 	Items   []SessionEntry `json:"sessions"`
+}
+
+// StateDir 从注册表文件位置反推状态根目录（<stateDir>/web/sessions.json →
+// <stateDir>）。挂起快照与恢复报告都落在状态根下，与服务自身的状态目录语义
+// 一致（task16 的 --state-dir / RICK_STATE_DIR 隔离因此自动生效）。
+func (r *SessionRegistry) StateDir() string {
+	if r == nil || r.path == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(r.path))
 }
 
 // LoadSessionRegistry loads the session registry from path. A missing file

@@ -636,15 +636,19 @@ func TestSessionStateConflictMatrix(t *testing.T) {
 		}
 	}
 
-	// Doing sessions are monitor-only: create one (fake runner parks), then
-	// resume must 409.
+	// Doing sessions are no longer monitor-only: /resume (= /continue) 对一个**正在
+	// 跑**的 doing 会话是幂等 no-op（自动 202 already_active），而不是 409——人工
+	// 恢复入口必须能重复点击而不报错（human 裁决 J-L6-7）。
 	did, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "doing", map[string]any{"job": "job_1"})
 	if code != http.StatusCreated {
 		t.Fatalf("create doing session: %d", code)
 	}
 	rec = post(t, m.SessionResume, "/api/sessions/"+did+"/resume", nil)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("resume doing session: %d (want 409)", rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume running doing session: %d (want 202 already_active), body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("resume running doing session should be idempotent, body=%s", rec.Body.String())
 	}
 	// prompt on running doing session: 409.
 	rec = post(t, m.SessionPrompt, "/api/sessions/"+did+"/prompt", map[string]any{"message": "x"})
@@ -710,10 +714,15 @@ func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	if len(evts) == 0 {
 		t.Fatal("dream progress never reached the hub")
 	}
-	// Background dream resume → 409.
+	// Background dream 现在是**人工可继续**的（不再是 monitor-only 的 409）：对着一个
+	// 正在跑的后台 dream 调 /resume(= /continue) 应当是幂等 202 already_active
+	//（human 裁决 J-L6-7：后台 job 挂起后由人一键继续）。
 	rec := post(t, m2.SessionResume, "/api/sessions/"+id+"/resume", nil)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("resume background dream: %d (want 409)", rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume running background dream: %d (want 202 already_active), body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("resume running background dream should be idempotent, body=%s", rec.Body.String())
 	}
 	_ = post(t, m2.SessionClose, "/api/sessions/"+id+"/close", nil)
 }
@@ -1129,10 +1138,12 @@ func TestRoutes_POSTPromptMapsToSendNotFiles(t *testing.T) {
 	}
 }
 
-// TestReconcileOnStart_MarksOrphanActiveAsError —— 重启对账回归锁：status=active
-// 但 supervisor 无 worker 的会话（服务重启场景）必须被标记 error，前端才显示 Resume。
+// TestReconcileOnStart_MarksOrphanActiveAsSuspended —— 重启对账回归锁：status=active
+// 但 supervisor 无 worker 的会话（服务重启/平台升级场景）必须被标记 **suspended**，
+// 而不是 error：重启后进程不在是平台升级的必然结果，不是执行失败（human 裁决
+// J-L6-6）。前端据此显示「因平台升级挂起」+ 一键继续。
 // job_36 验收期实测：重启后旧会话仍 active → 发送消息 409 worker is not alive。
-func TestReconcileOnStart_MarksOrphanActiveAsError(t *testing.T) {
+func TestReconcileOnStart_MarksOrphanActiveAsSuspended(t *testing.T) {
 	env := newTestEnv(t)
 	m := env.managerWith(t, nil, nil)
 
@@ -1149,19 +1160,97 @@ func TestReconcileOnStart_MarksOrphanActiveAsError(t *testing.T) {
 	if err := env.sessions.Add(orphan); err != nil {
 		t.Fatalf("seed orphan session: %v", err)
 	}
+	// 已有的 suspended 行必须原样保留（幂等：不重复处理）
+	suspended := SessionEntry{
+		ID: "orphan-2", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
+		Status: SessionStatusSuspended, Params: map[string]any{"requirement": "y"},
+		CreatedAt: now, LastReason: "platform upgrade (release)",
+	}
+	if err := env.sessions.Add(suspended); err != nil {
+		t.Fatalf("seed suspended session: %v", err)
+	}
 
-	// supervisor 无此 worker（模拟重启后）——reconcile 应标记 error
 	m.ReconcileOnStart()
 
 	got, ok := env.sessions.Get("orphan-1")
 	if !ok {
 		t.Fatal("orphan session missing after reconcile")
 	}
-	if got.Status != SessionStatusError {
-		t.Fatalf("reconcile: orphan active status = %q, want error", got.Status)
+	if got.Status != SessionStatusSuspended {
+		t.Fatalf("reconcile: orphan active status = %q, want suspended（不是 error）", got.Status)
 	}
-	if got.ClosedAt.IsZero() {
-		t.Fatal("reconcile: ClosedAt should be set for error transition")
+	// reason 必须落盘（否则重启后 UI 无法解释为何挂起）
+	if got.LastReason != SuspendReasonRestart {
+		t.Fatalf("reconcile: LastReason = %q, want %q（reason 需持久化）", got.LastReason, SuspendReasonRestart)
+	}
+	// suspended **不是** closed：不得写 closed_at 冒充「已结束」
+	if !got.ClosedAt.IsZero() {
+		t.Fatalf("reconcile: ClosedAt should stay zero for suspended, got %v", got.ClosedAt)
+	}
+
+	kept, _ := env.sessions.Get("orphan-2")
+	if kept.Status != SessionStatusSuspended || kept.LastReason != "platform upgrade (release)" {
+		t.Fatalf("已挂起会话被改动: status=%q reason=%q", kept.Status, kept.LastReason)
+	}
+
+	// 恢复报告：挂起清单以注册表为权威，且文件落盘（UI/metrics 可读）
+	rep := m.ReadRecoveryReport()
+	if len(rep.Suspended) != 2 {
+		t.Fatalf("recovery report suspended = %d 条，want 2（两条都是挂起）", len(rep.Suspended))
+	}
+	ids := map[string]bool{}
+	for _, it := range rep.Suspended {
+		ids[it.ID] = true
+	}
+	if !ids["orphan-1"] || !ids["orphan-2"] {
+		t.Fatalf("recovery report 缺会话: %+v", rep.Suspended)
+	}
+	if rep.Recovered == nil || rep.Failed == nil {
+		t.Fatal("recovery report 的 recovered/failed 必须是空数组而非 nil（JSON 契约）")
+	}
+}
+
+// TestReconcileOnStart_DoesNotAutoResume —— **反向断言**：启动对账绝不得 spawn 任何
+// worker（自动恢复被 human 明确否决：悬挂 toolCall 自动续跑会重复副作用、配额耗尽
+// 不报错会静默空转）。
+func TestReconcileOnStart_DoesNotAutoResume(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	for _, e := range []SessionEntry{
+		{ID: "r1", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan, Status: SessionStatusActive,
+			PISessionID: "pi-r1", Params: map[string]any{"requirement": "x"}, CreatedAt: time.Now()},
+		{ID: "r2", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDoing, Status: SessionStatusRunning,
+			Params: map[string]any{"job": "job_1"}, CreatedAt: time.Now()},
+		{ID: "r3", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDream, Status: SessionStatusRunning,
+			Params: map[string]any{"mode": DreamModeBackground}, CreatedAt: time.Now()},
+	} {
+		if err := env.sessions.Add(e); err != nil {
+			t.Fatalf("seed %s: %v", e.ID, err)
+		}
+	}
+
+	m.ReconcileOnStart()
+
+	// ① 不得有任何 worker 被 spawn
+	for _, id := range []string{"r1", "r2", "r3"} {
+		if w := env.sup.Get(id); w != nil {
+			t.Fatalf("reconcile spawned a worker for %s —— 自动恢复被明确否决", id)
+		}
+	}
+	// ② 不得有任何后台 runner 被启动
+	m.mu.Lock()
+	running := len(m.cancels)
+	m.mu.Unlock()
+	if running != 0 {
+		t.Fatalf("reconcile started %d background runner(s) —— 自动续跑被明确否决", running)
+	}
+	// ③ 全部落在 suspended
+	for _, id := range []string{"r1", "r2", "r3"} {
+		e, _ := env.sessions.Get(id)
+		if e.Status != SessionStatusSuspended {
+			t.Fatalf("%s status = %q, want suspended", id, e.Status)
+		}
 	}
 }
 
@@ -1619,4 +1708,169 @@ func TestSessionResumeConcurrentSpawnHeals(t *testing.T) {
 	if got, _ := m.sessions.Get(id); got.Status != SessionStatusActive {
 		t.Fatalf("status should be healed to active, got %q", got.Status)
 	}
+}
+
+// ---- 人工恢复（/continue）——本增量的核心语义 ----
+
+// TestSessionContinue_InteractiveSuspended 覆盖交互型会话的人工恢复：
+// suspended 会话 → POST /continue → spawn `--session <pi>` → active；
+// 幂等（重复点击 202 already_active）；恢复动作写入恢复报告。
+func TestSessionContinue_InteractiveSuspended(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+
+	entry := SessionEntry{
+		ID: "susp-plan", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+		Status: SessionStatusSuspended, Title: "suspended plan",
+		PISessionID: "pi-susp-plan",
+		Params:      map[string]any{"requirement": "r"},
+		CreatedAt:   time.Now(), LastReason: SuspendReasonRelease,
+	}
+	if err := env.sessions.Add(entry); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshSuspendedReport()
+
+	rec := post(t, m.SessionContinue, "/api/sessions/susp-plan/continue", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("continue suspended session: %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["resumed"] != true {
+		t.Fatalf("continue body = %s, want resumed:true", rec.Body.String())
+	}
+
+	got, _ := env.sessions.Get("susp-plan")
+	if got.Status != SessionStatusActive {
+		t.Fatalf("after continue status = %q, want active", got.Status)
+	}
+	if w := env.sup.Get("susp-plan"); w == nil || w.IsDead() {
+		t.Fatal("continue 应 spawn 出活 worker")
+	}
+	// 恢复动作必须留痕（报告：从 suspended 移入 recovered）
+	rep := m.ReadRecoveryReport()
+	if len(rep.Suspended) != 0 {
+		t.Fatalf("恢复后报告 suspended 应为空: %+v", rep.Suspended)
+	}
+	if len(rep.Recovered) != 1 || rep.Recovered[0].ID != "susp-plan" {
+		t.Fatalf("报告 recovered = %+v", rep.Recovered)
+	}
+
+	// 幂等：重复点击 → 202 already_active，不重复 spawn
+	rec = post(t, m.SessionContinue, "/api/sessions/susp-plan/continue", nil)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("重复 continue 应幂等 202 already_active, got %d %s", rec.Code, rec.Body.String())
+	}
+
+	// 未知会话 → 404
+	if rec := post(t, m.SessionContinue, "/api/sessions/nope/continue", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("continue unknown session = %d, want 404", rec.Code)
+	}
+}
+
+// TestSessionContinue_DoingNormalizesAndReruns 覆盖 doing 的人工恢复：
+// 归一化tasks.json 里遗留的 running → pending（**在 runner 启动之前**），
+// 再重跑剩余 task；且不把 success 改回 pending。
+func TestSessionContinue_DoingNormalizesAndReruns(t *testing.T) {
+	env := newTestEnv(t)
+
+	type observed struct {
+		jobID    string
+		statuses map[string]string
+	}
+	seen := make(chan observed, 1)
+	doing := func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
+		// runner 启动那一刻的 tasks.json 快照 —— 归一化必须已经完成
+		data, err := os.ReadFile(filepath.Join(rickDir, "jobs", jobID, "doing", "tasks.json"))
+		if err != nil {
+			t.Errorf("runner 读 tasks.json: %v", err)
+		}
+		var doc struct {
+			Tasks []struct {
+				TaskID string `json:"task_id"`
+				Status string `json:"status"`
+			} `json:"tasks"`
+		}
+		_ = json.Unmarshal(data, &doc)
+		st := map[string]string{}
+		for _, tk := range doc.Tasks {
+			st[tk.TaskID] = tk.Status
+		}
+		select {
+		case seen <- observed{jobID: jobID, statuses: st}:
+		default:
+		}
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	m := env.managerWith(t, doing, nil)
+
+	// 造 job：一个 success（必须原样保留）+ 一个遗留 running + 一个 pending
+	doingDir := filepath.Join(env.rickDir, "jobs", "job_9", "doing")
+	if err := os.MkdirAll(doingDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tasksJSON := `{"version":"1.0","tasks":[` +
+		`{"task_id":"task1","status":"success","commit_hash":"abc"},` +
+		`{"task_id":"task2","status":"running"},` +
+		`{"task_id":"task3","status":"pending"}]}`
+	if err := os.WriteFile(filepath.Join(doingDir, "tasks.json"), []byte(tasksJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := SessionEntry{
+		ID: "susp-doing", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDoing,
+		Status: SessionStatusSuspended, Title: "doing job_9",
+		Params: map[string]any{"job": "job_9"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(entry); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshSuspendedReport()
+
+	rec := post(t, m.SessionContinue, "/api/sessions/susp-doing/continue", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("continue suspended doing: %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["kind"] != SessionTypeDoing {
+		t.Fatalf("continue body kind = %v, want doing", body["kind"])
+	}
+	if norm, ok := body["normalized_tasks"].([]any); !ok || len(norm) != 1 || norm[0] != "task2" {
+		t.Fatalf("normalized_tasks = %v, want [task2]", body["normalized_tasks"])
+	}
+
+	select {
+	case obs := <-seen:
+		if obs.jobID != "job_9" {
+			t.Fatalf("runner jobID = %q, want job_9", obs.jobID)
+		}
+		if obs.statuses["task2"] != "pending" {
+			t.Fatalf("runner 启动时 task2 仍为 %q（归一化必须早于重跑）", obs.statuses["task2"])
+		}
+		if obs.statuses["task1"] != "success" {
+			t.Fatalf("success 被改动了: %q", obs.statuses["task1"])
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("doing runner 未被启动（人工继续没有生效）")
+	}
+
+	// 重跑前状态回到 running
+	if e, _ := env.sessions.Get("susp-doing"); e.Status != SessionStatusRunning {
+		t.Fatalf("继续后状态 = %q, want running", e.Status)
+	}
+	// 幂等：再次 continue → 202 already_active（不重复起 runner）
+	rec = post(t, m.SessionContinue, "/api/sessions/susp-doing/continue", nil)
+	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "already_active") {
+		t.Fatalf("重复 continue doing 应幂等: %d %s", rec.Code, rec.Body.String())
+	}
+	// tasks.json 备份存在（归一化写过盘）
+	if _, err := os.Stat(filepath.Join(doingDir, "tasks.json.bak")); err != nil {
+		t.Fatalf("归一化应留下 tasks.json.bak 备份: %v", err)
+	}
+
+	// 收尾：取消后台 runner，避免 goroutine 泄漏
+	post(t, m.SessionClose, "/api/sessions/susp-doing/close", nil)
 }

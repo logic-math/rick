@@ -1,160 +1,117 @@
 package handler
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func TestDoing_NoJobDir(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
+// seedTasksJSON 造一个 doing/tasks.json（名字避开 learning_test.go 里既有的
+// writeTasksJSON(t, dir, tasks) 辅助，避免同包符号冲突）。
+func seedTasksJSON(t *testing.T, rickDir, jobID, body string) string {
+	t.Helper()
+	dir := filepath.Join(rickDir, "jobs", jobID, "doing")
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
+	path := filepath.Join(dir, "tasks.json")
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	err = Doing("job_test", Options{}, nil)
-	if err == nil {
-		t.Fatal("expected error for missing job dir")
-	}
+	return path
 }
 
-func TestDoing_NoPlanDir(t *testing.T) {
-	orig, err := os.Getwd()
+func readStatuses(t *testing.T, path string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
+	var doc struct {
+		Tasks []struct {
+			TaskID string `json:"task_id"`
+			Status string `json:"status"`
+		} `json:"tasks"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick", "jobs", "job_test"), 0755); err != nil {
-		t.Fatal(err)
+	out := map[string]string{}
+	for _, tk := range doc.Tasks {
+		out[tk.TaskID] = tk.Status
 	}
-
-	err = Doing("job_test", Options{}, nil)
-	if err == nil {
-		t.Fatal("expected error for missing plan dir")
-	}
+	return out
 }
 
-func TestDoing_NoTasks(t *testing.T) {
-	orig, err := os.Getwd()
+// TestNormalizeRunningTasks 覆盖「人工恢复 doing 前的归一化」：
+// 只把遗留 running → pending（确定性门禁把遗留 running 判为 zombie，归一化否则
+// 续跑第一轮就失败），success/error/pending 原样保留，幂等，且不动无关文件。
+func TestNormalizeRunningTasks(t *testing.T) {
+	rickDir := t.TempDir()
+	path := seedTasksJSON(t, rickDir, "job_1", `{"version":"1.0","tasks":[
+		{"task_id":"task1","status":"success","commit_hash":"abc"},
+		{"task_id":"task2","status":"running"},
+		{"task_id":"task3","status":"error"},
+		{"task_id":"task4","status":"pending"},
+		{"task_id":"task5","status":"running","attempts":2}
+	]}`)
+
+	moved, err := NormalizeRunningTasks(rickDir, "job_1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("normalize: %v", err)
 	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
+	if len(moved) != 2 || moved[0] != "task2" || moved[1] != "task5" {
+		t.Fatalf("moved = %v, want [task2 task5]", moved)
 	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	if err := os.MkdirAll(filepath.Join(dir, ".rick", "jobs", "job_test", "plan"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	err = Doing("job_test", Options{}, nil)
-	if err == nil {
-		t.Fatal("expected error for no tasks")
-	}
-}
-
-func TestDoingDryRun_Orchestration(t *testing.T) {
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	planDir := filepath.Join(dir, ".rick", "jobs", "job_1", "plan")
-	if err := os.MkdirAll(planDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	task1 := "# 依赖关系\n无\n# 任务名称\nTask1\n# 任务目标\nGoal\n# 关键结果\n1. KR1\n# 测试方法\nTest\n# 写域\nsrc/a/\n"
-	task2 := "# 依赖关系\ntask1\n# 任务名称\nTask2\n# 任务目标\nGoal\n# 关键结果\n1. KR1\n# 测试方法\nTest\n# 写域\nsrc/b/\n"
-	if err := os.WriteFile(filepath.Join(planDir, "task1.md"), []byte(task1), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(planDir, "task2.md"), []byte(task2), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// v4.4：每层门禁程序（task1=第1层，task2=第2层）
-	gatesDir := filepath.Join(planDir, "gates")
-	if err := os.MkdirAll(gatesDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	for i := 1; i <= 2; i++ {
-		gate := "#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n"
-		if err := os.WriteFile(filepath.Join(gatesDir, fmt.Sprintf("gate%d.py", i)), []byte(gate), 0644); err != nil {
-			t.Fatal(err)
+	st := readStatuses(t, path)
+	want := map[string]string{"task1": "success", "task2": "pending", "task3": "error", "task4": "pending", "task5": "pending"}
+	for id, w := range want {
+		if st[id] != w {
+			t.Fatalf("%s status = %q, want %q（只应把 running 改为 pending）", id, st[id], w)
 		}
 	}
-
-	if err := DoingDryRun("job_1"); err != nil {
-		t.Fatalf("DoingDryRun: %v", err)
+	// 备份存在（写盘前留痕）
+	if _, err := os.Stat(path + ".bak"); err != nil {
+		t.Fatalf("缺 tasks.json.bak: %v", err)
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("落盘留下 .tmp 残留（应原子替换）")
+	}
+	// 未知字段保留（tasks.json 由 hook 写，字段面比本包更宽）
+	data, _ := os.ReadFile(path)
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["version"] != "1.0" {
+		t.Fatalf("顶层字段被丢弃: %v", raw)
 	}
 
-	// The prompt was written to doing/prompts/doing_prompt.md; verify the
-	// orchestration content exists on disk (DoingDryRun prints to stdout).
-	promptFile := filepath.Join(dir, ".rick", "jobs", "job_1", "doing", "prompts", "doing_prompt.md")
-	content, err := os.ReadFile(promptFile)
+	// 幂等：已经无 running → 不再改文件（mtime 不变、不产生新备份内容）
+	before, _ := os.Stat(path)
+	moved2, err := NormalizeRunningTasks(rickDir, "job_1")
 	if err != nil {
-		t.Fatalf("read prompt file: %v", err)
+		t.Fatalf("second normalize: %v", err)
 	}
-	s := string(content)
-	if !strings.Contains(s, "workflowScript") {
-		t.Error("doing prompt must contain workflowScript orchestration")
+	if len(moved2) != 0 {
+		t.Fatalf("第二次 normalize moved = %v, want empty（幂等）", moved2)
 	}
-	// v4.4.2 测试收敛到层门禁：无 per-task test-worker，task 只 impl-worker（自测）
-	if strings.Contains(s, "'task1-test'") {
-		t.Error("doing prompt must NOT contain per-task test-worker (tests converged to layer gates)")
+	after, _ := os.Stat(path)
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Fatal("无变化时不应重写 tasks.json（避免扰动 watcher/mtime）")
 	}
-	if !strings.Contains(s, "'task1-impl'") {
-		t.Error("doing prompt must contain task1-impl (impl-worker with self-test)")
+}
+
+// TestNormalizeRunningTasks_Errors 覆盖错误分支：参数缺失 / 文件不存在。
+func TestNormalizeRunningTasks_Errors(t *testing.T) {
+	if _, err := NormalizeRunningTasks("", "job_1"); err == nil {
+		t.Fatal("空 rickDir 必须报错")
 	}
-	if !strings.Contains(s, "自测") {
-		t.Error("doing prompt must reference self-test (# 测试方法 as process-level guidance)")
+	if _, err := NormalizeRunningTasks(t.TempDir(), ""); err == nil {
+		t.Fatal("空 jobID 必须报错")
 	}
-	if !strings.Contains(s, "runs.all") {
-		t.Error("doing prompt must contain runs.all (level-parallel fanout)")
-	}
-	if !strings.Contains(s, "level_complete") {
-		t.Error("doing prompt must reference level_complete hook tool (layer checkpoint commit)")
-	}
-	if !strings.Contains(s, "步骤 ③") {
-		t.Error("doing prompt must contain per-level step ③ (level_complete checkpoint)")
-	}
-	// v4.3.1 动态超时：timeoutMs 由工作量估算（≥20min），不再固定 3600000
-	if !strings.Contains(s, "timeoutMs: ") {
-		t.Error("doing prompt dispatches must carry dynamically estimated timeoutMs")
-	}
-	// v4.4 分层 pipeline + 层门禁
-	if !strings.Contains(s, "门禁判别力验证") {
-		t.Error("doing prompt must contain step-1 gate discriminability check")
-	}
-	if !strings.Contains(s, "gate_cmd") {
-		t.Error("doing prompt must pass gate_cmd to level_complete")
-	}
-	if !strings.Contains(s, "debug 压缩传递") {
-		t.Error("doing prompt must contain step-5 debug compression handoff")
-	}
-	if !strings.Contains(s, "# 写域") == false && strings.Contains(s, "写域互斥") == false {
-		t.Error("doing prompt must mention write-domain disjointness")
+	if _, err := NormalizeRunningTasks(t.TempDir(), "job_missing"); err == nil {
+		t.Fatal("tasks.json 不存在必须报错（调用方据此提示无法恢复）")
 	}
 }

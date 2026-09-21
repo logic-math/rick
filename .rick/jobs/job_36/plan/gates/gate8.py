@@ -73,7 +73,9 @@ def stop(p):
     try: p.wait(timeout=25)
     except Exception: p.kill()
 
-# ③ overlay 热更：替换 state/dist/index.html → GET / 立即反映，进程 pid 不变
+# ③ overlay 热更：替换 <state>/web/dist/index.html → GET / 立即反映，进程 pid 不变
+# ⚠️ overlay 真身是 <stateDir>/web/dist（cmd/web.go:168 传 web.WebStateDir()，server.go:113
+# 再拼 "dist"）。旧版写成 <state>/dist → 永远测不到（gate 自身路径 bug，已修）。
 ws = os.path.join(tmp, "ws"); os.makedirs(os.path.join(ws, ".rick"), exist_ok=True)
 json.dump({"version": 1, "workspaces": [{"id": "wsgate8", "path": ws, "name": "gate8ws",
           "added_at": "2026-01-01T00:00:00+08:00"}]}, open(os.path.join(state, "web.json"), "w"))
@@ -81,7 +83,7 @@ p1 = start()
 if not p1:
     errors.append("③ 实例未起来")
 else:
-    ov = os.path.join(state, "dist"); os.makedirs(ov, exist_ok=True)
+    ov = os.path.join(state, "web", "dist"); os.makedirs(ov, exist_ok=True)
     m1 = "gate8-overlay-A"
     open(os.path.join(ov, "index.html"), "w").write(f"<html><body>{m1}</body></html>")
     code, body = http("GET", f"http://127.0.0.1:{port}/")
