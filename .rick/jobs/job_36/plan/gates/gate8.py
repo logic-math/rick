@@ -48,6 +48,53 @@ rr = run(["go", "test", "./internal/env/devweb/", "./internal/cmd/", "-timeout",
 if rr.returncode != 0:
     errors.append(f"② devweb/cmd 测试失败:\n{(rr.stderr or rr.stdout)[-1400:]}")
 
+# ①②-b F4 回归：**在 dev 树内**执行 `dev-web status` 必须与从生产仓库执行解析出
+# 同一棵树/同一个 HOME（旧实现会把 `rick-dev` 解析成 `<祖父>/rick-dev`，从树内跑
+# 直接 DEV_FAIL）。断言只能加强：要求两次的 state_file 完全一致且指向 dev HOME。
+# dev-web 的 CLI 用**从 dev 树构建出来的固定二进制**执行：`go run ./cmd/rick` 在
+# 生产仓库 cwd 下会去构建生产源码（那里没有 dev-web 子命令），测不到本层能力。
+def dev_state_file(bin_path, cwd):
+    r = subprocess.run([bin_path, "tools", "dev-web", "status"], cwd=cwd,
+                       capture_output=True, text=True, timeout=900, env=dict(os.environ))
+    out = (r.stdout or "") + (r.stderr or "")
+    for tok in out.split():
+        if tok.startswith("state_file="):
+            return tok.split("=", 1)[1], out
+    return None, out
+
+def prod_repo_of(tree):
+    """从 dev 树的 .git（gitdir: <repo>/.git/worktrees/<name>）反推生产仓库。"""
+    try:
+        line = open(os.path.join(tree, ".git")).read().strip()
+    except OSError:
+        return None
+    if not line.startswith("gitdir:"):
+        return None
+    gd = line[len("gitdir:"):].strip()
+    if not os.path.isabs(gd):
+        gd = os.path.join(tree, gd)
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(gd))))
+
+dev_tree = ROOT
+prod_repo = prod_repo_of(dev_tree)
+ctl = os.path.join(tempfile.mkdtemp(prefix="gate8-ctl-"), "rick")
+rc = run(["go", "build", "-o", ctl, "./cmd/rick"])
+if rc.returncode != 0:
+    errors.append(f"①②-b 构建 dev-web CLI 失败:\n{(rc.stderr or rc.stdout)[-800:]}")
+sf_dev, out_dev = dev_state_file(ctl, dev_tree)      # 从 dev 树内执行
+if sf_dev is None:
+    errors.append(f"①②-b 从 dev 树内执行 dev-web status 未输出 state_file（F4 回归）:\n{out_dev[-600:]}")
+else:
+    if "-home/dev-state.json" not in sf_dev:
+        errors.append(f"①②-b dev 树解析异常：state_file={sf_dev}（应指向 <tree>-home/dev-state.json）")
+    if os.path.basename(os.path.dirname(sf_dev)) != os.path.basename(dev_tree) + "-home":
+        errors.append(f"①②-b HOME 未跟随 dev 树：state_file={sf_dev}（dev 树={dev_tree}）")
+    if prod_repo:
+        sf_prod, out_prod = dev_state_file(ctl, prod_repo)   # 从生产仓库执行
+        if sf_prod != sf_dev:
+            errors.append(f"①②-b 两种 cwd 解析不一致：dev树内={sf_dev} vs 生产仓库={sf_prod}"
+                          f"（F4：解析必须与 cwd 无关）\n{out_prod[-400:]}")
+
 tmp = tempfile.mkdtemp(prefix="gate8-")
 BIN = os.path.join(tmp, "rick")
 r = run(["go", "build", "-ldflags", "-X github.com/sunquan/rick/internal/cmd.BuildID=gate8-260101000000", "-o", BIN, "./cmd/rick"])
