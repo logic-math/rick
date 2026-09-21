@@ -198,6 +198,75 @@ func workspaceAddGuard() func(absPath string) error {
 	return addGuard
 }
 
+// HomeSwapped reports whether $HOME differs from the real (passwd) user home,
+// i.e. this process runs with a switched HOME. That is exactly the shape
+// `rick tools dev-web` launches the dev instance with: web state and the pi
+// sandbox both follow $HOME, so they are isolated "for free" — but the state
+// directory is still the default $HOME/.rick, which is why the old
+// IsDevStateDir test missed this shape entirely (see DevModeInfo).
+func HomeSwapped() bool {
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(u.HomeDir) != filepath.Clean(home)
+}
+
+// realUserStateDir returns the state directory owned by the real (passwd)
+// user: $RICK_PROD_STATE_DIR wins, otherwise <real home>/.rick. Unlike
+// ProductionStateDir it also answers when $HOME has not been swapped (that is
+// the "is this the production state dir?" question, not "am I a dev
+// instance?"). Empty when it cannot be determined.
+func realUserStateDir() string {
+	if v := strings.TrimSpace(os.Getenv(ProdStateDirEnvVar)); v != "" {
+		if abs, err := filepath.Abs(v); err == nil {
+			return abs
+		}
+	}
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		return ""
+	}
+	return filepath.Join(u.HomeDir, ".rick")
+}
+
+// DevModeInfo decides whether this process is a dev instance and in which shape,
+// so the composition root can install the right isolation guards.
+//
+// 两种 dev 形态**都必须**安装工作区守卫（F1 修复的核心）：
+//   - home-swapped  ：HOME 被换掉（`rick tools dev-web` 的形态），状态目录=
+//     当前 HOME 的 .rick。旧判定 IsDevStateDir(resolved) 在这里恒为 false →
+//     守卫压根没装，dev 实例实测可以注册生产工作区并写坏它的 .rick/。
+//   - state-dir-only：只换状态目录、HOME 未换 → pi 沙盒仍指生产，调用方还必须
+//     强制显式 RICK_PI_AGENT_DIR（见 cmd.configureDevIsolation）。
+//
+// prodState 无法确定（user.Current 失败且无 env）时回退到旧判定，保证
+// 「--state-dir 形态」在异常环境下仍然保守地启用守卫。
+func DevModeInfo(resolved string) (isDev bool, prodState string, homeSwapped bool) {
+	prodState = realUserStateDir()
+	homeSwapped = HomeSwapped()
+	trimmed := strings.TrimSpace(resolved)
+	if trimmed == "" {
+		return false, prodState, homeSwapped
+	}
+	if prodState == "" {
+		return IsDevStateDir(trimmed), prodState, homeSwapped
+	}
+	got, err := filepath.Abs(trimmed)
+	if err != nil {
+		return false, prodState, homeSwapped
+	}
+	want, err := filepath.Abs(prodState)
+	if err != nil {
+		return false, prodState, homeSwapped
+	}
+	return filepath.Clean(got) != filepath.Clean(want), prodState, homeSwapped
+}
+
 // ProductionStateDir locates the *production* state directory from a dev
 // instance: $RICK_PROD_STATE_DIR wins; otherwise the real (passwd) home is
 // used when it differs from the current $HOME (dev instances run with a

@@ -38,3 +38,26 @@ python3 .rick/jobs/job_36/plan/gates/gate7.py
 - 兼容性红线：**不得改变默认（无 flag/env）行为**——生产就是默认路径，任何变化都可能影响运行中的 prod；dev 语义只在显式指定时启用。
 - flock 需 `syscall`（Linux）；不要在 `internal/web` 里引入平台分支复杂度（本项目仅 Linux 云 IDE）。
 - ⚠️ 本 task 只做「能力与守卫」，不要顺手改 sessions 的恢复语义（那是 task19）。
+
+---
+
+# 补丁需求 F1（由 task22 的 E2E 实测暴露，2026-09-21 复核确认）
+
+**缺陷**：隔离守卫的启用条件写成 `IsDevStateDir(resolved)`（= `resolved != $HOME/.rick`），只在 `--state-dir` 形态下成立。而 `rick tools dev-web` 实际启动 dev 实例的形态是**换 HOME**（`HOME=<dev-home>`，状态目录仍是默认的 `$HOME/.rick`）→ `IsDevStateDir` 为 false → **守卫未安装**。
+
+**实测复现**（换 HOME、无 --state-dir）：
+```
+POST /api/workspaces {"path":"/workdir/sunquan20/BERT_KEETA", ...}  → HTTP 201（本应 4xx 拒绝）
+```
+后果：dev 会话可注册并写入**生产工作区**的 `.rick`（jobs/tasks.json）——L4-6 的 fail-fast 纪律被绕过。
+
+**要求**：
+1. 新增谓词 `web.DevModeInfo(resolved string) (isDev bool, prodState string, homeSwapped bool)`：
+   - `prodState` = `RICK_PROD_STATE_DIR` > 真实用户家目录（`user.Current()`）的 `.rick`；
+   - `isDev` = `Clean(resolved) != Clean(prodState)`（**两种形态都算 dev**：换 HOME 后默认状态目录 ≠ 生产状态目录）；
+   - `homeSwapped` = 当前 `$HOME` ≠ 真实用户家目录（= `ProductionStateDir()` 非空）。
+2. `internal/cmd/web.go`：
+   - `isDev` 时**一律**安装工作区守卫（`ProdWorkspaceGuard(prodState)`）+ 打印 DEV MODE banner（含形态说明：`home-swapped` / `state-dir-only`）；
+   - **`RICK_PI_AGENT_DIR` 强制要求只在 `!homeSwapped` 时生效**（状态目录隔离了但 HOME 没换 → pi 沙盒仍指生产）；换 HOME 形态下 pi 沙盒已随 HOME 隔离，不强制。
+3. 测试：`internal/web/statedir_test.go` 增加 `DevModeInfo` 表驱动（生产 HOME+默认 / 生产 HOME+--state-dir / 换 HOME+默认 / 换 HOME+--state-dir，用 `RICK_PROD_STATE_DIR` 与 `t.Setenv` 隔离）；`internal/cmd/` 至少补一条「换 HOME 形态下守卫已安装」的断言（可用 fake registry/guard 注入）。
+4. `plan/gates/gate7.py` 增加**换 HOME 形态**断言（第 ⑨ 条）：换 HOME（不给 --state-dir）启动 → `POST /api/workspaces` 注册生产注册表里的工作区路径 → 必须 4xx 拒绝；同时断言 dev 会话列表为空（隔离成立）。

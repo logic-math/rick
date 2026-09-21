@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/handler"
+	"github.com/sunquan/rick/internal/web"
 )
 
 // webPidFile resolves the singleton pid file under an isolated HOME.
@@ -215,4 +217,102 @@ func TestNewWebCmdHelpSurface(t *testing.T) {
 			t.Errorf("web cmd missing --%s flag", want)
 		}
 	}
+}
+
+// TestConfigureDevIsolationSwappedHome 是 F1 的回归钉子：**换 HOME 形态**
+// （`rick tools dev-web` 启动 dev 实例的实际形态：HOME=<dev-home>，状态目录仍是
+// 默认的 $HOME/.rick）也必须安装工作区守卫。
+//
+// 修复前：开关用 IsDevStateDir(resolved) = (resolved != $HOME/.rick)，换 HOME
+// 后该式恒为 false → 守卫不装 → 实测 `POST /api/workspaces` 注册生产工作区
+// /workdir/.../BERT_KEETA 返回 HTTP 201，dev 会话可写坏生产 .rick/。
+func TestConfigureDevIsolationSwappedHome(t *testing.T) {
+	// 假生产状态目录（内含一个已注册的生产工作区）—— 不碰真实 ~/.rick
+	prodState := t.TempDir()
+	prodWS := filepath.Join(t.TempDir(), "prod-ws")
+	if err := os.MkdirAll(filepath.Join(prodWS, ".rick"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := `{"version":1,"workspaces":[{"id":"aaaabbbb","path":"` + prodWS + `","name":"prod","added_at":"2026-01-01T00:00:00Z"}]}`
+	if err := os.WriteFile(filepath.Join(prodState, "web.json"), []byte(reg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RICK_PROD_STATE_DIR", prodState)
+
+	// 形态一：换 HOME（dev-web 的实际形态）→ 必须判为 dev 并装守卫
+	devHome := t.TempDir()
+	t.Setenv("HOME", devHome)
+	t.Setenv("RICK_PI_AGENT_DIR", "") // 换 HOME 时 pi 沙盒随 HOME 隔离，不强制
+
+	mode, err := configureDevIsolation(filepath.Join(devHome, ".rick"))
+	if err != nil {
+		t.Fatalf("换 HOME 形态不应报错（pi 沙盒已随 HOME 隔离）: %v", err)
+	}
+	if mode != "home-swapped" {
+		t.Fatalf("mode = %q, want home-swapped（F1：换 HOME 形态必须识别为 dev）", mode)
+	}
+	// 守卫真的装上了：注册生产工作区 → 拒绝
+	guarded, err := web.LoadWorkspaceRegistry(filepath.Join(t.TempDir(), "web.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = guarded.Add(prodWS, "should-be-rejected")
+	if err == nil {
+		t.Fatal("换 HOME 形态下注册生产工作区竟然成功 —— 守卫没装（F1 未修复）")
+	}
+	if !strings.Contains(err.Error(), "生产") {
+		t.Fatalf("拒绝原因不像隔离守卫: %v", err)
+	}
+	// 非生产工作区照常放行
+	freshWS := filepath.Join(t.TempDir(), "fresh-ws")
+	if err := os.MkdirAll(filepath.Join(freshWS, ".rick"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := guarded.Add(freshWS, "ok"); err != nil {
+		t.Fatalf("dev 专属工作区应放行: %v", err)
+	}
+
+	// 形态二：只换状态目录（HOME 未换）→ 必须强制显式 RICK_PI_AGENT_DIR
+	t.Setenv("HOME", mustRealHome(t))
+	mode, err = configureDevIsolation(filepath.Join(t.TempDir(), "dev-state"))
+	if err == nil {
+		t.Fatal("state-dir-only 形态未强制 RICK_PI_AGENT_DIR（应报错）")
+	}
+	if !strings.Contains(err.Error(), "RICK_PI_AGENT_DIR") {
+		t.Fatalf("错误信息未点明 RICK_PI_AGENT_DIR: %v", err)
+	}
+	t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(t.TempDir(), "agent"))
+	mode, err = configureDevIsolation(filepath.Join(t.TempDir(), "dev-state"))
+	if err != nil {
+		t.Fatalf("显式给出 agent dir 后应可启动: %v", err)
+	}
+	if mode != "state-dir-only" {
+		t.Fatalf("mode = %q, want state-dir-only", mode)
+	}
+
+	// 形态三：生产实例（状态目录 == 生产状态目录）→ 不装守卫，注册不受限
+	mode, err = configureDevIsolation(prodState)
+	if err != nil {
+		t.Fatalf("生产实例的 configureDevIsolation 不应报错: %v", err)
+	}
+	if mode != "" {
+		t.Fatalf("mode = %q, want \"\"（生产实例）", mode)
+	}
+	plain, err := web.LoadWorkspaceRegistry(filepath.Join(t.TempDir(), "web.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := plain.Add(prodWS, "prod-side"); err != nil {
+		t.Fatalf("生产实例侧不应被守卫拦截: %v", err)
+	}
+}
+
+// mustRealHome returns the passwd user home (the tests above swap $HOME).
+func mustRealHome(t *testing.T) string {
+	t.Helper()
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		t.Skip("无法获取真实家目录")
+	}
+	return u.HomeDir
 }
