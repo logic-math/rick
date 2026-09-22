@@ -1,14 +1,14 @@
 ---
 name: rick-rsi-loop
-trigger: "当需要修改 rick 自身（源码 cmd/ internal/ web/、prompt 模板、或 .rick 知识库/loop）并让它生效到生产时触发；「让 rick 自己改进自己」的 RSI 会话默认加载本 loop"
-scope: "全局（RSI 会话 / plan / doing / easy 均可加载；RSI 会话强制加载）"
+trigger: "当需要修改 rick 自身（源码 cmd/ internal/ web/、prompt 模板、或 .rick 知识库/loop）并让它生效到生产时触发——「让 rick 自己改进自己」的任务加载本 loop"
+scope: "全局（任意承载会话：plan / doing / easy 均可加载）"
 ---
 
 # Loop: rick 自进化（RSI，Recursive Self-Improvement）
 
 把「改进 rick 自身」的一次迭代**安全**送达生产：改动在 **dev 工作区**完成、通过层门禁、经**人类确认**后由 `rick tools release` 原子提升并重启，生产健康且 `build_id` 匹配本次构建。
 
-- 本 loop 的定位：**唯一入口的制度文本**。`rsi` 会话类型会把本文件全文注入系统提示词，因此 RSI 会话必然按本流程执行。
+- 本 loop 是一个**普通的 rick loop**（与 loops/ 目录其它成员同构，无专属会话类型）：承载会话的提示词里有「可用的项目 Loops」目录（name+trigger），当任务属于「修改 rick 自身」时，**先完整读取本文件**再动手。
 - 本 loop 的兑现方式：产出评估表由 `rick tools rsi_check` **机器校验**——不写证据 = 本次迭代未完成。
 
 ## 依赖准备（硬约束，缺失则报错停止）

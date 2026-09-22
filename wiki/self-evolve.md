@@ -197,9 +197,11 @@ E2E 断言覆盖：隔离（状态/flock/守卫）、前端热更（进程不重
 
 ### 8.1 怎么用（三步）
 
-1. **在生产 UI 里新建会话** → 类型选 **`RSI 自进化`**（`rsi`）→ 工作区选 **dev 工作区**（`rick-dev`，见 §10 注册步骤）
-   - CLI 等价入口：`rick rsi`（在 dev 工作树内执行）
-2. **loop 自动加载**：后端把 `rick-rsi-loop` 的**全文**注入本次会话的系统提示词，并把 loop 文件登记为
+1. **在生产 UI 里新建一个普通会话**（类型 `easy`，或你惯用的 `plan`）→ 工作区选 **rick 工作区**（`rick-dev` 是个普通工作区，见 §10 注册步骤；与其它工作区无任何差别）
+   - CLI 等价入口：`rick easy "改进 rick 的 XXX"`（在 dev 工作树内执行）
+2. **loop 按标准机制加载**：easy/plan 会话的提示词里有「**可用的项目 Loops**」目录（name+trigger）；
+   当任务是「修改 rick 自身」时，agent 按 trigger 匹配到 `rick-rsi-loop` 并**读取全文**遵循执行 ——
+   与 loops/ 目录其它 6 个 loop 完全同构，**没有任何专属会话类型或特殊注入**
    `_method_file`（resume 后由 `--append-system-prompt` 重新注入，所以 loop 的后续修改在 resume 后依然生效）。
    → 也就是说：**启动这个会话 = 必然按 loop 执行**，不依赖 agent 自觉读文档。
 3. **按 loop 的状态机 S0→S7 走完**一次迭代：
@@ -222,14 +224,15 @@ E2E 断言覆盖：隔离（状态/flock/守卫）、前端热更（进程不重
 
 - **机制 vs 制度**：`dev-web` / 门禁 / `release` / 挂起恢复是**机制**；loop 是**制度**。只有机制时，
   每次（或换个人、换个会话）改 rick 都要重走试错；loop 把「怎么安全地改」固化成可复制流程。
-- **注入而非自觉**：`rsi` 会话类型把 loop 全文塞进系统提示词 —— "必须使用"由入口保证，不靠 agent 记性。
+- **标准发现而非特殊机制**：loop 由 rick 的标准 Loops 目录（`LoadLoopsContext` 注入 name+trigger）被发现——
+  不存在 `rsi` 专属会话类型（human 裁决 2026-09-22：RSI 只交付为一个 loop，走标准流程）。
 - **产出可机器校验**：loop 的「产出评估」表（6 项）由 `rsi_check` 逐项校验。
   证据目录：`<ws>/.rick/jobs/<job>/doing/rsi/{dev-iterations,gates,approval,release,resume}.md`；
   第 6 项 `prod-health` 是**实时探测** `GET /api/health` 并要求 `build_id` == release 记录的 version ——
   这是**证伪**手段（`release.md` 只是自述，只有探测能证明生产真的跑上了这次构建）。
 - **防自欺**：`rsi_check --init` 生成的骨架**永远不通过**（残留 `<!-- TODO` 标记即视为未填写）。
-- **工作区守卫**：`rsi` 会话拒绝三种非法工作区（HTTP 400 + 中文原因）：
-  非 rick 源码树 / 缺 `.rick/loops/rick-rsi-loop.md` / **指向生产仓库根**（后者最危险：会绕过 release 门禁直接改生产源码）。
+- **工作区不设代码级特殊处理**：`type=rsi` 已删除（创建返回 400 未知类型）；任何工作区都按标准流程创建会话。
+  「必须在 dev 工作区开发、禁止直接编辑生产仓库工作树」是 **loop 的纪律**（loop 正文硬约束），不是代码强制。
 
 ## 9. 源码合并：`release --merge-source`
 
@@ -253,7 +256,7 @@ rick tools release --no-merge-source            # 显式只要产物、不动源
 
 ## 10. 把 dev 工作区注册到生产 UI（让 RSI 会话能在生产里启动）
 
-RSI 会话必须在 **dev 工作区**运行（生产仓库根会被守卫拒绝），所以要让**生产 UI** 能选到它，需要在生产实例的
+建议自进化任务在 **dev 工作区**（`rick-dev`）上跑（loop 的纪律要求改动发生在 dev 工作树），所以要让**生产 UI** 能选到它，需要在生产实例的
 注册表里加一条 **additive 且可逆** 的记录：
 
 ```bash
@@ -272,7 +275,7 @@ curl -s --noproxy '*' -X DELETE -H "Authorization: Bearer $PROD_TOKEN" \
   http://127.0.0.1:8413/api/workspaces/<rick-dev 的 id>
 ```
 
-之后在**生产 UI**：新建会话 → 类型 `RSI 自进化` → 工作区 `rick-dev` → agent 会按 loop 走完 S0→S7。
+之后在**生产 UI**：新建**普通 easy 会话** → 工作区 `rick-dev` → 描述「改进 rick 的 XXX」→ agent 在 Loops 目录里匹配到 `rick-rsi-loop`，按 loop 走完 S0→S7。
 
 > 若不想动生产注册表：**dev 实例自己的 UI**（`http://<host>:8414/?token=<dev token>`）注册表里已经有 `rick-dev`，
 > 可以作为 RSI 会话的替代入口 —— 两种入口跑的是同一套 loop 与工具。
