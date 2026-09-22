@@ -24,6 +24,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/model", desc: "切换模型", available: true },
   { name: "/thinking", desc: "切换思考档位", available: true },
   { name: "/abort", desc: "中止当前生成", available: true },
+  { name: "/compact", desc: "压缩上下文（长会话降 token；可附指令引导摘要侧重点）", available: true },
   { name: "/close", desc: "关闭会话", available: true },
   { name: "/compact", desc: "压缩上下文（v1 暂不可用）", available: false },
 ];

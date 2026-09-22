@@ -929,6 +929,7 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 		mux.Handle("GET /api/sessions/{id}/models", authWrap(deps.Token, http.HandlerFunc(sm.SessionModels)))
 		mux.Handle("POST /api/sessions/{id}/model", authWrap(deps.Token, http.HandlerFunc(sm.SessionSetModel)))
 		mux.Handle("POST /api/sessions/{id}/thinking", authWrap(deps.Token, http.HandlerFunc(sm.SessionSetThinking)))
+		mux.Handle("POST /api/sessions/{id}/compact", authWrap(deps.Token, http.HandlerFunc(sm.SessionCompact)))
 		mux.Handle("GET /api/sessions/{id}/prompt", authWrap(deps.Token, http.HandlerFunc(sm.SessionPromptFiles)))
 		mux.Handle("GET /api/workspaces/{ws}/sessions/{id}/prompt", authWrap(deps.Token, http.HandlerFunc(sm.SessionPromptFiles)))
 	}

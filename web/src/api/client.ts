@@ -394,6 +394,15 @@ export class ApiClient {
   }
 
   /** POST /api/sessions/{id}/thinking {level} → 202 */
+  /** POST /api/sessions/{id}/compact —— 手动压缩上下文（可选 custom_instructions 引导摘要侧重点） */
+  compactSession(sessionId: string, customInstructions?: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      "POST",
+      `/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+      { body: { custom_instructions: customInstructions ?? "" } },
+    );
+  }
+
   setSessionThinking(id: string, level: string): Promise<void> {
     return this.request<void>("POST", `/api/sessions/${encodeURIComponent(id)}/thinking`, {
       body: { level },

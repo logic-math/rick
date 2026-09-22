@@ -224,6 +224,24 @@ func (c *RpcClient) NewSession(parentSession string) ([]byte, error) {
 	return c.BuildCommand("new_session", map[string]any{"parentSession": parentSession})
 }
 
+// Compact builds a `compact` command: manually compact the conversation
+// context to reduce token usage. customInstructions (optional) steers what the
+// summary keeps (e.g. "Focus on code changes"). Response data carries summary /
+// tokensBefore / estimatedTokensAfter / usage.
+func (c *RpcClient) Compact(customInstructions string) ([]byte, error) {
+	payload := map[string]any{}
+	if strings.TrimSpace(customInstructions) != "" {
+		payload["customInstructions"] = customInstructions
+	}
+	return c.BuildCommand("compact", payload)
+}
+
+// SetAutoCompaction builds a `set_auto_compaction` command: enable/disable
+// automatic compaction when the context is nearly full.
+func (c *RpcClient) SetAutoCompaction(enabled bool) ([]byte, error) {
+	return c.BuildCommand("set_auto_compaction", map[string]any{"enabled": enabled})
+}
+
 // GetState builds a `get_state` command (heartbeat + routing signal: the
 // response data carries isStreaming/isCompacting/sessionId/sessionFile).
 func (c *RpcClient) GetState() ([]byte, error) {

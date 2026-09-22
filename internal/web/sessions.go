@@ -1464,6 +1464,13 @@ func (m *SessionManager) rpcGetEntries(sessionID, since string) (*entriesRespons
 // or dead; a descriptive error when pi reports success:false or the wait
 // times out.
 func (m *SessionManager) rpcRequest(sessionID string, build func(*runtime.RpcClient) ([]byte, error)) (*runtime.RpcEvent, error) {
+	return m.rpcRequestTimeout(sessionID, build, 5*time.Second)
+}
+
+// rpcRequestTimeout is rpcRequest with an explicit response deadline. Slow
+// commands that trigger real LLM work (compact = 总结生成，实测远超 5s) must use
+// a longer budget — the default 5s is tuned for housekeeping (get_state/set_model).
+func (m *SessionManager) rpcRequestTimeout(sessionID string, build func(*runtime.RpcClient) ([]byte, error), timeout time.Duration) (*runtime.RpcEvent, error) {
 	worker := m.sup.Get(sessionID)
 	if worker == nil || worker.IsDead() {
 		return nil, errNoWorker
@@ -1493,7 +1500,7 @@ func (m *SessionManager) rpcRequest(sessionID string, build func(*runtime.RpcCli
 			return nil, fmt.Errorf("%s failed: %s", ev.Command, ev.Error)
 		}
 		return ev, nil
-	case <-time.After(5 * time.Second):
+	case <-time.After(timeout):
 		return nil, fmt.Errorf("rpc command timed out")
 	}
 }
@@ -1570,6 +1577,40 @@ func (m *SessionManager) SessionSetModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "model": string(ev.Data)})
+}
+
+// SessionCompact handles POST /api/sessions/{id}/compact
+// {"custom_instructions": "..."}（可选）: manually compact the conversation
+// context. pi 端执行压缩并返回 summary/tokensBefore/estimatedTokensAfter；
+// 前端已有 compaction_start/end 事件驱动「压缩中」状态，本接口补的是**手动触发入口**
+// （此前 /compact 在 web 上完全不可用：协议有命令、rick 未封装、无路由、前端无分支）。
+func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if entry.Status != SessionStatusActive {
+		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
+		return
+	}
+	var req struct {
+		CustomInstructions string `json:"custom_instructions"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req) // 空 body 合法（全部字段可选）
+	}
+	ev, err := m.rpcRequestTimeout(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
+		return c.Compact(req.CustomInstructions)
+	}, 180*time.Second)
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		writeError(w, newWebError(http.StatusBadRequest, "compact_rejected", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "result": json.RawMessage(ev.Data)})
 }
 
 // SessionSetThinking handles POST /api/sessions/{id}/thinking {level}:

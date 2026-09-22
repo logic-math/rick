@@ -547,6 +547,11 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           } else {
             setModelDialogOpen(true);
           }
+        } else if (cmd.name === "/compact") {
+          // 手动压缩：后端转发 pi 的 compact 命令；「压缩中」状态由既有
+          // compaction_start/end 事件驱动（vm.compacting）。
+          await api.compactSession(sessionId, cmd.arg || undefined);
+          setModelHint(cmd.arg ? `压缩已发起（侧重：${cmd.arg}）` : "压缩已发起");
         } else if (cmd.name === "/thinking") {
           if (cmd.arg) {
             await api.setSessionThinking(sessionId, cmd.arg);
