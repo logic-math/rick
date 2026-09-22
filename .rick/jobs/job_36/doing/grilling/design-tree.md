@@ -692,3 +692,17 @@ M1 提升入口（`rick tools release`：门禁校验 → 构建版本目录 →
 - **J-RSI-1 唯一入口**：loop 必须由**会话类型**绑定（不是靠 agent 自觉读文档）→ 裁决：**是**（否则"必须"无法保证）
 - **J-RSI-2 源码合并**：release 合并 dev→main；**冲突即终止报错**，由 AI 修复后重新 release（human 原话）→ 裁决：**是**（不自动解决冲突）
 - **J-RSI-3 运行位置**：RSI 会话的 workspace 必须是 **dev 工作区**（生产仓库根被硬拒，否则直接改生产源码）→ 裁决：**是**
+
+---
+
+## 增量 3 修订（R1，human 裁决 2026-09-22）：RSI 去特殊化
+
+**human 原话**：RSI 不应该是特殊会话类型，它只是 rick 中的一个普通 loop；rick-dev 只是普通工作区，web UI 不做任何特殊处理；RSI 只交付为一个 loop，走 rick 标准流程加载 loop 进行自改进。
+
+**修订内容**（推翻 J-RSI-1 的「会话类型绑定」实现，保留 KR1/KR3/KR4）：
+- ❌ 删除：`rsi` 会话类型（后端 + CLI `rick rsi` + 前端入口）、`ValidateRSIWorkspace` 等工作区特殊校验、`BuildRSIPrompt` 的 loop 全文注入（属特殊机制）。
+- ✅ 保留：`.rick/loops/rick-rsi-loop.md`（**唯一交付物**，五要素完整）；`rick tools {dev-web, release --merge-source, rsi_check, loops_check}`（工具面不变）；挂起/人工恢复语义。
+- ✅ 加载方式 = **标准机制**：easy/plan 会话提示词注入「可用的项目 Loops」目录（`LoadLoopsContext`，name+trigger），agent 按 trigger（修改 rick 自身）加载 loop 全文并遵循——与其它 6 个 loop 完全同构。
+- 硬约束（dev 工作树开发、禁改生产树）从「代码强制」降为「loop 纪律」——loop 是制度载体，这正是它的职责。
+
+**KR2 重述**：入口绑定 → 由「会话类型」改为「标准 loop 目录的 trigger 匹配」（成立条件：easy 提示词必须含 rick-rsi-loop 目录条目，已列为 gate12 断言②）。
