@@ -117,6 +117,10 @@ rick tools release --yes --detach   # 由「被生产托管」的 AI 会话执�
 
 ---
 
+## 4b. ⚠️ release 必须用 --detach（2026-09-22 生产中断事故的教训）
+
+`rick tools release` **永远**带 `--detach` 执行（setsid 脱离调用方进程树）。原因：release 会「先停生产再起新」，若调用方（AI 会话的 bash、终端复用器）在中间被中断，release 子进程被连带杀死 → 生产停留在「已停未起」。已实测：执行 shell 被中断导致生产中断 ~10 分钟，恢复 = 直接重跑 `~/.rick/start-web.sh`（换链已原子完成）。
+
 ## 5. 故障排查
 
 | 现象 | 原因 | 处置 |
