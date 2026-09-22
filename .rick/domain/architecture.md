@@ -164,3 +164,11 @@ learning 阶段注入 `{{draft_dir}}` 变量,路径为 `.rick/jobs/{job_id}/draf
 - **Web 优先**：后续迭代全部在 rick web 页面完成（会话/学习/dream/ctrl 均走 web）；CLI 命令与 web 保持同能力，但新能力以 web 为第一入口。
 - **TUI 跟随 pi 社区**：TUI 体验由 pi 社区迭代，rick 不投入主要精力。
 - **自进化形态**：普通会话（easy/plan）+ `.rick/loops/rick-rsi-loop.md`（标准 Loops 目录发现）+ `rick tools {dev-web, release --merge-source, rsi_check, loops_check}`；交付期允许会话中断但必须可恢复（挂起→人工一键恢复，**绝不自动续跑**）；RSI 不是特殊会话类型，rick-dev 不是特殊工作区。
+
+## 自进化架构（5.0.11，job_36 交付）
+
+- **双层结构**：生产（`<prod-repo>` 工作树 + `bin/releases/<ver>/{rick,dist}` + `current` 软链 + `.last` 回滚点）与 dev（`git worktree` + 独立 HOME + 独立 pi 沙盒 + 8414 实例）完全隔离；`rick tools dev-web {init,build,up,restart,status,down}` 管理。
+- **发布通道**：`rick tools release [--dry-run|--rollback|--merge-source|--detach]`——门禁（go test + npm build）→ 版本目录 → 原子换链（ln -sfn + mv -T）→ 重启 + build_id 校验 → 恢复报告。**--detach 必须**（实测事故：调用方中断导致生产停在已停未起）。
+- **挂起语义**：重启后 active→suspended（非 error），人工一键恢复（POST /continue）；doing/dream 恢复时才归一化 running→pending。**绝不自动续跑**（pi 不修复悬挂 toolCall + 配额耗尽不报错）。
+- **RSI 制度**：`.rick/loops/rick-rsi-loop.md`（普通 loop，标准 Loops 目录发现，无专属会话类型）；状态机 S0设计→S1隔离开发→S2门禁→S3演练→S4人类确认→S5提升→S6挂起恢复→S7 `rick tools rsi_check` 留痕（6 项机器契约，含生产 build_id 实时证伪）。
+- **纪律**：job 数据只写 dev 树（main 只经 --merge-source 改动）；冲突即中止报错交 AI 修复；S5 会自挂起 web 承载的 RSI 会话。
