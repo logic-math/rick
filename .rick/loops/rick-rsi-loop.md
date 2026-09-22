@@ -10,6 +10,7 @@ scope: "全局（任意承载会话：plan / doing / easy 均可加载）"
 
 - 本 loop 是一个**普通的 rick loop**（与 loops/ 目录其它成员同构，无专属会话类型）：承载会话的提示词里有「可用的项目 Loops」目录（name+trigger），当任务属于「修改 rick 自身」时，**先完整读取本文件**再动手。
 - 本 loop 的兑现方式：产出评估表由 `rick tools rsi_check` **机器校验**——不写证据 = 本次迭代未完成。
+- **本 loop 也是自己的改进对象**：修改 `rick-rsi-loop` 自身（或任何 loops/skills/domain 知识）同样触发并走完本 loop 的 S0→S7——递归自指，改制度也按制度来。
 
 ## 依赖准备（硬约束，缺失则报错停止）
 
@@ -23,6 +24,8 @@ scope: "全局（任意承载会话：plan / doing / easy 均可加载）"
 3. **禁止事项（硬约束）**：不得直接编辑**生产仓库工作树**；不得在生产树里 `go build -o bin/rick`；不得 `kill`/重启生产实例（8413）。生产侧唯一写入口是**人类确认后**的 `rick tools release`。
 
 不满足任一条件 → **停止并报告**，不要在生产树里继续。
+（若因「当前工作区不是 dev 工作区」：提示人类改在 **rick-dev 工作区**开会话承载本任务，
+ 或先 `rick tools dev-web init` 建好环境——不要试图就地绕过。）
 
 ## 目标（Goal）
 
@@ -30,7 +33,7 @@ scope: "全局（任意承载会话：plan / doing / easy 均可加载）"
 
 | # | 达标条件 | 判据（可复制执行） |
 |---|---|---|
-| G1 | dev 侧改动完成且层门禁全绿 | `python3 .rick/jobs/job_36/plan/gates/gate{N}.py` → `"pass": true` |
+| G1 | dev 侧改动完成且层门禁全绿 | `python3 .rick/jobs/<job>/plan/gates/gate{N}.py`（**当前迭代所属 job**）→ `"pass": true` |
 | G2 | 演练可见且生产零写入 | `rick tools release --dry-run` → 含 `RELEASE_DRYRUN prod_untouched=true` |
 | G3 | 人类确认留痕 | `doing/rsi/approval.md` 含 `APPROVED by=human at=<时间>` |
 | G4 | 提升成功且生产为新构建 | `rick tools release --merge-source` → `RELEASE_MERGE merged=true` + `/api/health` 的 `build_id` == 本次 version |
@@ -53,11 +56,11 @@ scope: "全局（任意承载会话：plan / doing / easy 均可加载）"
 | `rick tools dev-web status` | 看 dev 实例状态 / 期望 vs 运行指纹 | 只读 |
 | `rick tools dev-web restart` | 改**后端**后：重建 + 重启 dev 实例（构建指纹自动复核） | 只重启 dev（8414） |
 | `npm run build`（web/，dev 树） | 改**前端**：产物落 `<dev>/web/dist`；dev 实例 overlay 是软链 → 刷新即生效，**无需重启** | 不得动 `~/.rick/web/dist`（那是生产覆盖层） |
-| `python3 .rick/jobs/job_36/plan/gates/gate{N}.py` | 层门禁（内含「生产零触碰」断言） | 必须全绿才下钻下一层 |
+| `python3 .rick/jobs/<job>/plan/gates/gate{N}.py` | 层门禁（内含「生产零触碰」断言；`<job>`=当前迭代所属 job，**勿写死历史 job**） | 必须全绿才下钻下一层 |
 | `rick tools release --dry-run` | 演练：门禁 + 构建 + 打印计划；**不碰生产、不重启** | 产物落临时暂存，`prod_untouched=true` |
 | **人类确认**（S4） | release 前的唯一放行条件 | 无确认**不得**进入 S5 |
 | `rick tools release --merge-source` | 源码合并（dev 分支 → 生产 main）+ 二进制/dist 原子换链 + 重启 + `build_id` 校验 | 合并**冲突即中止**（工作树自动恢复干净），交 AI 修复后重跑 |
-| `rick tools release --rollback` | 回滚**产物**到上一版（切链 + 重启） | 不含源码回滚（源码用 git 回滚） |
+| `rick tools release --rollback` | 回滚**产物**到上一版（切链 + 重启） | 不含源码回滚（源码用 git 回滚）；版本链默认保留最近 3 版（`--keep N` 可调，current/.last 永不 GC） |
 | `rick tools rsi_check --job <job>` | 校验本 loop 的产出评估表 | 失败时输出中文「下一步该做什么」 |
 | `rick tools dev-web down` | 停 dev 实例（只杀确认属于该 dev HOME 的进程） | 不影响生产 |
 
@@ -74,16 +77,19 @@ S0 设计
    出口：设计树每层达标（含 OKR 充分性自检），grilling_gate 通过
 
 S1 隔离开发（在 dev 工作区）
-   动作：rick tools dev-web init → status（未起则 up）
+   动作：rick tools rsi_check --job <job> --init（先建证据骨架，随手落盘）
+         rick tools dev-web init → status（未起则 up）
          前端改动：npm run build（dev 树 web/）→ 刷新 dev UI（8414）验证
          后端改动：rick tools dev-web restart → 复核 build_id 变化（新构建真的在跑）
    产出：doing/rsi/dev-iterations.md（每轮记一行：build_id + 改了什么 + 验证结论）
    出口：改动可见/可验证，dev 侧不自欺（build_id 已换）
 
 S2 层门禁（逐层）
-   动作：python3 .rick/jobs/job_36/plan/gates/gate{N}.py（每层一个）
+   动作：python3 .rick/jobs/<job>/plan/gates/gate{N}.py（当前迭代所属 job，每层一个）
    产出：doing/rsi/gates.md（每行 `GATE gateN pass=true`）
    出口：全部门禁 pass=true；失败 → 回 S1 修（禁止带病下钻）
+         ※ 每轮重试在 dev-iterations.md 记一行（含失败摘要与轮次）；
+           **同一 gate 连续 2 轮失败 → 触发停止标准**（进入失败退出，勿无限重试）
 
 S3 演练（给人类看计划）
    动作：rick tools release --dry-run
@@ -91,15 +97,21 @@ S3 演练（给人类看计划）
    出口：prod_untouched=true
 
 S4 人类确认（唯一放行点）
-   动作：把 S3 的计划 + 影响面（生产将重启 ≤11s；所有在跑会话变「挂起」，需人工一键恢复；
-         不做自动续跑）呈给人类，取得**明确批准**
+   动作：把 S3 的计划 + 影响面（生产将短暂重启：优雅退出预算 ≤12s、实测健康就绪 ~0.2s；
+         所有在跑会话变「挂起」，需人工一键恢复；不做自动续跑）呈给人类，取得**明确批准**
    产出：doing/rsi/approval.md → `APPROVED by=human at=<RFC3339 时间>`
    出口：有批准。未批准 → 停止（dev 产物保留，生产不变）
 
 S5 提升
-   动作：rick tools release --merge-source
-         · 合并冲突 → 命令**中止报错**并把生产工作树恢复到干净状态
-           → AI 修复合并（在 dev 树解冲突 / 同步 main）→ **重跑 S5**
+   动作：rick tools release --merge-source --detach
+         ⚠️ **--detach 必须带**（setsid 脱离调用方进程树）：执行 shell 本身可能被中断
+         （实测事故：release 被连带杀死，生产停在「已停未起」约 10 分钟）
+         · 合并冲突 → 命令**中止报错**并把生产工作树恢复到干净状态 → AI 修复：
+           在**生产仓库**执行 `git merge --no-ff --no-commit <dev分支>` →
+           冲突文件按语义取舍（若 dev 侧是超集：`git checkout --theirs -- <file>`）→
+           `git commit` 完成合并 → **重跑 S5**
+           ⚠️ 这是生产树上**唯一允许**的手动 git 操作：只做「完成 release 发起的合并 +
+           版本取舍」，**不得借机修改代码内容**；修复后 `git status --porcelain` 必须为空
          · 无冲突 → 换链 + 前端投放 + 重启 + build_id 校验（校验失败自动回滚）
    产出：doing/rsi/release.md 追加 `RELEASE_MERGE merged=true version=<sha7>-<ts> rollback_point=<path>`
    出口：生产 `/api/health` → `status=ok` 且 `build_id` == version
@@ -112,7 +124,7 @@ S6 恢复（重启后）
    出口：需要继续的会话都已恢复（或人类明确选择不恢复）
 
 S7 留痕校验
-   动作：rick tools rsi_check --job <job> --json
+   动作：在 **dev 工作区**执行 `rick tools rsi_check --job <job> --json`（按 cwd 解析 job 与证据目录）
    出口：pass=true → 迭代成功退出
 ```
 
@@ -135,7 +147,7 @@ S7 留痕校验
 | **人类确认** | `doing/rsi/approval.md` | 含 `APPROVED by=human` 与时间戳（本 loop 最关键的一项） |
 | 提升记录 | `doing/rsi/release.md` | 含 `version=<sha7>-<ts>` 与 `rollback_point=` |
 | 挂起-恢复 | `doing/rsi/resume.md` | 记录挂起清单与人工恢复结果 |
-| 生产健康 | 实时探测 `GET http://127.0.0.1:8413/api/health` | `status=ok` 且 `build_id` == 本次 version |
+| 生产健康 | 实时探测 `GET <prod>/api/health`（默认 `127.0.0.1:8413`，端口变化用 `--prod-url` / `RICK_RSI_PROD_URL` 覆盖） | `status=ok` 且 `build_id` == 本次 version |
 
 - 无进展判断：连续 2 轮门禁无变化，或同一 gate 反复失败 → 停止（见下）
 
