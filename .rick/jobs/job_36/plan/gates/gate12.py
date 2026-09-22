@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""gate12：第 2 层（task24 rsi 类型后端 + task25 前端入口）——loop 必然注入 + workspace 硬校验。prod 只读。"""
+"""gate12：RSI 去特殊化后的标准机制（task24/25 的修正版 + task29）。
+
+RSI 不再是特殊会话类型（human 裁决 2026-09-22）：它只是一个普通 loop，
+由 rick 标准机制发现——easy/plan 会话提示词里的「可用的项目 Loops」目录
+（LoadLoopsContext：name+trigger）。本门禁断言：
+① loop 载体合规（loops_check）
+② 标准发现：easy 会话的提示词里必须出现 rick-rsi-loop 目录条目
+③ 特殊类型已删：type=rsi 返回 400；`rick rsi` 子命令不存在
+④ 前端无 rsi 类型残留；tsc/build 通过
+⑤ 后端单测 + 构建 + vet 全绿
+⑥ 真实生产只读回归（指纹 + 健康）
+"""
 import hashlib, json, os, shutil, signal, socket, subprocess, sys, tempfile, time, urllib.request, urllib.error
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".."))
@@ -31,36 +42,41 @@ def http(method, url, token=None, body=None, timeout=10):
 base = (md5f(os.path.join(PROD_HOME, ".rick", "web", "sessions.json")),
         md5f(os.path.join(PROD_HOME, ".rick", "web.json")))
 
+# ① loop 载体合规（含 rick-rsi-loop 的五要素与 frontmatter）
+r = run(["go", "run", "./cmd/rick", "tools", "loops_check", "--dir", ".rick", "--json"], timeout=600)
+if r.returncode != 0:
+    errors.append(f"① loops_check 未通过:\n{((r.stdout or '')+(r.stderr or ''))[-900:]}")
+else:
+    try:
+        v = json.loads(r.stdout.strip().splitlines()[-1])
+        if not v.get("pass"):
+            errors.append(f"① loops_check 判定 fail: {json.dumps(v, ensure_ascii=False)[:300]}")
+        notes.append(f"① loops_check loops={v.get('loops')}")
+    except Exception as e:
+        errors.append(f"① loops_check 未输出 JSON: {r.stdout[-200:]} ({e})")
+
+# 造「普通 rick 源码工作区」（含 loop）——与其它工作区无任何差别
 tmp = tempfile.mkdtemp(prefix="gate12-")
+ws = os.path.join(tmp, "ws-rick")
+os.makedirs(os.path.join(ws, "cmd", "rick"), exist_ok=True)
+os.makedirs(os.path.join(ws, "internal", "web"), exist_ok=True)
+os.makedirs(os.path.join(ws, ".rick", "loops"), exist_ok=True)
+open(os.path.join(ws, "cmd", "rick", "main.go"), "w").write("package main\n")
+open(os.path.join(ws, "internal", "web", "web.go"), "w").write("package web\n")
+shutil.copy(os.path.join(ROOT, ".rick", "loops", "rick-rsi-loop.md"),
+            os.path.join(ws, ".rick", "loops", "rick-rsi-loop.md"))
+
 BIN = os.path.join(tmp, "rick")
 r = run(["go", "build", "-o", BIN, "./cmd/rick"])
 if r.returncode != 0:
     print(json.dumps({"pass": False, "errors": [f"构建失败:\n{r.stderr[-1000:]}"]}, ensure_ascii=False, indent=1)); sys.exit(1)
 
-# 造「假 dev 工作区」：rick 源码树必备文件 + loop 文件
-ws = os.path.join(tmp, "ws-dev"); os.makedirs(os.path.join(ws, "cmd", "rick"), exist_ok=True)
-os.makedirs(os.path.join(ws, "internal", "web"), exist_ok=True)
-os.makedirs(os.path.join(ws, ".rick", "loops"), exist_ok=True)
-open(os.path.join(ws, "cmd", "rick", "main.go"), "w").write("package main\n")
-open(os.path.join(ws, "internal", "web", "web.go"), "w").write("package web\n")
-shutil.copy(os.path.join(ROOT, ".rick", "loops", "rick-rsi-loop.md"), os.path.join(ws, ".rick", "loops", "rick-rsi-loop.md"))
-os.makedirs(os.path.join(ws, ".rick"), exist_ok=True)
-
-# 缺 loop 的源码树（用于 400 断言）
-ws_noloop = os.path.join(tmp, "ws-noloop")
-os.makedirs(os.path.join(ws_noloop, "cmd", "rick"), exist_ok=True)
-os.makedirs(os.path.join(ws_noloop, "internal", "web"), exist_ok=True)
-open(os.path.join(ws_noloop, "cmd", "rick", "main.go"), "w").write("package main\n")
-
-# 非源码树（用于 400 断言）
-ws_notree = os.path.join(tmp, "ws-notree"); os.makedirs(os.path.join(ws_notree, ".rick"), exist_ok=True)
-
 state, home, agent = os.path.join(tmp, "state"), os.path.join(tmp, "home"), os.path.join(tmp, "agent")
 for d in (state, home, agent): os.makedirs(d, exist_ok=True)
 token, port = "gate12tok", free_port()
-env = {**os.environ, "HOME": home, "RICK_PI_AGENT_DIR": agent, "RICK_RSI_ALLOW_PROD_TREE": "1"}
 p = subprocess.Popen([BIN, "web", "--listen", "127.0.0.1", "--port", str(port), "--token", token, "--state-dir", state],
-                     cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                     cwd=ROOT, env={**os.environ, "HOME": home, "RICK_PI_AGENT_DIR": agent},
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 up = False
 for _ in range(80):
     time.sleep(0.25)
@@ -68,79 +84,68 @@ for _ in range(80):
 if not up:
     errors.append("实例未起来")
 else:
-    # 注册工作区
-    for path, name in ((ws, "gate12-dev"), (ws_noloop, "gate12-noloop"), (ws_notree, "gate12-notree")):
-        http("POST", f"http://127.0.0.1:{port}/api/workspaces", token, {"path": path, "name": name})
-
-    # ① 合规 workspace → 创建 rsi 会话成功，且提示词/方法文件含 loop 全文
-    # 从列表取 workspace id
-    code_list, lbody = http("GET", f"http://127.0.0.1:{port}/api/workspaces", token)
+    code, _ = http("POST", f"http://127.0.0.1:{port}/api/workspaces", token, {"path": ws, "name": "gate12-rick"})
     wsid = None
+    _, lbody = http("GET", f"http://127.0.0.1:{port}/api/workspaces", token)
     try:
         for w in json.loads(lbody):
-            if w.get("name") == "gate12-dev": wsid = w["id"]
+            if w.get("name") == "gate12-rick": wsid = w["id"]
     except Exception: pass
     if not wsid:
-        errors.append("① 无法解析 dev 工作区 id")
+        errors.append("② 无法解析工作区 id")
     else:
-        code, body = http("POST", f"http://127.0.0.1:{port}/api/sessions", token, {"workspace_id": wsid, "type": "rsi"})
+        # ② 标准发现：easy 会话的提示词必须含 rick-rsi-loop 目录条目（LoadLoopsContext）
+        code, body = http("POST", f"http://127.0.0.1:{port}/api/sessions", token,
+                          {"workspace_id": wsid, "type": "easy", "params": {"requirement": "改进 rick 自身：加一个测试功能"}})
         if code not in (200, 201):
-            errors.append(f"① 创建 rsi 会话失败 HTTP {code}: {body[:250]}")
+            errors.append(f"② 创建 easy 会话失败 HTTP {code}: {body[:250]}")
         else:
             sid = json.loads(body).get("id")
-            notes.append(f"① rsi 会话已创建 id={sid}")
-            # loop 全文注入：查 prompt（GET /api/sessions/{id}/prompt 返回方法/提示词文件内容）
             pc, pbody = http("GET", f"http://127.0.0.1:{port}/api/sessions/{sid}/prompt", token)
             blob = pbody if pc == 200 else ""
             if "rick-rsi-loop" not in blob:
-                errors.append(f"① 会话提示词未包含 loop 标记（HTTP {pc}）: {blob[:200]}")
-            for cmd in ("dev-web", "release"):
-                if cmd not in blob:
-                    errors.append(f"① 注入的 loop 未含机制命令 {cmd!r}")
-
-    # ② workspace 缺 loop → 400
-    code_nl, nlid = None, None
-    for w in json.loads(http("GET", f"http://127.0.0.1:{port}/api/workspaces", token)[1]):
-        if w.get("name") == "gate12-noloop": nlid = w["id"]
-    if nlid:
-        code_nl, b2 = http("POST", f"http://127.0.0.1:{port}/api/sessions", token, {"workspace_id": nlid, "type": "rsi"})
-        if code_nl != 400:
-            errors.append(f"② 缺 loop 的 workspace 未被拒（HTTP {code_nl}）: {b2[:200]}")
-
-    # ③ 非 rick 源码树 → 400
-    ntid = None
-    for w in json.loads(http("GET", f"http://127.0.0.1:{port}/api/workspaces", token)[1]):
-        if w.get("name") == "gate12-notree": ntid = w["id"]
-    if ntid:
-        code_nt, b3 = http("POST", f"http://127.0.0.1:{port}/api/sessions", token, {"workspace_id": ntid, "type": "rsi"})
-        if code_nt != 400:
-            errors.append(f"③ 非源码树未被拒（HTTP {code_nt}）: {b3[:200]}")
+                errors.append(f"② easy 会话提示词未出现 rick-rsi-loop 目录条目（标准加载机制断裂，HTTP {pc}）: {blob[:200]}")
+            else:
+                notes.append("② easy 提示词含 rick-rsi-loop 目录条目 ✓")
+            if "可用的项目 Loops" not in blob:
+                errors.append("② easy 提示词缺少「可用的项目 Loops」目录节")
+        # ③ 特殊类型已删：type=rsi → 400；CLI 子命令不存在
+        code, body = http("POST", f"http://127.0.0.1:{port}/api/sessions", token,
+                          {"workspace_id": wsid, "type": "rsi"})
+        if code == 200 or code == 201:
+            errors.append(f"③ type=rsi 竟然创建成功（HTTP {code}）——特殊类型应已删除")
+        else:
+            notes.append(f"③ type=rsi → HTTP {code}（未知类型，符合预期）")
     p.send_signal(signal.SIGTERM)
     try: p.wait(timeout=25)
     except Exception: p.kill()
 
-# ④ CLI 入口存在
-r = run(["go", "run", "./cmd/rick", "rsi", "--help"], timeout=600)
-if r.returncode != 0:
-    errors.append(f"④ `rick rsi --help` 失败: {((r.stdout or '')+(r.stderr or ''))[-400:]}")
+r = run(["go", "run", "./cmd/rick", "rsi", "--help"], timeout=300)
+if r.returncode == 0:
+    errors.append("③ `rick rsi` 子命令仍存在（应已删除）")
 
-# ⑤ 前端类型与入口
-need = [("web/src/types.ts", '"rsi"'), ("web/src/components/sessions/NewSessionModal.tsx", "rsi")]
-for rel, needle in need:
-    pth = os.path.join(ROOT, rel)
-    if not os.path.exists(pth) or needle not in open(pth).read():
-        errors.append(f"⑤ {rel} 未包含 {needle!r}")
-rr = run(["npx", "--prefix", "web", "tsc", "--noEmit", "-p", "web"])
-if rr.returncode != 0:
-    errors.append(f"⑤ tsc 失败:\n{(rr.stderr or rr.stdout)[-800:]}")
-
-# ⑥ 单测 + 构建
-for cmd, label in [(["go", "test", "./internal/web/", "./internal/prompt/", "./internal/cmd/", "-timeout", "900s"], "⑥ 单测"),
-                   (["go", "build", "./..."], "⑥ build")]:
+# ④ 前端无 rsi 类型残留 + 构建
+types_ts = os.path.join(ROOT, "web", "src", "types.ts")
+src = open(types_ts).read() if os.path.exists(types_ts) else ""
+if '"rsi"' in src:
+    errors.append("④ web/src/types.ts 仍含 \"rsi\" 类型")
+if os.path.exists(os.path.join(ROOT, "web", "src", "lib", "rsi.ts")):
+    errors.append("④ web/src/lib/rsi.ts 仍存在（应已删除）")
+for cmd, label in [(["npx", "--prefix", "web", "tsc", "--noEmit", "-p", "web"], "④ tsc"),
+                   (["npm", "--prefix", "web", "run", "build"], "④ web build")]:
     rr = run(cmd)
     if rr.returncode != 0:
-        errors.append(f"{label} 失败:\n{(rr.stderr or rr.stdout)[-1000:]}")
+        errors.append(f"{label} 失败:\n{(rr.stderr or rr.stdout)[-800:]}")
 
+# ⑤ 后端全绿
+for cmd, label in [(["go", "test", "./internal/web/", "./internal/prompt/", "./internal/cmd/", "-timeout", "900s"], "⑤ 单测"),
+                   (["go", "build", "./..."], "⑤ build"),
+                   (["go", "vet", "./internal/web/", "./internal/prompt/", "./internal/cmd/"], "⑤ vet")]:
+    rr = run(cmd)
+    if rr.returncode != 0:
+        errors.append(f"{label} 失败:\n{(rr.stderr or rr.stdout)[-900:]}")
+
+# ⑥ 生产只读回归
 if (md5f(os.path.join(PROD_HOME, ".rick", "web", "sessions.json")),
     md5f(os.path.join(PROD_HOME, ".rick", "web.json"))) != base:
     errors.append("❌ PROD 状态被改动")

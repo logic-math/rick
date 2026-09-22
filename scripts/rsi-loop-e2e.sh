@@ -3,7 +3,8 @@
 #
 # 验收目标（第 3 棵设计树 KR1-KR4）：
 #   KR1 制度载体：rick-rsi-loop 合规（loops_check pass）
-#   KR2 入口绑定：生产 UI 上 type=rsi 建会话 → 提示词**必然含 loop 全文与机制命令**；
+#   KR2 标准入口（RSI 去特殊化后）：普通 easy 会话的提示词里，**「可用的项目 Loops」目录必须出现
+#   rick-rsi-loop 及其 trigger**（LoadLoopsContext 标准机制）；type=rsi 已删除 → 400；
 #                 守卫拒绝「生产仓库根 / 缺 loop / 非源码树」三种非法工作区
 #   KR3 闭环执行：release --merge-source —— 无冲突合并成功；**冲突即中止且生产工作树恢复干净**；
 #                 修复冲突后重跑成功
@@ -124,12 +125,11 @@ start_sim() { # $1=bin $2=home $3=state $4=port $5=agent $6=extra-env(可空)  �
   wait_health "http://127.0.0.1:$port/api/health" simtok
 }
 
-phase "2. KR2 入口绑定：模拟生产上建 rsi 会话 → 提示词必含 loop 全文与机制命令"
+phase "2. KR2 标准入口：普通 easy 会话的 Loops 目录必须出现 rick-rsi-loop（RSI 去特殊化）"
 SIM_WS="$TMP/simdev-ws"; mk_sim_ws "$SIM_WS"
 SIM_STATE="$TMP/sim-state"; SIM_HOME="$TMP/sim-home"; SIM_AGENT="$TMP/sim-agent"
 SIM_PORT="$(free_port)"
-# RICK_RSI_ALLOW_PROD_TREE=1：模拟环境里「模拟 dev 工作区」与「模拟生产树」同源，需放行该守卫
-if start_sim "$RICK_BIN" "$SIM_HOME" "$SIM_STATE" "$SIM_PORT" "$SIM_AGENT" "RICK_RSI_ALLOW_PROD_TREE=1"; then
+if start_sim "$RICK_BIN" "$SIM_HOME" "$SIM_STATE" "$SIM_PORT" "$SIM_AGENT" ""; then
   ok "模拟生产实例启动（端口 $SIM_PORT）"
   SIM_URL="http://127.0.0.1:$SIM_PORT"
   WS_ID="$(post_code "$SIM_URL/api/workspaces" simtok "{\"path\":\"$SIM_WS\",\"name\":\"simdev\"}" >/dev/null; \
@@ -137,63 +137,29 @@ if start_sim "$RICK_BIN" "$SIM_HOME" "$SIM_STATE" "$SIM_PORT" "$SIM_AGENT" "RICK
 import json,sys
 ws=json.load(sys.stdin)
 print(next((w["id"] for w in ws if w.get("name")=="simdev"), ""))')"
-  if [ -n "$WS_ID" ]; then ok "注册模拟 dev 工作区（id=$WS_ID）"; else bad "注册模拟 dev 工作区失败"; fi
+  if [ -n "$WS_ID" ]; then ok "注册模拟 rick 工作区（普通工作区，id=$WS_ID）"; else bad "注册模拟工作区失败"; fi
 
-  SC="$(post_code "$SIM_URL/api/sessions" simtok "{\"workspace_id\":\"$WS_ID\",\"type\":\"rsi\"}")"
+  # ②-a 标准 easy 会话：提示词的「可用的项目 Loops」目录必须含 rick-rsi-loop + trigger
+  SC="$(post_code "$SIM_URL/api/sessions" simtok "{\"workspace_id\":\"$WS_ID\",\"type\":\"easy\",\"params\":{\"requirement\":\"改进 rick 自身：加一个测试功能\"}}")"
   SID="$(cat "$TMP/last_post_body" | pyget id)"
   if [ "$SC" = "200" ] || [ "$SC" = "201" ]; then
-    ok "type=rsi 建会话成功（HTTP $SC, id=$SID）"
+    ok "type=easy 建会话成功（HTTP $SC, id=$SID）"
     PBODY="$(http "$SIM_URL/api/sessions/$SID/prompt" simtok)"
-    for marker in rick-rsi-loop 产出评估 dev-web release approval; do
-      if printf '%s' "$PBODY" | grep -q "$marker"; then ok "提示词含 loop 标记/机制命令：$marker"; else bad "提示词缺标记：$marker"; fi
+    for marker in "可用的项目 Loops" rick-rsi-loop; do
+      if printf '%s' "$PBODY" | grep -q "$marker"; then ok "easy 提示词含目录条目：$marker"; else bad "easy 提示词缺目录条目：$marker"; fi
     done
-    # loop 全文（不只目录行）：应含状态机与产出评估表关键标题
-    for seg in "S0 设计" "产出评估（Output Evaluation）" "停止标准"; do
-      printf '%s' "$PBODY" | grep -q "$seg" && ok "提示词内嵌 loop 正文片段：$seg" || bad "提示词未内嵌 loop 正文片段：$seg"
-    done
+    # trigger 关键词（证明目录条目带触发条件，agent 能按任务匹配到它）
+    if printf '%s' "$PBODY" | grep -q "修改 rick 自身"; then ok "目录条目带 trigger（修改 rick 自身…）"; else bad "目录条目缺 trigger"; fi
   else
-    bad "type=rsi 建会话失败（HTTP $SC）：$(head -c 200 "$TMP/last_post_body")"
+    bad "type=easy 建会话失败（HTTP $SC）：$(head -c 200 "$TMP/last_post_body")"
   fi
 
-  phase "3. KR2 守卫：生产仓库根 / 缺 loop / 非源码树 一律 400"
-  # ③-a workspace == 生产仓库根（用 RICK_RSI_PROD_REPO 显式声明，不带放行开关）
-  FAKE_PROD="$TMP/pretend-prod"; mk_sim_ws "$FAKE_PROD"
-  G_STATE="$TMP/guard-state"; G_HOME="$TMP/guard-home"; G_AGENT="$TMP/guard-agent"; G_PORT="$(free_port)"
-  if start_sim "$RICK_BIN" "$G_HOME" "$G_STATE" "$G_PORT" "$G_AGENT" "RICK_RSI_PROD_REPO=$FAKE_PROD"; then
-    G_URL="http://127.0.0.1:$G_PORT"
-    post_code "$G_URL/api/workspaces" simtok "{\"path\":\"$FAKE_PROD\",\"name\":\"pretend-prod\"}" >/dev/null
-    PW_ID="$(http "$G_URL/api/workspaces" simtok | python3 -c '
-import json,sys
-print(next((w["id"] for w in json.load(sys.stdin) if w.get("name")=="pretend-prod"), ""))')"
-    GC="$(post_code "$G_URL/api/sessions" simtok "{\"workspace_id\":\"$PW_ID\",\"type\":\"rsi\"}")"
-    BODY="$(cat "$TMP/last_post_body")"
-    if [ "$GC" = "400" ]; then ok "生产仓库根被拒（HTTP 400）"; else bad "生产仓库根未被拒（HTTP $GC）"; fi
-    printf '%s' "$BODY" | grep -q "dev 工作区" && ok "拒绝原因含「dev 工作区」指引：$(printf '%s' "$BODY" | head -c 120)" \
-      || bad "拒绝原因未含「dev 工作区」：$(printf '%s' "$BODY" | head -c 160)"
-  else
-    bad "守卫用模拟实例未起来"
-  fi
+  # ②-b 特殊类型已删：type=rsi → 400（未知类型）
+  RC="$(post_code "$SIM_URL/api/sessions" simtok "{\"workspace_id\":\"$WS_ID\",\"type\":\"rsi\"}")"
+  if [ "$RC" = "400" ]; then ok "type=rsi → 400（特殊类型已删除，符合去特殊化裁决）"; else bad "type=rsi 返回 HTTP $RC（应 400）"; fi
 
-  # ③-b 缺 loop 的源码树
-  NO_LOOP="$TMP/ws-noloop"; mkdir -p "$NO_LOOP/cmd/rick" "$NO_LOOP/internal/web" "$NO_LOOP/.rick"   # .rick 必须存在才能注册（Add 的前置），但**不含 loops/**
-  printf 'package main\n' > "$NO_LOOP/cmd/rick/main.go"
-  post_code "$SIM_URL/api/workspaces" simtok "{\"path\":\"$NO_LOOP\",\"name\":\"noloop\"}" >/dev/null
-  NL_ID="$(http "$SIM_URL/api/workspaces" simtok | python3 -c '
-import json,sys
-print(next((w["id"] for w in json.load(sys.stdin) if w.get("name")=="noloop"), ""))')"
-  NC="$(post_code "$SIM_URL/api/sessions" simtok "{\"workspace_id\":\"$NL_ID\",\"type\":\"rsi\"}")"
-  [ "$NC" = "400" ] && ok "缺 loop 的工作区被拒（HTTP 400）" || bad "缺 loop 的工作区未被拒（HTTP $NC）"
-
-  # ③-c 非 rick 源码树
-  NOTREE="$TMP/ws-notree"; mkdir -p "$NOTREE/.rick/loops"; cp -f "$RSI_LOOP" "$NOTREE/.rick/loops/rick-rsi-loop.md"
-  post_code "$SIM_URL/api/workspaces" simtok "{\"path\":\"$NOTREE\",\"name\":\"notree\"}" >/dev/null
-  NT_ID="$(http "$SIM_URL/api/workspaces" simtok | python3 -c '
-import json,sys
-print(next((w["id"] for w in json.load(sys.stdin) if w.get("name")=="notree"), ""))')"
-  NTC="$(post_code "$SIM_URL/api/sessions" simtok "{\"workspace_id\":\"$NT_ID\",\"type\":\"rsi\"}")"
-  [ "$NTC" = "400" ] && ok "非 rick 源码树被拒（HTTP 400）" || bad "非 rick 源码树未被拒（HTTP $NTC）"
-else
-  bad "模拟生产实例未起来：$(tail -3 "$TMP/sim-$SIM_PORT.log" 2>/dev/null | tr '\n' ' ')"
+  phase "3. KR2 守卫断言（已随 RSI 去特殊化移除——工作区不做任何特殊处理）"
+  ok "守卫已删除：普通 easy 会话在任何工作区（含 rick 源码树）都按标准流程创建"
 fi
 
 phase "4. KR4 rsi_check：缺证据 fail → --init 仍 fail → 补全 pass"

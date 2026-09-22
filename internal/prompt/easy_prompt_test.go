@@ -226,3 +226,57 @@ func TestGenerateEasyPromptFile_RequirementAppendInstruction(t *testing.T) {
 		t.Error("Expected prompt to NOT contain 覆写 (overwrite) instruction")
 	}
 }
+
+// TestEasyPromptLoopCatalogSurfacesRSILoop（RSI 去特殊化的成立条件）：
+// rick 源码工作区的 .rick/loops/ 里有 rick-rsi-loop.md 时，easy 提示词的
+// 「可用的项目 Loops」目录必须出现它的 name+trigger——即标准机制能发现该
+// loop，无需任何专属会话类型（human 裁决 2026-09-22：RSI 只交付为一个 loop）。
+func TestEasyPromptLoopCatalogSurfacesRSILoop(t *testing.T) {
+	rickDir := t.TempDir()
+	loopsDir := filepath.Join(rickDir, "loops")
+	if err := os.MkdirAll(loopsDir, 0o755); err != nil {
+		t.Fatalf("mkdir loops: %v", err)
+	}
+	loop := `---
+name: rick-rsi-loop
+trigger: "当需要修改 rick 自身（源码 cmd/ internal/ web/）并让它生效到生产时触发"
+scope: "全局"
+---
+
+# Loop: rick 自进化
+## 目标
+x
+## 上下文管理
+x
+## 可调用工具
+x
+## 产出评估
+x
+## 停止标准
+x
+`
+	if err := os.WriteFile(filepath.Join(loopsDir, "rick-rsi-loop.md"), []byte(loop), 0o644); err != nil {
+		t.Fatalf("write loop: %v", err)
+	}
+
+	ctx := LoadLoopsContext(loopsDir)
+	if !strings.Contains(ctx, "rick-rsi-loop") {
+		t.Errorf("loops 目录未出现 rick-rsi-loop：\n%s", ctx)
+	}
+	if !strings.Contains(ctx, "修改 rick 自身") {
+		t.Errorf("loops 目录未出现该 loop 的 trigger：\n%s", ctx)
+	}
+
+	// 端到端：easy 提示词本体也必须带上该目录条目
+	mainFile, _, err := GenerateEasyPromptFile("job_rsi_catalog", "改进 rick 自身的测试需求", rickDir, "")
+	if err != nil {
+		t.Fatalf("GenerateEasyPromptFile failed: %v", err)
+	}
+	content, err := os.ReadFile(mainFile)
+	if err != nil {
+		t.Fatalf("read prompt: %v", err)
+	}
+	if !strings.Contains(string(content), "rick-rsi-loop") {
+		t.Errorf("easy 提示词未包含 rick-rsi-loop 目录条目（标准加载机制断裂）")
+	}
+}
