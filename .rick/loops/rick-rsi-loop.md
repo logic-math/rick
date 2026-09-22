@@ -82,6 +82,10 @@ S1 隔离开发（在 dev 工作区）
          前端改动：npm run build（dev 树 web/）→ 刷新 dev UI（8414）验证
          后端改动：rick tools dev-web restart → 复核 build_id 变化（新构建真的在跑）
    产出：doing/rsi/dev-iterations.md（每轮记一行：build_id + 改了什么 + 验证结论）
+   ⚠️ **job 数据（tasks.json 等）只写 dev 树**：main 上的一切改动只能来自
+   `--merge-source` 的合并。在 main 上手工补记 job 数据会造成下次 release 的
+   合并冲突（实测：tasks.json 时间戳格式差异即冲突），还会让 level_complete 的
+   写回与本轮提交错位（F6 缺陷）——发现 main 上有脏 job 数据时，先修干净再 release。
    出口：改动可见/可验证，dev 侧不自欺（build_id 已换）
 
 S2 层门禁（逐层）
@@ -115,6 +119,9 @@ S5 提升
          · 无冲突 → 换链 + 前端投放 + 重启 + build_id 校验（校验失败自动回滚）
    产出：doing/rsi/release.md 追加 `RELEASE_MERGE merged=true version=<sha7>-<ts> rollback_point=<path>`
    出口：生产 `/api/health` → `status=ok` 且 `build_id` == version
+   ⚠️ S5 会同时停掉「承载本 RSI 会话的 worker」——若本会话由 web 承载，它此刻
+   进入挂起，**S6 的恢复操作与 S7 的留痕都必须等人类在 UI 点「恢复继续」之后
+   才能继续**（CLI 承载的会话不受影响）。执行 S5 前应先告知人类这一点。
 
 S6 恢复（重启后）
    动作：浏览器自动重连（SSE 游标自愈）；所有重启前在跑的会话/job 变为 **suspended（挂起）**
