@@ -375,3 +375,269 @@ web/
 ### OKR 充分性终检（叶子层）
 
 M1-M8 联合 ⟹ KR1（架构与接入：cmd/web/handler/runtime/env 五层落位）∧ KR2（功能完备：P0 看板/knowledge + P1 全部交互会话 + P2 触发类）∧ KR3（云端同步：中心实例单写点 + agent 自主 git 行为）∧ KR4（多端适配：响应式+PWA+R&M 主题）∧ KR5（质量验收：gates 见流水线设计）⟹ O 达成 ✅
+
+---
+
+# 增量设计树（第 2 棵）：rick 自进化 —— rick web 内改进 rick web
+
+> 背景：本增量是 job_36 的**收尾功能**（用户原话：「这个最后的 rick 自进化改进就是 rick web 升级的最后功能了」）。
+> 与第 1 棵树（L0-L3，已终判并交付）的关系：本树是**新增的能力维度**，不是第 1 棵树的子节点——它引入了「运行时/环境/发布」这一全新关注面，
+> 因此单独成树（顶层仍是一组 OKR，遵守同一套 MECE + 充分性纪律）。层号从 L4 续编，research 简报编号随之。
+
+## 根层（L0'）— OKR
+
+**O（增量目标）**：在 rick web 里就能完成对 rick 自身的改进闭环——**开发期**在完全隔离的实例中改前端/后端/CLI/pi runtime（生产内核与其上所有运行中 job 不受影响），**交付期**把改动经人类审核后原子替换到生产并可回滚，**切换期**生产重启后所有原本在跑的会话被自动恢复、上下文不丢（含明确的「被中断回合」续跑语义）。
+
+**KR 集（充分性推导：KR1 ∧ KR2 ∧ KR3 ∧ KR4 ⟹ O）**：
+
+| KR | 内容 | 验证方式（初步） |
+|----|------|------------------|
+| KR1 **隔离实例** | 存在一个与生产完全隔离的开发实例：独立端口 + 独立 web 状态目录 + 独立源码工作树 + 独立二进制 + 独立前端产物；两实例可同时运行且互不干扰（含 workspace/.rick 写冲突面） | 双实例同时跑：生产 8413 的 job/会话不中断；dev 端口可独立启停/重建 |
+| KR2 **开发闭环** | 在 dev 实例内改动的生效回路：前端改动即时生效（不重启）；后端/CLI/runtime 改动受控重建并重启 dev 实例后生效；**且开发者（AI 会话）自身不因 dev 重启而失联**（自举问题） | 在一个 rick web 会话里改 rick web：前端改动刷新可见；后端改动重启后会话仍能继续对话 |
+| KR3 **受控提升** | 人类审核确认后，把 dev 产物（二进制 + dist + 源码提交）原子提升到生产，保留上一版并可一键回滚 | 提升流程可重放；回滚命令实测把生产恢复到上一版本 |
+| KR4 **切换无损恢复** | 生产重启后自动恢复所有「重启前在跑」的会话与 job：worker 重新拉起、前端事件流不断档（cursor 续传）、被中断的回合有可审阅的续跑/待续跑语义、恢复结果有报告 | 重启前后对比：active 会话数不丢；恢复报告逐条列出成功/失败；浏览器不丢事件 |
+
+**OKR 充分性自检**：KR1 给出「改坏也不影响生产」的空间 → KR2 让「在 web 里改 web」成为可重复的日常动作（而不是一次性演示）→ KR3 给出「改动如何变成生产」的受控通道 → KR4 支付 KR3 的价格（重启）并保证用户可感知的连续性。四者联合 ⟹ O 达成 ✅
+（划分维度：**空间 / 回路 / 通道 / 代价**，MECE：互不重叠且覆盖「隔离—迭代—交付—连续性」全部关注面。缺 KR4 则「替换必然重启」会让 O 的「任务不停止」落空；缺 KR1 则开发即破坏生产，O 无从谈起。）
+
+## 层映射（待逐层展开，遵守 L1-L5 loop）
+
+| 层 | KR | 该层 pipeline（假设，待 L4/L5/L6 调研校正） |
+|----|----|------------------------------------------|
+| **L4 隔离层** | KR1 | dev 实例启动配置（HOME/state dir/workspace 注册表/端口） → 源码工作树隔离（git worktree） → 二进制与 dist 隔离 → pi agent dir 共享策略 → 双实例共存约束 |
+| **L5 开发闭环层** | KR2 | 改前端 → overlay dist → frontend_reload → 刷新可见 ／ 改后端 → 构建 → dev 进程重启 → **开发会话自举不中断** → AI 侧可观测反馈（健康探测/构建日志） |
+| **L6 提升与恢复层** | KR3+KR4 | 人类审核确认 → 提升前门禁（测试/构建/健康） → 原子替换（版本目录 + current 链） → 生产重启 → 自动恢复 active 会话（intent 持久化 + resume） → 中断回合续跑语义 → 恢复报告 → 失败回滚 |
+
+> 状态：**L1 调研进行中**（research-L4/L5/L6 并行派发）。L4 达标后才下钻 L5、L6（不得跳层）。
+
+---
+
+## 第 4 层 — 隔离层（KR1：dev 实例与生产完全隔离）
+
+**调研**：research-L4.md（391 行，§1 路径清单 / §2 pi 沙盒 / §3 工作树 / §4 单例与端口 / §5 写冲突 / §6 前端 overlay / §7 最小隔离集 + 7 条残留泄漏）。
+**同一轮并行产出的下游层简报**（已落盘，作为 L4 裁决的代价参考）：research-L5.md（开发闭环+自举）、research-L6.md（提升与恢复）。
+
+### 4.1 关键事实（本轮调研固化，均有代码行号或实测支撑）
+
+| # | 事实 | 证据 | 对设计的影响 |
+|---|------|------|--------------|
+| F1 | 机器级状态 100% 由 `os.UserHomeDir()` 派生，**唯一隔离开关是 HOME**；`--state-dir` 之类 flag 不存在 | `internal/web/web.go:25-68`、`internal/cmd/web.go:81-124` | 隔离必须走 HOME；想更优雅需改代码（新增开关） |
+| F2 | pi 沙盒是**唯一 env 可重定向项**：`RICK_PI_AGENT_DIR` > `$HOME/.rick/pi/agent` | `internal/runtime/agentdir.go:22-30` | pi agent dir 是与 HOME 解耦的独立裁决点 |
+| F3 | `rick_dev` 命名法残缺：只切 `config.json` 与 CLI 的 `.rick_dev`，**web 状态/pid 仍落 `.rick`** | 实测 | 不可用「改名法」当隔离；且会与生产抢 `web.pid` |
+| F4 | **生产 singleton 当前已失效**：进程在跑但 `~/.rick/web.pid` 不存在；同 HOME 起第二实例被放行，且其 `ReconcileOnStart` 会把生产 active 会话改写成 error 并落盘 | `internal/handler/web.go:112-121`、`internal/web/sessions.go:154-176`；实测 | **现存生产缺陷**，也是 dev 隔离的必须前置（否则误伤生产） |
+| F5 | 全仓**无跨进程锁**（grep flock 空）；workspace 级 `tasks.json` 非原子写、job 目录 TOCTOU、`git add -A` 混提交 | research-L4 §5 | 承诺「生产 job 不被打断」必须靠「dev 不共享 workspace」而非靠锁 |
+| F6 | **共享源码工作树是最贵泄漏**：生产 `web.json` 已注册本仓库根（`a8ceb938`），worker cwd = `ws.Path`，job 目录硬编码 `<ws.Path>/.rick` | `~/.rick/web.json`、`sessions.go:434,987,1053`、`watcher.go:118` | dev 实例**绝不能注册生产仓库根**，否则 dev 会话直接改生产源码+jobs |
+| F7 | 生产二进制 = **仓库工作树里的 `bin/rick`**（不是 `~/.rick/bin/rick`，后者是 8/24 遗留）；`start-web.sh` 用 `./bin/rick` | `/proc/172761/exe`、`md5sum`；research-L6 §1 | 「生产」= 仓库工作树 + bin/rick → 隔离必须换工作树 |
+| F8 | 前端 overlay（`$HOME/.rick/web/dist`）随 HOME 自然隔离；且 overlay 可以是**目录软链**（实测可服务软链内文件）；vite dev proxy 硬编码 6137 | `static.go:52-99`、`server.go:66-68`、`web/vite.config.ts:57-60`；实测 | dev 前端零拷贝（软链到 dev 树 dist）；proxy 需参数化 |
+| F9 | 端口：默认 6137；生产 8413；**8414 空闲**（8410-8413/8415/8420 被占） | `ss -ltnp` 实测 | dev 端口取 8414 |
+| F10 | 覆盖 HOME 会连带换掉 `GOPATH/GOMODCACHE/GOCACHE/GOENV` → `go build` 从 0.98s 退化为冷构建（需联网下载 toolchain） | research-L5 §5 实测 | dev 启动环境必须显式固定 Go 缓存 |
+| F11 | `web/dist` **已被提交入库**（`git ls-files` 命中），`.rick/` 也被提交 → worktree 自带一份 `.rick` 快照（与生产分叉） | research-L4 §3 | dev 树的 `.rick/jobs` 是**陈旧副本**，不能当作生产状态用 |
+
+### 4.2 模块与 pipeline（L4 假设，待裁决后固化）
+
+```
+M1 启动封装（dev-web.sh：env 白名单 + 硬校验 + 端口/token）
+   → M2 状态隔离（HOME=$DEV_HOME：web.json/sessions.json/archived/job-names/web.pid/overlay/config.json）
+   → M3 源码工作树隔离（git worktree → $DEV_TREE，独立 ref/分支）
+   → M4 产物隔离（$DEV_TREE/bin/rick 唯一命名 + $DEV_HOME/.rick/web/dist 软链 → $DEV_TREE/web/dist）
+   → M5 pi 沙盒策略（RICK_PI_AGENT_DIR = 独立 or 共享生产）
+   → M6 workspace 注册纪律（dev 注册表只放 $DEV_TREE；生产仓库根绝不由 dev 注册）
+   → M7 双实例共存约束（端口 8414、singleton 修复、fail-fast 校验、共享缓存清单）
+
+接口契约（模块间）：
+  M1 → {HOME, RICK_PI_AGENT_DIR, GOCACHE, GOMODCACHE, PORT, TOKEN, DEV_TREE}   （纯环境契约）
+  M2 ← HOME（无代码改动；只依赖既有 HOME 派生）
+  M3 ← git worktree（无代码改动）
+  M4 ← M3 的 web/dist 与 bin/（软链 + 唯一文件名）
+  M5 ← 显式 env（无代码改动）
+  M6 ← 人工/AI 通过现有 Add API 注册（`Add` 要求目录含 `.rick/`，worktree 自带）
+  M7 → 需**代码改动**：singleton 加固（flock 或 pid 校验）+ 可选 `--state-dir`
+```
+
+**MECE 检查**：M1 环境 → M2 状态 → M3 源码 → M4 产物 → M5 运行时沙盒 → M6 数据面纪律 → M7 共存约束。互斥（进程/文件系统/运行时/数据/共存五个不同资源面），完备（research-L4 的 Q1-Q7 全部落在某个模块内）。
+
+**OKR 充分性自检**：M1-M7 全部达成 ⇒ 两实例可同时运行、dev 的任何写操作都不触达生产状态/源码/jobs ⇒ KR1「隔离实例」成立 ✅（前提：M7 的 singleton 缺陷必须修——否则 M2 的隔离边界可被同 HOME 实例绕过）
+
+### 4.3 判断节点（L3 批量追问 human）
+
+| # | 判断节点 | 选项 | 推荐 |
+|---|----------|------|------|
+| **J-L4-1** | 隔离主开关 | (a) 仅用独立 HOME（零代码改动）(b) 新增 `--state-dir`/env 开关（改代码，更显式）(c) 两者都做（先 a，后补 b） | **(c)**：先以 HOME 落地（今天就能跑），同时新增 `--state-dir` 使「隔离」成为显式契约而非隐含约定（预防未来有人同 HOME 起 dev） |
+| **J-L4-2** | dev 的 pi 沙盒 | (a) 独立 `RICK_PI_AGENT_DIR`（+145MB，需拷 auth/settings 种子）(b) 共享生产 agent dir（省空间，但 dev 跑 `tools init-pi/update-pi` 会原地覆写生产 145MB runtime） | **(a) 独立**：145MB 换「生产 pi runtime 不可被 dev 覆写」 |
+| **J-L4-3** | dev 源码树 | (a) `git worktree add` 到 `/workdir/sunquan20/rick-dev`（2.13s / 202MB，同设备）(b) `git clone --local` (c) 目录拷贝 | **(a) worktree**：秒级、共享 object store、天然带 `.rick` 快照；代价是 ref 共享需纪律（dev 分支不要乱推） |
+| **J-L4-4** | dev 监听面 | (a) `127.0.0.1:8414`（最安全，但**你的浏览器在局域网另一台机器上时访问不到**）(b) `0.0.0.0:8414` + dev 专用 token（与生产同一暴露模型，你能直接打开 dev UI） | **(b)**：你的实际工作流是从本机浏览器访问 10.128.x.x:8413 —— dev 若只听 loopback 就没法看；用独立 token 控制风险 |
+| **J-L4-5** | 是否本次修生产 singleton 缺陷（F4） | (a) 修（flock + 校验 + 拒绝第二个同状态目录实例）(b) 不修（dev 靠纪律绕开） | **(a) 修**：它让「隔离」变成可被绕过，且当前生产确实处于「任何人同 HOME 起实例就会误杀 active 会话」的危险态 |
+| **J-L4-6** | dev 数据面纪律 | (a) 硬约束（启动时校验：HOME≠生产 HOME、注册表不含生产仓库根，否则拒绝启动）(b) 仅文档约定 | **(a) 硬约束（fail-fast）**：一个失误就污染生产 jobs/源码，代价不对称 |
+| **J-L4-7** | 交付形态 | (a) 只交付脚本 `~/.rick/dev-web.sh`（不进仓库）(b) 进仓库成 `rick dev-web` 子命令 + 脚本包装 | **(b)**：自进化能力应是 rick 的正式能力（可被 AI 会话发现/复用），脚本只做 env 封装 |
+
+> 状态：**L4 待 human 裁决（本轮已提问）**。L5/L6 简报已就绪但**不下钻**（遵守不得跳层）；L4 裁决后按同样 L1→L5 流程展开 L5、L6。
+
+### 4.4 L4 终判（human 裁决 2026-09-20，全部采纳推荐）
+
+| 判断节点 | 裁决 | 落地含义 |
+|---|---|---|
+| J-L4-1 隔离主开关 | **c（HOME + `--state-dir`）** | 先用独立 HOME 落地（零改码即可跑），同时新增 `--state-dir` 让隔离成为**显式契约**（web 状态目录不再隐含依赖 HOME） |
+| J-L4-2 pi 沙盒 | **a（独立 `RICK_PI_AGENT_DIR`）** | `$DEV_HOME/.rick/pi/agent`，首次从生产拷 `auth.json/settings.json/models-store.json` 做种子（chmod 600），再 `tools init-pi`；生产 145MB runtime 不可被 dev 覆写 |
+| J-L4-3 dev 源码树 | **a（git worktree）** | `/workdir/sunquan20/rick-dev`（实测 2.13s / 202MB，同设备） |
+| J-L4-4 dev 监听面 | **b（`0.0.0.0:8414` + dev 专用 token）** | 保证从局域网浏览器能打开 dev UI（用户的真实工作流） |
+| J-L4-5 singleton 缺陷 | **a（修）** | flock + pid 校验 + 拒绝第二个同状态目录实例；这是隔离边界可被绕过的根因，也是现存生产缺陷 |
+| J-L4-6 数据面纪律 | **a（启动硬校验 fail-fast）** | 校验 HOME≠生产、注册表不含生产仓库根，否则拒绝启动 |
+| J-L4-7 交付形态 | **b（进仓库成 `rick` 子命令）** | 自进化能力是 rick 的正式能力（AI 会话可发现/复用），运维脚本只做 env 封装 |
+
+**L4 终止判定**：M1-M7 pipeline 已澄清（见 4.2），模块职责/接口契约/输入输出明确；OKR 充分性自检通过（含 M7 singleton 修复这一前置）。→ **L4 达标，下钻 L5。**
+
+---
+
+## 第 5 层 — 开发闭环层（KR2：改动如何生效 + 自举不断会）
+
+**调研**：research-L5.md（217 行，§1 前端生效 / §2 五方案对比 / §3 自举四方案 / §4 反馈回路 / §5 构建依赖 / §6 dev 自动恢复）。
+
+### 5.1 关键事实
+
+| # | 事实 | 证据 | 影响 |
+|---|------|------|------|
+| F1 | **worker 无法被接管**：0/1 是匿名 pipe、`Setpgid` 自成进程组；pi 无 attach/socket 模式；父进程被 KILL 后 worker 下次写 stdout 即 EPIPE 自杀 | `supervisor.go:218-230`；`/proc/<pid>/fd` 实测；pi --help 实测 | 「dev 重启而开发会话不死」**只能靠架构选择**，不能靠重连/接管 |
+| F2 | 优雅退出代价：无 SSE 客户端 8.7ms/exit 0；**有 SSE 客户端 9.91s/exit 1**（10s Shutdown 超时）；`kill -9` 后重启仅 42ms 就绪 | 实测 | dev 重启用 kill 快速路径；prod 交付重启要预留 ≤11s |
+| F3 | 前端热更现成可用：静态层逐请求 Lstat overlay index.html；watcher 推 `frontend_reload`（**实测延迟 6.8s**，非注释声称的 0.5-2.5s；启动时还有一次伪 reload） | `static.go:71-99`、`watcher.go:78-105`；实测 | dev 走 overlay 软链即可；追求秒级可后续修 watcher debounce（独立小改） |
+| F4 | `spec.Dir = ws.Path`，worker cwd = 其工作区路径 | `sessions.go:437-444,984-993`；实测 worker cwd | **方案 (i) 零改码可实现**：prod 托管 + 工作区指向 dev 树 |
+| F5 | dev 托管会话受 idle reap（30 分钟无非 response 事件即 Close）且 `IdleTimeout` 未在组合根暴露 | `supervisor.go:808-835,700-708`；`cmd/web.go:105-110` | 长时间离开后开发会话会掉线，需 Resume（或补 env/flag 开关） |
+| F6 | `RICK_PI_AGENT_DIR` 不被 `doing.go:235-238` 尊重（gates helper.py 路径硬编码 `UserHomeDir()`） | 代码 | dev 树下 doing 门禁仍读生产 helper（本轮可接受，记录为已知偏差） |
+| F7 | 反馈判据缺构建指纹：`/api/health` 仅 `{status:ok}`；`rick_version` 是静态常量 | `routes.go:105-107`、`cmd/rick/main.go:10` | 「新构建真的在跑」需新增 build_id（ldflags + health/config/SSE 携带） |
+
+### 5.2 模块与 pipeline（终判方案 (i)）
+
+```
+M1 dev 控制入口（`rick tools dev-web {up|build|restart|status|down}`；~/.rick/dev-web.sh 只做 env 封装）
+   → M2 前端生效（$DEV_HOME/.rick/web/dist 软链 → $DEV_TREE/web/dist；可选 vite HMR 需参数化 proxy）
+   → M3 后端生效（go build → 唯一文件名（构建指纹）→ 停旧（TERM→12s→KILL）→ 起新 → 健康 + build_id 校验）
+   → M4 自举解耦（开发会话托管在 **prod**，其 workspace = $DEV_TREE；dev 实例不托管"必须存活"的会话）
+   → M5 可观测反馈（build_id 贯穿 health/config/SSE；构建日志尾部；$DEV_HOME/build.json）
+
+接口契约：
+  M1 → env 契约 {DEV_HOME, DEV_TREE, RICK_PI_AGENT_DIR, GOCACHE, GOMODCACHE, PORT=8414, TOKEN}
+  M1 → 动作契约 {up, build, restart, status, down}，exit code 语义 {0 ok, 2 build fail, 3 start fail, 4 health fail}
+  M3 → 指纹契约：二进制名 `rick.dev.<sha7>-<ts>` + `/api/health` 返回 build_id
+  M4 → 注册契约：prod 的 web.json 注册 $DEV_TREE（name=rick-dev），**绝不注册生产仓库根到 dev**
+  M5 → 状态契约：$DEV_HOME/build.json {path, sha7, built_at, pid, health_ms}
+```
+
+**OKR 充分性自检**：M1-M5 达成 ⇒ 前端改动即时可见、后端改动受控重建重启、开发会话在 dev 任意重启下存活（因为它由 prod 托管）、AI 侧能一条命令判定成败 ⇒ KR2 成立 ✅
+
+### 5.3 判断节点
+
+**已终判（human 2026-09-20）**
+- **J-L5-1 自举架构 = (i)**：开发会话托管在 prod，workspace 指向 dev 工作树。补充硬约束（用户原话）：**「交付阶段之前，都不要影响 prod 的任何会话」** → dev 实例不得触发 prod 的 `ReconcileOnStart`/状态改写（由 L4-J5 的 singleton 修复 + HOME 隔离共同保证）。
+- **J-L5-2 交付入口 = `rick tools release`**（用户新增要求）：把 dev 切换为 prod 并重启 prod，使刷新 rick web 页面后依旧可连通。即 `release` 是**唯一的提升动作**（人类执行 = 人类确认）。
+
+**待 human 裁决（L5 补充追问）**
+
+| # | 判断节点 | 选项 | 推荐 |
+|---|----------|------|------|
+| J-L5-3 | dev 实例自身是否允许托管会话 | (a) 允许（复用 L6 auto-resume 恢复）(b) 禁止（纯开发/测试实例） | (a)：反正要建 auto-resume；dev 上跑会话正是验证恢复机制的最好场景 |
+| J-L5-4 | dev 工作区在 prod 注册表的形态 | (a) name=`rick-dev` 单独注册 dev 树（prod UI 会同时看到 dev 树的 job/会话）(b) 不注册（开发会话改由 CLI 起，不经 prod UI） | (a)：用户要在 web UI 里跑这个会话，必须注册；用独立 name 便于识别 |
+| J-L5-5 | 构建指纹可观测性 | (a) 加 `-ldflags` build_id + `/api/health` 暴露（小改）(b) 不加（靠唯一二进制名 + /proc/exe 比对） | (a)：一条 `curl /api/health` 即可判定"新构建在跑"，对 AI 自举闭环价值最高 |
+| J-L5-6 | dev 前端模式 | (a) 只用 `npm run build` + overlay 软链（零额外进程）(b) 同时参数化 vite proxy 支持 HMR | (b)：参数化只 3 行；调 UI 细节时 HMR 明显更快（默认路径仍是 a） |
+
+---
+
+## 第 6 层 — 提升与恢复层（KR3 受控提升 + KR4 切换无损恢复）
+
+**调研**：research-L6.md（432 行，§1 原子替换 / §2 重启与中断边界 / §3 恢复语义 / §4 门禁 / §5 确认留痕 / §6 生态先例 / §7 风险清单）。
+
+### 6.1 关键事实
+
+| # | 事实 | 证据 | 影响 |
+|---|------|------|------|
+| F1 | 生产二进制 = **仓库工作树 `bin/rick`**（`~/.rick/bin/rick` 是 8/24 遗留未使用） | `/proc/<pid>/exe`、md5 实测 | 提升目标 = `bin/rick`（或改为 `bin/releases/current/rick` 链） |
+| F2 | 同 FS `mv` 覆盖运行中二进制**原子且安全**（`cp` 报 ETXTBSY；旧进程继续跑，`/proc/pid/exe` 显示 (deleted)） | 实测 | 提升/回滚可无损切换文件 |
+| F3 | `ReconcileOnStart` 只把 active/running → error，**不落盘 reason**；`Busy` 是 `json:"-"` | `sessions.go:154-173`、`registry.go:234-254` | 「重启前是否在跑」必须新增 intent 持久化 |
+| F4 | 「回合被中断」**可精确判定**：末条 assistant 且 `stopReason=toolUse`（含 toolCall）无后续 toolResult = 悬挂态；末条 toolResult = 步骤间；`stop/aborted` = 正常收尾 | 137 个真实 jsonl census + 8 文件抽样实测 | 恢复策略可按形状分派 |
+| F5 | pi **不修复悬挂 toolCall**（悬挂条目原样保留，不补 toolResult） | leaf-2 实测 | 自动续跑悬挂态有**重复副作用**风险 → 只对安全形状续跑 |
+| F6 | 配额耗尽**不报错**（返回普通 assistant 文本 + `stopReason:"stop"` + usage 全 0） | leaf-2 P5 实测 | 续跑后需校验 usage/特征，否则静默空转 |
+| F7 | SSE 切换对浏览器自愈：陈旧游标 → `server_info{reason:"replay_overflow"}` → 清游标 + REST 全量 | `sse.go:130-152`、`sse.ts:290-320,375-430` | UI 无感；但 in-flight 回合计算已死，靠恢复补 |
+| F8 | doing/dream 后台任务 **不可 resume**（409）；doing 按 `status != success` 续跑剩余 task；但门禁把遗留 `running` 判为 zombie 而失败 | `sessions.go:1018-1020`、`doing.go:144-166`、`helper.py:47-49` | 自动恢复须先归一化 `running → pending` |
+| F9 | 现无任何 approve/confirm 语义（最接近的是 `rick web reset` 的 `[y/N]`） | `cmd/web.go:192-210` | `rick tools release` 自带人类确认（交互式确认 + `--yes`） |
+| F10 | `MaxActive=8`；重放大会话成本高（12MB/3253 条） | `supervisor.go:43`、leaf-2 | 恢复要限流（队列 + 每会话一次 + 续跑预算 ≤3） |
+
+### 6.2 模块与 pipeline
+
+```
+M1 提升入口（`rick tools release`：门禁校验 → 构建版本目录 → 原子切链 → 重启 prod → 健康探测 → 打印报告；`--rollback` 回滚）
+   → M2 原子替换（$REPO/bin/releases/<ver>/{rick,dist} + `current` 链 + 保留最近 3 版；bin/rick 为链）
+   → M3 关停快照（graceful 路径写 shutdown.json：{session_id, pi_session, last_entry_id, busy, intent}）
+   → M4 启动自动恢复（候选集 = 快照 ∪ 注册表 active/running ∪ 近 60s closed 兜底 → 逐条 resume worker
+                        → 形状判定 → 安全形状投递一次续跑 → 悬挂态挂起待人工 → 恢复报告）
+   → M5 后台 job 恢复（doing/dream：running→pending 归一化 → 重新执行剩余 task）
+   → M6 报告与回滚（恢复报告落盘 + 落 SSE/session_state；失败可 `release --rollback`）
+
+接口契约：
+  M1 → CLI 契约：`rick tools release [--yes] [--rollback] [--dry-run]`，退出码 {0 ok, 2 gate fail, 3 build fail, 4 restart fail, 5 health fail}
+  M3 → 磁盘契约：`<state-dir>/shutdown.json`（version + sessions[]）；**新增 intent 字段走 Entry.Params["_auto_resume"]（零 schema 变更）**
+  M4 → 判定契约：`classifyResumeShape(jsonlTail) → {COMPLETE | INTERRUPTED_AFTER_TOOL | DANGLING_TOOLCALL | ABORTED | FAILED | EMPTY}`
+  M4 → 预算契约：续跑投递「每会话每次重启最多 1 次」+ 全局 ≤3（防配额风暴 R6）
+  M6 → 报告契约：恢复报告 {recovered[], suspended[], failed[]}（落盘 + 前端可读）
+```
+
+**OKR 充分性自检**：M1-M6 达成 ⇒ 提升受控（人类确认 + 门禁 + 原子 + 可回滚）∧ 重启后所有「原本在跑」的会话被主动恢复（含后台 job 归一化续跑）∧ UI 无感 ⇒ KR3 ∧ KR4 成立 ✅
+
+### 6.3 判断节点
+
+**已终判（human 2026-09-20：整体确认）**
+- J-L6-1 替换方式 = 版本目录 + `current` 链 + 保留前 N 版（回滚 = 切链 + 重启，无需重建）
+- J-L6-2 重启方式 = kill 重启（优雅退出 ≤11s 预算）；SSE 自愈保证 UI 无感
+- J-L6-3 恢复策略 = **A（全量恢复 worker）+ B（仅安全形状投递一次续跑）+ 悬挂态降级人工确认**
+- J-L6-4 doing/dream = `running → pending` 归一化后续跑（幂等敏感点详见 M5）
+- J-L6-5 人类确认 = **`rick tools release` 命令本身**（用户新增要求，取代原建议的 `POST /api/promote`；交互式确认 + `--yes`）
+- **用户补充语义（重要）**：「交付阶段之前不影响 prod 任何会话」；「交付阶段允许会话中断，但**必须保证都可以恢复重启**」
+
+**待 human 裁决（L6 补充追问）**
+
+| # | 判断节点 | 选项 | 推荐 |
+|---|----------|------|------|
+| J-L6-6 | 「必须可以恢复」是自动还是人工触发 | (a) 启动**自动**恢复全部（悬挂态除外，挂起待人工）(b) 只标记可恢复，由人逐条点 Resume | (a)：符合用户原话「主动将运行中的 job 都恢复」；失败者降级 error + 进报告 |
+| J-L6-7 | 后台 job（doing/dream）要不要自动续跑 | (a) 自动归一化 `running→pending` 并续跑剩余 task (b) 只标 error 等人工 | (a)：doing 的语义本就是「按 task 状态续跑」，且用户要求"job 不停止"；风险是中断的单个 task 会重跑（原子性靠 task 内的 gate/commit 纪律兜底） |
+
+> 状态：**L5/L6 补充追问已发出**；两表裁决后 grilling 完成 → 进入实现流水线设计（tasks.json + 写域 + 分层 + gates）。
+
+### 5.4 L5 终判（human 裁决 2026-09-20）
+
+| 判断节点 | 裁决 | 落地含义 |
+|---|---|---|
+| J-L5-1 自举架构 | **(i)** | 开发会话托管在 prod，workspace = `$DEV_TREE`；dev 实例可任意重启 |
+| J-L5-2 交付入口 | **`rick tools release`** | 唯一提升动作；人类执行即人类确认 |
+| J-L5-3 dev 托管会话 | **允许**（用户：「这是我们使用 dev 进行测试关键」） | dev 实例是被测对象本身，必须能起会话；其会话在 dev 重启后走「挂起 + 手动恢复」 |
+| J-L5-4 注册形态 | **a** | prod 注册表新增 `rick-dev`（path = `$DEV_TREE`），与生产仓库根并存但互不干扰 |
+| J-L5-5 构建指纹 | **加 build_id** | `-ldflags -X` 注入 + `/api/health`（免认证）与 `/api/config`/SSE `server_info` 携带 → 一条 curl 判定「新构建在跑」 |
+| J-L5-6 dev 前端模式 | **b** | 参数化 vite proxy（HMR 可用）；默认路径仍是「`npm run build` + overlay 软链」 |
+
+### 6.4 L6 终判（human 裁决 2026-09-20）— **恢复语义被重新定义为「平台自动 + 会话挂起待人工」**
+
+| 判断节点 | 裁决 | 落地含义 |
+|---|---|---|
+| J-L6-1 替换方式 | 版本目录 + `current` 链 + 保留前 N 版 | 回滚 = 切链 + 重启，无需重建 |
+| J-L6-2 重启方式 | kill 重启（≤11s 预算）；SSE 自愈保证 UI 无感 | 浏览器只经历一次重连 |
+| J-L6-5 人类确认 | `rick tools release`（交互确认 + `--yes`） | 提升动作本身即确认 |
+| **J-L6-6 恢复触发** | **不自动恢复会话**（用户原话：「web ui 和后台 server 恢复即可，具体的每个会话可以是断开的，我们手动点击恢复使其继续。这样避免存在副作用」） | 交付重启后**保证平台可达 + 状态完整**，但**每个会话保持挂起态**，由人类一键恢复 → 彻底规避自动续跑的重复副作用与配额风暴 |
+| **J-L6-7 后台 job** | **不自动续跑**（用户原话：「自动挂起，等待人类确认」） | doing/dream 也不自动 `running→pending`；挂起等人工点「继续执行」时才归一化并重跑剩余 task |
+
+**KR4 重新表述（终版）**：
+1. **平台级无缝**：`rick tools release` 重启后，web UI + server **自动**恢复可达（健康检查通过、状态文件完整、SSE 自愈、刷新页面依旧连通）——零人工介入；
+2. **会话级挂起**：所有「重启前在跑」的会话/后台 job 被标记为**挂起（suspend）**而非含混的 error，UI 明示「因平台升级挂起」+ 一键恢复入口；
+3. **人工一键恢复**：会话 → `resume`（复用既有 pi `--session` 语义）；doing/dream job → 恢复时才做 `running → pending` 归一化并续跑剩余 task；
+4. **恢复报告**：重启后列出挂起清单与恢复入口（谁被挂起、一键恢复到哪）。
+
+> 副作用边界的收益：不自动恢复 ⇒ 不需要「形状判定 + 安全续跑预算 + 配额风暴限流」（research-L6 §3.5 的 B 策略整体不需要），风险面从「自动重放工具调用」降为「人工确认后重跑」——这是本设计最重要的安全性决策。
+
+**L6 终止判定**：M1-M6 pipeline 已按新语义澄清（M4/M5 由「自动恢复」改为「挂起标记 + 人工恢复入口 + 恢复报告」），接口契约齐备，OKR 充分性自检通过（平台自动 + 人工恢复 ⇒ 「必须保证都可以恢复重启」）。→ **L6 达标。**
+
+---
+
+## Grilling 完成声明
+
+**本增量（第 2 棵设计树）已遍历完毕**：L4 隔离层 / L5 开发闭环层 / L6 提升与恢复层三层全部达标，所有模块已落实到**代码实现（文件 + 函数）/ 文件结构 / 工具调用（命令 + 参数）/ 环境依赖与配置（env + 配置文件）**四个维度；所有判断节点均由 human 裁决（无自行拍板）。
+
+### 结构化决策摘要（按层）
+
+**L4 隔离层**：独立 `HOME=$DEV_HOME`（唯一全局开关）+ 新增 `--state-dir` 显式化；独立 `RICK_PI_AGENT_DIR`（种子拷贝 auth/settings，生产 145MB runtime 不可被覆写）；git worktree `$DEV_TREE=/workdir/sunquan20/rick-dev`；`0.0.0.0:8414` + dev 专用 token；修 singleton（flock + 同状态目录拒绝）；启动 fail-fast 校验（HOME≠生产、不注册生产仓库根）；能力进仓库为 `rick` 正式子命令。
+**L5 开发闭环层**：自举 = 开发会话托管在 **prod**、workspace 指向 dev 树（dev 可随意重启）；前端 = overlay 软链（零拷贝）+ 可选 vite HMR（proxy 参数化）；后端 = `build → 唯一命名 → 停旧 → 起新 → 健康 + build_id 校验`；可观测 = build_id 贯穿 health/config/SSE + `build.json` 状态文件；交付前**不影响 prod 任何会话**。
+**L6 提升与恢复层**：入口 = `rick tools release`（人类执行即确认，支持 `--yes/--rollback/--dry-run`）；替换 = `bin/releases/<ver>/{rick,dist}` + `current` 链 + 保留前 3 版；重启 = kill（≤11s）；**平台自动恢复可达**；**会话与后台 job 一律挂起**（新增 suspend 语义 + UI「因平台升级挂起」+ 一键恢复）；doing/dream 恢复时才归一化 `running→pending` 续跑；恢复报告落盘 + 可读；不自动续跑 ⇒ 无重复副作用与配额风暴。
