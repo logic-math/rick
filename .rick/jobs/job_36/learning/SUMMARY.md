@@ -60,3 +60,32 @@ APPROVED: true
 - 门禁: gate7-14 全绿（gate12 按去特殊化重写后仍绿）；两份 E2E（self-evolve 29 断言、rsi-loop 41 断言）可重放且 `prod_touched=false`
 - release: 3 次（41726a8 两连 → 59ac918），版本链 `bin/releases/<ver>/{rick,dist}` + current 软链 + `.last` 回滚点
 - 生产终态: `build_id=59ac918-260922143616`，8 工作区（含 rick-dev），`type=rsi` → 400，easy 提示词含 rick-rsi-loop 目录条目
+
+---
+
+# 最终收尾（2026-09-22 晚）：compact 修复 + RSI 闭环留痕 + 5.0.11 发版
+
+## /compact 缺陷四连修（用户报障「/compact 无法使用」→ 深挖出 4 层）
+
+1. **链路未实现**：pi rpc 有 compact 命令，但 rick 的 RpcClient 未封装、无 API 路由、前端无命令分支 → 全链补齐（RpcClient.Compact → POST /api/sessions/{id}/compact → 前端 /compact，custom_instructions 透传）
+2. **rpc 5s 超时**：compact 触发真实 LLM 摘要（实测 40.8s）→ 新增 rpcRequestTimeout，compact 走 180s 慢通道
+3. **生产级 proxy 透传缺失**：release.prodEnv / dev-web.ServerEnv 白名单丢 http_proxy → 本机无直连外网 → worker 模型调用全部 Connection error（用户实测症状：恢复后的会话「不可用」）→ 白名单透传 6 个 proxy 变量 + start-web.sh 显式 export
+4. **pi 上游缺陷 × mcli 网关校验**（根因最深）：pi 的 compact 摘要路径（completeSummarization → streamFn）绕过 before_provider_request 事件 → catpaw-proxy 的 billing-in-system 注入不生效 → mcli 400 "Requests are not allowed"。实测矩阵：`[billing, summarizer]` system → 200；`[summarizer]` → 400；X-Working-Dir header 必需。修复：catpaw-proxy 扩展挂 session_before_compact 自己带 billing 调 mcli 返回 CompactionResult（pi 跳过缺陷路径）。**catpaw-proxy.ts 不入仓（human 裁决：公司内部特化逻辑）；/compact 走 deepseek 等通用 provider 本就正常。** pi 上游缺陷值得报社区：摘要路径不接 onPayload。
+
+## RSI 闭环首次完整留痕（rsi_check 6/6）
+
+- 证据补录：approval（三次提升的人工批准痕迹）/ release（三次 version，当前迭代在前——checker 按首个 version 比对生产 build_id）/ resume（挂起清单 + eaf6b422 恢复验证）/ dev-iterations（build_id 回填）
+- checker 语义发现：一次迭代的证据文件以当前迭代开头，历史往下追加
+- loop 补两句：S5 后 web 承载的 RSI 会话会自挂起（S6/S7 等人工恢复）；S1 纪律「job 数据只写 dev 树」（防 tasks.json 双写冲突——当天两次 merge 冲突的根因，含 F6：level_complete 写回晚于提交）
+
+## 版本与发版
+
+- **rick 5.0.11**（human 裁决：自进化架构变更属大版本）：`cmd/rick/main.go` VERSION 4.4.15 → 5.0.11
+- 最终账目：29/29 task、gate7-14 全绿、4 次成功 release（41726a8 / 59ac918 / 1c3f085 / 本次）、2 次冲突中止均安全回滚后 AI 修复、生产零数据损伤
+- 推送远程：main + dev/self-evolve 分支
+
+## 给下一轮 RSI 的已知边界（诚实记录）
+
+- F6（level_complete 写回晚于提交）未修——下次迭代的候选项
+- dev 沙盒的 catpaw 扩展不随 init 更新（幂等跳过已存在）——dev 上测 catpaw 路径的 compact 需手工同步
+- pi 上游缺陷（摘要路径绕过 before_provider_request）未报社区——报时附捕获证据（normal system 有 billing / compact 没有）
