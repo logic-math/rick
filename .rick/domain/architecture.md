@@ -158,3 +158,9 @@ learning 阶段注入 `{{draft_dir}}` 变量,路径为 `.rick/jobs/{job_id}/draf
 **exit code**: 0=pass / 1=fail；输出 `✅ PASS` 或 `❌ FAIL + 描述`。
 
 `--auto-fix` 标志才触发 Claude 修复，默认只报告（保持确定性）。
+
+## 产品战略（human 裁决 2026-09-22）
+
+- **Web 优先**：后续迭代全部在 rick web 页面完成（会话/学习/dream/ctrl 均走 web）；CLI 命令与 web 保持同能力，但新能力以 web 为第一入口。
+- **TUI 跟随 pi 社区**：TUI 体验由 pi 社区迭代，rick 不投入主要精力。
+- **自进化形态**：普通会话（easy/plan）+ `.rick/loops/rick-rsi-loop.md`（标准 Loops 目录发现）+ `rick tools {dev-web, release --merge-source, rsi_check, loops_check}`；交付期允许会话中断但必须可恢复（挂起→人工一键恢复，**绝不自动续跑**）；RSI 不是特殊会话类型，rick-dev 不是特殊工作区。
