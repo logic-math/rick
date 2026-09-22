@@ -69,6 +69,10 @@ func fakePiRPC(t *testing.T, logPath string) string {
 	b.WriteString(`      rid=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
       echo "{\"type\":\"response\",\"command\":\"set_thinking_level\",\"success\":true,\"id\":\"$rid\",\"data\":{}}"` + "\n")
 	b.WriteString("      ;;\n")
+	b.WriteString("    *compact*)\n")
+	b.WriteString(`      rid=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+      echo "{\"type\":\"response\",\"command\":\"compact\",\"success\":true,\"id\":\"$rid\",\"data\":{\"summary\":\"fake summary\",\"tokensBefore\":150000,\"estimatedTokensAfter\":32000}}"` + "\n")
+	b.WriteString("      ;;\n")
 	b.WriteString("    *get_entries*)\n")
 	b.WriteString(`      rid=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
       echo "{\"type\":\"response\",\"command\":\"get_entries\",\"success\":true,\"id\":\"$rid\",\"data\":{\"entries\":[{\"type\":\"message\",\"id\":\"e1\",\"parentId\":null,\"message\":{\"role\":\"user\",\"content\":\"hi\"}}],\"leafId\":\"e1\"}}"` + "\n")
@@ -1976,4 +1980,60 @@ func TestCreateSessionRSITypeRemoved(t *testing.T) {
 	if msg, _ := e["message"].(string); !strings.Contains(msg, "unknown session type") {
 		t.Fatalf("error should be the unknown-type message, got: %v", e)
 	}
+}
+
+
+// TestSessionCompact 验证 POST /api/sessions/{id}/compact：active 会话把 pi 的
+// compact 命令写到 worker stdin（线格式正确）；非 active 会话 409。
+// （此前 /compact 在 web 上完全无入口：pi 协议有命令、rick 未封装、无路由、前端无分支。）
+func TestSessionCompact(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	waitLog(t, env.piLog, "开始")
+
+	rec := post(t, m.SessionCompact, "/api/sessions/"+id+"/compact", map[string]any{})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("compact active session: %d %s, want 202", rec.Code, rec.Body.String())
+	}
+	log := waitLog(t, env.piLog, `"type":"compact"`)
+	if strings.Contains(log, "customInstructions") {
+		t.Fatalf("empty custom_instructions must be omitted from the wire form; log=%s", log)
+	}
+
+	// 带自定义指令：线格式必须携带 customInstructions
+	rec = post(t, m.SessionCompact, "/api/sessions/"+id+"/compact",
+		map[string]any{"custom_instructions": "Focus on code changes"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("compact with instructions: %d %s", rec.Code, rec.Body.String())
+	}
+	log = waitLog(t, env.piLog, `"customInstructions":"Focus on code changes"`)
+	if !strings.Contains(log, `"type":"compact"`) {
+		t.Fatalf("compact wire form missing type; log=%s", log)
+	}
+
+	// 非 active → 409
+	closed := seedClosedSession(t, m, env.wsEntry.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+closed+"/compact", nil)
+	req.SetPathValue("id", closed)
+	rr := httptest.NewRecorder()
+	m.SessionCompact(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("compact closed session: %d, want 409", rr.Code)
+	}
+}
+
+// seedClosedSession creates a session entry directly in the registry with
+// status=closed (for the 409 branch of interactive endpoints).
+func seedClosedSession(t *testing.T, m *SessionManager, wsID string) string {
+	t.Helper()
+	id := "closed-" + fmt.Sprintf("%d", time.Now().UnixNano())
+	entry := SessionEntry{
+		ID: id, WorkspaceID: wsID, Type: SessionTypePlan, Status: SessionStatusClosed,
+		PISessionID: "pi-closed", CreatedAt: time.Now(),
+	}
+	if err := m.sessions.Add(entry); err != nil {
+		t.Fatalf("seed closed session: %v", err)
+	}
+	return id
 }

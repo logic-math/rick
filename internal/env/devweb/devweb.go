@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -109,6 +110,15 @@ func (l Layout) BaseURL() string { return "http://127.0.0.1:" + strconv.Itoa(l.P
 // 不拷 sessions/ 与 runtime/：前者是 1.6G 历史，后者是 145MB 且绝不能被 dev
 // 覆写（human 裁决 J-L4-2 = 独立 agent dir）。
 var seededFiles = []string{"auth.json", "settings.json", "models-store.json"}
+
+// seededDirs 是必须一并拷贝的**目录**种子（幂等：已存在跳过）。缺了它们 dev 侧
+// 的 pi 起不来——实测（job_36，2026-09-22）：只拷文件时 dev 实例上所有会话的
+// worker 一启动就死（pi 尝试联网 `npm install pi-web-access` → 离线 EAI_AGAIN →
+// crash exit 1；且缺 extensions/ 连模型代理都没有），「恢复→error」：
+// - npm/：已安装的扩展包（含 pi-web-access），65MB
+// - extensions/：本地扩展（catpaw-proxy 等模型代理通道）
+// 仍不拷 sessions/（1.6G 历史）与 runtime/（145MB，绝不能被 dev 覆写）。
+var seededDirs = []string{"npm", "extensions"}
 
 // IsDevWorktree 报告 dir 是否像一个 rick dev 工作树。判据刻意用**结构**而非目录名：
 //   - `.git` 是**文件**（git worktree 的标记；生产主工作树的 .git 是目录）
@@ -412,6 +422,14 @@ func (l Layout) ServerEnv() []string {
 			env = append(env, k+"="+v)
 		}
 	}
+	// 网络代理必须透传：本机直连外网不通（实测 api.deepseek.com 直连 000、
+	// 走代理 401=通），pi 的 fetch 遵循 *_proxy —— 白名单丢掉它们会导致 dev
+	// worker 的模型调用全部 "Connection error."（assistant 空 content、usage 全 0）。
+	for _, k := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
 	return env
 }
 
@@ -426,6 +444,9 @@ func Init(l Layout, out io.Writer) error {
 		return &StageError{Stage: "init", Err: err}
 	}
 	if err := ensureAgentSeed(l); err != nil {
+		return err
+	}
+	if err := seedHomeConfigs(l); err != nil {
 		return &StageError{Stage: "init", Err: err}
 	}
 	if err := ensureFrontendDeps(l, out); err != nil {
@@ -478,7 +499,77 @@ func ensureAgentSeed(l Layout) error {
 			return fmt.Errorf("seed %s: %w", name, err)
 		}
 	}
+	// 目录种子（npm/ 扩展包 + extensions/ 本地扩展）——见 seededDirs 注释。
+	for _, name := range seededDirs {
+		dst := filepath.Join(l.AgentDir, name)
+		if _, err := os.Stat(dst); err == nil {
+			continue // 已存在 → 幂等跳过
+		}
+		src := filepath.Join(srcDir, name)
+		if _, err := os.Stat(src); err != nil {
+			continue // 生产侧没有该目录（合理缺省）→ 跳过
+		}
+		if err := copyTree(src, dst); err != nil {
+			return fmt.Errorf("seed dir %s: %w", name, err)
+		}
+	}
 	return nil
+}
+
+// seedHomeConfigs 把**HOME 级**的必要配置拷进 dev HOME（catpaw-proxy 等扩展从
+// `~/.config/...` 读认证）。不拷的话 dev worker 的模型请求会静默拿到空 apiKey
+// → 所有回复为空（实测：dev 会话 3 秒"完成"但 assistant 内容为空）。
+// 已存在不覆盖（幂等）。来源只读。
+func seedHomeConfigs(l Layout) error {
+	srcRoot := filepath.Join(l.ProdHome, ".config")
+	if _, err := os.Stat(srcRoot); err != nil {
+		return nil // 生产无 .config → 无可种子
+	}
+	dstRoot := filepath.Join(l.Home, ".config")
+	for _, sub := range []string{"mcopilot-cli"} {
+		src := filepath.Join(srcRoot, sub)
+		dst := filepath.Join(dstRoot, sub)
+		if _, err := os.Stat(dst); err == nil {
+			continue
+		}
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if err := copyTree(src, dst); err != nil {
+			return fmt.Errorf("seed home config %s: %w", sub, err)
+		}
+	}
+	return nil
+}
+
+// copyTree recursively copies src → dst (dirs + files, preserving mode).
+// 只在 dev init 的种子拷贝里使用；符号链接按普通文件跟随拷贝（种子树无链接场景）。
+func copyTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil // 跳过 socket/fifo 等特殊文件
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode().Perm())
+	})
 }
 
 // ensureFrontendDeps 保证 dev 树 `web/` 能就地构建：node_modules 缺失时用生产

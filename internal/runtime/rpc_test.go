@@ -583,3 +583,38 @@ func mustCmd(line []byte, err error) []byte {
 	}
 	return line
 }
+
+// TestRpcCompactAndAutoCompaction 验证 compact / set_auto_compaction 命令的
+// JSON 形状（pi rpc.md Compaction 节）：无指令时省略 customInstructions，
+// 有指令时携带；enabled 为布尔。
+func TestRpcCompactAndAutoCompaction(t *testing.T) {
+	c := NewRpcClient()
+	b, err := c.Compact("")
+	if err != nil {
+		t.Fatalf("Compact(): %v", err)
+	}
+	if want := `"type":"compact"`; !strings.Contains(string(b), want) {
+		t.Fatalf("compact without instructions = %s, want %s", b, want)
+	}
+	if strings.Contains(string(b), "customInstructions") {
+		t.Fatalf("empty customInstructions must be omitted: %s", b)
+	}
+	b, err = c.Compact("Focus on code changes")
+	if err != nil {
+		t.Fatalf("Compact(instructions): %v", err)
+	}
+	for _, want := range []string{`"type":"compact"`, `"customInstructions":"Focus on code changes"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("compact with instructions = %s, want %s", b, want)
+		}
+	}
+	b, err = c.SetAutoCompaction(true)
+	if err != nil {
+		t.Fatalf("SetAutoCompaction(): %v", err)
+	}
+	for _, want := range []string{`"type":"set_auto_compaction"`, `"enabled":true`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("set_auto_compaction = %s, want %s", b, want)
+		}
+	}
+}

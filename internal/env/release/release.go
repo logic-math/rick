@@ -842,6 +842,14 @@ func (p Plan) prodEnv() []string {
 			env = append(env, k+"="+v)
 		}
 	}
+	// 网络代理必须透传：本机直连外网不通，pi worker 的模型调用（如 deepseek）
+	// 遵循 *_proxy。丢了它们 → release 重启后的生产 web 会话全部 "Connection
+	// error."（实测：release 拉起的生产进程 proxy 变量数=0，而用户终端拉起的有 4 个）。
+	for _, k := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"} {
+		if v := os.Getenv(k); v != "" {
+			env = append(env, k+"="+v)
+		}
+	}
 	return env
 }
 
