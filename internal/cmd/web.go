@@ -12,9 +12,12 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/spf13/pflag"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -35,6 +38,8 @@ func NewWebCmd(version string) *cobra.Command {
 		listen   string
 		token    string
 		stateDir string
+		daemon   bool
+		logFile  string
 	)
 
 	webCmd := &cobra.Command{
@@ -53,6 +58,57 @@ HTTPS 建议交由反向代理（见 wiki/web-ui.md）。
   customize  抽取前端源码基线到 ~/.rick/web/（自迭代入口）
   reset      清除前端自定义层，恢复内嵌 baseline`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// ---- --daemon：后台化（setsid 脱离终端 + 日志落盘），打印 PID 后立即返回 ----
+			// 目标：`rick web --daemon` 一条命令完成部署启动，用户不再需要手写
+			// start-web.sh（nohup/setsid/重定向）。子进程以 RICK_WEB_DAEMON=1
+			// 重新 exec 自己（不走 go 的 fork 模拟，保证 setsid 生效）。
+			if daemon && os.Getenv("RICK_WEB_DAEMON") != "1" {
+				resolvedEarly, err := web.ResolveStateDir(stateDir)
+				if err != nil {
+					return err
+				}
+				log := logFile
+				if log == "" {
+					log = filepath.Join(resolvedEarly, "web.log")
+				}
+				if err := os.MkdirAll(filepath.Dir(log), 0o755); err != nil {
+					return fmt.Errorf("mkdir log dir: %w", err)
+				}
+				f, err := os.OpenFile(log, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+				if err != nil {
+					return fmt.Errorf("open log %s: %w", log, err)
+				}
+				defer f.Close()
+				// 重新组装命令行（去掉 --daemon，加 RICK_WEB_DAEMON=1）
+				self, err := os.Executable()
+				if err != nil {
+					return fmt.Errorf("resolve executable: %w", err)
+				}
+				// 重组：self web --flag value…（cmd.Flags().Visit 只给出
+				// 显式设置过的 flag——顺序在 cobra 里无关紧要）
+				reexec := []string{"web"}
+				cmd.Flags().Visit(func(fl *pflag.Flag) {
+					if fl.Name == "daemon" || fl.Name == "log-file" {
+						return
+					}
+					if fl.Changed {
+						reexec = append(reexec, "--"+fl.Name, fl.Value.String())
+					}
+				})
+				sub := exec.Command(self, reexec...)
+				sub.Env = append(os.Environ(), "RICK_WEB_DAEMON=1")
+				sub.Stdin = nil
+				sub.Stdout = f
+				sub.Stderr = f
+				sub.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+				if err := sub.Start(); err != nil {
+					return fmt.Errorf("start daemon: %w", err)
+				}
+				fmt.Printf("[rick-web] daemon started: pid=%d log=%s\n", sub.Process.Pid, log)
+				fmt.Printf("[rick-web] stop: kill %d（或 pkill -f 'rick web'）\n", sub.Process.Pid)
+				return nil
+			}
+
 			// 状态目录显式化（--state-dir > RICK_STATE_DIR > $HOME/.rick）：
 			// 默认路径行为与改造前一致。
 			resolved, err := web.ResolveStateDir(stateDir)
@@ -94,6 +150,10 @@ HTTPS 建议交由反向代理（见 wiki/web-ui.md）。
 	webCmd.Flags().StringVar(&token, "token", "", "auth token (overrides config web_token; auto-generated when unset)")
 	webCmd.Flags().StringVar(&stateDir, "state-dir", "",
 		"web state directory (default $HOME/.rick; also via RICK_STATE_DIR) — dev isolation: pin it together with RICK_PI_AGENT_DIR")
+	webCmd.Flags().BoolVar(&daemon, "daemon", false,
+		"run in the background (setsid + nohup): logs to ~/.rick/web.log, survive terminal close; prints the PID and exits")
+	webCmd.Flags().StringVar(&logFile, "log-file", "",
+		"log file when daemonizing (default <stateDir>/web.log — i.e. ~/.rick/web.log)")
 
 	webCmd.AddCommand(newWebCustomizeCmd())
 	webCmd.AddCommand(newWebResetCmd())
