@@ -316,3 +316,20 @@ func mustRealHome(t *testing.T) string {
 	}
 	return u.HomeDir
 }
+
+// TestWebDaemonFlagRegisters 验证 --daemon/--log-file flag 已注册（简化部署的
+// 核心入口：`rick web --daemon` 一条命令后台运行 + 日志默认 ~/.rick/web.log）。
+func TestWebDaemonFlagRegisters(t *testing.T) {
+	cmd := NewWebCmd("test")
+	daemon := cmd.Flags().Lookup("daemon")
+	if daemon == nil {
+		t.Fatal("web 命令缺少 --daemon flag")
+	}
+	if daemon.Usage == "" {
+		t.Fatal("--daemon 的 help 文本为空")
+	}
+	lf := cmd.Flags().Lookup("log-file")
+	if lf == nil {
+		t.Fatal("web 命令缺少 --log-file flag")
+	}
+}

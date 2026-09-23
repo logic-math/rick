@@ -86,6 +86,14 @@ type Plan struct {
 	DevTree  string // dev 源码工作树（构建来源）
 	ProdHome string // 生产 HOME（其下的 .rick 是生产状态目录）
 
+	// ReleasesRoot 覆盖发布目录的根（默认 <ProdRepo>/bin/releases）。存在的原因：
+	// 生产仓库树可能被外部（cloud-ide 快照/同事/其它用户）重置属主与 ACL mask，
+	// 导致 release 进程（以部署用户跑）无法在 <ProdRepo>/bin/releases 下建目录
+	// （实测：bin/releases 属主 sankuai、mask r-x → mkdir permission denied，
+	// 且 bin/rick 软链同因消失）。指向用户可控目录（如 ~/.rick/releases）即可
+	// 继续发布；bin/rick 软链仍指向 <ReleasesRoot>/current/rick，start-web.sh 不变。
+	ReleasesRoot string
+
 	// StateDir 是生产状态目录（默认 <ProdHome>/.rick）。显式给出便于测试与
 	// 「生产用了 --state-dir」的部署。
 	StateDir string
@@ -178,7 +186,12 @@ func (p Plan) StateDirPath() string {
 }
 
 // ReleasesDir 返回版本目录根。
-func (p Plan) ReleasesDir() string { return filepath.Join(p.ProdRepo, "bin", ReleasesDirName) }
+func (p Plan) ReleasesDir() string {
+	if p.ReleasesRoot != "" {
+		return p.ReleasesRoot
+	}
+	return filepath.Join(p.ProdRepo, "bin", ReleasesDirName)
+}
 
 // CurrentLink 返回 `current` 符号链接路径。
 func (p Plan) CurrentLink() string { return filepath.Join(p.ReleasesDir(), CurrentLinkName) }
@@ -619,7 +632,15 @@ func (p Plan) ensureBinLink() error {
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		return fmt.Errorf("mkdir bin: %w", err)
 	}
-	target := filepath.Join(ReleasesDirName, CurrentLinkName, "rick")
+	// 默认：相对链 releases/current/rick（bin/ 与 releases/ 同在 ProdRepo/bin 下）。
+	// ReleasesRoot 覆盖时（发布目录被迁到 ~/.rick/releases 之类）：必须用绝对路径，
+	// 否则相对链会指向 <ProdRepo>/bin/<ReleasesRoot> 这个不存在的位置。
+	var target string
+	if p.ReleasesRoot != "" {
+		target = filepath.Join(p.ReleasesRoot, CurrentLinkName, "rick")
+	} else {
+		target = filepath.Join(ReleasesDirName, CurrentLinkName, "rick")
+	}
 	tmp := link + ".tmp"
 	_ = os.Remove(tmp)
 	if err := os.Symlink(target, tmp); err != nil {

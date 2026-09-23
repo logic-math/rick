@@ -47,6 +47,10 @@ func DefaultPlan(prodRepo, devTree string, portOverride int) (Plan, error) {
 
 	stateDir := firstNonEmpty(os.Getenv("RICK_STATE_DIR"), scriptStateDir, filepath.Join(prodHome, ".rick"))
 
+	// ReleasesRoot 覆盖（发布目录被外部重置属主/ACL 时的逃生通道）：
+	// RICK_RELEASES_DIR > 默认 <ProdRepo>/bin/releases。见 Plan.ReleasesRoot 注释。
+	releasesRoot := strings.TrimSpace(os.Getenv("RICK_RELEASES_DIR"))
+
 	port := portOverride
 	if port <= 0 {
 		if v := strings.TrimSpace(os.Getenv(EnvProdPort)); v != "" {
@@ -70,17 +74,18 @@ func DefaultPlan(prodRepo, devTree string, portOverride int) (Plan, error) {
 	}
 
 	return Plan{
-		ProdRepo:    absRepo,
-		DevTree:     tree,
-		ProdHome:    prodHome,
-		StateDir:    stateDir,
-		Port:        port,
-		Listen:      firstNonEmpty(scriptListen, DefaultListen),
-		StartScript: script,
-		Token:       readProdToken(stateDir),
-		GoCache:     firstNonEmpty(os.Getenv("GOCACHE"), filepath.Join(prodHome, ".cache", "go-build")),
-		GoModCache:  firstNonEmpty(os.Getenv("GOMODCACHE"), filepath.Join(prodHome, "go", "pkg", "mod")),
-		NpmCache:    firstNonEmpty(os.Getenv("npm_config_cache"), filepath.Join(prodHome, ".npm")),
+		ProdRepo:     absRepo,
+		DevTree:      tree,
+		ProdHome:     prodHome,
+		ReleasesRoot: releasesRoot,
+		StateDir:     stateDir,
+		Port:         port,
+		Listen:       firstNonEmpty(scriptListen, DefaultListen),
+		StartScript:  script,
+		Token:        readProdToken(stateDir),
+		GoCache:      firstNonEmpty(os.Getenv("GOCACHE"), filepath.Join(prodHome, ".cache", "go-build")),
+		GoModCache:   firstNonEmpty(os.Getenv("GOMODCACHE"), filepath.Join(prodHome, "go", "pkg", "mod")),
+		NpmCache:     firstNonEmpty(os.Getenv("npm_config_cache"), filepath.Join(prodHome, ".npm")),
 	}, nil
 }
 
