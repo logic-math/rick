@@ -15,8 +15,8 @@
  * wireJobs + sse.connect()。
  */
 
-import { useEffect, useState } from "react";
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import RecoveryBanner from "./components/recovery/RecoveryBanner";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
 import Portal from "./components/starfield/Portal";
@@ -212,6 +212,24 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" }) 
 // ============================================================
 
 export default function App() {
+  return (
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  );
+}
+
+/**
+ * AppShell：应用壳实体（BrowserRouter 内层，可用 useLocation）。
+ *
+ * 路由切换重置主滚动（KR2b）：<main> 是主内容滚动容器，切路由不重置
+ * scrollTop 时「长页切短页」视觉上像没刷新。pathname 变化 → mainRef
+ * scrollTop 归零（平滑无闪烁；首挂载不触发——useLocation 初始值即当前路径，
+ * effect 首跑也只是把初始 0 设为 0，无副作用）。
+ */
+function AppShell() {
+  const location = useLocation();
+  const mainRef = useRef<HTMLElement | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 桌面端侧栏折叠（用户可切换；默认展开） */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -228,8 +246,14 @@ export default function App() {
     setNewSessionOpen(true);
   };
 
+  // 路由切换重置主滚动容器（KR2b）：长页切短页/切会话后回到顶部，
+  // 「点击即刷新」的视觉一致性。仅响应 pathname（search/hash 变化不重置）。
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [location.pathname]);
+
   return (
-    <BrowserRouter>
+    <>
       <StarfieldBackground />
 
       {/* 全局锁页 */}
@@ -319,7 +343,7 @@ export default function App() {
             </div>
           )}
 
-          <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             <Routes>
               <Route path="/" element={<HomeRedirect />} />
               <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
@@ -342,6 +366,6 @@ export default function App() {
         onClose={() => setNewSessionOpen(false)}
         presetWorkspaceId={newSessionWs}
       />
-    </BrowserRouter>
+    </>
   );
 }

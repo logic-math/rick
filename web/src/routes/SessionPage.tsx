@@ -78,8 +78,13 @@ export default function SessionPage() {
   }
 
   return isMonitorType(session) ? (
-    <MonitorView sessionId={session.id} />
+    // key=session.id 强制重挂：ChatView 的历史拉取 epoch 守卫不含 sessionId（ChatView.tsx epoch
+    // = resyncCount + historyRefresh），切会话 A→B 时 effect 重跑但 epoch 相同提前 return，
+    // B 的历史永不拉取、界面保留 A 的消息。key 变化 → 组件整体重挂（epoch 守卫、history
+    // state、refs、滚动位置全部随新实例重置），是最小且完备的修复。MonitorView 无此 bug，
+    // 重挂无害（按 sessionId 依赖正常拉取）。
+    <MonitorView key={session.id} sessionId={session.id} />
   ) : (
-    <ChatView sessionId={session.id} />
+    <ChatView key={session.id} sessionId={session.id} />
   );
 }

@@ -15,6 +15,12 @@ type Config struct {
 	// back + printed once). loader.go needs no change: json round-trips
 	// omitempty-transparently.
 	WebToken string `json:"web_token,omitempty"`
+	// WebMaxActive caps concurrent live web-session workers (job_43).
+	// 0/negative falls back to the runtime supervisor default (64); the web
+	// composition root passes this to NewSupervisor. Sessions persist for
+	// the server lifetime (idle reaping disabled), so a generous default is
+	// intentional.
+	WebMaxActive int `json:"web_max_active,omitempty"`
 }
 
 // GitConfig represents Git-related configuration

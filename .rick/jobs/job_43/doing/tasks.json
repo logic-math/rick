@@ -1,0 +1,48 @@
+{
+  "created_at": "2026-09-24T19:20:00+08:00",
+  "job": "job_43",
+  "tasks": [
+    {
+      "attempts": 0,
+      "created_at": "2026-09-24T19:20:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task1.md",
+      "task_id": "task1",
+      "task_name": "pi 会话持久化（禁用空闲回收 + MaxActive 可配置默认 64 + 版本 5.0.12）",
+      "updated_at": "2026-09-24T19:20:00+08:00"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-24T19:20:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task2.md",
+      "task_id": "task2",
+      "task_name": "输入框多行体验（Ctrl+J + Enter 语义切换 + 移动端换行按钮）",
+      "updated_at": "2026-09-24T19:20:00+08:00"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-24T19:20:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task3.md",
+      "task_id": "task3",
+      "task_name": "导航实时性（SessionPage key 重挂 + 滚动重置 + 工作区行点击跳转）",
+      "updated_at": "2026-09-24T19:20:00+08:00"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-24T19:20:00+08:00",
+      "dependencies": ["task3"],
+      "status": "pending",
+      "task_file": "plan/task4.md",
+      "task_id": "task4",
+      "task_name": "移动端性能（移动端静态星空+开关 + 去 blur + 流式节流 + dpr 1.5）",
+      "updated_at": "2026-09-24T19:20:00+08:00"
+    }
+  ],
+  "updated_at": "2026-09-24T19:20:00+08:00",
+  "version": "1.0"
+}

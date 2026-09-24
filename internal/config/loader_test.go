@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -398,5 +399,38 @@ func TestHumanLoopConfigJSONRoundTrip(t *testing.T) {
 	}
 	if loaded.HumanLoop.MaxRetries != 7 {
 		t.Errorf("expected HumanLoop.MaxRetries=7, got %d", loaded.HumanLoop.MaxRetries)
+	}
+}
+
+// TestWebMaxActiveJSONRoundTrip verifies the job_43 `web_max_active` field:
+// json round-trips omitempty-transparently (absent → 0 → supervisor default
+// 64), and explicit values survive a marshal/unmarshal cycle.
+func TestWebMaxActiveJSONRoundTrip(t *testing.T) {
+	// 显式值 round-trip。
+	cfg := &Config{WebMaxActive: 12}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if loaded.WebMaxActive != 12 {
+		t.Errorf("WebMaxActive round-trip = %d, want 12", loaded.WebMaxActive)
+	}
+
+	// 缺字段 → 0（组合根回落 DefaultMaxActive=64）。
+	var absent Config
+	if err := json.Unmarshal([]byte(`{}`), &absent); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if absent.WebMaxActive != 0 {
+		t.Errorf("absent web_max_active = %d, want 0", absent.WebMaxActive)
+	}
+
+	// 字段名必须是 web_max_active（与 web_token 扁平风格一致）。
+	if !strings.Contains(string(data), `"web_max_active":12`) {
+		t.Errorf("marshal must emit web_max_active, got %s", data)
 	}
 }

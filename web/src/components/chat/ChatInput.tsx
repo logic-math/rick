@@ -1,7 +1,11 @@
 /**
  * ChatInput：多行输入框。
  *
- * - Enter 发送 / Shift+Enter 换行
+ * - Enter 发送 / Shift+Enter 换行 / Ctrl+J 换行（对齐 pi 终端键位）
+ * - Enter 语义可切换（rick.chat.enterMode，localStorage 持久化）：
+ *   send（默认）Enter=发送；newline Enter=换行、Ctrl/Cmd+Enter=发送（中文 IM 习惯）
+ * - 空内容/纯空白不发送（两模式统一，防误发）；IME 组合中不拦截 Enter
+ * - 移动端（<768px）显式换行按钮：光标处插入换行（无 Shift 键可换行）
  * - agent streaming 时变为 steer 输入（发送即 steer——由 SteerBar 注入 onSend）
  * - 斜杠命令：输入以 / 开头弹出命令面板；/abort /close 实装（调 API），/compact
  *   提示暂不可用
@@ -40,6 +44,21 @@ interface ChatInputProps {
   busy?: boolean;
 }
 
+/** Enter 语义模式：send=Enter 发送（默认）；newline=Enter 换行、Ctrl/Cmd+Enter 发送 */
+type EnterMode = "send" | "newline";
+
+/** Enter 语义持久化 key（localStorage；与 starfield 设置各自独立 key） */
+const ENTER_MODE_KEY = "rick.chat.enterMode";
+
+/** 读 localStorage 的 Enter 模式（缺省/异常回退 send；隐私模式 localStorage 不可用） */
+function readEnterMode(): EnterMode {
+  try {
+    return localStorage.getItem(ENTER_MODE_KEY) === "newline" ? "newline" : "send";
+  } catch {
+    return "send";
+  }
+}
+
 /** 软键盘高度偏移（px；无 VisualViewport/桌面端为 0） */
 function useKeyboardOffset(): number {
   const [offset, setOffset] = useState(0);
@@ -65,8 +84,37 @@ function useKeyboardOffset(): number {
 export default function ChatInput({ onSend, onCommand, placeholder, disabled, busy }: ChatInputProps) {
   const [text, setText] = useState("");
   const [menuIndex, setMenuIndex] = useState(0);
+  const [enterMode, setEnterMode] = useState<EnterMode>(readEnterMode);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const keyboardOffset = useKeyboardOffset();
+
+  const toggleEnterMode = () => {
+    setEnterMode((m) => {
+      const next: EnterMode = m === "send" ? "newline" : "send";
+      try {
+        localStorage.setItem(ENTER_MODE_KEY, next);
+      } catch {
+        // localStorage 不可用（隐私模式等）：仅本组件内生效
+      }
+      return next;
+    });
+  };
+
+  /** 在光标处插入换行（移动端换行按钮 / Ctrl+J 共用）：插入后回焦并把光标移到新行 */
+  const insertNewline = () => {
+    const ta = taRef.current;
+    if (!ta || disabled) return;
+    const start = ta.selectionStart ?? text.length;
+    const end = ta.selectionEnd ?? start;
+    const next = text.slice(0, start) + "\n" + text.slice(end);
+    setText(next);
+    // 受控组件：等 React 把新值刷进 DOM 再定位光标（requestAnimationFrame 后值已生效）
+    requestAnimationFrame(() => {
+      const pos = start + 1;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    });
+  };
 
   // 斜杠命令面板匹配
   const slashMatches = useMemo(() => {
@@ -134,7 +182,24 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Ctrl+J 换行（两模式通用，对齐 pi 终端键位；IME 组合中不拦截）
+    if (e.key.toLowerCase() === "j" && e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      insertNewline();
+      return;
+    }
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    // IME 组合中的 Enter 不拦截（确认候选词）；组合外的 Enter 才进入语义分支
+    const cmd = e.ctrlKey || e.metaKey;
+    if (enterMode === "newline") {
+      // newline 模式：Enter=换行（原生插入，不 preventDefault）、Ctrl/Cmd+Enter=发送
+      if (cmd && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+      // 其余（Enter / Shift+Enter）：原生换行
+    } else if (!e.shiftKey) {
+      // send 模式：Enter（含 Ctrl/Cmd+Enter）发送；Shift+Enter 原生换行
       e.preventDefault();
       send();
     }
@@ -193,12 +258,44 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={placeholder ?? "输入消息，Enter 发送（Shift+Enter 换行；/ 命令）"}
+          placeholder={
+            placeholder ??
+            (enterMode === "newline"
+              ? "输入消息，Enter 换行（Ctrl+Enter 发送；/ 命令）"
+              : "输入消息，Enter 发送（Shift+Enter / Ctrl+J 换行；/ 命令）")
+          }
           disabled={disabled}
           rows={Math.min(6, Math.max(1, text.split("\n").length))}
-          className="max-h-36 min-h-[24px] flex-1 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3 disabled:opacity-50"
+          className="max-h-36 min-h-[46px] flex-1 resize-none bg-transparent text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3 disabled:opacity-50"
           aria-label="消息输入"
         />
+
+        {/* 移动端显式换行按钮（<768px 常显，对齐 Tailwind md 断点；桌面走 Shift+Enter / Ctrl+J） */}
+        <button
+          type="button"
+          onClick={insertNewline}
+          disabled={disabled}
+          title="插入换行"
+          aria-label="插入换行"
+          className="mb-0.5 shrink-0 rounded-md px-2 py-1 text-xs text-ink-3 transition-colors hover:bg-white/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40 md:hidden"
+        >
+          ↵
+        </button>
+
+        {/* Enter 语义切换：send=Enter 发送 / newline=Enter 换行、Ctrl+Enter 发送 */}
+        <button
+          type="button"
+          onClick={toggleEnterMode}
+          title={
+            enterMode === "send"
+              ? "Enter=发送，Shift+Enter / Ctrl+J=换行（点击切换为 Enter=换行）"
+              : "Enter=换行，Ctrl+Enter=发送（点击切换为 Enter=发送）"
+          }
+          aria-label={`切换 Enter 键行为（当前：${enterMode === "send" ? "Enter 发送" : "Enter 换行"}）`}
+          className="mb-0.5 shrink-0 rounded-md px-1.5 py-1 text-[10px] leading-none text-ink-3 transition-colors hover:bg-white/5 hover:text-ink"
+        >
+          ↵{enterMode === "send" ? "发送" : "换行"}
+        </button>
 
         <button
           type="button"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/handler"
+	"github.com/sunquan/rick/internal/runtime"
 	"github.com/sunquan/rick/internal/web"
 )
 
@@ -331,5 +332,86 @@ func TestWebDaemonFlagRegisters(t *testing.T) {
 	lf := cmd.Flags().Lookup("log-file")
 	if lf == nil {
 		t.Fatal("web 命令缺少 --log-file flag")
+	}
+}
+
+// --- job_43: pi 会话持久持有（resolveSupervisorConfig） ---
+
+// TestResolveSupervisorConfig_PersistentSessions asserts the job_43 semantics:
+// the web composition root must disable idle reaping (negative sentinel → no
+// reapLoop goroutine; sessions persist for the server lifetime) and default
+// MaxActive to runtime.DefaultMaxActive (64) when config.json has no
+// web_max_active.
+func TestResolveSupervisorConfig_PersistentSessions(t *testing.T) {
+	cfg := &config.Config{PiPath: "/bin/true", PiExtraArgs: []string{"--flag"}}
+	sc := resolveSupervisorConfig(cfg)
+
+	// 空闲回收禁用：负值哨兵原样进入 supervisor 配置（Spawn 只在 >0 时
+	// 启动 reapLoop——见 runtime.TestSupervisor_IdleDisabledNegative）。
+	if sc.IdleTimeout != runtime.IdleDisabled {
+		t.Errorf("IdleTimeout = %v, want runtime.IdleDisabled (%v) — web 会话必须持久持有", sc.IdleTimeout, runtime.IdleDisabled)
+	}
+	if sc.IdleTimeout >= 0 {
+		t.Errorf("IdleTimeout = %v, must be NEGATIVE to disable idle reaping", sc.IdleTimeout)
+	}
+
+	// 缺省上限：无 web_max_active → 包默认 64。
+	if runtime.DefaultMaxActive != 64 {
+		t.Errorf("runtime.DefaultMaxActive = %d, want 64", runtime.DefaultMaxActive)
+	}
+	if sc.MaxActive != runtime.DefaultMaxActive {
+		t.Errorf("MaxActive = %d, want DefaultMaxActive (%d)", sc.MaxActive, runtime.DefaultMaxActive)
+	}
+	if sc.MaxActive != 64 {
+		t.Errorf("MaxActive = %d, want 64", sc.MaxActive)
+	}
+
+	// pi 路径与额外参数透传。
+	if sc.PiPath != cfg.PiPath {
+		t.Errorf("PiPath = %q, want %q", sc.PiPath, cfg.PiPath)
+	}
+	if len(sc.ExtraArgs) != 1 || sc.ExtraArgs[0] != "--flag" {
+		t.Errorf("ExtraArgs = %v, want [--flag]", sc.ExtraArgs)
+	}
+
+	// 心跳语义不动：组合根不覆盖心跳字段（0 → NewSupervisor 包默认）。
+	if sc.HeartbeatInterval != 0 {
+		t.Errorf("HeartbeatInterval = %v, want 0 (leave package default intact)", sc.HeartbeatInterval)
+	}
+	if sc.HeartbeatTimeout != 0 {
+		t.Errorf("HeartbeatTimeout = %v, want 0 (leave package default intact)", sc.HeartbeatTimeout)
+	}
+}
+
+// TestResolveSupervisorConfig_MaxActiveOverride: explicit web_max_active
+// values are honored; 0/negative fall back to the 64 default.
+func TestResolveSupervisorConfig_MaxActiveOverride(t *testing.T) {
+	for _, n := range []int{1, 4, 100} {
+		cfg := &config.Config{WebMaxActive: n}
+		sc := resolveSupervisorConfig(cfg)
+		if sc.MaxActive != n {
+			t.Errorf("WebMaxActive=%d → MaxActive %d, want %d", n, sc.MaxActive, n)
+		}
+	}
+
+	// 0 / 负值 → 缺省 64（config.json 缺字段或缺省值都不放大上限语义）。
+	for _, n := range []int{0, -1} {
+		cfg := &config.Config{WebMaxActive: n}
+		sc := resolveSupervisorConfig(cfg)
+		if sc.MaxActive != 64 {
+			t.Errorf("WebMaxActive=%d → MaxActive %d, want 64 fallback", n, sc.MaxActive)
+		}
+	}
+}
+
+// TestResolveSupervisorConfig_ZeroConfig: a fully zero config (config.json
+// without any web fields) must not panic and keeps the persistence semantics.
+func TestResolveSupervisorConfig_ZeroConfig(t *testing.T) {
+	sc := resolveSupervisorConfig(&config.Config{})
+	if sc.IdleTimeout != runtime.IdleDisabled {
+		t.Errorf("zero config IdleTimeout = %v, want IdleDisabled", sc.IdleTimeout)
+	}
+	if sc.MaxActive != 64 {
+		t.Errorf("zero config MaxActive = %d, want 64", sc.MaxActive)
 	}
 }

@@ -40,8 +40,18 @@ var BootstrapMessage = bootstrapMessage
 
 // Supervisor defaults (mirroring pi's own subagent extension magnitudes).
 const (
-	DefaultMaxActive         = 8                // pi subagent MAX_PARALLEL_TASKS ballpark
-	DefaultIdleTimeout       = 30 * time.Minute // idle web sessions are expensive
+	// DefaultMaxActive caps concurrent live workers. 64 (job_43): web 会话
+	// 改为持久持有后并发 worker 会累积，单用户本地工具 64 是充裕上限；
+	// config.json `web_max_active` 可覆盖。
+	DefaultMaxActive = 64
+	// DefaultIdleTimeout is the fallback when IdleTimeout == 0.
+	DefaultIdleTimeout = 30 * time.Minute // idle web sessions are expensive
+	// IdleDisabled is the sentinel for "never reclaim idle workers"
+	// (job_43): a NEGATIVE IdleTimeout leaves NewSupervisor's zero-defaulting
+	// untouched (only == 0 falls back to DefaultIdleTimeout) and skips the
+	// reapLoop start in Spawn (only > 0 starts it) — web 会话持久持有，
+	// server 存续期间不主动断开（心跳杀保留，真卡死进程仍会被清理）。
+	IdleDisabled = -time.Second
 	DefaultHeartbeatInterval = 30 * time.Second // get_state liveness cadence
 	DefaultProbeTimeout      = 500 * time.Millisecond
 	DefaultTermGrace         = 5 * time.Second
@@ -70,10 +80,12 @@ var ErrEmptySessionFlag = errors.New("supervisor: SpawnSpec.SessionIDFlag must n
 // SupervisorConfig parameterizes a Supervisor. Zero fields take the defaults
 // above; explicit small values are honored (tests use 50ms heartbeats).
 type SupervisorConfig struct {
-	// MaxActive caps concurrent live workers (default 8).
+	// MaxActive caps concurrent live workers (default 64, see DefaultMaxActive).
 	MaxActive int
 	// IdleTimeout reclaims workers with no activity for this long while not
-	// streaming (default 30m; 0 disables idle reaping).
+	// streaming. 0 falls back to DefaultIdleTimeout (30m); NEGATIVE (use
+	// IdleDisabled) disables idle reaping entirely — the web composition root
+	// uses that so sessions persist for the server lifetime (job_43).
 	IdleTimeout time.Duration
 	// HeartbeatInterval is the get_state cadence (default 30s; 0 disables).
 	HeartbeatInterval time.Duration
