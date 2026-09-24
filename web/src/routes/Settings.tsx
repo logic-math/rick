@@ -13,6 +13,12 @@ import { useEffect, useState } from "react";
 import { api, getStoredToken, setStoredToken, TOKEN_STORAGE_KEY } from "../api/client";
 import { useUiStore } from "../stores/ui";
 import type { ServerConfig } from "../types";
+import {
+  readStarfieldMode,
+  writeStarfieldMode,
+  STARFIELD_MODE_KEY,
+  type StarfieldMode,
+} from "../components/starfield/starfieldMode";
 import Button from "../components/common/Button";
 import Dialog from "../components/common/Dialog";
 import ErrorBanner from "../components/common/ErrorBanner";
@@ -62,6 +68,14 @@ export default function Settings() {
   const [resetting, setResetting] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
+
+  // 星空背景模式（job_43 KR4d）：auto=移动端静态/桌面动画（默认），animated=强制动画，static=强制静态
+  const [starfieldMode, setStarfieldMode] = useState<StarfieldMode>(() => readStarfieldMode());
+
+  function setMode(mode: StarfieldMode): void {
+    setStarfieldMode(mode);
+    writeStarfieldMode(mode); // localStorage + 同页签事件（背景立即切换，无需刷新）
+  }
 
   useEffect(() => {
     api
@@ -169,6 +183,35 @@ export default function Settings() {
             {testMsg}
           </p>
         )}
+      </Section>
+
+      {/* 星空背景（job_43 移动端性能） */}
+      <Section
+        title="星空背景"
+        desc={`动态星空是 rick 的视觉身份，但全屏 canvas 动画是移动端发烫的主根因。默认「自动」：手机（<768px）静态一帧定格、桌面动画；也可强制全开/全关（存储于 localStorage "${STARFIELD_MODE_KEY}"，切换即时生效）。`}
+      >
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { value: "auto", label: "自动", hint: "手机静态·桌面动画" },
+            { value: "animated", label: "动画", hint: "全平台强制动画" },
+            { value: "static", label: "静态", hint: "全平台省电定格" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              aria-pressed={starfieldMode === opt.value}
+              onClick={() => setMode(opt.value)}
+              className={`flex flex-col gap-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                starfieldMode === opt.value
+                  ? "border-portal bg-portal-soft"
+                  : "border-line bg-space/40 hover:border-portal/40"
+              }`}
+            >
+              <span className="text-sm font-medium text-ink">{opt.label}</span>
+              <span className="text-[11px] leading-tight text-ink-3">{opt.hint}</span>
+            </button>
+          ))}
+        </div>
       </Section>
 
       {/* 服务器信息 */}

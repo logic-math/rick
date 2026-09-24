@@ -538,6 +538,69 @@ func TestSupervisor_IdleReap(t *testing.T) {
 	}
 }
 
+// TestSupervisor_IdleDisabledNegative asserts the job_43 semantics: a
+// NEGATIVE IdleTimeout (runtime.IdleDisabled) must leave a quiet, idle worker
+// alive — no reapLoop goroutine is started (Spawn only starts it for > 0).
+// The web composition root relies on this for persistent sessions.
+func TestSupervisor_IdleDisabledNegative(t *testing.T) {
+	pi := fakePiResponsive(t, "", 0)
+	isolateRuntimeEnv(t)
+	dead := make(chan string, 1)
+	sup := NewSupervisor(SupervisorConfig{
+		HeartbeatInterval: 20 * time.Millisecond, // keep state fresh
+		HeartbeatTimeout:  500 * time.Millisecond,
+		IdleTimeout:       IdleDisabled,           // 负值：禁用空闲回收
+		PiPath:            pi,
+		OnDead: func(sessionID, _ string) {
+			select {
+			case dead <- sessionID:
+			default:
+			}
+		},
+	})
+	defer sup.CloseAll()
+
+	w, err := sup.Spawn(spec("idle-keep", pi))
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	// 对照：同为安静的 worker，TestSupervisor_IdleReap 用 150ms 就被杀；
+	// 这里等待 600ms（足以让任何误启的 reapLoop 用 150ms 级别超时杀死它）
+	// 后 worker 必须仍存活。
+	select {
+	case s := <-dead:
+		t.Fatalf("idle worker must NOT be reaped with IdleDisabled, got death of %q (reason %q)", s, w.Reason())
+	case <-time.After(600 * time.Millisecond):
+	}
+	if w.IsDead() {
+		t.Fatalf("worker must stay alive with IdleDisabled (reason %q)", w.Reason())
+	}
+	if sup.Count() != 1 {
+		t.Errorf("supervisor must hold 1 live worker, got %d", sup.Count())
+	}
+}
+
+// TestSupervisor_Defaults64 asserts the job_43 default: MaxActive falls back
+// to DefaultMaxActive (64) for zero values, and explicit values are honored.
+func TestSupervisor_Defaults64(t *testing.T) {
+	if DefaultMaxActive != 64 {
+		t.Errorf("DefaultMaxActive = %d, want 64", DefaultMaxActive)
+	}
+	zero := NewSupervisor(SupervisorConfig{IdleTimeout: IdleDisabled})
+	if got := zero.cfg.MaxActive; got != 64 {
+		t.Errorf("zero MaxActive → %d, want 64 (DefaultMaxActive)", got)
+	}
+	explicit := NewSupervisor(SupervisorConfig{MaxActive: 4, IdleTimeout: IdleDisabled})
+	if got := explicit.cfg.MaxActive; got != 4 {
+		t.Errorf("explicit MaxActive 4 → %d, want 4", got)
+	}
+	// IdleDisabled（负值）必须原样穿透，不被 0-默认化覆盖为 30m。
+	if got := zero.cfg.IdleTimeout; got != IdleDisabled {
+		t.Errorf("IdleDisabled → %v, want %v (negative must pass through)", got, IdleDisabled)
+	}
+}
+
 func TestSupervisor_HeartbeatDeath(t *testing.T) {
 	// Responsive fake that exits after 2 commands: heartbeats keep arriving
 	// until the fake dies, then the pending heartbeat times out OR the wait

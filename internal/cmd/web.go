@@ -233,11 +233,7 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		return fmt.Errorf("load job names: %w", err)
 	}
 	hub := web.NewHub(0)
-	sup := runtime.NewSupervisor(runtime.SupervisorConfig{
-		PiPath:    cfg.PiPath,
-		ExtraArgs: cfg.PiExtraArgs,
-		// MaxActive/IdleTimeout/Heartbeat: supervisor defaults (8 / 30m / 30s).
-	})
+	sup := runtime.NewSupervisor(resolveSupervisorConfig(cfg))
 	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil, nil)
 	// 用户自定义 job 任务名（侧栏会话行 + Jobs 页展示）
 	sm.SetJobNames(jobNames)
@@ -283,6 +279,32 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	}
 
 	return server.Serve(ctx)
+}
+
+// resolveSupervisorConfig translates the user config into the web
+// supervisor's runtime config (job_43: pi 会话持久持有).
+//
+//   - IdleTimeout: IdleDisabled（负值）—— 不启动空闲回收：只要 server 存续、
+//     用户不主动断开，worker 就不被回收。心跳杀保留（真卡死进程仍会被
+//     HeartbeatTimeout 清理），与「空闲」无关。
+//   - MaxActive: config.json `web_max_active` 覆盖；0/负值 → 包默认
+//     runtime.DefaultMaxActive（64）。会话持久持有后并发 worker 累积，
+//     缺省给充裕上限。
+func resolveSupervisorConfig(cfg *config.Config) runtime.SupervisorConfig {
+	maxActive := cfg.WebMaxActive
+	if maxActive <= 0 {
+		maxActive = runtime.DefaultMaxActive
+	}
+	return runtime.SupervisorConfig{
+		PiPath:    cfg.PiPath,
+		ExtraArgs: cfg.PiExtraArgs,
+		// 负值 = 禁用空闲回收（详见 supervisor.SupervisorConfig.IdleTimeout
+		// 与 runtime.IdleDisabled 的语义注释）。
+		IdleTimeout: runtime.IdleDisabled,
+		MaxActive:   maxActive,
+		// HeartbeatInterval/HeartbeatTimeout/ProbeTimeout/TermGrace 保持包默认
+		// （30s / 2×30s / 500ms / 5s）——心跳杀语义不动（KR1c）。
+	}
 }
 
 // newWebCustomizeCmd deploys the frontend source scaffold for agent-driven

@@ -3,7 +3,8 @@
  *
  * v4 设计（用户反馈：不要选择器切换，全部工作区直接展示）：
  *   - 最上一级 = 每个已注册工作区一行（名称 + 活跃状态点 + 未完成会话数徽标）
- *   - 点击整行 → 展开/折叠（默认折叠，折叠状态本地 useState）
+ *   - 点击整行 → 直接导航到该工作区 Sessions（v5 导航反馈：点击即跳转，
+ *     展开/折叠改由箭头 chevron 承担，避免「点了没反应」）
  *   - 展开后子项：Sessions / Jobs / Dreams 三导航 + 该工作区会话列表（SessionBadge 三态）
  *   - 会话列表按 SSE session_state 实时同步（消费 sessions store）
  *
@@ -12,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import type { SessionInfo, WorkspaceEntry } from "../../types";
@@ -43,6 +44,7 @@ export default function WorkspaceListNode({
 }: WorkspaceListNodeProps) {
   const workspace = useWorkspacesStore((s) => s.list.find((w) => w.id === workspaceId));
   const load = useSessionsStore((s) => s.load);
+  const navigate = useNavigate();
   // 稳定引用兜底（React #185）
   const sessions = useSessionsStore((s) => s.byWorkspace.get(workspaceId) ?? EMPTY_SESSIONS);
   const [expanded, setExpanded] = useState(false);
@@ -75,26 +77,45 @@ export default function WorkspaceListNode({
       isActive ? "bg-portal-soft text-portal" : "text-ink-3 hover:bg-white/5 hover:text-ink-2"
     }`;
 
+  /** 行点击：直接导航到该工作区 Sessions（“点击即跳转”）+ 收起移动端 drawer */
+  const goWorkspace = (): void => {
+    navigate(`/ws/${workspaceId}/sessions`);
+    onNavigate?.();
+  };
+
   return (
     <div className="flex flex-col rounded-md transition-colors hover:bg-white/[0.02]">
-      {/* 工作区行：点击展开/折叠（div role=button——⋮ 按钮不能嵌在 button 内） */}
+      {/* 工作区行：点击导航（div role=button——⋮/▾ 按钮不能嵌在 button 内） */}
       <div
         role="button"
         tabIndex={0}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={goWorkspace}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setExpanded((v) => !v);
+            goWorkspace();
           }
         }}
         title={workspace.path}
         className="group flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs"
       >
-        <span className={`shrink-0 text-ink-3 transition-transform ${expanded ? "" : "-rotate-90"}`}>
-          ▾
-        </span>
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={expanded ? `折叠 ${workspace.name || workspace.path}` : `展开 ${workspace.name || workspace.path}`}
+          title={expanded ? "折叠工作区" : "展开工作区"}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          // 键盘隔离开销键盘事件冒泡到行——否则 Enter 在 ▾ 上会「展开 + 行导航」双触发
+          onKeyDown={(e) => e.stopPropagation()}
+          className="shrink-0 rounded px-0.5 py-0.5 leading-none text-ink-3 transition-colors hover:bg-white/10 hover:text-ink"
+        >
+          <span className={`inline-block transition-transform ${expanded ? "" : "-rotate-90"}`}>
+            ▾
+          </span>
+        </button>
         <span className="min-w-0 flex-1 truncate font-semibold uppercase tracking-wide text-ink-2 group-hover:text-ink">
           {workspace.name || workspace.path}
         </span>
@@ -116,7 +137,7 @@ export default function WorkspaceListNode({
             {incomplete.length}
           </span>
         )}
-        {/* ⋮ 操作（常驻可点；stopPropagation 不触发展开）——设置/注销入口 */}
+        {/* ⋮ 操作（常驻可点；stopPropagation 不触发行导航）——设置/注销入口 */}
         <button
           type="button"
           aria-label={`${workspace.name || workspace.path} 设置`}
@@ -125,6 +146,8 @@ export default function WorkspaceListNode({
             e.stopPropagation();
             setSettingsOpen(true);
           }}
+          // 同 ▾：键盘隔离开销键盘事件冒泡到行，避免 Enter 双触发
+          onKeyDown={(e) => e.stopPropagation()}
           className="shrink-0 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3 opacity-70 transition-colors hover:bg-white/10 hover:text-ink hover:opacity-100"
         >
           ⋮

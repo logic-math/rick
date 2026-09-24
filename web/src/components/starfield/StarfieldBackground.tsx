@@ -2,6 +2,13 @@ import { useEffect, useRef } from "react";
 import { drawPlanet, type PlanetSpec } from "./Planet";
 import { drawPortal, type PortalSpec } from "./PortalArt";
 import { drawFlyingSaucer, type FlyingSaucerSpec } from "./FlyingSaucer";
+import {
+  readStarfieldMode,
+  resolveShouldAnimate,
+  STARFIELD_MODE_CHANGE_EVENT,
+  STARFIELD_MODE_KEY,
+  type StarfieldMode,
+} from "./starfieldMode";
 
 /**
  * 动态星空背景（Rick and Morty 原画风，research-rm-art §六）。
@@ -17,6 +24,10 @@ import { drawFlyingSaucer, type FlyingSaucerSpec } from "./FlyingSaucer";
  *   · 副对角线巡航飞船：左下紫色星球 ↔ 右上暖金星球往返（~14s，舱内 Rick & Morty）
  * - 性能：动画帧率限 ~30fps；document 不可见时暂停（visibilitychange）
  * - prefers-reduced-motion: reduce → 静态星点 + 静态星球/传送门/飞船（固定相位）
+ * - 移动端（<768px）默认静态一帧定格（job_43 KR4a）：空闲恒定 GPU 成本归零，
+ *   「手机一直烫」主根因根治；模式可经 Settings 切换（auto/animated/static，
+ *   localStorage rick.starfield.mode），本组件监听模式/视口变化实时启停动画
+ * - 窄屏 dpr 封顶 1.5（宽屏保持 2）：光栅量减 ~44%，星点略软可接受（背景装饰）
  */
 interface Star {
   x: number; // 归一化 0..1
@@ -47,6 +58,12 @@ const FRAME_MS = 1000 / 30; // ~30fps
 const METEOR_MIN_MS = 6000;
 const METEOR_MAX_MS = 15000;
 const METEOR_TAIL_PX = 90;
+
+// 窄屏断点（与 routes/hooks.ts BREAKPOINTS.md 单一常量源对齐；此处仅作
+// dpr 封顶与静态判定的媒介查询字符串，避免组件层反向依赖 routes/）
+const NARROW_QUERY = "(max-width: 767px)";
+// 窄屏 dpr 封顶（job_43 KR4a）：光栅减 ~44%（(1.5/2)^2≈0.56），星点略软可接受
+const NARROW_DPR_CAP = 1.5;
 
 // ============ 背景编排（v3.1：对角线布局） ============
 // 用户设计（更正）：传送门在**左上 + 右下**（对角线）；两艘飞船在**左下 ↔ 右上**
@@ -111,9 +128,10 @@ export default function StarfieldBackground({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const reduced = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
+    // reduced-motion：动态监听（系统设置切换时同步静态化/恢复）
+    const reducedMql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const narrowMql = window.matchMedia(NARROW_QUERY);
+    let mode: StarfieldMode = readStarfieldMode();
     let stars: Star[] = [];
     let meteors: Meteor[] = [];
     let raf = 0;
@@ -306,11 +324,13 @@ export default function StarfieldBackground({
       // 唯一的尺寸读取点（布局读取仅在此发生）
       cssW = canvas.clientWidth;
       cssH = canvas.clientHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // dpr 封顶：窄屏 1.5（job_43 移动端降档，光栅减 ~44%），宽屏保持 2
+      dpr = Math.min(window.devicePixelRatio || 1, narrowMql.matches ? NARROW_DPR_CAP : 2);
       canvas.width = Math.max(1, Math.floor(cssW * dpr));
       canvas.height = Math.max(1, Math.floor(cssH * dpr));
       buildBg();
       seedStars();
+      // 静态一帧（动画模式下这帧会被随后 rAF 覆盖；静态模式下即最终画面）
       drawStars(0, false);
       drawNebulae(true);
       drawDecor(0, true);
@@ -358,23 +378,84 @@ export default function StarfieldBackground({
       if (visible) lastFrame = performance.now();
     };
 
+    // ---- 动画启停（job_43 KR4a：模式/视口/reduced-motion 任一变化时重评估） ----
+    let animating = false;
+
+    const startAnimation = () => {
+      if (animating) return;
+      animating = true;
+      nextMeteorAt = performance.now() + 2000 + Math.random() * 4000; // 首颗流星早一些
+      lastFrame = performance.now();
+      raf = requestAnimationFrame(frame);
+    };
+
+    const stopAnimation = () => {
+      if (!animating) return;
+      animating = false;
+      cancelAnimationFrame(raf);
+      meteors = []; // 静态画面不残留流星尾巴
+      // 定格为一帧静态画面（复用 reduced-motion 静态路径：固定相位星球/传送门/飞船）
+      drawStars(0, false);
+      drawNebulae(true);
+      drawDecor(0, true);
+    };
+
+    /** 依据（mode × 窄屏 × reduced-motion）重评估动画启停（事件驱动，无轮询） */
+    const reevaluate = () => {
+      if (resolveShouldAnimate(mode, narrowMql.matches, reducedMql.matches)) {
+        startAnimation();
+      } else {
+        stopAnimation();
+      }
+    };
+
+    const onModeChange = () => {
+      mode = readStarfieldMode();
+      reevaluate();
+    };
+    const onNarrowChange = () => {
+      // 窄↔宽切换：dpr 封顶档位变化，需重建 backing store 并重播静态帧
+      resize();
+      reevaluate();
+    };
+    const onReducedChange = () => reevaluate();
+    // 跨页签同步（另一页签的 Settings 写入）
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STARFIELD_MODE_KEY) onModeChange();
+    };
+
     resize();
     window.addEventListener("resize", resize);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(STARFIELD_MODE_CHANGE_EVENT, onModeChange);
+    window.addEventListener("storage", onStorage);
+    if (typeof narrowMql.addEventListener === "function") {
+      narrowMql.addEventListener("change", onNarrowChange);
+    }
+    // Safari <14 无 addEventListener 时退化：resize 事件兜底（跨过 768px 必触发
+    // window resize → onNarrowChange 未接上但 resize() 已重建 dpr；模式重评估
+    // 仍会由 resize 后的 rAF 帧驱动——静态降级的极端环境可接受）
+    if (typeof reducedMql.addEventListener === "function") {
+      reducedMql.addEventListener("change", onReducedChange);
+    }
     // 元素盒变化（视口/缩放/DPR 变化）→ 重取尺寸；避免在动画帧内读布局
     const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => resize()) : null;
     ro?.observe(canvas);
 
-    if (!reduced) {
-      nextMeteorAt =
-        performance.now() + 2000 + Math.random() * 4000; // 首颗流星早一些
-      raf = requestAnimationFrame(frame);
-    }
+    reevaluate();
 
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(STARFIELD_MODE_CHANGE_EVENT, onModeChange);
+      window.removeEventListener("storage", onStorage);
+      if (typeof narrowMql.removeEventListener === "function") {
+        narrowMql.removeEventListener("change", onNarrowChange);
+      }
+      if (typeof reducedMql.removeEventListener === "function") {
+        reducedMql.removeEventListener("change", onReducedChange);
+      }
       ro?.disconnect();
     };
   }, [density]);
