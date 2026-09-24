@@ -36,18 +36,19 @@
       "commit_hash": "f76d0e9896e19253cc9205dc9ecfd73f3b859e56"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-24T19:20:00+08:00",
       "dependencies": [
         "task3"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task4.md",
       "task_id": "task4",
       "task_name": "移动端性能（移动端静态星空+开关 + 去 blur + 流式节流 + dpr 1.5）",
-      "updated_at": "2026-09-24T19:20:00+08:00"
+      "updated_at": "2026-09-24T11:06:29.389Z",
+      "commit_hash": "8dd1307a7b2e15a9918219d21993fadbb824f12c"
     }
   ],
-  "updated_at": "2026-09-24T10:55:48.023Z",
+  "updated_at": "2026-09-24T11:06:29.389Z",
   "version": "1.0"
 }

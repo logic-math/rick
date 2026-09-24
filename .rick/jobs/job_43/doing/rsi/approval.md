@@ -1,7 +1,7 @@
-# RSI 证据：approval
+# S4 人类确认（job_43）
 
-通过标准：含 `APPROVED by=human` 与时间戳（人类确认是本 loop 的硬门槛）。
-示例：`APPROVED by=human at=2026-09-21T20:40:00+08:00`
+APPROVED by=human at=2026-09-24T20:45:00+08:00
 
-<!-- TODO: 填写本文件后再跑 rick tools rsi_check（残留本标记即视为未填写） -->
-
+- 批准内容：rick tools release --merge-source --detach（dev/self-evolve 8dd1307 → main）
+- 计划已呈（S3 演练记录 + 影响面说明：短暂重启 ≤12s、在跑会话挂起需人工恢复、本 RSI 承载会话也会挂起、回滚点 .last、冲突自动中止）
+- 版本：8dd1307-260924190728（Rick CLI 5.0.12）
