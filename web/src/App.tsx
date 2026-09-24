@@ -269,9 +269,9 @@ function AppShell() {
           />
         )}
 
-        {/* 侧栏 */}
+        {/* 侧栏：移动端不透明底（job_43：去 backdrop-blur 省电——canvas 動画时 blur 层每帧 GPU 重合成是发烫主根因之一）；md: 恢复桌面毛玻璃 */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2/80 backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           } ${sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-60"}`}
         >
@@ -303,7 +303,7 @@ function AppShell() {
 
         {/* 主区 */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-center gap-3 border-b border-line bg-space/70 px-4 py-3 backdrop-blur">
+          <header className="flex items-center gap-3 border-b border-line bg-space px-4 py-3 md:bg-space/70 md:backdrop-blur">
             <button
               type="button"
               className="rounded-md border border-line px-2 py-1 text-sm text-ink-2 hover:text-ink"

@@ -5,3 +5,4 @@
 
 <!-- TODO: 填写本文件后再跑 rick tools rsi_check（残留本标记即视为未填写） -->
 
+GATE gate1 pass=true 2026-09-24T18:56:02+08:00

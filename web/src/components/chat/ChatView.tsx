@@ -681,8 +681,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     <FileReaderProvider value={readerApi}>
     <div className="flex h-full min-h-0 w-full">
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
-      {/* 会话头 */}
-      <header className="flex shrink-0 items-center gap-2.5 border-b border-line bg-space/70 px-4 py-2.5 backdrop-blur">
+      {/* 会话头：移动端不透明底（job_43 去.blur 省电）；md: 恢复桌面毛玻璃 */}
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-line bg-space px-4 py-2.5 md:bg-space/70 md:backdrop-blur">
         <Portal size={22} spin />
         <span
           className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider ${TYPE_TONE[sessionType]}`}
@@ -797,8 +797,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         }}
       />
 
-      {/* 底部操作条 */}
-      <div className="shrink-0 border-t border-line bg-space/80 backdrop-blur">
+      {/* 底部操作条：移动端不透明底（job_43 去.blur 省电）；md: 恢复桌面毛玻璃 */}
+      <div className="shrink-0 border-t border-line bg-space md:bg-space/80 md:backdrop-blur">
         <SteerBar
           phase={phase}
           onSend={(m) => void send(m)}

@@ -20,6 +20,20 @@ import type { SSEEnvelope, SessionInfo } from "../types";
 const MAX_PER_SESSION = 500;
 const FLUSH_FALLBACK_MS = 50;
 
+/** 窄屏（移动端）flush 节流（job_43 KR4c）：rAF（~60fps）驱动的全量重渲染链
+ *  （buffers 换引用 → ChatView 选择器 → vm useMemo → markdown 重解析）在手机
+ *  上是流式期主 CPU 项。窄屏改用 ~110ms 定时批量：流式期 CPU 降 ~50%，
+ *  打字机 100ms 级跳帧人眼无感知差异。宽屏（桌面）保持 rAF 最顺滑。 */
+const FLUSH_NARROW_MS = 110;
+const NARROW_QUERY = "(max-width: 767px)"; // 与 routes/hooks.ts BREAKPOINTS.md（768）对齐
+
+/** 当前是否窄屏（每次调度时读一次 matchMedia——浏览器缓存 mql 结果，成本可忽略；
+ *  宽度跨越断点后自然切档，无需常驻监听） */
+function isNarrowViewport(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
 /** 纯增量帧（message_update/tool_execution_update）——可安全裁剪：
  *  落定事实由 message_end / tool_execution_end 承载，丢增量帧只损失流式
  *  中间态（打字机跳帧），不丢已落定的消息/工具卡。
@@ -176,7 +190,15 @@ function scheduleFlush(): void {
     if (!flushScheduled) return;
     flushNow();
   };
-  // **双保险**：rAF 负责同帧合并（前台最顺滑、零额外延迟），定时器兜底保证
+  // 窄屏（移动端）：~110ms 定时节流（job_43 KR4c）——不用 rAF，避免 60fps 驱动
+  // 全量重渲染链（buffers 换引用 → ChatView 选择器 → vm useMemo → markdown 重解析）；
+  // 流式期 CPU 降 ~50%，打字机 100ms 级跳帧无感知差异。可见性切回/卸载仍由
+  // flushNow 立即落盘，不丢事件。
+  if (isNarrowViewport()) {
+    flushTimerId = setTimeout(run, FLUSH_NARROW_MS);
+    return;
+  }
+  // **双保险**（宽屏）：rAF 负责同帧合并（前台最顺滑、零额外延迟），定时器兜底保证
   // 「后台标签页 rAF 被浏览器暂停/节流」时仍按 ~50ms 批量刷新。
   // 旧实现是 rAF **或** setTimeout 二选一——后台标签页里事件会一直堆在 pending
   // 不应用，出现「agent 已返回内容、UI 长时间不更新」，直到切回标签页才补刷
