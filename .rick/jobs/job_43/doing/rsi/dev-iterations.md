@@ -32,3 +32,12 @@
 - S5 提升：version=8dd1307-260925020038（第一次尝试 build 阶段 permission denied——bin/releases 属主 sankuai；RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases 重试成功，见 release.md）
 - S6：本承载会话（e7dbebd0，easy job_43）随重启挂起 → human 02:08:52 UI 点「恢复继续」→ 新 pi 进程 192787 接续（recovery-report: recovered=1, failed=0）
 - S7：rsi_check 复跑（本行以下见 gates.md 与 rsi_check 输出）
+
+## 2026-09-25 12:30 · 增量迭代 2（task5+task6+task7）
+
+- 反馈驱动：输入框三按钮丑→单发送+Enter 换行+自适应扩大；移动端发烫缓解但仍有→二轮优化
+- task5：ChatInput 极简（删 ＋/↵/模式切换，Enter 固定换行，scrollHeight 自适应 max 240px，VERSION 5.0.13）
+- task6：空态飞船全局静态 + theme.css 767px 动画降级块 + Saucer SMIL 窄屏条件渲染 + 第 5 处 blur（展开条/断线横幅/阅读器）+ ToolElapsed 窄屏 5s
+- task7：react-virtuoso 渲染层虚拟化（双通道贴底/前置防跳/stable key/组 key 索引缺陷顺带修复）；数据层零改动
+- gate3（12 断言）+ gate4（7 断言）首跑全绿 → commits 270ee66c / eeda69d1
+- S1 收尾：dev restart 验证 build_id 更新（见下行）
