@@ -111,7 +111,7 @@ function ConnectionBanner() {
       aria-live="polite"
       className="pointer-events-none fixed bottom-4 left-1/2 z-[100] w-[min(94vw,560px)] -translate-x-1/2 px-3"
     >
-      <div className="flex flex-col gap-1 rounded-lg border border-line bg-space-2/95 px-3 py-2 text-[11px] text-ink-2 shadow-lg backdrop-blur">
+      <div className="flex flex-col gap-1 rounded-lg border border-line bg-space-2 px-3 py-2 text-[11px] text-ink-2 shadow-lg md:bg-space-2/95 md:backdrop-blur">
         <div className="flex items-center gap-2">
           <span
             className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${meta.pulse ? "animate-rm-pulse" : ""}`}
@@ -269,7 +269,7 @@ function AppShell() {
           />
         )}
 
-        {/* 侧栏：移动端不透明底（job_43：去 backdrop-blur 省电——canvas 動画时 blur 层每帧 GPU 重合成是发烫主根因之一）；md: 恢复桌面毛玻璃 */}
+        {/* 侧栏：移动端不透明底（job_43：去毛玻璃层省电——canvas 動画时 blur 层每帧 GPU 重合成是发烫主根因之一）；md: 恢复桌面毛玻璃 */}
         <aside
           className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"

@@ -47,8 +47,40 @@
       "task_name": "移动端性能（移动端静态星空+开关 + 去 blur + 流式节流 + dpr 1.5）",
       "updated_at": "2026-09-24T11:06:29.389Z",
       "commit_hash": "8dd1307a7b2e15a9918219d21993fadbb824f12c"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-25T02:30:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task5.md",
+      "task_id": "task5",
+      "task_name": "输入框极简（单发送按钮 + Enter 固定换行 + scrollHeight 自适应扩大 + VERSION 5.0.13）",
+      "updated_at": "2026-09-25T02:30:00+08:00"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-25T02:30:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task6.md",
+      "task_id": "task6",
+      "task_name": "移动端性能二轮（空态飞船静态 + 运行期动画/脉冲/秒表移动端降级 + 第5处 blur 补漏）",
+      "updated_at": "2026-09-25T02:30:00+08:00"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-25T02:30:00+08:00",
+      "dependencies": [
+        "task6"
+      ],
+      "status": "pending",
+      "task_file": "plan/task7.md",
+      "task_id": "task7",
+      "task_name": "长会话虚拟化（virtuoso：MessageList 渲染层虚拟化，流式贴底/展开态兼容）",
+      "updated_at": "2026-09-25T02:30:00+08:00"
     }
   ],
-  "updated_at": "2026-09-24T11:06:29.389Z",
+  "updated_at": "2026-09-25T02:30:00+08:00",
   "version": "1.0"
 }

@@ -51,7 +51,7 @@ function ToolGroup({
         aria-expanded={open}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-        {running && <Saucer size={22} flying />}
+        {running && <Saucer size={22} flying={running} />}
         <span className="text-ink-2">{tools.length} 次工具调用</span>
         {running && <span className="text-[11px] text-portal">运行中…</span>}
         {running &&
@@ -243,7 +243,11 @@ export default function MessageList({
   if (items.length === 0 && !streaming) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
-        <Saucer size={64} flying />
+        {/* 空态静态飞船（job_43 二轮 KR7a，全局不限移动端）：空态常驻飞行动画
+            （SMIL 航灯 + 悬停/光束 CSS）是新开会话挂机发烫主根因；空态本就静态，
+            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar/MonitorView）不动——
+            那是功能反馈，仅移动端降级（theme.css 窄屏块 + Saucer 内部 SMIL 条件渲染）。 */}
+        <Saucer size={64} />
         <p className="text-sm">会话已就绪——发送第一条消息开始</p>
       </div>
     );
@@ -281,7 +285,7 @@ export default function MessageList({
 
       {/* 展开控制（时间线顶部悬浮） */}
       <div className="pointer-events-none absolute right-3 top-2 flex gap-1">
-        <div className="pointer-events-auto flex overflow-hidden rounded-md border border-line bg-surface-raised/90 text-[10px] backdrop-blur">
+        <div className="pointer-events-auto flex overflow-hidden rounded-md border border-line bg-surface-raised text-[10px] md:bg-surface-raised/90 md:backdrop-blur">
           {(
             [
               ["default", "默认"],

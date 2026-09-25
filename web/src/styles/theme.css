@@ -179,3 +179,22 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---- 动效降级：窄屏（移动端）省电（job_43 二轮 KR7b/KR7d）----
+ * 移动端「会话活跃期」发烫残留源：装饰循环动画（飞船悬停/牵引光束/呼吸脉冲）
+ * 常驻主线程样式重算（SVG transform 动画不可 GPU 合成）。窄屏（<768px）统一关闭：
+ * - 内联 style 动画（ChatView/StatusDot/StreamText 状态点呼吸、Saucer 悬停/光束）
+ * - Tailwind 工具类 animate-rm-pulse（App 连接点/SessionBadge/侧栏活跃徽章等）
+ * 功能反馈动画保留：rm-portal-spin（运行中 spinner）、rm-chat-in（0.15s 单次入场）。
+ * 桌面（≥768px）零回归——全部动画保留。SMIL <animate> 不受 CSS 管，
+ * 由 Saucer.tsx 组件内窄屏条件渲染处理（航灯闪烁）。 */
+@media (max-width: 767px) {
+  [style*="rm-saucer-hover"],
+  [style*="rm-beam"],
+  [style*="rm-pulse"] {
+    animation: none !important;
+  }
+  .animate-rm-pulse {
+    animation: none !important;
+  }
+}
