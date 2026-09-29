@@ -110,30 +110,32 @@
       "commit_hash": "fb01dde54d131d6496fa3ff5a41088144dfdd36f"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-29T17:10:00+08:00",
       "dependencies": [
         "task9"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task10.md",
       "task_id": "task10",
       "task_name": "后端文件读取白名单扩展（全 workspaces + ~/.rick + rick-dev）",
-      "updated_at": "2026-09-29T17:10:00+08:00"
+      "updated_at": "2026-09-29T13:36:22.767Z",
+      "commit_hash": "b946d992dbff656dce6c5bb6ba2d8fe7c3eb5faf"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-29T17:10:00+08:00",
       "dependencies": [
         "task9"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task11.md",
       "task_id": "task11",
       "task_name": "前端全局工具箱「打开文件」入口（顶栏 + 路径输入 Dialog + 阅读器全局挂载）",
-      "updated_at": "2026-09-29T17:10:00+08:00"
+      "updated_at": "2026-09-29T13:36:22.767Z",
+      "commit_hash": "b946d992dbff656dce6c5bb6ba2d8fe7c3eb5faf"
     }
   ],
-  "updated_at": "2026-09-29T17:10:00+08:00",
+  "updated_at": "2026-09-29T13:36:22.767Z",
   "version": "1.0"
 }
