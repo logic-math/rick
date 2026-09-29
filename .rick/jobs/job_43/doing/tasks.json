@@ -136,18 +136,19 @@
       "commit_hash": "b946d992dbff656dce6c5bb6ba2d8fe7c3eb5faf"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-09-29T22:00:00+08:00",
       "dependencies": [
         "task11"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task12.md",
       "task_id": "task12",
       "task_name": "工具箱图标语义化（表示路径的图标）",
-      "updated_at": "2026-09-29T22:00:00+08:00"
+      "updated_at": "2026-09-29T13:51:04.675Z",
+      "commit_hash": "95942726691a59ff3e833cfa445783a0f233d908"
     }
   ],
-  "updated_at": "2026-09-29T22:00:00+08:00",
+  "updated_at": "2026-09-29T13:51:04.675Z",
   "version": "1.0"
 }

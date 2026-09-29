@@ -2,7 +2,7 @@
 
 ## 迭代 5 · S3 演练（2026-09-29 21:37，待 S4 人类批准）
 
-RELEASE_GATE pass=true tests=pass frontend=pass took=38s；version=b946d99-260929213759；prod_untouched=true。
+RELEASE_GATE pass=true tests=pass frontend=pass took=38s；version=9594272-260929220624；prod_untouched=true。
 dev 实例 build_id=b946d99-260929213632：后端白名单实测（注册内 workspace 绝对路径 200 / 未注册 invalid_path）；生产实例预期注入 8 workspaces + ~/.rick + rick-dev 根（start-web.sh cwd 推导已核算）。工具箱入口可在 dev UI 8414 验收。
 
 ## 迭代 4 · S3 演练（2026-09-29 15:02，待 S4 人类批准）
