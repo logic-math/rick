@@ -89,7 +89,7 @@ export default function FileReaderPanel({
 
   return (
     <aside
-      className="fixed inset-0 z-40 flex min-h-0 flex-col border-line bg-space/95 backdrop-blur md:static md:z-auto md:w-[46%] md:max-w-[46rem] md:shrink-0 md:border-l md:bg-space/60 md:backdrop-blur-none"
+      className="fixed inset-0 z-40 flex min-h-0 flex-col border-line bg-space md:static md:z-auto md:w-[46%] md:max-w-[46rem] md:shrink-0 md:border-l md:bg-space/60"
       aria-label="文件阅读器"
     >
       {/* 头部 */}

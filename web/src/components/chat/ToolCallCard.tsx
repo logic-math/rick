@@ -131,12 +131,27 @@ export function noteToolRunStart(toolId: string): void {
   if (!runStartedAt.has(toolId)) runStartedAt.set(toolId, Date.now());
 }
 
+/** 窄屏耗时刷新降频间隔（job_43 二轮 KR7e）：移动端每个运行中工具卡每秒 setState
+ *  重渲是流式期叠加成本；5s 粒度足够人眼感知「已运行多久」（卡死警示 ≥2min 的
+ *  判定不受影响，只是颜色切换最多延迟 5s）。桌面保持 1s。 */
+const TICK_MS_NARROW = 5000;
+const NARROW_QUERY = "(max-width: 767px)"; // 与 routes/hooks.ts BREAKPOINTS.md（768）对齐
+
+/** 当前是否窄屏（每次调度时读一次 matchMedia——浏览器缓存 mql 结果，成本可忽略；
+ *  与 stores/events.ts 同款模式） */
+function isNarrowViewport(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
 function useTick(active: boolean, ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
     setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), ms);
+    // 窄屏降频（job_43 二轮 KR7e）：5s 粒度；桌面保持 1s。
+    const interval = isNarrowViewport() ? TICK_MS_NARROW : ms;
+    const t = setInterval(() => setNow(Date.now()), interval);
     return () => clearInterval(t);
   }, [active, ms]);
   return now;

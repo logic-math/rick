@@ -1,15 +1,27 @@
 /**
- * MessageList：消息滚动容器。
+ * MessageList：消息滚动容器（渲染层虚拟化，job_43 task7）。
  *
- * - 新消息自动贴底；用户上滚（离开底部 > 60px）取消贴底 + 「回到底部」悬浮按钮
+ * - react-virtuoso：只渲染可视区条目（500 条历史从全量 DOM → 可视区 ~10 条，
+ *   移动端滚动/内存主收益；桌面同享）
+ * - 新消息自动贴底（followOutput + pinned 时的 scrollToIndex 补充——覆盖流式
+ *   原地增高，Virtuoso 的 followOutput 只管追加）；用户上滚（离开底部）取消贴底
+ *   +「回到底部」悬浮按钮
+ * - 历史前置插入防跳：firstItemIndex 随前置条数递减（Virtuoso 约定）
+ * - 顶部触达分页（startReached）+ 顶部「加载更早历史」按钮（components.Header）
  * - ≥2 个连续工具调用自动折叠为一组「N 次工具调用」（ToolGroup）
- * - 折叠展开控制（ExpandCtrl 上下文）：
- *   · 默认策略：只展开「最近活跃片段」——最后一个工具组 + 流式 thinking
- *   · 「全部展开 / 全部折叠 / 默认」三态切换（时间线顶部小按钮）
+ * - 折叠展开控制（ExpandCtx 上下文）：状态提升在本组件（overrides Map 在条目
+ *   之上）→ 虚拟化卸载/重挂不丢展开态
  * - 长文本 16KB 截断 + 展开全部（user/assistant 气泡内）
+ *
+ * 迁移说明（旧机制 → 新机制，见 task7 KR8b-e）：
+ * - BOTTOM_SENTINEL/ResizeObserver 高度缓存/onScroll 方向判定 → Virtuoso
+ *   atBottomStateChange（贴底态）+ startReached（触顶分页）
+ * - rAF jumpToBottom → followOutput="auto"（追加）+ scrollToIndex(LAST)（原地增高）
+ * - scroll anchoring（前置插入防跳）→ firstItemIndex 递减约定
  */
 
 import {
+  forwardRef,
   useCallback,
   useEffect,
   useMemo,
@@ -17,6 +29,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import type { ChatItem } from "./viewModel";
 import { AssistantBubble, NoticeCard, UserBubble } from "./MessageBubble";
 import ThinkingBlock from "./ThinkingBlock";
@@ -51,7 +64,7 @@ function ToolGroup({
         aria-expanded={open}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-        {running && <Saucer size={22} flying />}
+        {running && <Saucer size={22} flying={running} />}
         <span className="text-ink-2">{tools.length} 次工具调用</span>
         {running && <span className="text-[11px] text-portal">运行中…</span>}
         {running &&
@@ -77,10 +90,6 @@ function ToolGroup({
   );
 }
 
-/** 贴底哨兵：远大于任何真实内容高度——赋值即被浏览器 clamp 到最大滚动位置，
- *  无需读取 scrollHeight（避免长会话下的强制同步重排，见 debug/bug4）。 */
-const BOTTOM_SENTINEL = 10_000_000;
-
 interface MessageListProps {
   items: ChatItem[];
   streaming: boolean;
@@ -92,24 +101,91 @@ interface MessageListProps {
   loadingEarlier?: boolean;
 }
 
+/**
+ * 虚拟化扁平条目：单条 or 工具组（组 = 一行虚拟条目，动态高度由 Virtuoso 原生支持）。
+ * id 用于 computeItemKey（stable 身份锚——沿用 envelope id 锚定方案，展开态 overrides
+ * 跨滚动保持的前提）。
+ */
+type FlatEntry =
+  | { kind: "single"; id: string; item: ChatItem }
+  | { kind: "group"; id: string; tools: Extract<ChatItem, { kind: "tool" }>[]; defaultOpen: boolean };
+
+/**
+ * 连续工具条目折叠为组（≥2）+ 默认展开策略：
+ * 「最近活跃片段」= 最后一个工具组（或流式 thinking）默认展开，其余折叠。
+ */
+function buildFlat(items: ChatItem[]): FlatEntry[] {
+  // 分段：找出最后一个工具组的索引
+  let lastToolGroupIdx = -1;
+  let runStart = -1;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].kind === "tool") {
+      if (runStart === -1) runStart = i;
+      lastToolGroupIdx = runStart; // 组的起始索引
+    } else {
+      runStart = -1;
+    }
+  }
+
+  const out: FlatEntry[] = [];
+  let toolRun: Extract<ChatItem, { kind: "tool" }>[] = [];
+  let currentRunStart = -1;
+
+  const flushTools = () => {
+    if (toolRun.length === 0) return;
+    if (toolRun.length === 1) {
+      out.push({ kind: "single", id: toolRun[0].id, item: toolRun[0] });
+    } else {
+      out.push({
+        kind: "group",
+        id: `grp-${toolRun[0].id}`,
+        tools: toolRun,
+        defaultOpen: currentRunStart === lastToolGroupIdx,
+      });
+    }
+    toolRun = [];
+    currentRunStart = -1;
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.kind === "tool") {
+      if (toolRun.length === 0) currentRunStart = i;
+      toolRun.push(item);
+    } else {
+      flushTools();
+      // thinking 默认折叠（含流式中的最后一块）：历史+实时都不自动展开。
+      // 理由（job_36 用户实测「思考持续追加时整个上下文闪烁」）：展开的流式
+      // thinking 块每帧增长会推动下方消息（max-h 内未溢出前），在长历史会话
+      // 中部造成视觉跳动；折叠后仅标题行存在，流式更新不产生布局位移。
+      // 用户想观看思考时可手动展开单块（override 优先，流式内容照常增长）。
+      out.push({ kind: "single", id: item.id, item });
+    }
+  }
+  flushTools();
+
+  return out;
+}
+
 /** 单条目渲染（工具组在上方折叠处理） */
-function renderItem(item: ChatItem, defaultOpen: boolean): ReactNode {
+function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): ReactNode {
+  const cls = animate ? "chat-item-enter" : undefined;
   switch (item.kind) {
     case "user":
       return (
-        <div key={item.id} className="chat-item-enter">
+        <div key={item.id} className={cls}>
           <UserBubble item={item} />
         </div>
       );
     case "assistant-text":
       return (
-        <div key={item.id} className="chat-item-enter">
+        <div key={item.id} className={cls}>
           <AssistantBubble item={item} />
         </div>
       );
     case "thinking":
       return (
-        <div key={item.id} className="chat-item-enter">
+        <div key={item.id} className={cls}>
           <ThinkingBlock
             id={item.id}
             text={item.text}
@@ -120,18 +196,22 @@ function renderItem(item: ChatItem, defaultOpen: boolean): ReactNode {
       );
     case "tool":
       return (
-        <div key={item.id} className="chat-item-enter">
+        <div key={item.id} className={cls}>
           <ToolCallCard item={item} />
         </div>
       );
     case "notice":
       return (
-        <div key={item.id} className="chat-item-enter">
+        <div key={item.id} className={cls}>
           <NoticeCard item={item} />
         </div>
       );
   }
 }
+
+/** firstItemIndex 初始基准：预留前置空间（历史分页每次前置 N 条 → 递减 N；
+ *  Virtuoso 只要求 ≥0 且随前置单调递减，绝对值无意义） */
+const FIRST_INDEX_BASE = 100_000;
 
 export default function MessageList({
   items,
@@ -140,63 +220,10 @@ export default function MessageList({
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  /** 内容/视口高度缓存（ResizeObserver 维护——回调内布局已干净，读 offsetHeight/
-   *  clientHeight 不触发 forced synchronous layout）。滚动路径不得直接读
-   *  `scrollContainer.scrollHeight`：长会话（数万 DOM 节点）下每帧多次读取会强制
-   *  同步重排（实测流式 600 帧累计 12s，帧间隔 40ms）——详见 debug/bug4。 */
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const contentHRef = useRef(0);
-  const viewHRef = useRef(0);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const [pinned, setPinned] = useState(true);
-  // 尺寸缓存：ResizeObserver 在浏览器完成布局后回调 → 其中的读取不产生强制重排。
-  // 依赖 hasContent：列表在空态时不渲染滚动容器/内容节点（首帧 refs 为 null），
-  // 必须在列表真正出现后再挂观察器，否则高度缓存恒为 0 → 贴底失效。
-  const hasContent = items.length > 0;
-  useEffect(() => {
-    if (!hasContent) return;
-    const el = scrollRef.current;
-    const content = contentRef.current;
-    if (!el || !content) return;
-    const measure = () => {
-      contentHRef.current = content.offsetHeight;
-      viewHRef.current = el.clientHeight;
-    };
-    measure();
-    if (typeof ResizeObserver === "function") {
-      const ro = new ResizeObserver(measure);
-      ro.observe(content);
-      ro.observe(el);
-      return () => ro.disconnect();
-    }
-  }, [hasContent]);
 
-  // pinned 的 ref 镜像（rAF 回调里读最新值，避开闭包过期陷阱）
-  const pinnedRef = useRef(true);
-  useEffect(() => {
-    pinnedRef.current = pinned;
-  }, [pinned]);
-  // 贴底：items 变化（补拉前置合并/流式 delta flush）→ pinned 则 rAF 滚到底。
-  // 首帧（空→有内容）也触发一次 → 默认滚到底。onScroll 的方向守卫已避免
-  // scroll anchoring（前置插入）误置 pinned=false（那是旧版「打开停在中间」根因）。
-  const followRaf = useRef(0);
-  const jumpToBottom = useCallback(() => {
-    cancelAnimationFrame(followRaf.current);
-    followRaf.current = requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      // 写一个大于任何真实内容高度的哨兵值——浏览器 clamp 到底。不读 scrollHeight
-      // （每次流式 flush 读它会触发一次全文档同步重排），也不依赖可能滞后一帧的
-      // 高度缓存（缓存只用于「是否真的有可滚动内容」的廉价判断）。
-      if (el && pinnedRef.current && contentHRef.current > viewHRef.current) {
-        el.scrollTop = BOTTOM_SENTINEL;
-      }
-    });
-  }, []);
-  useEffect(() => {
-    if (items.length > 0) jumpToBottom();
-  }, [items, jumpToBottom]);
-  // 卸载时清理 pending rAF（兜底，防泄漏）
-  useEffect(() => () => cancelAnimationFrame(followRaf.current), []);
+  // ---- 展开控制（状态提升：overrides 在条目之上 → 虚拟化卸载不丢展开态，KR8e）----
   const [mode, setMode] = useState<ExpandMode>("default");
   const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(new Map());
   const setOverride = useCallback((key: string, open: boolean) => {
@@ -206,44 +233,134 @@ export default function MessageList({
       return next;
     });
   }, []);
-
   const ctx = useMemo<ExpandCtrl>(
     () => ({ mode, overrides, setOverride }),
     [mode, overrides, setOverride],
   );
 
-  // 用户主动滚离底部：以 scrollTop 方向判断——scroll anchoring（历史分页
-  // 前置插入）只让 scrollTop 增加（保持视口内容位置）；scrollTop 减少只来自
-  // 用户向上滚动浏览更早内容 → 此时才解除贴底。
-  const lastScrollTop = useRef(0);
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // 距离用缓存的 content/view 高度计算（不读 scrollHeight → 不强制重排）
-    const distance = contentHRef.current - viewHRef.current - el.scrollTop;
-    if (distance < 60) {
-      setPinned(true);
-    } else if (el.scrollTop < lastScrollTop.current) {
-      setPinned(false); // 用户向上滚（scrollTop 减小）→ 离开底部
-    }
-    lastScrollTop.current = el.scrollTop;
-    // 顶部触达（分页加载更早历史）——近顶阈值；onReachTop 由调用方防抖/幂等
-    if (el.scrollTop <= 32) {
-      onReachTop?.();
-    }
-  };
+  // ---- 虚拟化数据（分组扁平化；items 引用变化即重算——流式 110ms 粒度）----
+  const flat = useMemo(() => buildFlat(items), [items]);
 
-  const scrollToBottom = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  // ---- 前置插入检测 + firstItemIndex（KR8d：历史前置插入防跳）----
+  // 判定：首条 id 变化 + 长度增长 = 前置（追加时首条 id 不变；原地更新长度不变）。
+  // 重建（SSE resync 全量重拉）长度可能变化——仅 N>0 时递减，位移漂移无害。
+  const [firstItemIndex, setFirstItemIndex] = useState(FIRST_INDEX_BASE);
+  /** 上一帧快照（firstId + 长度）——渲染期只读，effect 期写入 */
+  const prevFrameRef = useRef<{ firstId: string | null; len: number } | null>(null);
+  /** 本帧是否为前置插入（渲染期判定，供动画 memo + firstItemIndex effect 复用） */
+  const isPrependFrame = (() => {
+    const prev = prevFrameRef.current;
+    if (!prev || flat.length === 0 || !flat[0].id) return false;
+    return prev.firstId !== null && flat[0].id !== prev.firstId && flat.length > prev.len;
+  })();
+  useEffect(() => {
+    if (isPrependFrame) {
+      const n = flat.length - (prevFrameRef.current?.len ?? flat.length);
+      if (n > 0) setFirstItemIndex((v) => v - n);
+    }
+    prevFrameRef.current = {
+      firstId: flat.length > 0 ? flat[0].id : null,
+      len: flat.length,
+    };
+  }, [flat, isPrependFrame]);
+
+  // ---- 入场动画：仅「新追加的尾部条目」播（KR8c 附带）----
+  // 虚拟化下滚动会卸载/重挂条目——若无条件播 chat-item-enter，滚动过程中条目
+  // 会反复闪入。以「已见 id 集」为界：仅新增 id（尾部追加的新消息）播动画；
+  // 前置历史条目（首条 id 变化的帧）不播；滚动重挂（id 已见）不播。
+  const seenIdsRef = useRef<Set<string> | null>(null);
+  const animateIds = useMemo(() => {
+    if (seenIdsRef.current === null) {
+      // 首帧：全部视为已见（历史加载，不播动画）
+      seenIdsRef.current = new Set(flat.map((e) => e.id));
+      return new Set<string>();
+    }
+    const seen = seenIdsRef.current;
+    const added = new Set<string>();
+    for (const e of flat) {
+      if (!seen.has(e.id)) {
+        seen.add(e.id);
+        added.add(e.id);
+      }
+    }
+    // 前置帧：新增 id 是历史条目，不播动画
+    if (isPrependFrame) return new Set<string>();
+    return added;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flat]);
+
+  // ---- 贴底（KR8b）----
+  // followOutput="auto"：追加且用户在底部 → 立即贴底（Virtuoso 内部时序）。
+  // 补充 effect：流式「原地增高」（最后一条内容增长，长度不变）followOutput
+  // 不覆盖 → pinned 时 scrollToIndex(LAST)。两个通道目标一致（底部、瞬时），
+  // 追加帧冗余执行一次幂等滚动，无平滑动画打架。
+  useEffect(() => {
+    if (!pinned || flat.length === 0) return;
+    virtuosoRef.current?.scrollToIndex({ index: flat.length - 1, align: "end" });
+  }, [flat, pinned]);
+  const scrollToBottom = useCallback(() => {
     setPinned(true);
-  };
+    virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "smooth" });
+  }, []);
+
+  // ---- 自定义滚动容器：保留 rm-chat-scroll（scrollbar-gutter）+ a11y 语义 ----
+  // ⚠️ Scroller 必须引用稳定（useMemo []）——Virtuoso 的 components 类型变化会
+  // 卸载重挂滚动容器 → 滚动位置丢失。onReachTop 经 ref 间接（ChatView 传的是内联
+  // lambda，流式期每次渲染都变——若直接进 Header 依赖会让 Header 频繁重挂）。
+  const onReachTopRef = useRef(onReachTop);
+  onReachTopRef.current = onReachTop;
+  const Scroller = useMemo(
+    () =>
+      // eslint-disable-next-line react/display-name
+      forwardRef<HTMLDivElement, { style?: React.CSSProperties; children?: ReactNode }>(
+        function VirtuosoScroller({ style, children }, ref) {
+          return (
+            <div
+              ref={ref}
+              className="rm-chat-scroll h-full overflow-y-auto px-4 py-3"
+              style={style}
+              role="log"
+              aria-live="polite"
+            >
+              {children}
+            </div>
+          );
+        },
+      ),
+    [],
+  );
+
+  // ---- Header：顶部「加载更早历史」按钮（随内容滚动，KR8d 显式兑底）----
+  const Header = useMemo(() => {
+    // eslint-disable-next-line react/display-name
+    return function VirtuosoHeader() {
+      if (!hasMore) return null;
+      return (
+        <div className="mb-2 flex justify-center" style={{ minHeight: 28 }}>
+          <button
+            type="button"
+            onClick={() => onReachTopRef.current?.()}
+            disabled={loadingEarlier}
+            className="rounded-full border border-line bg-surface-raised/70 px-3 py-1 text-[11px] text-ink-3 transition-colors hover:border-portal/50 hover:text-portal disabled:opacity-50"
+          >
+            {loadingEarlier ? "加载中…" : "↑ 加载更早历史"}
+          </button>
+        </div>
+      );
+    };
+  }, [hasMore, loadingEarlier]);
+
+  /** components 集合（引用稳定：Scroller 固定 + Header 仅在分页态变化时变） */
+  const components = useMemo(() => ({ Scroller, Header }), [Scroller, Header]);
 
   if (items.length === 0 && !streaming) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
-        <Saucer size={64} flying />
+        {/* 空态静态飞船（job_43 二轮 KR7a，全局不限移动端）：空态常驻飞行动画
+            （SMIL 航灯 + 悬停/光束 CSS）是新开会话挂机发烫主根因；空态本就静态，
+            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar/MonitorView）不动——
+            那是功能反馈，仅移动端降级（theme.css 窄屏块 + Saucer 内部 SMIL 条件渲染）。 */}
+        <Saucer size={64} />
         <p className="text-sm">会话已就绪——发送第一条消息开始</p>
       </div>
     );
@@ -251,37 +368,36 @@ export default function MessageList({
 
   return (
     <div className="relative h-full">
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="rm-chat-scroll h-full overflow-y-auto px-4 py-3"
-        role="log"
-        aria-live="polite"
-      >
-        <ExpandCtx.Provider value={ctx}>
-          <div ref={contentRef}>
-          {/* 顶部「加载更早历史」按钮（hasMore 时显示——显式兑底；
-              滚动到顶自动加载保留，按钮让超长会话可一步一页继续往上） */}
-          {hasMore && (
-            <div className="mb-2 flex justify-center">
-              <button
-                type="button"
-                onClick={() => onReachTop?.()}
-                disabled={loadingEarlier}
-                className="rounded-full border border-line bg-surface-raised/70 px-3 py-1 text-[11px] text-ink-3 transition-colors hover:border-portal/50 hover:text-portal disabled:opacity-50"
-              >
-                {loadingEarlier ? "加载中…" : "↑ 加载更早历史"}
-              </button>
-            </div>
-          )}
-          {renderGrouped(items)}
-          </div>
-        </ExpandCtx.Provider>
-      </div>
+      <ExpandCtx.Provider value={ctx}>
+        <Virtuoso
+          ref={virtuosoRef}
+          style={{ height: "100%" }}
+          data={flat}
+          computeItemKey={(_, entry) => entry.id}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={Math.max(0, flat.length - 1)}
+          followOutput="auto"
+          atBottomStateChange={setPinned}
+          startReached={() => onReachTopRef.current?.()}
+          components={components}
+          itemContent={(_, entry) =>
+            entry.kind === "group" ? (
+              <ToolGroup
+                key={entry.id}
+                tools={entry.tools}
+                groupKey={entry.id}
+                defaultOpen={entry.defaultOpen}
+              />
+            ) : (
+              renderItem(entry.item, false, animateIds.has(entry.id))
+            )
+          }
+        />
+      </ExpandCtx.Provider>
 
       {/* 展开控制（时间线顶部悬浮） */}
       <div className="pointer-events-none absolute right-3 top-2 flex gap-1">
-        <div className="pointer-events-auto flex overflow-hidden rounded-md border border-line bg-surface-raised/90 text-[10px] backdrop-blur">
+        <div className="pointer-events-auto flex overflow-hidden rounded-md border border-line bg-surface-raised text-[10px] md:bg-surface-raised/90 md:backdrop-blur">
           {(
             [
               ["default", "默认"],
@@ -318,64 +434,4 @@ export default function MessageList({
       )}
     </div>
   );
-}
-
-/**
- * 连续工具条目折叠为组（≥2）+ 默认展开策略：
- * 「最近活跃片段」= 最后一个工具组（或流式 thinking）默认展开，其余折叠。
- */
-function renderGrouped(items: ChatItem[]): ReactNode[] {
-  // 分段：找出最后一个工具组的索引
-  let lastToolGroupIdx = -1;
-  let runStart = -1;
-  for (let i = 0; i < items.length; i++) {
-    if (items[i].kind === "tool") {
-      if (runStart === -1) runStart = i;
-      lastToolGroupIdx = runStart; // 组的起始索引
-    } else {
-      runStart = -1;
-    }
-  }
-
-  const out: ReactNode[] = [];
-  let toolRun: Extract<ChatItem, { kind: "tool" }>[] = [];
-  let currentRunStart = -1;
-
-  const flushTools = () => {
-    if (toolRun.length === 0) return;
-    if (toolRun.length === 1) {
-      out.push(renderItem(toolRun[0], false));
-    } else {
-      out.push(
-        <ToolGroup
-          key={`grp-${toolRun[0].id}`}
-          tools={toolRun}
-          groupKey={`grp-${currentRunStart}`}
-          defaultOpen={currentRunStart === lastToolGroupIdx}
-        />,
-      );
-    }
-    toolRun = [];
-    currentRunStart = -1;
-  };
-
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
-    if (item.kind === "tool") {
-      if (toolRun.length === 0) currentRunStart = i;
-      toolRun.push(item);
-    } else {
-      flushTools();
-      // thinking 默认折叠（含流式中的最后一块）：历史+实时都不自动展开。
-      // 理由（job_36 用户实测「思考持续追加时整个上下文闪烁」）：展开的流式
-      // thinking 块每帧增长会推动下方消息（max-h 内未溢出前），在长历史会话
-      // 中部造成视觉跳动；折叠后仅标题行存在，流式更新不产生布局位移。
-      // 用户想观看思考时可手动展开单块（override 优先，流式内容照常增长）。
-      const isLastStreamingThink = false;
-      out.push(renderItem(item, isLastStreamingThink));
-    }
-  }
-  flushTools();
-
-  return out;
 }

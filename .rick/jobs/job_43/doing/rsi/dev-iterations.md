@@ -3,7 +3,6 @@
 通过标准：至少记录一条构建指纹（`rick.dev.<sha7>-<ts>` 或 `build_id=<sha7>-<ts>`）。
 示例：`DEV_UP bin=... build_id=c539c60-260921192330 port=8414`
 
-<!-- TODO: 填写本文件后再跑 rick tools rsi_check（残留本标记即视为未填写） -->
 
 
 ## 2026-09-24 19:45 · S0/S1 环境准备（parent）
@@ -21,3 +20,24 @@
 - gate1 首跑 2 红：断言写死「负值字面量」而 worker 用了更优的 IdleDisabled 哨兵（task1.md KR 原文即允许「或等价显式禁用语义」）——按 KR 语义修正 gate pattern（未削弱断言，13 项全在），复跑绿
 - build_id：e72ce7b-260924182400（dev 实例未重启，前端改动待 task4 后统一 restart 验证）
 - commit：f76d0e98 feat(layer): task1+task2+task3
+
+## 2026-09-24 20:20 · 第 2 层完成（task4 → gate2 绿 → commit）
+
+- task4：StarfieldBackground 静态判定抽 starfieldMode.ts（rick.starfield.mode auto/animated/static + storage/viewport/reduced-motion 实时重估）+ 窄屏 dpr 1.5 + 4 处 blur 移动端不透明底（App drawer/header + ChatView header/输入区，md: 恢复）+ events.ts 窄屏 110ms 节流（宽屏 rAF 保持）
+- gate2 首跑即绿（exit 0）→ commit 8dd1307a
+- S1 收尾：dev 实例 restart（后端 Go 已变——supervisor 配置），build_id 应更新
+
+## 2026-09-25 02:10 · S5/S6/S7 收尾（会话恢复后）
+
+- S5 提升：version=8dd1307-260925020038（第一次尝试 build 阶段 permission denied——bin/releases 属主 sankuai；RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases 重试成功，见 release.md）
+- S6：本承载会话（e7dbebd0，easy job_43）随重启挂起 → human 02:08:52 UI 点「恢复继续」→ 新 pi 进程 192787 接续（recovery-report: recovered=1, failed=0）
+- S7：rsi_check 复跑（本行以下见 gates.md 与 rsi_check 输出）
+
+## 2026-09-25 12:30 · 增量迭代 2（task5+task6+task7）
+
+- 反馈驱动：输入框三按钮丑→单发送+Enter 换行+自适应扩大；移动端发烫缓解但仍有→二轮优化
+- task5：ChatInput 极简（删 ＋/↵/模式切换，Enter 固定换行，scrollHeight 自适应 max 240px，VERSION 5.0.13）
+- task6：空态飞船全局静态 + theme.css 767px 动画降级块 + Saucer SMIL 窄屏条件渲染 + 第 5 处 blur（展开条/断线横幅/阅读器）+ ToolElapsed 窄屏 5s
+- task7：react-virtuoso 渲染层虚拟化（双通道贴底/前置防跳/stable key/组 key 索引缺陷顺带修复）；数据层零改动
+- gate3（12 断言）+ gate4（7 断言）首跑全绿 → commits 270ee66c / eeda69d1
+- S1 收尾：dev restart 验证 build_id 更新（见下行）

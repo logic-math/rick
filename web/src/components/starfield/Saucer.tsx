@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 /**
  * 飞碟（Rick 的飞船意象，Rick and Morty 原画风，research-rm-art §三）。
  *
@@ -9,6 +11,9 @@
  * - 舱内并排 Rick 与 Morty 极简剪影（Rick=白大褂圆角梯形+淡蓝蓬发；Morty=黄T圆角矩形+深棕短发）
  * - 航灯三色交错：红 #ff5a5a / 绿 #7eff6a / 黄 #ffd54a
  * - keyframes（rm-saucer-hover / rm-beam）定义在 theme.css
+ * - 移动端降级（job_43 二轮 KR7b）：窄屏（<768px）时 SMIL <animate> 不渲染
+ *   （航灯静态）——CSS 管不到 SMIL，须组件内条件渲染；悬停/光束的 CSS 动画
+ *   由 theme.css 窄屏媒体查询块关闭。桌面零回归。
  */
 interface SaucerProps {
   size?: number;
@@ -18,7 +23,29 @@ interface SaucerProps {
 /** 航灯三色交错（5 灯：红绿黄红绿） */
 const LIGHT_COLORS = ["#ff5a5a", "#7eff6a", "#ffd54a", "#ff5a5a", "#7eff6a"];
 
+/** 窄屏判定（<768px，与 routes/hooks.ts BREAKPOINTS.md 对齐）。
+ * 订阅 matchMedia change（旋转/分屏跨断点实时切换）；Safari <14 无
+ * addEventListener 时仅取初值（极端环境可接受，与 StarfieldBackground 同款防御）。 */
+function useIsNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  });
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(max-width: 767px)");
+    if (typeof mql.addEventListener !== "function") return;
+    const onChange = () => setNarrow(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
 export default function Saucer({ size = 24, flying = false }: SaucerProps) {
+  const narrow = useIsNarrowViewport();
+  // 窄屏航灯静态（SMIL 无 CSS 降级路径）；悬停/光束 CSS 动画由 theme.css 关。
+  const animateLights = flying && !narrow;
   return (
     <svg
       width={size}
@@ -63,9 +90,9 @@ export default function Saucer({ size = 24, flying = false }: SaucerProps) {
         <path d="M22 16 Q32 4 42 16 Z" fill="#aee1f2" opacity="0.45" />
         <path d="M25 13.5 Q32 6.5 39 13.5" fill="none" stroke="#ffffff" strokeWidth="0.9" opacity="0.65" />
 
-        {/* 航灯（三色交错，flying 时错相闪烁） */}
+        {/* 航灯（三色交错，flying 且非窄屏时错相闪烁；窄屏静态——theme.css 关不了 SMIL） */}
         {[12, 22, 32, 42, 52].map((x, idx) =>
-          flying ? (
+          animateLights ? (
             <circle key={x} cx={x} cy={18.5} r="1.6" fill={LIGHT_COLORS[idx]} opacity="0.95">
               <animate
                 attributeName="opacity"
@@ -76,7 +103,7 @@ export default function Saucer({ size = 24, flying = false }: SaucerProps) {
               />
             </circle>
           ) : (
-            <circle key={x} cx={x} cy={18.5} r="1.6" fill={LIGHT_COLORS[idx]} opacity="0.5" />
+            <circle key={x} cx={x} cy={18.5} r="1.6" fill={LIGHT_COLORS[idx]} opacity={flying ? "0.95" : "0.5"} />
           )
         )}
       </g>
