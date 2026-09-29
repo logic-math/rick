@@ -1,9 +1,9 @@
-version=69dc824-260929140915
-rollback_point=/home/hadoop-recsys/.rick/releases/0d26c68-260929124639
-released=yes
-released=no
-
 # release 记录（job_43）
+
+## 迭代 4 · S3 演练（2026-09-29 15:02，待 S4 人类批准）
+
+RELEASE_GATE pass=true tests=pass frontend=pass took=6s；version=fb01dde-260929150228；prod_untouched=true。
+dev 实例 build_id=fb01dde-260929150223、bundle index-BjBTWg3K.js（task9 toggle 修复），dev UI 8414 可真渲染验收。
 
 ## 迭代 3 · S3 演练（2026-09-29 13:57，待 S4 人类批准）
 
