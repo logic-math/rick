@@ -41,3 +41,9 @@
 - task7：react-virtuoso 渲染层虚拟化（双通道贴底/前置防跳/stable key/组 key 索引缺陷顺带修复）；数据层零改动
 - gate3（12 断言）+ gate4（7 断言）首跑全绿 → commits 270ee66c / eeda69d1
 - S1 收尾：dev restart 验证 build_id 更新（见下行）
+
+## 2026-09-29 · 迭代 2 收尾（P0 事故 + 权限重置 + 证据补录）
+
+- **P0 事故**：3e35ec8 上线即「会话消息全空白」——task7 虚拟化自定义 Scroller 丢弃 Virtuoso props（data-virtuoso-scroller 标记落不到 DOM → 测量回调 null 崩溃）。其他 agent 热修复 0d26c68（...rest 全量转发）并重新 release，用户验证恢复。教训留痕 doing/debug/bug2：①虚拟化组件协议必须全量转发 props ②渲染层重写必须 dev UI 真渲染验收后再 release（gate4 静态断言测不到运行时协议破坏）
+- **环境权限重置**：机器休眠期外部重置 job_43/doing/{,rsi,prompts}/ 的 ACL mask→r-x 且文件属主变更为 sankuai（同族问题已在 release.go 注释记载）。修复：jobs/ 父目录可写 → job_43 整体 rename+git checkout 重建（38 文件全部 tracked，零丢失；备份 job_43.locked/ 待确认后清理）
+- rsi_check 复跑对齐实际生效版本 0d26c68-260929124639
