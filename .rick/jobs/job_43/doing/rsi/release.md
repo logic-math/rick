@@ -1,23 +1,25 @@
-version=eeda69d-260925121631
-rollback_point=/home/hadoop-recsys/.rick/releases/8dd1307-260925020038
+version=f9c8362-260929135749
+rollback_point=/home/hadoop-recsys/.rick/releases/0d26c68-260929124639
 released=no
 
 # release 记录（job_43）
 
-## 迭代 2 · S3 演练（2026-09-25 12:16，待 S4 人类批准）
+## 迭代 3 · S3 演练（2026-09-29 13:57，待 S4 人类批准）
 
 ```
 RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases rick tools release --dry-run --prod-repo /workdir/sunquan20/AI_CODING/rick
 RELEASE_GATE pass=true tests=pass frontend=pass took=6s
-RELEASE_DRYRUN version=eeda69d-260925121631 dist_files=12 sha256=76f1cfec2bec
+RELEASE_DRYRUN version=f9c8362-260929135749 dist_files=12 sha256=670248916dce
 RELEASE_DRYRUN prod_untouched=true
 ```
 
-dev HEAD = eeda69d1（task5/6/7 全部提交）；dev 实例 build_id=eeda69d-260925121618、二进制 5.0.13、新 bundle index-KgY9Vklm.js 生效。
+dev HEAD = f9c83628（task8 贴底间距修复）；dev 实例 build_id=f9c8362-260929135824、bundle index-CYCA3JSB.js（含 Footer spacer）。
+按 bug2 教训：dev UI（8414）已起新构建供真渲染验收（发消息看间距）。
 
-## 迭代 1 · S5 提升（2026-09-25 02:00，已完成）
+## 迭代 2 · 实际生效版本 0d26c68-260929124639（P0 热修复版）
 
-version=8dd1307-260925020038 → 已提升成功（详见 git 历史：此文件迭代 1 版本）。
-第一次尝试失败：build 阶段 mkdir <prod>/bin/releases permission denied（bin/releases 属主 sankuai）——用 RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases 重试成功。
-RELEASE_MERGE merged=true commit=f87dd0e files=53；生产 build_id 校验一致；S6 本会话挂起后 human 01:08 恢复。
-回滚点 .last=e72ce7b-260924021322。
+3e35ec8 上线即 P0（虚拟化 Scroller 丢 props 全空白，见 doing/debug/bug2）→ 热修复 0d26c68 重新提升，用户验证恢复。迭代 2 批准 at=2026-09-25T12:35（human）。
+
+## 迭代 1 · version=8dd1307-260925020038（2026-09-25 02:00，已完成）
+
+merged f87dd0e files=53；第一次尝试 build 阶段 bin/releases 权限拒绝 → RICK_RELEASES_DIR 重试成功；S6 human 恢复。

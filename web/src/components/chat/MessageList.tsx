@@ -213,6 +213,19 @@ function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): Rea
  *  Virtuoso 只要求 ≥0 且随前置单调递减，绝对值无意义） */
 const FIRST_INDEX_BASE = 100_000;
 
+/** 列表尾部 spacer（job_43 task8：贴底间距回归修复）。
+ *
+ * 旧实现（虚拟化前）靠滚动容器 py-3 提供底部 12px；task7 换 Virtuoso 后容器
+ * padding 不进其滚动/贴底计算（实测最后一条紧贴输入框）。改用 components.Footer——
+ * Virtuoso 把 Footer 高度计入内容总高（footerHeight→offsetBottom），atBottom/
+ * followOutput/scrollToIndex(LAST, align:end) 全都带着它算，贴底目标含 spacer。
+ *
+ * ⚠️ 模块级常量组件（P0 教训 bug2 同族约束）：components 引用变化会触发
+ * 滚动容器/列表重挂——Footer 必须与 Scroller 一样引用稳定（无 props/无闭包）。
+ * 高度 12px 对齐旧 py-3；桌面/移动一致（KR9b）。 */
+// eslint-disable-next-line react/function-component-definition -- 模块级常量，引用稳定性优先
+const VirtuosoFooter = () => <div style={{ height: 12 }} aria-hidden="true" />;
+
 export default function MessageList({
   items,
   streaming,
@@ -323,7 +336,10 @@ export default function MessageList({
           return (
             <div
               ref={ref}
-              className="rm-chat-scroll h-full overflow-y-auto px-4 py-3"
+              // px-4 横向 + pt-3 顶部间距保持旧观感；**底部间距不走容器 padding**
+              // （Virtuoso 不把容器 padding 计入贴底计算——task8 回归根因），
+              // 由 components.Footer 的 12px spacer 承担（计入 footerHeight）。
+              className="rm-chat-scroll h-full overflow-y-auto px-4 pt-3"
               style={style}
               role="log"
               aria-live="polite"
@@ -357,8 +373,9 @@ export default function MessageList({
     };
   }, [hasMore, loadingEarlier]);
 
-  /** components 集合（引用稳定：Scroller 固定 + Header 仅在分页态变化时变） */
-  const components = useMemo(() => ({ Scroller, Header }), [Scroller, Header]);
+  /** components 集合（引用稳定：Scroller 固定 + Header 仅在分页态变化时变 +
+   *  Footer 模块级常量——job_43 task8 贴底 spacer，P0 教训：引用变化触发重挂） */
+  const components = useMemo(() => ({ Scroller, Header, Footer: VirtuosoFooter }), [Scroller, Header]);
 
   if (items.length === 0 && !streaming) {
     return (
