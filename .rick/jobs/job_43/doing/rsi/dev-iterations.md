@@ -53,3 +53,8 @@
 - task8：Virtuoso Footer spacer 12px（py-3→pt-3，底部间距移交 Footer 计入 footerHeight）→ gate5 绿 → commit f9c83628
 - 环境权限重置二连：job_43 doing 目录（已修：rename+checkout 重建）之后 dev HOME（rick-dev-home-hadoop）也被重置 mask——同法处理（rename .locked + dev-web init 重建，幂等）
 - dev 实例重建：build_id=f9c8362-260929135824，bundle index-CYCA3JSB.js；按 bug2 教训保留 dev UI 真渲染验收通道（8414）
+
+## 2026-09-29 15:02 · 迭代 4（task9 收起原文 toggle）
+
+- 根因：loadPrompt 守卫 prompt||promptLoading 提前 return + promptOpen 无置 false 路径（旧缺陷，非虚拟化回归）
+- task9：togglePrompt 分派（四态：加载/收起/再展开/重试）→ gate6 绿 → commit fb01dde5；dev UI 8414 真渲染验收通道已起

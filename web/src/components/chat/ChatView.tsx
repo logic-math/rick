@@ -170,6 +170,25 @@ function SessionInfoPanel({
     }
   }
 
+  /** 「查看/收起原文」toggle（job_43 task9）：旧实现 onClick 直连 loadPrompt，
+   *  但其守卫 `prompt || promptLoading` 在首次加载成功后永远提前 return——
+   *  promptOpen 只有置 true 路径，「收起原文」点了没反应（旧缺陷）。
+   *  现改分派：未加载 → loadPrompt（加载+展开）；已加载 → 切 promptOpen；
+   *  loading 中忽略（按钮已 disabled，双保险）；错误态 prompt 仍 null → 可重试。 */
+  function togglePrompt(): void {
+    if (promptLoading) return;
+    if (!prompt) {
+      void loadPrompt();
+      return;
+    }
+    // KR10a 字面分派：已展开 → 收起（false）；已收起 → 再展开（true）
+    if (promptOpen) {
+      setPromptOpen(false);
+    } else {
+      setPromptOpen(true);
+    }
+  }
+
   return (
     <Collapse
       className="mx-4 mt-2"
@@ -188,11 +207,17 @@ function SessionInfoPanel({
         </p>
         <button
           type="button"
-          onClick={() => void loadPrompt()}
+          onClick={togglePrompt}
           disabled={!workspaceId || promptLoading}
           className="mb-2 rounded border border-line px-2 py-0.5 text-[10px] text-portal hover:border-portal/50 hover:bg-portal/10 disabled:opacity-50"
         >
-          {promptLoading ? "加载中…" : prompt ? "收起原文" : "查看原文"}
+          {promptLoading
+            ? "加载中…"
+            : prompt
+              ? promptOpen
+                ? "收起原文"
+                : "展开原文"
+              : "查看原文"}
         </button>
         {promptError && <p className="pb-1 text-[10px] text-danger">原文加载失败：{promptError}</p>}
         {prompt && promptOpen && (

@@ -11,3 +11,7 @@
 - recovery-report.json：recovered=1 reason="resumed by human"，failed=0
 - 恢复后继续执行 S7 留痕校验
 - 其余在跑会话：无（重启时仅本会话 active）
+
+## 增量迭代 3 重启对账（2026-09-29 14:09）
+
+- 挂起：e7dbebd0（easy job_43，本承载会话）→ human 点「恢复继续」接续（recovered=1）

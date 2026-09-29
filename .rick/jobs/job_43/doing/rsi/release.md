@@ -1,15 +1,16 @@
-version=f9c8362-260929135749
-rollback_point=/home/hadoop-recsys/.rick/releases/0d26c68-260929124639
-released=no
-
 # release 记录（job_43）
+
+## 迭代 4 · S3 演练（2026-09-29 15:02，待 S4 人类批准）
+
+RELEASE_GATE pass=true tests=pass frontend=pass took=6s；version=fb01dde-260929150228；prod_untouched=true。
+dev 实例 build_id=fb01dde-260929150223、bundle index-BjBTWg3K.js（task9 toggle 修复），dev UI 8414 可真渲染验收。
 
 ## 迭代 3 · S3 演练（2026-09-29 13:57，待 S4 人类批准）
 
 ```
 RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases rick tools release --dry-run --prod-repo /workdir/sunquan20/AI_CODING/rick
 RELEASE_GATE pass=true tests=pass frontend=pass took=6s
-RELEASE_DRYRUN version=f9c8362-260929135749 dist_files=12 sha256=670248916dce
+RELEASE_DRYRUN version=69dc824-260929140915 dist_files=12 sha256=670248916dce
 RELEASE_DRYRUN prod_untouched=true
 ```
 
@@ -23,3 +24,11 @@ dev HEAD = f9c83628（task8 贴底间距修复）；dev 实例 build_id=f9c8362-
 ## 迭代 1 · version=8dd1307-260925020038（2026-09-25 02:00，已完成）
 
 merged f87dd0e files=53；第一次尝试 build 阶段 bin/releases 权限拒绝 → RICK_RELEASES_DIR 重试成功；S6 human 恢复。
+
+## 迭代 3 · S5 提升（2026-09-29 14:09，已完成）
+
+- 批准 at=2026-09-29T14:10（human，dev UI 真渲染验收后）
+- 实际构建版本 69dc824-260929140915（批准留痕 commit 推进了 dev HEAD，构建取最新 dev 分支头——含 task8 + 证据提交，sha7 与 dry-run 不同属正常）
+- RELEASE_MERGE merged=true commit=156a9cb files=29；RESTART health_ms=201 build_id_matches=true；gc=[3e35ec8-260929093943]
+- 生产 /api/health：build_id=69dc824-260929140915 == 本次 version ✓
+- S6：本承载会话（e7dbebd0）随重启挂起 → human 点「恢复继续」接续
