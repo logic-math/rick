@@ -312,8 +312,14 @@ export default function MessageList({
   const Scroller = useMemo(
     () =>
       // eslint-disable-next-line react/display-name
-      forwardRef<HTMLDivElement, { style?: React.CSSProperties; children?: ReactNode }>(
-        function VirtuosoScroller({ style, children }, ref) {
+      // ⚠️ 必须 ...rest 转发 Virtuoso 传入的全部 props——尤其 data-virtuoso-scroller
+      // / data-testid / tabIndex。P0 教训（job_43 task7 引入，实测会话页全空白）：
+      // 旧实现只解构 { style, children }，data-virtuoso-scroller 落不到 DOM →
+      // Virtuoso 测量回调 `for(;g.dataset.virtuosoScroller===void 0;)g=g.parentElement`
+      // 沿父链找不到标记节点，遍历到 null → TypeError: Cannot read properties of
+      // null (reading 'dataset') → 尺寸状态永不就绪 → 所有会话消息区渲染空白。
+      forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+        function VirtuosoScroller({ style, children, ...rest }, ref) {
           return (
             <div
               ref={ref}
@@ -321,6 +327,7 @@ export default function MessageList({
               style={style}
               role="log"
               aria-live="polite"
+              {...rest}
             >
               {children}
             </div>
