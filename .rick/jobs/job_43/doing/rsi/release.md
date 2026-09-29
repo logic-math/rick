@@ -1,3 +1,7 @@
+version=4b25f12-260929163400
+rollback_point=/home/hadoop-recsys/.rick/releases/69dc824-260929140915
+released=yes
+
 # release 记录（job_43）
 
 ## 迭代 4 · S3 演练（2026-09-29 15:02，待 S4 人类批准）
