@@ -243,8 +243,10 @@ function useReaderWorkspaceId(): string | null {
   return wsList[0]?.id ?? null;
 }
 
-/** 顶栏工具箱图标（扳手——「打开文件」入口，R&M 手绘风简约线稿） */
-function ToolboxIcon() {
+/** 顶栏「打开文件」入口图标（OpenPathIcon，job_43 task12 语义化：
+ * 文档轮廓 + 中部斜杠路径线 /…——一眼可读「输入路径打开文件」。
+ * R&M 手绘风简约线稿，stroke 1.5 currentColor，16px（与顶栏其他图标同规格）。 */
+function OpenPathIcon() {
   return (
     <svg
       width="16"
@@ -257,7 +259,12 @@ function ToolboxIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M9.5 3.5a3 3 0 0 0-4.24 3.9L2 10.66a1.4 1.4 0 1 0 1.98 1.98l.5-.5 1.32 1.32a1.1 1.1 0 0 0 1.56-1.56L6.04 12.1l3.42-3.42A3 3 0 0 0 13.4 5.3l-1.9 1.9-1.8-.7-.7-1.8 1.5-1.5z" />
+      {/* 文档轮廓（file-text 风，右上折角） */}
+      <path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2z" />
+      <path d="M9 2v4h4" />
+      {/* 中部斜杠路径线 /…：斜杠 + 两个省略点——「路径」语义 */}
+      <path d="M5.75 11.75L10 7.5" />
+      <path d="M8.75 11.5h.01M10.75 11.5h.01" />
     </svg>
   );
 }
@@ -468,11 +475,11 @@ function AppShell() {
               <button
                 type="button"
                 onClick={() => setToolboxOpen(true)}
-                aria-label="打开文件"
-                title="打开文件（输入路径阅读 md/文本）"
+                aria-label="打开文件（输入路径）"
+                title="输入路径打开文件（md/文本阅读）"
                 className="rounded-md border border-line px-2 py-1 text-sm text-ink-2 hover:border-portal/50 hover:text-portal"
               >
-                <ToolboxIcon />
+                <OpenPathIcon />
               </button>
               <NavLink
                 to="/settings"
