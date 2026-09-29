@@ -13,3 +13,6 @@ APPROVED by=human at=2026-09-25T12:35:00+08:00
 APPROVED by=human at=2026-09-29T14:10:00+08:00
 - 批准内容：增量迭代 3 release（dev/self-evolve f9c83628 → main，version=f9c8362-260929135749，贴底间距修复）
 - human 已在 dev UI（8414）真渲染验收间距后批准（bug2 教训落地）；S5 流程已向 human 说明（合并/构建/换链/重启/健康校验/自动回滚/会话挂起）
+
+APPROVED by=human at=2026-09-29T15:10:00+08:00
+- 批准内容：增量迭代 4 release（dev/self-evolve → main，version=fb01dde-260929150228，会话信息原文 toggle 修复）
