@@ -1,8 +1,13 @@
 # release 记录（job_43）
 
+## 迭代 5 · S3 演练（2026-09-29 21:37，待 S4 人类批准）
+
+RELEASE_GATE pass=true tests=pass frontend=pass took=38s；version=9594272-260929220624；prod_untouched=true。
+dev 实例 build_id=b946d99-260929213632：后端白名单实测（注册内 workspace 绝对路径 200 / 未注册 invalid_path）；生产实例预期注入 8 workspaces + ~/.rick + rick-dev 根（start-web.sh cwd 推导已核算）。工具箱入口可在 dev UI 8414 验收。
+
 ## 迭代 4 · S3 演练（2026-09-29 15:02，待 S4 人类批准）
 
-RELEASE_GATE pass=true tests=pass frontend=pass took=6s；version=fb01dde-260929150228；prod_untouched=true。
+RELEASE_GATE pass=true tests=pass frontend=pass took=6s；version=4b25f12-260929163400；prod_untouched=true。
 dev 实例 build_id=fb01dde-260929150223、bundle index-BjBTWg3K.js（task9 toggle 修复），dev UI 8414 可真渲染验收。
 
 ## 迭代 3 · S3 演练（2026-09-29 13:57，待 S4 人类批准）
@@ -32,3 +37,10 @@ merged f87dd0e files=53；第一次尝试 build 阶段 bin/releases 权限拒绝
 - RELEASE_MERGE merged=true commit=156a9cb files=29；RESTART health_ms=201 build_id_matches=true；gc=[3e35ec8-260929093943]
 - 生产 /api/health：build_id=69dc824-260929140915 == 本次 version ✓
 - S6：本承载会话（e7dbebd0）随重启挂起 → human 点「恢复继续」接续
+
+## 迭代 4 · S5 提升（2026-09-29 16:34，已完成）
+
+- 实际构建版本 4b25f12-260929163400（批准留痕提交推进 dev HEAD，构建取最新——含 task9 + 证据，与 dry-run sha7 不同属正常）
+- RELEASE_MERGE merged=true commit=15881a6 files=14；RESTART health_ms=201 build_id_matches=true；gc=[0d26c68-260929124639]
+- 生产 /api/health：build_id=4b25f12-260929163400 == 本次 version ✓
+- S6：本承载会话（e7dbebd0）挂起 → human 点「恢复继续」接续

@@ -15,21 +15,25 @@
  * wireJobs + sse.connect()。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import RecoveryBanner from "./components/recovery/RecoveryBanner";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
 import Portal from "./components/starfield/Portal";
 import Saucer from "./components/starfield/Saucer";
 import Button from "./components/common/Button";
+import Dialog from "./components/common/Dialog";
 import ErrorBanner from "./components/common/ErrorBanner";
 import EmptyState from "./components/common/EmptyState";
 import Spinner from "./components/common/Spinner";
 import NewSessionModal from "./components/sessions/NewSessionModal";
 import TokenGate from "./components/sessions/TokenGate";
 import WorkspaceTree from "./components/layout/WorkspaceTree";
+import FileReaderPanel from "./components/files/FileReaderPanel";
+import { FileReaderProvider, type FileReaderApi } from "./components/files/FileReaderContext";
 import { useUiStore } from "./stores/ui";
 import { useWorkspacesStore } from "./stores/workspaces";
+import { useSessionsStore } from "./stores/sessions";
 import type { SseConnectionState } from "./api/sse";
 import Jobs from "./routes/Jobs";
 import Dreams from "./routes/Dreams";
@@ -211,6 +215,130 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" }) 
 // 应用壳
 // ============================================================
 
+// ============================================================
+// 全局文件阅读器（job_43 增量 5：从 ChatView 提升到壳层，任意页面可用）
+// ============================================================
+
+/**
+ * 解析阅读器应使用的 workspace id（后端 readWorkspaceFile 以 ws 为路由但
+ * 白名单含全部已注册根）：
+ * 1. /ws/:wsId/… → 路径里的 wsId
+ * 2. /session/:id → 会话所属 workspace（sessions store 跨工作区索引）
+ * 3. 兜底 → 第一个已注册工作区（相对路径按它解析；绝对路径在后端多根
+ *    白名单下任意 ws 均可命中）
+ */
+function useReaderWorkspaceId(): string | null {
+  const location = useLocation();
+  const wsList = useWorkspacesStore((s) => s.list);
+  // 订阅 index（每次 sessions 变更重建 Map 引用 → 触发重算）；未加载时为空 Map
+  const sessionIndex = useSessionsStore((s) => s.index);
+
+  const wsMatch = location.pathname.match(/^\/ws\/([^/]+)/);
+  if (wsMatch) return wsMatch[1];
+  const sessionMatch = location.pathname.match(/^\/session\/([^/]+)/);
+  if (sessionMatch) {
+    const wsId = sessionIndex.get(sessionMatch[1])?.workspace_id;
+    if (wsId) return wsId;
+  }
+  return wsList[0]?.id ?? null;
+}
+
+/** 顶栏「打开文件」入口图标（OpenPathIcon，job_43 task12 语义化：
+ * 文档轮廓 + 中部斜杠路径线 /…——一眼可读「输入路径打开文件」。
+ * R&M 手绘风简约线稿，stroke 1.5 currentColor，16px（与顶栏其他图标同规格）。 */
+function OpenPathIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {/* 文档轮廓（file-text 风，右上折角） */}
+      <path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V6L9 2z" />
+      <path d="M9 2v4h4" />
+      {/* 中部斜杠路径线 /…：斜杠 + 两个省略点——「路径」语义 */}
+      <path d="M5.75 11.75L10 7.5" />
+      <path d="M8.75 11.5h.01M10.75 11.5h.01" />
+    </svg>
+  );
+}
+
+/**
+ * OpenFileDialog：工具箱路径输入弹窗（job_43 增量 5，human 方案：
+ * 「右上角工具箱 + 输入路径窗口 → 打开 md 阅读」）。
+ * - 输入路径（绝对 / 相对工作区 / .rick 相对）→ Enter 或「打开」提交
+ * - 空路径不提交；提交后交给全局 reader.open → FileReaderPanel 展示
+ */
+function OpenFileDialog({
+  open,
+  onClose,
+  onOpen,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOpen: (path: string) => void;
+}) {
+  const [pathInput, setPathInput] = useState("");
+
+  // 每次打开时清空 + 聚焦（关闭期间保留也无意义——路径是一次性输入）
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (open) {
+      setPathInput("");
+      // Dialog 挂载后聚焦（rAF 避开首帧）
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [open]);
+
+  const submit = (): void => {
+    const p = pathInput.trim();
+    if (!p) return; // 空路径不提交（KR12d）
+    onOpen(p);
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} title="打开文件" contentClassName="w-full max-w-xl">
+      <div className="flex flex-col gap-3">
+        <label htmlFor="open-file-path" className="text-xs text-ink-3">
+          输入文件路径（md / 文本）——支持绝对路径、相对当前工作区、.rick/… 路径
+        </label>
+        <input
+          ref={inputRef}
+          id="open-file-path"
+          type="text"
+          value={pathInput}
+          onChange={(e) => setPathInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="如 .rick/jobs/job_43/plan/task1.md 或 /workdir/…/README.md"
+          className="w-full rounded-md border border-line bg-space/70 px-3 py-2 font-mono text-xs text-ink outline-none placeholder:text-ink-3/60 focus:border-portal/60"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button size="sm" variant="primary" onClick={submit} disabled={!pathInput.trim()}>
+            打开
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -239,6 +367,25 @@ function AppShell() {
   const globalError = useUiStore((s) => s.globalError);
   const setGlobalError = useUiStore((s) => s.setGlobalError);
 
+  // ---- 全局文件阅读器（job_43 增量 5：从 ChatView 提升到壳层） ----
+  // 任意页面可用：消息链接点击（useFileReader）与顶栏工具箱共用同一面板。
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
+  const readerWorkspaceId = useReaderWorkspaceId();
+  const readerApi = useMemo<FileReaderApi>(
+    () => ({ open: (p: string) => setOpenFile(p), current: openFile }),
+    [openFile],
+  );
+  // Esc 关闭阅读器（优先于其它快捷键；仅在有文件打开时拦截）
+  useEffect(() => {
+    if (!openFile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenFile(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openFile]);
+
   const closeSidebar = (): void => setSidebarOpen(false);
 
   const openNewSession = (wsId: string | null): void => {
@@ -253,6 +400,7 @@ function AppShell() {
   }, [location.pathname]);
 
   return (
+    <FileReaderProvider value={readerApi}>
     <>
       <StarfieldBackground />
 
@@ -323,6 +471,16 @@ function AppShell() {
             <span className="text-sm font-medium text-ink-2">rick</span>
             <span className="ml-auto flex items-center gap-3">
               <ConnectionDot />
+              {/* 工具箱：打开文件（job_43 增量 5）——任意页面可输入路径打开 md/文本阅读 */}
+              <button
+                type="button"
+                onClick={() => setToolboxOpen(true)}
+                aria-label="打开文件（输入路径）"
+                title="输入路径打开文件（md/文本阅读）"
+                className="rounded-md border border-line px-2 py-1 text-sm text-ink-2 hover:border-portal/50 hover:text-portal"
+              >
+                <OpenPathIcon />
+              </button>
               <NavLink
                 to="/settings"
                 title="Settings"
@@ -343,17 +501,28 @@ function AppShell() {
             </div>
           )}
 
-          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-            <Routes>
-              <Route path="/" element={<HomeRedirect />} />
-              <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
-              <Route path="/ws/:wsId/jobs" element={<WorkspaceRoutePage kind="jobs" />} />
-              <Route path="/ws/:wsId/dreams" element={<WorkspaceRoutePage kind="dreams" />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/session/:id" element={<SessionPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </main>
+          {/* 主内容 + 全局文件阅读器并排（桌面 md:static 右栏；移动 fixed 全屏）。
+              面板从 ChatView 提升到壳层（job_43 增量 5）——任意页面可用，
+              消息链接点击与顶栏工具箱共用。 */}
+          <div className="flex min-h-0 flex-1">
+            <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+              <Routes>
+                <Route path="/" element={<HomeRedirect />} />
+                <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
+                <Route path="/ws/:wsId/jobs" element={<WorkspaceRoutePage kind="jobs" />} />
+                <Route path="/ws/:wsId/dreams" element={<WorkspaceRoutePage kind="dreams" />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/session/:id" element={<SessionPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
+            <FileReaderPanel
+              workspaceId={readerWorkspaceId}
+              path={openFile}
+              onClose={() => setOpenFile(null)}
+              onOpen={setOpenFile}
+            />
+          </div>
         </div>
       </div>
 
@@ -366,6 +535,14 @@ function AppShell() {
         onClose={() => setNewSessionOpen(false)}
         presetWorkspaceId={newSessionWs}
       />
+
+      {/* 工具箱：打开文件弹窗（job_43 增量 5） */}
+      <OpenFileDialog
+        open={toolboxOpen}
+        onClose={() => setToolboxOpen(false)}
+        onOpen={(p) => readerApi.open(p)}
+      />
     </>
+    </FileReaderProvider>
   );
 }

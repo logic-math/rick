@@ -264,6 +264,11 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 		Version:    opts.Version,
 		Archived:   archived,
 		JobNames:   jobNames,
+		// job_43 task10：跨 workspace 文件阅读的额外根——注入 dev worktree
+		//（RSI 会话里大量 /workdir/.../rick-dev 路径）。解析：RICK_DEV_TREE
+		// 优先 → defaultProdRepo() 的祖父目录下 rick-dev（与 devweb 默认布局
+		// 一致）；目录不存在则静默跳过（不注入）。
+		ExtraFileRoots: resolveDevTreeRoots(),
 	}
 	server, err := web.NewServer(serverCfg, deps)
 	if err != nil {
@@ -305,6 +310,25 @@ func resolveSupervisorConfig(cfg *config.Config) runtime.SupervisorConfig {
 		// HeartbeatInterval/HeartbeatTimeout/ProbeTimeout/TermGrace 保持包默认
 		// （30s / 2×30s / 500ms / 5s）——心跳杀语义不动（KR1c）。
 	}
+}
+
+// resolveDevTreeRoots 解析文件阅读白名单的 dev worktree 额外根（job_43
+// task10）。解析顺序：① RICK_DEV_TREE 环境变量（测试/非标准布局显式指定）；
+// ② defaultProdRepo()（tools_dev_web.go：可执行文件祖父目录，生产布局
+// `<repo>/bin/rick`）的祖父目录下 `rick-dev`（与 devweb 默认布局一致）。
+// 目录不存在时返回 nil（不注入——允许根列表保持「显式且存在」语义）。
+func resolveDevTreeRoots() []string {
+	var cand string
+	if env := strings.TrimSpace(os.Getenv("RICK_DEV_TREE")); env != "" {
+		cand = env
+	} else {
+		prod := defaultProdRepo()
+		cand = filepath.Join(filepath.Dir(filepath.Dir(prod)), "rick-dev")
+	}
+	if info, err := os.Stat(cand); err != nil || !info.IsDir() {
+		return nil
+	}
+	return []string{filepath.Clean(cand)}
 }
 
 // newWebCustomizeCmd deploys the frontend source scaffold for agent-driven

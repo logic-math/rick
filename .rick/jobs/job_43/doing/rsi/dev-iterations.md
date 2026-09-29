@@ -58,3 +58,11 @@
 
 - 根因：loadPrompt 守卫 prompt||promptLoading 提前 return + promptOpen 无置 false 路径（旧缺陷，非虚拟化回归）
 - task9：togglePrompt 分派（四态：加载/收起/再展开/重试）→ gate6 绿 → commit fb01dde5；dev UI 8414 真渲染验收通道已起
+
+## 2026-09-29 21:37 · 迭代 5（task10 后端白名单 + task11 前端工具箱）
+
+- 根因链（research-I5）：裸路径不链接化 + 后端白名单仅当前 workspace/~/.rick → MOGIC_HOME/dev 树路径不可读；human 方案=顶栏工具箱+路径输入
+- task10：allowedFileRoots 扩展全注册 workspaces + ~/.rick + ExtraFileRoots（组合根 resolveDevTreeRoots：RICK_DEV_TREE env / exe→cwd 推导，生产=start-web.sh cwd 祖父/rick-dev）
+- task11：FileReaderProvider/Panel 提升到 App 壳层全局挂载 + 顶栏扳手工具箱 + 路径输入 Dialog；ChatView 解绑（消息链接走全局 Context）
+- gate7 首跑红：internal/cmd 4 个 web 测试读真实 ~/.rick/web.pid 撞生产单例——根因是 RICK_STATE_DIR env 穿透 t.Setenv(HOME) 隔离（本 pi 会话环境带该变量）；gate7 已加 env 净化（剥离 RICK_*），复跑绿（测试代码本身无需改）
+- 后端实测（dev 8414）：注册内绝对路径 200；MOGIC_HOME 在 dev 被拒是 dev/生产 workspace 注册表隔离（设计行为），生产 8 workspace 全可读
