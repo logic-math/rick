@@ -1,26 +1,25 @@
-version=0d26c68-260929124639
-rollback_point=/home/hadoop-recsys/.rick/releases/8dd1307-260925020038
-released=yes
+version=f9c8362-260929135749
+rollback_point=/home/hadoop-recsys/.rick/releases/0d26c68-260929124639
+released=no
 
 # release 记录（job_43）
 
-## 迭代 2 · S5 提升（2026-09-29，含 P0 热修复）
+## 迭代 3 · S3 演练（2026-09-29 13:57，待 S4 人类批准）
 
-两次提升（detach 进程跨机器休眠期完成）：
+```
+RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases rick tools release --dry-run --prod-repo /workdir/sunquan20/AI_CODING/rick
+RELEASE_GATE pass=true tests=pass frontend=pass took=6s
+RELEASE_DRYRUN version=f9c8362-260929135749 dist_files=12 sha256=670248916dce
+RELEASE_DRYRUN prod_untouched=true
+```
 
-**① 3e35ec8-260929093943**（S3 演练版本 eeda69d 的同源后续构建）：merged commit 321b5b5。**上线即 P0**：MessageList 虚拟化自定义 Scroller 丢弃 Virtuoso props → 所有会话消息区空白（用户立刻报告；根因/修复/教训见 doing/debug/bug2-virtuoso-scroller-props-p0.md）。
+dev HEAD = f9c83628（task8 贴底间距修复）；dev 实例 build_id=f9c8362-260929135824、bundle index-CYCA3JSB.js（含 Footer spacer）。
+按 bug2 教训：dev UI（8414）已起新构建供真渲染验收（发消息看间距）。
 
-**② 0d26c68-260929124639**（P0 热修复，其他 agent 完成）：fix(web) 自定义 Scroller 改 `{ style, children, ...rest }` 全量转发。生产 build_id 校验一致，用户验证消息恢复。
+## 迭代 2 · 实际生效版本 0d26c68-260929124639（P0 热修复版）
 
-- 迭代 2 的 S4 人类批准：at=2026-09-25T12:35:00+08:00（原批准对象 eeda69d；P0 修复版 0d26c68 为其最小 diff 热修复，同属迭代 2 交付）
-- 回滚点 .last 链：8dd1307-260925020038（迭代 1 生效版）
-- 版本目录：/home/hadoop-recsys/.rick/releases/0d26c68-260929124639
+3e35ec8 上线即 P0（虚拟化 Scroller 丢 props 全空白，见 doing/debug/bug2）→ 热修复 0d26c68 重新提升，用户验证恢复。迭代 2 批准 at=2026-09-25T12:35（human）。
 
-## 迭代 2 · S3 演练（2026-09-25 12:16）
+## 迭代 1 · version=8dd1307-260925020038（2026-09-25 02:00，已完成）
 
-RELEASE_GATE pass=true tests=pass frontend=pass took=6s；version=eeda69d-260925121631；prod_untouched=true
-
-## 迭代 1 · S5 提升（2026-09-25 02:00，已完成）
-
-version=8dd1307-260925020038：merged f87dd0e files=53，生产校验一致，S6 挂起后 human 恢复。
-第一次尝试失败于 build 阶段（bin/releases 属主 sankuai 权限拒绝）→ RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases 重试成功。
+merged f87dd0e files=53；第一次尝试 build 阶段 bin/releases 权限拒绝 → RICK_RELEASES_DIR 重试成功；S6 human 恢复。
