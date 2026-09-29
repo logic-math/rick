@@ -67,6 +67,12 @@ type Deps struct {
 	// customize/reset 返回 501 not implemented，测试注入 fake）。
 	Customize CustomizeFunc
 	Reset     ResetFunc
+
+	// ExtraFileRoots 是文件阅读白名单的额外根（job_43 task10：跨 workspace
+	// 阅读）。默认由组合根注入 dev worktree（rick tools dev-web 的标准布局
+	// `<prodRepo 祖父>/rick-dev`，RICK_DEV_TREE 可覆盖）；nil/空 = 无额外根。
+	// 只影响 GET /api/workspaces/{ws}/file 的允许根列表，拒绝逻辑不变。
+	ExtraFileRoots []string
 }
 
 // authWrap wraps a handler with token auth (see auth.go: empty token
@@ -742,10 +748,13 @@ func (deps Deps) handleKnowledgeFile() http.HandlerFunc {
 // 或 file:// URL) so the UI can open it in a side reader instead of navigating
 // away from a live conversation.
 //
-// 安全：路径必须落在工作区根目录（或 ~/.rick 状态目录）之内——相对路径按工作区
-// 根解析，绝对路径必须已在允许根之下；符号链接、目录、超大文件一律拒绝
-// （沿用 readWhitelistedFile 的硬化读取）。工作区之外的路径返回 invalid_path，
-// 前端会显示「不在当前工作区内 + 复制路径」而不是假装成功。
+// 安全：路径必须落在允许根之内——**所有已注册 workspace**（job_43 task10：
+// 跨 workspace 阅读——RSI 会话里引用其它项目的 .rick 文件是常态）+
+// `~/.rick` 状态目录 + ExtraFileRoots（组合根注入的 dev worktree 等）。
+// 相对路径仍按 URL 中当前 workspace 根解析；绝对路径可在任一允许根之下；
+// 符号链接、目录、超大文件一律拒绝（沿用 readWhitelistedFile 的硬化读取）。
+// 允许根之外的路径返回 invalid_path，前端会显示「不在当前工作区内 + 复制路径」
+// 而不是假装成功。
 func (deps Deps) handleWorkspaceFile() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ws, ok := deps.workspaceFromPath(w, r)
@@ -757,7 +766,7 @@ func (deps Deps) handleWorkspaceFile() http.HandlerFunc {
 			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing path"))
 			return
 		}
-		rel, err := workspaceRelativeFile(ws.Path, raw)
+		rel, err := workspaceRelativeFile(ws.Path, deps.allowedFileRoots(), raw)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -768,14 +777,21 @@ func (deps Deps) handleWorkspaceFile() http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// 回显可读的展示路径（工作区内 → 相对路径；~/.rick → 带 ~/.rick 前缀，
-		// 让用户一眼知道这个文件不在仓库里）
-		display := relPath
-		if root != filepath.Clean(ws.Path) {
-			display = filepath.Join("~", ".rick", relPath)
-		}
-		writeJSON(w, http.StatusOK, fileResponse{Path: filepath.ToSlash(display), Content: content})
+		writeJSON(w, http.StatusOK, fileResponse{Path: filepath.ToSlash(displayPath(ws.Path, root, relPath)), Content: content})
 	}
+}
+
+// displayPath 回显可读的展示路径：当前 workspace 内 → 相对路径；`~/.rick`
+// 根 → 带 `~/.rick` 前缀；其它允许根（别的 workspace / dev worktree）→ 绝对路径
+// （KR11d：一眼看出文件的真实位置，取实现最简——不做各根的相对化映射）。
+func displayPath(wsPath, root, relPath string) string {
+	if filepath.Clean(root) == filepath.Clean(wsPath) {
+		return relPath
+	}
+	if home, err := os.UserHomeDir(); err == nil && root == filepath.Join(home, ".rick") {
+		return filepath.Join("~", ".rick", relPath)
+	}
+	return filepath.Join(root, relPath)
 }
 
 // resolvedFile is a path pinned to one of the allowed read roots.
@@ -785,12 +801,35 @@ type resolvedFile struct {
 }
 
 // allowedFileRoots returns the directories a chat-referenced file may be read
-// from: the workspace itself, plus ~/.rick (web state / pi sessions / logs).
-// Both are "the agent's own working set"; anything else is refused.
-func allowedFileRoots(workspacePath string) []string {
-	roots := []string{filepath.Clean(workspacePath)}
+// from (job_43 task10 扩展)：所有已注册 workspaces + ~/.rick（web state /
+// pi sessions / logs）+ ExtraFileRoots（组合根注入的 dev worktree 等）。
+// 语义仍是**显式根列表**——未注册/未注入的目录一律拒绝；拒绝逻辑
+// （symlink 逃逸/目录/超大文件）见 readWhitelistedFile，不在根内的路径
+// 见 workspaceRelativeFile 的 Rel 校验。去重保证根列表无重复。
+func (deps Deps) allowedFileRoots() []string {
+	seen := map[string]bool{}
+	var roots []string
+	add := func(p string) {
+		p = filepath.Clean(p)
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		roots = append(roots, p)
+	}
+	if deps.Workspaces != nil {
+		for _, e := range deps.Workspaces.List() {
+			add(e.Path)
+		}
+	} else {
+		// 无 registry（极老测试/静态 only）时至少保留自身——由调用方保证
+		// workspacePath 非空（handleWorkspaceFile 的 ws 来自 registry，恒非空）。
+	}
 	if home, err := os.UserHomeDir(); err == nil {
-		roots = append(roots, filepath.Join(home, ".rick"))
+		add(filepath.Join(home, ".rick"))
+	}
+	for _, p := range deps.ExtraFileRoots {
+		add(p)
 	}
 	return roots
 }
@@ -798,8 +837,11 @@ func allowedFileRoots(workspacePath string) []string {
 // workspaceRelativeFile normalizes a chat-supplied path into (root, rel).
 // Accepts file:// URLs, absolute paths, and workspace-relative paths
 // (`.rick/...`, `doing/...`, `src/x.ts`). NUL bytes and paths that resolve
-// outside every allowed root are rejected.
-func workspaceRelativeFile(workspacePath, raw string) (resolvedFile, error) {
+// outside every allowed root are rejected. roots 由调用方（Deps.
+// allowedFileRoots）给出：全部已注册 workspaces + ~/.rick + ExtraFileRoots
+//（job_43 task10）；相对路径始终按 workspacePath（URL 中当前 ws）解析，
+// 绝对路径可在任一允许根之下。
+func workspaceRelativeFile(workspacePath string, roots []string, raw string) (resolvedFile, error) {
 	p := strings.TrimSpace(raw)
 	// file:///abs/path → /abs/path（Windows 风格 file:///C:/ 也在 TrimPrefix 后仍可被
 	// filepath 处理，这里只关心本机 Linux 语义）
@@ -819,8 +861,13 @@ func workspaceRelativeFile(workspacePath, raw string) (resolvedFile, error) {
 	if strings.ContainsRune(p, 0) {
 		return resolvedFile{}, errInvalidPath("path contains NUL")
 	}
-	roots := allowedFileRoots(workspacePath)
+	if len(roots) == 0 {
+		roots = []string{filepath.Clean(workspacePath)}
+	}
 	if !filepath.IsAbs(p) {
+		// 相对路径始终按 URL 中当前 workspace 解析（roots[0] 是注册表序首个，
+		// 未必是当前 ws——不能拿来当解析基准）；绝对路径才走下面任一允许根的
+		// 白名单匹配。
 		p = filepath.Join(workspacePath, p)
 	}
 	abs := filepath.Clean(p)
@@ -835,7 +882,7 @@ func workspaceRelativeFile(workspacePath, raw string) (resolvedFile, error) {
 		return resolvedFile{root: root, rel: filepath.ToSlash(rel)}, nil
 	}
 	return resolvedFile{}, errInvalidPath(
-		"path is outside the workspace (and ~/.rick): %s", raw)
+		"path is outside the registered workspaces (and ~/.rick): %s", raw)
 }
 
 // ---- web customize / reset（env 层函数注入）----

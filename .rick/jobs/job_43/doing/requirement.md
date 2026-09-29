@@ -40,3 +40,7 @@
 ## 增量迭代 4（2026-09-29，human 验收反馈）
 
 4. **会话信息「收起原文」无反应**：点「收起原文」按钮无任何效果——loadPrompt 守卫 `prompt || promptLoading` 提前返回，promptOpen 只有置 true 路径无 toggle（旧缺陷，首次使用暴露）
+
+## 增量迭代 5（2026-09-29，human 反馈 + 产品建议）
+
+5. **跨工作区文件阅读**：消息里 `/workdir/sunquan20/MOGIC_HOME/.rick/...` 路径不可点击阅读（裸路径不链接化 + 白名单外）——human 方案：**右上角工具箱 + 路径输入窗口 → 打开 md 阅读**；后端白名单扩展为「所有已注册 workspaces + ~/.rick + rick-dev worktree」
