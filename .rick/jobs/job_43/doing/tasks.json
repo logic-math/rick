@@ -82,8 +82,20 @@
       "task_name": "长会话虚拟化（virtuoso：MessageList 渲染层虚拟化，流式贴底/展开态兼容）",
       "updated_at": "2026-09-25T04:15:52.634Z",
       "commit_hash": "eeda69d1fe371cd7a4c9f6e51e7c29a42ff5c205"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-09-29T13:35:00+08:00",
+      "dependencies": [
+        "task7"
+      ],
+      "status": "pending",
+      "task_file": "plan/task8.md",
+      "task_id": "task8",
+      "task_name": "贴底间距修复（Virtuoso Footer spacer 恢复消息与输入框间距）",
+      "updated_at": "2026-09-29T13:35:00+08:00"
     }
   ],
-  "updated_at": "2026-09-25T04:15:52.634Z",
+  "updated_at": "2026-09-29T13:35:00+08:00",
   "version": "1.0"
 }
