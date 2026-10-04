@@ -71,3 +71,19 @@ git commit -m "chore(taskX): rebuild bin/rick"
 - **全量更新**：`rick tools update-pi`（= all：pi → extensions → models，顺序固定）
 - **更新后快速自检**（自动执行）：pi 版本 / 必需扩展注册 / rick agents+hooks 落盘 / rick-gates helper.py 语法 / human-loop 提示词渲染冒烟（非空且无 `{{` 残留）
 - 注意：裸扩展名是注册行（`npm:pi-subagents`）的子串，解析必须 npm: 前缀形态优先，否则 `pi update pi-subagents` 可能子串误命中传裸名（env.resolveExtensionSource）
+
+## release 布局（job_43 实测）
+
+- **本机 release 固定布局**：`RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases`——`<prodRepo>/bin/releases/` 属主 sankuai 且 ACL mask r-x 不可写（mkdir permission denied，release build 阶段失败、生产零影响），必须用 env 重定向（代码预留的 ReleasesRoot 覆盖机制；与 2026-09-25 02:14 起的成功 release 同一布局）
+  - 验证命令: `ls -la /home/hadoop-recsys/.rick/releases/current`（软链 → 版本目录）
+  - 来源: job_43 / 迭代 1 S5（失败→重试成功）
+  - 状态: ✅ 已确认
+- **release 版本号语义**：version = `<devHEAD sha7>-<构建时刻 ts>`——S4 批准留痕提交会推进 dev HEAD，实际提升版本 sha7 与 S3 演练版不同属正常（内容=task + 证据提交）
+  - 来源: job_43 / 迭代 1-6 六次实测
+  - 状态: ✅ 已确认
+- **detach 跨休眠**：`--detach` 的 setsid 进程在机器休眠期存活，恢复后继续完成（gate→build→merge→换链→重启全程无人值守）
+  - 来源: job_43 / 迭代 2（12:35 启动，机器休眠 4 天后 09-29 02:00 完成）
+  - 状态: ✅ 实测确认
+- **生产接管**：休眠期外部启动的非 release 实例（如 `~/.rick/bin/rick`，build_id=dev）会被下一次 release 的重启步骤停掉并接管（stopped 列表含外部 PID）
+  - 来源: job_43 / 迭代 6（stopped=[6440,46,4895]）
+  - 状态: ✅ 实测确认
