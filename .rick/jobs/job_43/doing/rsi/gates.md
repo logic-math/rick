@@ -13,3 +13,4 @@ GATE gate6 pass=true 2026-09-29T15:03:18+08:00
 GATE gate7 pass=true 2026-09-29T21:39:05+08:00
 GATE gate8 pass=true 2026-09-29T21:51:36+08:00
 GATE gate9 pass=true 2026-10-04T17:57:33+08:00
+GATE gate9 release 3d37918 pass=true 2026-10-04T19:39:03+08:00

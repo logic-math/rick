@@ -20,3 +20,7 @@ APPROVED by=human at=2026-09-29T15:10:00+08:00
 APPROVED by=human at=2026-09-29T22:15:00+08:00
 - 批准内容：增量迭代 5 完整 release（task10 后端白名单跨 workspace + task11 全局工具箱 + task12 路径图标，version=9594272-260929215129）
 - human 已在 dev UI 验收图标与流程（"ok 了"）
+
+APPROVED by=human at=2026-10-04T19:00:00+08:00
+- 批准内容：增量迭代 6 release（task13 去白名单，version=b19cac3-261004184116）
+- 附带说明已呈：生产接管（当前 dev 实例 → release 二进制）；PWA 暂缓（human 裁决「暂时这么用着吧」）
