@@ -1,5 +1,11 @@
 # release 记录（job_43）
 
+## 迭代 6 · S3 演练（2026-10-04 18:41，待 S4 人类批准）
+
+RELEASE_GATE pass=true tests=pass frontend=pass took=40s；version=b19cac3-261004184116；prod_untouched=true。
+内容：task13 文件读取去白名单（human 裁决「不要搞特殊逻辑」——直接读任意路径，保留 token/文件类型/大小防御）。PWA 方案 human 裁决暂缓（「暂时这么用着吧」——留遗留：A 快路径 apple-touch-icon 随时可加）。
+注意：当前生产 8413 为外部启动的 ~/.rick/bin/rick（build_id=dev）；本次 release 将重启并接管为 release 通道二进制。
+
 ## 迭代 5 · S3 演练（2026-09-29 21:37，待 S4 人类批准）
 
 RELEASE_GATE pass=true tests=pass frontend=pass took=38s；version=9594272-260929220624；prod_untouched=true。
