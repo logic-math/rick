@@ -149,18 +149,19 @@
       "commit_hash": "95942726691a59ff3e833cfa445783a0f233d908"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-10-01T19:00:00+08:00",
       "dependencies": [
         "task12"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task13.md",
       "task_id": "task13",
       "task_name": "文件读取去白名单（human 裁决：直接读任意路径）",
-      "updated_at": "2026-10-01T19:00:00+08:00"
+      "updated_at": "2026-10-04T09:57:23.963Z",
+      "commit_hash": "56e683d9b7dedfc1113a1ac84daed9e31259b5f6"
     }
   ],
-  "updated_at": "2026-10-01T19:00:00+08:00",
+  "updated_at": "2026-10-04T09:57:23.963Z",
   "version": "1.0"
 }
