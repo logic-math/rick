@@ -16,3 +16,7 @@ APPROVED by=human at=2026-09-29T14:10:00+08:00
 
 APPROVED by=human at=2026-09-29T15:10:00+08:00
 - 批准内容：增量迭代 4 release（dev/self-evolve → main，version=fb01dde-260929150228，会话信息原文 toggle 修复）
+
+APPROVED by=human at=2026-09-29T22:15:00+08:00
+- 批准内容：增量迭代 5 完整 release（task10 后端白名单跨 workspace + task11 全局工具箱 + task12 路径图标，version=9594272-260929215129）
+- human 已在 dev UI 验收图标与流程（"ok 了"）

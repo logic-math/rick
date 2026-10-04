@@ -6,12 +6,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 // newWorkspaceFileEnv builds a workspace with a file at
-// .rick/jobs/job_1/doing/requirement.md plus a file OUTSIDE the workspace, and
-// returns a Deps wired for handleWorkspaceFile.
+// .rick/jobs/job_1/doing/requirement.md plus files OUTSIDE the workspace
+//（同目录 secret.md），and returns a Deps wired for handleWorkspaceFile.
 func newWorkspaceFileEnv(t *testing.T) (Deps, WorkspaceEntry, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -30,7 +31,7 @@ func newWorkspaceFileEnv(t *testing.T) (Deps, WorkspaceEntry, string) {
 	if err := os.WriteFile(filepath.Join(wsPath, "debug", "notes.md"), []byte("notes"), 0o644); err != nil {
 		t.Fatalf("write notes: %v", err)
 	}
-	// 工作区之外（同级目录）：必须拒绝
+	// 工作区之外（同级目录）：去白名单后**可读**（human 裁决 2026-10-01）
 	outside := filepath.Join(root, "secret.md")
 	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
 		t.Fatalf("write outside: %v", err)
@@ -76,9 +77,16 @@ func TestWorkspaceFileRead(t *testing.T) {
 		t.Fatalf("relative root path status = %d (%s)", rec.Code, rec.Body.String())
 	}
 
-	// 绝对路径（工作区内）
-	if rec := get(ws.Path + "%2Fdebug%2Fnotes.md"); rec.Code != http.StatusOK {
+	// 绝对路径（工作区内）→ display 为相对路径
+	rec = get(ws.Path + "%2Fdebug%2Fnotes.md")
+	if rec.Code != http.StatusOK {
 		t.Fatalf("absolute in-workspace path status = %d", rec.Code)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode abs-in-ws: %v", err)
+	}
+	if body.Path != "debug/notes.md" {
+		t.Fatalf("in-ws display = %q, want debug/notes.md", body.Path)
 	}
 
 	// file:// URL（阅读器内点击 file: 链接）—— 用绝对路径构造
@@ -95,70 +103,99 @@ func TestWorkspaceFileRead(t *testing.T) {
 		t.Fatalf("query suffix status = %d", rec.Code)
 	}
 
-	// ---- 安全边界 ----
-	// 绝对路径在工作区之外 → invalid_path（这是本端点的核心防线）
-	if rec := get(outside); rec.Code != http.StatusBadRequest {
-		t.Fatalf("outside absolute path status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	// ---- 去白名单（human 裁决）：任意路径直接读 ----
+	// 工作区之外的绝对路径 → 200（KR14a 核心语义）
+	rec = get(outside)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("outside absolute path status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	// 目录穿越
-	if rec := get("%2E%2E%2Fsecret.md"); rec.Code != http.StatusBadRequest {
-		t.Fatalf("traversal status = %d, want 400", rec.Code)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode outside: %v", err)
 	}
-	if rec := get("%2Fetc%2Fpasswd"); rec.Code != http.StatusBadRequest {
-		t.Fatalf("absolute /etc/passwd status = %d, want 400", rec.Code)
+	if body.Content != "secret" || body.Path != outside {
+		t.Fatalf("outside body = %+v", body)
 	}
-	// 目录不是文件
+
+	// 目录穿越到工作区外 → 200（解析后是合法文件路径）
+	if rec := get("%2E%2E%2Fsecret.md"); rec.Code != http.StatusOK {
+		t.Fatalf("traversal status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 系统文件绝对路径（/etc/hostname 在 Linux CI 环境恒存在且小）→ 200
+	if _, err := os.Stat("/etc/hostname"); err == nil {
+		if rec := get("%2Fetc%2Fhostname"); rec.Code != http.StatusOK {
+			t.Fatalf("/etc/hostname status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+	} else {
+		t.Logf("/etc/hostname 不存在（非 Linux？），跳过该断言: %v", err)
+	}
+
+	// 目录穿越到工作区外 → 200（解析后是合法文件路径；「../../secret.md」
+	// 之类的任意穿越不再受根判定限制——同上，无白名单语义）
+
+	// 符号链接 → 跟随放行（KR14b：读链接目标，不再拒绝）
+	link := filepath.Join(ws.Path, "debug", "link.md")
+	if err := os.Symlink(outside, link); err == nil {
+		if rec := get("debug%2Flink.md"); rec.Code != http.StatusOK {
+			t.Fatalf("symlink status = %d, want 200", rec.Code)
+		}
+	} else {
+		t.Logf("symlink 创建失败（无权限？），跳过: %v", err)
+	}
+
+	// ---- 保留的基本防御（KR14b）----
+	// 目录不是文件 → 404
 	if rec := get(".rick%2Fjobs%2Fjob_1%2Fdoing"); rec.Code != http.StatusNotFound {
 		t.Fatalf("directory status = %d, want 404", rec.Code)
 	}
-	// 缺失
+	// 缺失 → 404
 	if rec := get("debug%2Fnope.md"); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing file status = %d, want 404", rec.Code)
 	}
-	// 空路径
+	// 空路径 → 400
 	if rec := get(""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("empty path status = %d, want 400", rec.Code)
 	}
-	// 符号链接（HTTP 暴露面：拒绝）
-	link := filepath.Join(ws.Path, "debug", "link.md")
-	if err := os.Symlink(outside, link); err == nil {
-		if rec := get("debug%2Flink.md"); rec.Code != http.StatusBadRequest {
-			t.Fatalf("symlink status = %d, want 400", rec.Code)
-		}
+	// 超大文件 → 400
+	big := filepath.Join(t.TempDir(), "big.txt")
+	if err := os.WriteFile(big, make([]byte, MaxReadFileSize+1), 0o644); err != nil {
+		t.Fatalf("write big: %v", err)
+	}
+	if rec := get(big); rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	// NUL → 400
+	if rec := get("debug%00notes.md"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("NUL path status = %d, want 400", rec.Code)
 	}
 }
 
-// TestWorkspaceRelativeFileResolution 直接覆盖路径解析（无需 HTTP）：
-// file:// 前缀、锚点剥离、绝对/相对、允许根（工作区 + ~/.rick）与拒绝分支。
-// roots 用最小允许根（当前 workspace + ~/.rick）——跨 workspace/额外根见
-// TestWorkspaceFileCrossWorkspaceRoots。
-func TestWorkspaceRelativeFileResolution(t *testing.T) {
+// TestResolveWorkspaceFilePath 直接覆盖路径解析（无需 HTTP）：file:// 前缀、
+// 锚点/查询剥离、绝对/相对（相对按 workspace 根解析）、NUL 拒绝——KR14a。
+func TestResolveWorkspaceFilePath(t *testing.T) {
 	wsPath := "/workdir/example/WS"
-	home, _ := os.UserHomeDir()
-	roots := []string{wsPath, filepath.Join(home, ".rick")}
 
 	cases := []struct {
-		in      string
-		wantRel string
-		wantErr bool
+		in   string
+		want string
+		err  bool
 	}{
-		{in: ".rick/jobs/job_1/plan/task1.md", wantRel: ".rick/jobs/job_1/plan/task1.md"},
-		{in: "debug/notes.md", wantRel: "debug/notes.md"},
-		{in: "/workdir/example/WS/debug/notes.md", wantRel: "debug/notes.md"},
-		{in: "file:///workdir/example/WS/debug/notes.md", wantRel: "debug/notes.md"},
-		{in: "debug/notes.md#L10", wantRel: "debug/notes.md"},
-		{in: "debug/notes.md?raw=1", wantRel: "debug/notes.md"},
-		{in: filepath.Join(home, ".rick", "web", "sessions.json"), wantRel: "web/sessions.json"},
-		{in: "../../etc/passwd", wantErr: true},
-		{in: "/etc/passwd", wantErr: true},
-		{in: "/workdir/example/WS", wantErr: true}, // 工作区根自身不是文件
-		{in: "  ", wantErr: true},
+		{in: ".rick/jobs/job_1/plan/task1.md", want: "/workdir/example/WS/.rick/jobs/job_1/plan/task1.md"},
+		{in: "debug/notes.md", want: "/workdir/example/WS/debug/notes.md"},
+		{in: "/workdir/example/WS/debug/notes.md", want: "/workdir/example/WS/debug/notes.md"},
+		{in: "file:///workdir/example/WS/debug/notes.md", want: "/workdir/example/WS/debug/notes.md"},
+		{in: "debug/notes.md#L10", want: "/workdir/example/WS/debug/notes.md"},
+		{in: "debug/notes.md?raw=1", want: "/workdir/example/WS/debug/notes.md"},
+		{in: "/etc/hostname", want: "/etc/hostname"},               // 任意绝对路径：直接通过
+		{in: "../../etc/passwd", want: "/workdir/etc/passwd"},      // 相对穿越：解析为 ws 祖先下的路径
+		{in: "  ", err: true},                              // 空白
+		{in: "debug/notes.md\x00tail", err: true},          // NUL
 	}
 	for _, tc := range cases {
-		got, err := workspaceRelativeFile(wsPath, roots, tc.in)
-		if tc.wantErr {
+		got, err := resolveWorkspaceFilePath(wsPath, tc.in)
+		if tc.err {
 			if err == nil {
-				t.Errorf("%q: expected error, got rel=%q", tc.in, got.rel)
+				t.Errorf("%q: expected error, got abs=%q", tc.in, got)
 			}
 			continue
 		}
@@ -166,100 +203,66 @@ func TestWorkspaceRelativeFileResolution(t *testing.T) {
 			t.Errorf("%q: unexpected error %v", tc.in, err)
 			continue
 		}
-		if got.rel != tc.wantRel {
-			t.Errorf("%q: rel = %q, want %q", tc.in, got.rel, tc.wantRel)
+		if got != tc.want {
+			t.Errorf("%q: abs = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
-// TestWorkspaceFileCrossWorkspaceRoots（job_43 task10）：跨 workspace 阅读
-// 三态——①注册的另一 workspace 路径 200；②未注册路径仍 invalid_path；
-// ③ ExtraFileRoots（dev worktree）路径 200。同时覆盖展示路径回显语义
-//（KR11d：其它根 → 绝对路径）。
-func TestWorkspaceFileCrossWorkspaceRoots(t *testing.T) {
-	deps, ws, outside := newWorkspaceFileEnv(t)
+// TestWorkspaceFileNoWhitelist 端到端断言去白名单语义（KR14a）：未注册的
+// 任意目录路径可读——曾经的 TestWorkspaceFileCrossWorkspaceRoots 白名单
+// 三态（注册 ws 200 / 未注册 400 / ExtraFileRoots 200）已被 human 裁决整体
+// 否决，本测试只剩「都能读」。
+func TestWorkspaceFileNoWhitelist(t *testing.T) {
+	deps, ws, _ := newWorkspaceFileEnv(t)
 
-	// 另一已注册 workspace（模拟 MOGIC_HOME）：在 tempdir 下建 wsB + md 文件
-	root := filepath.Dir(ws.Path)
-	wsB := filepath.Join(root, "wsB")
-	if err := os.MkdirAll(filepath.Join(wsB, ".rick", "jobs", "job_8", "doing", "output"), 0o755); err != nil {
-		t.Fatalf("mkdir wsB: %v", err)
-	}
-	crossMD := filepath.Join(wsB, ".rick", "jobs", "job_8", "doing", "output", "清单.md")
-	if err := os.WriteFile(crossMD, []byte("跨工作区内容"), 0o644); err != nil {
-		t.Fatalf("write cross md: %v", err)
-	}
-	if _, _, err := deps.Workspaces.Add(wsB, "wsB"); err != nil {
-		t.Fatalf("register wsB: %v", err)
+	// 未注册的独立目录树（模拟 MOGIC_HOME / 任意位置）
+	other := t.TempDir()
+	otherMD := filepath.Join(other, "list.md")
+	if err := os.WriteFile(otherMD, []byte("跨工作区内容"), 0o644); err != nil {
+		t.Fatalf("write other md: %v", err)
 	}
 
-	// ExtraFileRoots（模拟 dev worktree）：root/dev + md 文件
-	devTree := filepath.Join(root, "rick-dev")
-	if err := os.MkdirAll(filepath.Join(devTree, ".rick", "jobs", "job_43", "plan"), 0o755); err != nil {
-		t.Fatalf("mkdir devTree: %v", err)
-	}
-	devMD := filepath.Join(devTree, ".rick", "jobs", "job_43", "plan", "task1.md")
-	if err := os.WriteFile(devMD, []byte("dev 树内容"), 0o644); err != nil {
-		t.Fatalf("write dev md: %v", err)
-	}
-	deps.ExtraFileRoots = []string{devTree}
-
-	get := func(path string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/file?path="+path, nil)
-		req.SetPathValue("ws", ws.ID)
-		rec := httptest.NewRecorder()
-		deps.handleWorkspaceFile()(rec, req)
-		return rec
-	}
-
-	// ① 注册的另一 workspace 绝对路径 → 200，display 为绝对路径（KR11d）
-	rec := get(crossMD)
+	req := httptest.NewRequest(http.MethodGet, "/api/workspaces/"+ws.ID+"/file?path="+otherMD, nil)
+	req.SetPathValue("ws", ws.ID)
+	rec := httptest.NewRecorder()
+	deps.handleWorkspaceFile()(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("cross-workspace path status = %d (%s)", rec.Code, rec.Body.String())
+		t.Fatalf("unregistered path status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	var body fileResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if body.Content != "跨工作区内容" {
-		t.Fatalf("cross content = %q", body.Content)
+		t.Fatalf("content = %q", body.Content)
 	}
-	if body.Path != crossMD {
-		t.Fatalf("cross display = %q, want absolute %q", body.Path, crossMD)
+	if body.Path != otherMD {
+		t.Fatalf("display = %q, want absolute %q（工作区外原样回显）", body.Path, otherMD)
 	}
+}
 
-	// ② 未注册且非额外根的路径（同级 secret.md）→ 仍 invalid_path
-	if rec := get(outside); rec.Code != http.StatusBadRequest {
-		t.Fatalf("unregistered path status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+// TestReadFileBasicSymlinkFollowed：symlink 指向的文件可读（KR14b——
+// os.Stat 跟随链接；曾经的 Lstat 逐组件拒绝已随白名单移除）。
+func TestReadFileBasicSymlinkFollowed(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("via-link"), 0o644); err != nil {
+		t.Fatalf("write target: %v", err)
 	}
-
-	// ③ ExtraFileRoots（dev worktree）路径 → 200
-	rec = get(devMD)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("dev-tree path status = %d (%s)", rec.Code, rec.Body.String())
+	link := filepath.Join(dir, "link.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode dev: %v", err)
+	got, err := readFileBasic(link)
+	if err != nil {
+		t.Fatalf("readFileBasic(link) error: %v", err)
 	}
-	if body.Content != "dev 树内容" || body.Path != devMD {
-		t.Fatalf("dev body = %+v", body)
+	if got != "via-link" {
+		t.Fatalf("content = %q", got)
 	}
-
-	// ④ 相对路径仍按当前 workspace 解析（不被其它根劫持）
-	rec = get("debug%2Fnotes.md")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("relative path status = %d, want 200", rec.Code)
-	}
-	var relBody fileResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &relBody); err != nil {
-		t.Fatalf("decode rel: %v", err)
-	}
-	if relBody.Path != "debug/notes.md" {
-		t.Fatalf("relative display = %q, want debug/notes.md", relBody.Path)
-	}
-
-	// ⑤ ExtraFileRoots 下的目录穿越（dev 根之外）仍拒绝
-	if rec := get(filepath.Join(devTree, "..", "secret.md")); rec.Code != http.StatusBadRequest {
-		t.Fatalf("dev traversal status = %d, want 400", rec.Code)
+	// 目录仍拒绝
+	if _, err := readFileBasic(dir); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("readFileBasic(dir) should reject, got %v", err)
 	}
 }
