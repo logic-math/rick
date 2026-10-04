@@ -66,3 +66,10 @@
 - task11：FileReaderProvider/Panel 提升到 App 壳层全局挂载 + 顶栏扳手工具箱 + 路径输入 Dialog；ChatView 解绑（消息链接走全局 Context）
 - gate7 首跑红：internal/cmd 4 个 web 测试读真实 ~/.rick/web.pid 撞生产单例——根因是 RICK_STATE_DIR env 穿透 t.Setenv(HOME) 隔离（本 pi 会话环境带该变量）；gate7 已加 env 净化（剥离 RICK_*），复跑绿（测试代码本身无需改）
 - 后端实测（dev 8414）：注册内绝对路径 200；MOGIC_HOME 在 dev 被拒是 dev/生产 workspace 注册表隔离（设计行为），生产 8 workspace 全可读
+
+## 2026-10-04 · 迭代 6（task13 去白名单 + PWA 调研）
+
+- human 裁决「不要搞特殊逻辑」：迭代 5 task10 的 allowedFileRoots 白名单整体移除——resolveWorkspaceFilePath 直接读（file:// 剥壳/相对按 ws.Path/无根检查）；ExtraFileRoots/resolveDevTreeRoots 随删；保留 仅文件/大小上限/NUL 防御 + token 认证
+- gate9 绿 → commit 56e683d9
+- PWA 调研（research-I6）：Chrome 正式安装硬要求 HTTPS；iOS 例外（http 也可 standalone A2HS，缺 apple-touch-icon 1 行）；Win http 快捷方式+窗口模式可用；Android http 最弱。方案 A（apple-touch-icon 补全）+ B（--tls-cert/key 自签 HTTPS + mkcert）待 human 裁决
+- 环境注意：生产 8413 当前跑 ~/.rick/bin/rick（build_id=dev，10-01 18:25 起）非 release 二进制——机器休眠期生产被外部变更过（来源未知，可能是 human 或其他 agent）；迭代 6 release 时需重新对齐
