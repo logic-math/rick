@@ -16,6 +16,8 @@ research = child agent（agent:'research'），由 human-loop parent 用 runs.ru
 
 **输入 = 历史上下文 + human 需求**（parent 派发时携带）；**输出 = 调研事实，沉淀到 `{{research_dir}}/research_{N}.md`**。
 
+**任务类型**（parent 会点明）：`module-facts`（某个模块/概念的事实，供教一节）或 `domain-survey`（本领域最权威学习资料 + 该领域公认的学习方法，供 teach 做教学大纲——详见 `{{research_skill_path}}` 的任务类型节）。
+
 3 个概念：
 1. **尽调树**：每层 MECE 划分（不重复不遗漏），节点产生疑问则下钻
 2. **信源加权**：置信度 = Σ(信源验证结果 × 权重)

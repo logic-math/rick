@@ -81,7 +81,7 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 		t.Errorf("dry-run output contains an unreplaced template variable")
 	}
 	// 学习材料路径约定注入。
-	for _, want := range []string{"mission.md", "lessons", "research", "judgment.md"} {
+	for _, want := range []string{"mission.md", "syllabus.md", "lessons", "research", "judgment.md"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing learning-material path %q", want)
 		}
@@ -99,7 +99,7 @@ func TestSenseLoopTemplateIsTeacherSession(t *testing.T) {
 	}
 
 	// 新协议关键词：teach + research + 学习材料路径约定 + 文件状态机 + 退出准则。
-	for _, kw := range []string{"teach", "research", "mission.md", "lessons", "judgment.md", "文件状态机", "学习目标", "考核标准", "退出准则"} {
+	for _, kw := range []string{"teach", "research", "mission.md", "syllabus", "教学大纲", "lessons", "judgment.md", "文件状态机", "学习目标", "考核标准", "退出准则"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing keyword %q", kw)
 		}
@@ -154,7 +154,7 @@ func TestTeachTemplateHasSenseAspectsAndDiscipline(t *testing.T) {
 	}
 
 	// 教学纪律 + 产出契约。
-	for _, kw := range []string{"一课一事", "lessons/", "teach_", "隐式", "primary source", "working memory"} {
+	for _, kw := range []string{"一课一事", "lessons/", "teach_", "隐式", "primary source", "working memory", "教学大纲", "核心练习方法", "还原原创思考"} {
 		if !strings.Contains(all, kw) {
 			t.Errorf("teach template/skill missing teaching keyword %q", kw)
 		}
@@ -174,7 +174,7 @@ func TestResearchTemplateHasDiligenceAndGaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTemplate(research) error: %v", err)
 	}
-	for _, kw := range []string{"尽调树", "MECE", "下钻", "信源", "权重", "置信度", "subagent", "research_", "Gaps"} {
+	for _, kw := range []string{"尽调树", "MECE", "下钻", "信源", "权重", "置信度", "subagent", "research_", "Gaps", "domain-survey"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("research.md missing keyword %q", kw)
 		}

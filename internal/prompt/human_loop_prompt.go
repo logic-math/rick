@@ -40,11 +40,13 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 // template builder. Kept in one place so the teacher-session layout stays frozen:
 //
 //	{{loop_dir}}/mission.md
+//	{{loop_dir}}/syllabus.md
 //	{{loop_dir}}/research/research_{N}.md
 //	{{loop_dir}}/lessons/teach_{N}.md
 //	{{loop_dir}}/judgment.md
 func setLearningMaterialVars(builder *PromptBuilder, loopDir string) {
 	builder.SetVariable("mission_path", loopDir+"/mission.md")
+	builder.SetVariable("syllabus_path", loopDir+"/syllabus.md")
 	builder.SetVariable("research_dir", loopDir+"/research")
 	builder.SetVariable("lessons_dir", loopDir+"/lessons")
 	builder.SetVariable("judgment_path", loopDir+"/judgment.md")
