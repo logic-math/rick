@@ -39,7 +39,7 @@ func (p *PIBuilder) manager() *prompt.PromptManager {
 func (p *PIBuilder) Name() string { return "pi" }
 
 // BuildAgents implements RuntimeBuilder. pi 当前不注册额外自定义 agent
-// （think/research/exporter 在 task9 经 env 职责 3 落盘），返回空列表。
+// （teach/research 在 task9 经 env 职责 3 落盘），返回空列表。
 func (p *PIBuilder) BuildAgents(method []Method) ([]AgentDef, error) {
 	return []AgentDef{}, nil
 }
@@ -615,13 +615,13 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 	return promptFile, commandMethod("easy"), skillFiles, nil
 }
 
-// SaveHumanLoopPrompt writes sense_loop/think/research/exporter + skills to loopDir/prompts/.
-func (p *PIBuilder) SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir string) (mainFile, thinkFile, researchFile, exporterFile, method string, err error) {
-	mainFile, thinkFile, researchFile, exporterFile, err = prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, p.manager())
+// SaveHumanLoopPrompt writes sense_loop/teach/research + skills to loopDir/prompts/.
+func (p *PIBuilder) SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir string) (mainFile, teachFile, researchFile, method string, err error) {
+	mainFile, teachFile, researchFile, err = prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, p.manager())
 	if err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", err
 	}
-	return mainFile, thinkFile, researchFile, exporterFile, commandMethod("human-loop"), nil
+	return mainFile, teachFile, researchFile, commandMethod("human-loop"), nil
 }
 
 // SaveCtrlPrompt writes ctrl_prompt.md to doingDir/prompts/.

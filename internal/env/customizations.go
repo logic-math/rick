@@ -13,7 +13,7 @@ import (
 //
 //   - rick-gates hook 扩展：<repo>/.rick/skills/rick-gates/ → AgentDir()/extensions/rick-gates/
 //   - rick skills：<repo>/.rick/skills/*_skill/            → AgentDir()/skills/<name>/
-//   - rick agents：embedded templates/skills/{think,research,exporter}.md
+//   - rick agents：embedded templates/skills/{teach,research}.md
 //     → AgentDir()/agents/{name}.md（task9，frontmatter + wiki 正文）
 //
 // 幂等：重复运行会重写目标文件（内容一致），不产生重复项。

@@ -11,7 +11,7 @@ type Method struct {
 }
 
 // AgentDef describes a runtime-specific custom agent built from methods. pi 的
-// think/research/exporter 等自定义 agent 在后续 task（env 职责 3 / task9）落盘，
+// teach/research 等自定义 agent 在后续 task（env 职责 3 / task9）落盘，
 // 本类型为 RuntimeBuilder.BuildAgents 的返回载体预留。
 type AgentDef struct {
 	Name         string

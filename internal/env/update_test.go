@@ -262,7 +262,7 @@ func TestQuickCheck_ReadyAndNotReady(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(env.agentDir, "agents"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"think", "research", "exporter"} {
+	for _, name := range []string{"teach", "research"} {
 		if err := os.WriteFile(filepath.Join(env.agentDir, "agents", name+".md"),
 			[]byte("---\nname: "+name+"\n---\nbody\n"), 0644); err != nil {
 			t.Fatal(err)

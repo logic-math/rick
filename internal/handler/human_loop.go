@@ -37,7 +37,7 @@ func HumanLoopIn(rickDir string, topic string, opts Options) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	mainFile, _, _, _, _, err := builder.NewPIBuilder().SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir)
+	mainFile, _, _, _, err := builder.NewPIBuilder().SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate human-loop prompt: %w", err)
 	}

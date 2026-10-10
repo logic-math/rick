@@ -5,8 +5,9 @@ import (
 	"os"
 )
 
-// GenerateHumanLoopPrompt generates the human-loop prompt string (for dry-run).
-// Returns the main sense_loop prompt content.
+// GenerateHumanLoopPrompt generates the human-loop (teacher session) prompt string
+// (for dry-run). Returns the main sense_loop prompt content with learning-material
+// paths injected.
 func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manager *PromptManager) (string, error) {
 	if manager == nil {
 		return "", fmt.Errorf("prompt manager cannot be nil")
@@ -17,16 +18,15 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 		return "", fmt.Errorf("failed to load sense_loop template: %w", err)
 	}
 
+	loopDir := "<draft>/loops/loop_N"
 	builder := NewPromptBuilder(mainTmpl)
 	builder.SetVariable("topic", topic)
 	builder.SetVariable("rfc_dir", rfcDir)
 	builder.SetVariable("draft_dir", draftDir)
-	builder.SetVariable("loop_dir", "<draft>/loops/loop_N")
-	builder.SetVariable("think_agent_path", "<draft>/loops/loop_N/prompts/think.md")
-	builder.SetVariable("research_agent_path", "<draft>/loops/loop_N/prompts/research.md")
-	builder.SetVariable("exporter_agent_path", "<draft>/loops/loop_N/prompts/exporter.md")
-	builder.SetVariable("max_retries", "5")
-	builder.SetVariable("max_backflows", "3")
+	builder.SetVariable("loop_dir", loopDir)
+	builder.SetVariable("teach_agent_path", loopDir+"/prompts/teach.md")
+	builder.SetVariable("research_agent_path", loopDir+"/prompts/research.md")
+	setLearningMaterialVars(builder, loopDir)
 
 	content, err := builder.Build()
 	if err != nil {
@@ -36,90 +36,90 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	return content, nil
 }
 
-// GenerateHumanLoopPromptFile generates the human-loop prompt and saves all files to
-// loopDir/prompts/ for persistence across sessions.
-// Returns mainFile (sense_loop), thinkFile, researchFile, exporterFile, and any error.
-func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, loopDir string, manager *PromptManager) (string, string, string, string, error) {
+// setLearningMaterialVars injects the learning-material path convention into a
+// template builder. Kept in one place so the teacher-session layout stays frozen:
+//
+//	{{loop_dir}}/mission.md
+//	{{loop_dir}}/research/research_{N}.md
+//	{{loop_dir}}/lessons/teach_{N}.md
+//	{{loop_dir}}/judgment.md
+func setLearningMaterialVars(builder *PromptBuilder, loopDir string) {
+	builder.SetVariable("mission_path", loopDir+"/mission.md")
+	builder.SetVariable("research_dir", loopDir+"/research")
+	builder.SetVariable("lessons_dir", loopDir+"/lessons")
+	builder.SetVariable("judgment_path", loopDir+"/judgment.md")
+}
+
+// GenerateHumanLoopPromptFile generates the human-loop (teacher session) prompt and
+// saves all files to loopDir/prompts/ for persistence across sessions.
+// Returns mainFile (sense_loop), teachFile, researchFile, and any error.
+// The learning-material directories loopDir/research/ and loopDir/lessons/ are
+// pre-created so subagents only have to write into them.
+func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, loopDir string, manager *PromptManager) (string, string, string, error) {
 	if manager == nil {
-		return "", "", "", "", fmt.Errorf("prompt manager cannot be nil")
+		return "", "", "", fmt.Errorf("prompt manager cannot be nil")
 	}
 
 	promptsDir := loopDir + "/prompts"
-	briefsDir := loopDir + "/briefs"
+	researchDir := loopDir + "/research"
+	lessonsDir := loopDir + "/lessons"
 
-	for _, d := range []string{promptsDir, briefsDir} {
+	for _, d := range []string{promptsDir, researchDir, lessonsDir} {
 		if err := os.MkdirAll(d, 0755); err != nil {
-			return "", "", "", "", fmt.Errorf("failed to create directory %s: %w", d, err)
+			return "", "", "", fmt.Errorf("failed to create directory %s: %w", d, err)
 		}
 	}
 
-	// Write all skill files (sense/think/research/exporter)
+	// Write all skill files (sense/teach/research)
 	senseSkillFile, err := WriteSkillFile(promptsDir, "skill_sense.md", "sense")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to write sense skill: %w", err)
+		return "", "", "", fmt.Errorf("failed to write sense skill: %w", err)
 	}
-	thinkSkillFile, err := WriteSkillFile(promptsDir, "skill_think.md", "think")
+	teachSkillFile, err := WriteSkillFile(promptsDir, "skill_teach.md", "teach")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to write think skill: %w", err)
+		return "", "", "", fmt.Errorf("failed to write teach skill: %w", err)
 	}
 	researchSkillFile, err := WriteSkillFile(promptsDir, "skill_research.md", "research")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to write research skill: %w", err)
-	}
-	exporterSkillFile, err := WriteSkillFile(promptsDir, "skill_exporter.md", "exporter")
-	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to write exporter skill: %w", err)
+		return "", "", "", fmt.Errorf("failed to write research skill: %w", err)
 	}
 
-	// Build and save think subagent prompt
-	thinkTmpl, err := manager.LoadTemplate("think")
+	// Build and save teach subagent prompt
+	teachTmpl, err := manager.LoadTemplate("teach")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to load think template: %w", err)
+		return "", "", "", fmt.Errorf("failed to load teach template: %w", err)
 	}
-	thinkBuilder := NewPromptBuilder(thinkTmpl)
-	thinkBuilder.SetVariable("draft_dir", draftDir)
-	thinkBuilder.SetVariable("rfc_dir", rfcDir)
-	thinkBuilder.SetVariable("loop_dir", loopDir)
-	thinkBuilder.SetVariable("think_skill_path", thinkSkillFile)
-	thinkFile, err := thinkBuilder.BuildAndSaveToDir("think", promptsDir)
+	teachBuilder := NewPromptBuilder(teachTmpl)
+	teachBuilder.SetVariable("draft_dir", draftDir)
+	teachBuilder.SetVariable("rfc_dir", rfcDir)
+	teachBuilder.SetVariable("loop_dir", loopDir)
+	teachBuilder.SetVariable("teach_skill_path", teachSkillFile)
+	setLearningMaterialVars(teachBuilder, loopDir)
+	teachFile, err := teachBuilder.BuildAndSaveToDir("teach", promptsDir)
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to save think: %w", err)
+		return "", "", "", fmt.Errorf("failed to save teach: %w", err)
 	}
 
 	// Build and save research subagent prompt
 	researchTmpl, err := manager.LoadTemplate("research")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to load research template: %w", err)
+		return "", "", "", fmt.Errorf("failed to load research template: %w", err)
 	}
 	researchBuilder := NewPromptBuilder(researchTmpl)
 	researchBuilder.SetVariable("draft_dir", draftDir)
 	researchBuilder.SetVariable("rfc_dir", rfcDir)
 	researchBuilder.SetVariable("loop_dir", loopDir)
 	researchBuilder.SetVariable("research_skill_path", researchSkillFile)
+	setLearningMaterialVars(researchBuilder, loopDir)
 	researchFile, err := researchBuilder.BuildAndSaveToDir("research", promptsDir)
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to save research: %w", err)
-	}
-
-	// Build and save exporter subagent prompt
-	exporterTmpl, err := manager.LoadTemplate("exporter")
-	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to load exporter template: %w", err)
-	}
-	exporterBuilder := NewPromptBuilder(exporterTmpl)
-	exporterBuilder.SetVariable("draft_dir", draftDir)
-	exporterBuilder.SetVariable("rfc_dir", rfcDir)
-	exporterBuilder.SetVariable("loop_dir", loopDir)
-	exporterBuilder.SetVariable("exporter_skill_path", exporterSkillFile)
-	exporterFile, err := exporterBuilder.BuildAndSaveToDir("exporter", promptsDir)
-	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to save exporter: %w", err)
+		return "", "", "", fmt.Errorf("failed to save research: %w", err)
 	}
 
 	// Build and save main sense_loop prompt
 	mainTmpl, err := manager.LoadTemplate("sense_loop")
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to load sense_loop template: %w", err)
+		return "", "", "", fmt.Errorf("failed to load sense_loop template: %w", err)
 	}
 
 	builder := NewPromptBuilder(mainTmpl)
@@ -127,18 +127,15 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, l
 	builder.SetVariable("rfc_dir", rfcDir)
 	builder.SetVariable("draft_dir", draftDir)
 	builder.SetVariable("loop_dir", loopDir)
-	builder.SetVariable("think_agent_path", thinkFile)
+	builder.SetVariable("teach_agent_path", teachFile)
 	builder.SetVariable("research_agent_path", researchFile)
-	builder.SetVariable("exporter_agent_path", exporterFile)
-	builder.SetVariable("max_retries", "5")
-	builder.SetVariable("max_backflows", "3")
-	builder.SetVariable("min_assumptions", "5")
+	setLearningMaterialVars(builder, loopDir)
 
 	mainFile, err := builder.BuildAndSaveToDir("sense_loop", promptsDir)
 	if err != nil {
-		return "", "", "", "", fmt.Errorf("failed to build and save sense_loop prompt: %w", err)
+		return "", "", "", fmt.Errorf("failed to build and save sense_loop prompt: %w", err)
 	}
 	_ = senseSkillFile // sense skill written for subagent reference
 
-	return mainFile, thinkFile, researchFile, exporterFile, nil
+	return mainFile, teachFile, researchFile, nil
 }
