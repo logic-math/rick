@@ -14,28 +14,30 @@
       "commit_hash": "5c533078176a6bbb5111306e9bba35421e501308"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-10-05T23:06:13+08:00",
       "dependencies": [
         "task1"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task2.md",
       "task_id": "task2",
       "task_name": "humans 页面后端 API（draft 文件树 + 文件读取，镜像 knowledge 接口）",
-      "updated_at": "2026-10-05T23:06:13+08:00"
+      "updated_at": "2026-10-10T07:21:42.018Z",
+      "commit_hash": "57f599c70c72b6af92b2a7dde3c9a630daf666f1"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-10-05T23:06:13+08:00",
       "dependencies": [
         "task1"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task3.md",
       "task_id": "task3",
       "task_name": "humans 页面前端 + 草稿持久化（学习材料浏览页 + localStorage 草稿不丢）",
-      "updated_at": "2026-10-05T23:06:13+08:00"
+      "updated_at": "2026-10-10T07:21:42.018Z",
+      "commit_hash": "57f599c70c72b6af92b2a7dde3c9a630daf666f1"
     },
     {
       "attempts": 0,
@@ -52,6 +54,6 @@
       "updated_at": "2026-10-05T23:06:13+08:00"
     }
   ],
-  "updated_at": "2026-10-10T07:11:55.470Z",
+  "updated_at": "2026-10-10T07:21:42.018Z",
   "version": "1.0"
 }
