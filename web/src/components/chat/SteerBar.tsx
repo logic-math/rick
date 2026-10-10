@@ -33,6 +33,8 @@ interface SteerBarProps {
   busy?: boolean;
   /** compacting 提示（上下文压缩中——steer 仍可排队） */
   compacting?: boolean;
+  /** 会话 id：透传给 ChatInput 作草稿持久化键（缺省则草稿不持久化） */
+  sessionId?: string;
 }
 
 export default function SteerBar({
@@ -44,6 +46,7 @@ export default function SteerBar({
   onContinue,
   busy,
   compacting,
+  sessionId,
 }: SteerBarProps) {
   if (phase === "loading") {
     return (
@@ -121,6 +124,7 @@ export default function SteerBar({
         onCommand={onCommand}
         placeholder={phase === "streaming" ? "steer 纠偏：排队下一轮注入的指令…" : undefined}
         busy={busy}
+        sessionId={sessionId}
       />
     </div>
   );

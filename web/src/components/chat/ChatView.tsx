@@ -820,6 +820,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           onContinue={() => void continueRun()}
           busy={busy}
           compacting={vm.compacting}
+          sessionId={sessionId}
         />
       </div>
     </div>

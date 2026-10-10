@@ -26,6 +26,8 @@
 - web/src/components/chat/ChatInput.tsx
 - web/src/components/chat/ChatView.tsx（传 sessionId/props）
 - web/src/api/client.ts（如需新增 humans api 方法）
+- web/src/components/layout/WorkspaceListNode.tsx（**仅一行**：WS_VIEWS 加 Humans 导航项；parent 批准的范围例外，2026-10-05）
+- web/src/components/chat/SteerBar.tsx（**仅机械透传**：SteerBarProps 加 sessionId?: string 并传给 ChatInput；不改 steer/abort/closed 逻辑；parent 批准，2026-10-05）
 
 # 依赖关系
 

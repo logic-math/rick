@@ -21,6 +21,7 @@
 - .rick/jobs/job_44/doing/rsi/**（新建 5 文件）
 - .rick/jobs/job_44/doing/evaluation-rubric.md（新建）
 - .rick/jobs/job_44/doing/debug/**（如遇问题）
+- internal/cmd/tools_update_pi.go（**清理 task1 遗留**：帮助文本第 54 行仍列 think/research/exporter → 改为 teach/research；一行文档修复）
 
 # 依赖关系
 
