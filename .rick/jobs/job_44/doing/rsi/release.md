@@ -89,3 +89,22 @@ RELEASE_DRYRUN prod_untouched=true（未写生产树、未换链、未重启；�
 
 命令：`RICK_PROD_REPO=/workdir/sunquan20/AI_CODING/rick <built-bin> tools release --merge-source --detach`
 载荷定界：已排除 `.rick/jobs/job_44`、`.rick/jobs/job_45`（见 commit 16c493a）；生产树这两条路径的 human 副本零改动。
+
+## S5 第一次尝试：失败（权限阻塞，未留中间态）
+
+```
+RELEASE_GATE pass=true tests=pass frontend=pass took=24s
+RELEASE_FAIL stage=build detail=build: mkdir /workdir/sunquan20/AI_CODING/rick/bin/releases/3c86908-261012211221: permission denied
+```
+
+现场核对（失败后立即探测）：
+- 生产 main HEAD 仍为 `22f186c`（**未产生合并提交**）；`.git/MERGE_HEAD` 不存在；tracked 工作树干净 → **无中间态**
+- 生产 8413 `/api/health` → `build_id="dev"`（仍是重启前旧实例）→ **未换链、未重启，无损害**
+- 根因：`<prod>/bin/releases/` 属主 sankuai、ACL `mask::r-x` → agent（hadoop-recsys）无写权限，无法 mkdir 版本目录；`setfacl` 非属主被拒（Operation not permitted），`sudo` 需密码。
+- 发布要素可写性体检：`bin/releases` ❌ / `bin/releases/.last` ❌；`bin/rick` ✅ / `~/.rick/start-web.sh` ✅ / `~/.rick/web` ✅ / `release.log|state.json` ✅ —— 仅一项需授权。
+
+所需授权（human 执行一条命令）：
+```
+setfacl -R -m u:hadoop-recsys:rwx -m m::rwx /workdir/sunquan20/AI_CODING/rick/bin/releases
+```
+授权后重跑 S5 即可（release 会重新 gate+build+换链+重启）。
