@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-06T23:01:42.464422+08:00",
+  "updated_at": "2026-04-06T23:33:02.737131+08:00",
+  "tasks": [
+    {
+      "task_id": "task3",
+      "task_name": "修复三个 check 工具与实际产出格式的不一致问题",
+      "task_file": "task3.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "faf12b9bfc9e5a3798409b07a36d1dc01c98ace9",
+      "created_at": "2026-04-06T23:01:42.464422+08:00",
+      "updated_at": "2026-04-06T23:15:50.902709+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "优化 doing 重试循环的测试失败信息传递",
+      "task_file": "task2.md",
+      "status": "success",
+      "dependencies": [],
+      "attempts": 0,
+      "commit_hash": "f8788ff8276282534372fa14d5327e4458be9739",
+      "created_at": "2026-04-06T23:01:42.464422+08:00",
+      "updated_at": "2026-04-06T23:21:33.839565+08:00"
+    },
+    {
+      "task_id": "task1",
+      "task_name": "在 plan/doing/learning 提示词模板中强制集成 check 机制",
+      "task_file": "task1.md",
+      "status": "success",
+      "dependencies": [
+        "task3"
+      ],
+      "attempts": 0,
+      "commit_hash": "8e21c3dea4ab63c756913fa2d5779436661d9bfb",
+      "created_at": "2026-04-06T23:01:42.464422+08:00",
+      "updated_at": "2026-04-06T23:33:02.737099+08:00"
+    }
+  ]
+}

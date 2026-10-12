@@ -1,0 +1,29 @@
+{
+  "job_id": "job_6",
+  "tasks": [
+    {
+      "id": "task1",
+      "name": "实现 human-loop 命令的提示词模板",
+      "dependencies": [],
+      "status": "pending"
+    },
+    {
+      "id": "task2",
+      "name": "实现 human-loop 命令的 prompt 生成函数和 RFC 目录管理",
+      "dependencies": [],
+      "status": "pending"
+    },
+    {
+      "id": "task3",
+      "name": "实现 rick human-loop CLI 命令",
+      "dependencies": ["task1", "task2"],
+      "status": "pending"
+    },
+    {
+      "id": "task4",
+      "name": "为 rick plan 命令增加 --job flag 支持重进已有 job",
+      "dependencies": [],
+      "status": "pending"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# RSI 证据：gates
+
+通过标准：每层门禁一行且全部 pass=true，**不得**出现 pass=false。
+示例：`GATE gate11 pass=true`
+
+
+GATE gate1 pass=true 2026-09-24T18:56:02+08:00
+GATE gate2 pass=true 2026-09-24T19:06:40+08:00
+GATE gate3 pass=true 2026-09-25T12:16:18+08:00
+GATE gate4 pass=true 2026-09-25T12:16:18+08:00
+GATE gate5 pass=true 2026-09-29T13:59:02+08:00
+GATE gate6 pass=true 2026-09-29T15:03:18+08:00
+GATE gate7 pass=true 2026-09-29T21:39:05+08:00
+GATE gate8 pass=true 2026-09-29T21:51:36+08:00
+GATE gate9 pass=true 2026-10-04T17:57:33+08:00
+GATE gate9 release 3d37918 pass=true 2026-10-04T19:39:03+08:00
