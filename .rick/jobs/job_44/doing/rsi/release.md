@@ -45,3 +45,33 @@ RICK_PROD_REPO=/workdir/sunquan20/AI_CODING/rick go run ./cmd/rick tools release
 
 S5（`release --merge-source --detach`）尚未执行 —— 需 S4 人类确认后由 parent 执行。
 执行后本文件追加一行 `RELEASE_MERGE merged=true version=<sha7>-<ts> rollback_point=<path>`。
+
+## S3 演练（v6，2026-10-12，dev HEAD d7686c4）
+
+命令（dev 树 cwd）：
+```
+RICK_PROD_REPO=/workdir/sunquan20/AI_CODING/rick no_proxy=localhost,127.0.0.1 go run ./cmd/rick tools release --dry-run
+```
+
+关键行：
+```
+RELEASE_PLAN start_script=/home/hadoop-recsys/.rick/start-web.sh current=1c3f085-260922193340 rollback_point=59ac918-260922143616 keep=3
+RELEASE_GATE pass=true tests=pass frontend=pass took=43s
+RELEASE_DRYRUN version=d7686c4-261012210346 dist_files=12 sha256=772d3cc7dff7
+RELEASE_DRYRUN prod_untouched=true（未写生产树、未换链、未重启；所有会话/任务不会被打断）
+RELEASE_DRYRUN cleanup=ok
+```
+
+演练计划（供 S4 人类确认 → 已获批准）：
+```
+version=d7686c4-261012210346
+prod_untouched=true
+```
+
+影响面：提升会重启生产 8413（优雅退出 ≤12s、就绪 ~0.2s）；所有在跑会话/后台 job 变「挂起」，需人工点「恢复继续」，**不自动续跑**。
+**特殊**：本 job 的承载会话由生产 web（8413）承载，S5 会同时挂起它 —— S6/S7 需 human 在 UI 恢复后继续。
+
+## 发布前置（merge 阻塞与处置）
+
+生产树存在 untracked `.rick/jobs/job_44/`、`job_45/`（属主 sankuai，agent 无写权限）， dev 分支已跟踪同名路径 → `git merge` 会因「untracked working tree files would be overwritten」中止。处置：由 human 授权 agent 写权限（或代为 stash/移出）后继续 S5。
+```
