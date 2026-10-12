@@ -42,7 +42,7 @@ type Config struct {
   "max_retries": 5,
   "runtime": "pi",
   "pi_path": "",
-  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-pro", "--api-key", "sk-..."],
+  "pi_extra_args": ["--provider", "catpaw-proxy", "--model", "glm-5.3", "--thinking", "high"],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",
