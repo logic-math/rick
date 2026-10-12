@@ -90,7 +90,7 @@ func commandMethod(cmd string) string {
 	case "easy":
 		sop = "Easy 方法：grilling 追问澄清需求 → 按 doing_loop 执行 → 格式检查（easy_check）→ 等待人类指令后执行 learning loop。"
 	case "human-loop":
-		sop = "SENSE 方法（5 阶段）：S 问题确认 → E 视角生成 → N1 矛盾生成 → N2 主要矛盾判断 → S-R 辩证逆转 → EC 良知批判（human 自判）；允许反向回流。"
+		sop = "SENSE 思考范式（非流程）：事实还原（research 递归调研至常识性置信信息源，价值性信息上报 human 裁决）→ 构建视角 → 洞察矛盾 → 辩证逆转 → 良质批判（teach 执行）；parent 编排回合、呈报原文、考核演练通过后终止。"
 	case "ctrl":
 		sop = "Ctrl 方法：监控 doing 进度，读取 tasks.json 与 raw_session_coding.log 汇报状态，接受人类干预指令（展示计划后征得确认再写文件）。"
 	case "dream":

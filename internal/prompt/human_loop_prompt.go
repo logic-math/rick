@@ -26,6 +26,7 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	builder.SetVariable("loop_dir", loopDir)
 	builder.SetVariable("teach_agent_path", loopDir+"/prompts/teach.md")
 	builder.SetVariable("research_agent_path", loopDir+"/prompts/research.md")
+	builder.SetVariable("sense_skill_path", loopDir+"/prompts/skill_sense.md")
 	setLearningMaterialVars(builder, loopDir)
 
 	content, err := builder.Build()
@@ -40,12 +41,14 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 // template builder. Kept in one place so the teacher-session layout stays frozen:
 //
 //	{{loop_dir}}/mission.md
+//	{{loop_dir}}/values.md
 //	{{loop_dir}}/syllabus.md
 //	{{loop_dir}}/research/research_{N}.md
 //	{{loop_dir}}/lessons/teach_{N}.md
 //	{{loop_dir}}/judgment.md
 func setLearningMaterialVars(builder *PromptBuilder, loopDir string) {
 	builder.SetVariable("mission_path", loopDir+"/mission.md")
+	builder.SetVariable("values_path", loopDir+"/values.md")
 	builder.SetVariable("syllabus_path", loopDir+"/syllabus.md")
 	builder.SetVariable("research_dir", loopDir+"/research")
 	builder.SetVariable("lessons_dir", loopDir+"/lessons")
@@ -96,6 +99,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, l
 	teachBuilder.SetVariable("rfc_dir", rfcDir)
 	teachBuilder.SetVariable("loop_dir", loopDir)
 	teachBuilder.SetVariable("teach_skill_path", teachSkillFile)
+	teachBuilder.SetVariable("sense_skill_path", senseSkillFile)
 	setLearningMaterialVars(teachBuilder, loopDir)
 	teachFile, err := teachBuilder.BuildAndSaveToDir("teach", promptsDir)
 	if err != nil {
@@ -112,6 +116,7 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, l
 	researchBuilder.SetVariable("rfc_dir", rfcDir)
 	researchBuilder.SetVariable("loop_dir", loopDir)
 	researchBuilder.SetVariable("research_skill_path", researchSkillFile)
+	researchBuilder.SetVariable("sense_skill_path", senseSkillFile)
 	setLearningMaterialVars(researchBuilder, loopDir)
 	researchFile, err := researchBuilder.BuildAndSaveToDir("research", promptsDir)
 	if err != nil {
@@ -131,13 +136,13 @@ func GenerateHumanLoopPromptFile(topic string, rfcDir string, draftDir string, l
 	builder.SetVariable("loop_dir", loopDir)
 	builder.SetVariable("teach_agent_path", teachFile)
 	builder.SetVariable("research_agent_path", researchFile)
+	builder.SetVariable("sense_skill_path", senseSkillFile)
 	setLearningMaterialVars(builder, loopDir)
 
 	mainFile, err := builder.BuildAndSaveToDir("sense_loop", promptsDir)
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to build and save sense_loop prompt: %w", err)
 	}
-	_ = senseSkillFile // sense skill written for subagent reference
 
 	return mainFile, teachFile, researchFile, nil
 }

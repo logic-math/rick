@@ -37,7 +37,7 @@ const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_co
 var rickAgents = []rickAgentSpec{
 	{
 		name:           "teach",
-		description:    "SENSE 思考 + 教学课程产出（教师：还原事实/呈现视角/洞察矛盾/启发逆转/良质批判，一课一事，引导 human 做 SENSE 思考）",
+		description:    "SENSE 思考 + 教学产出（范式五步：事实还原/构建视角/洞察矛盾/辩证逆转/良质批判；syllabus/lesson/syllabus-update/assess 四模式，引导 human 做 SENSE 思考）",
 		tools:          fullTools,
 		defaultContext: "fresh",
 		// 递归外包 + 自落盘：teach 自己落盘课程节（write 首块 + bash cat >> 分批追加），
