@@ -47,3 +47,15 @@ DEV_STATUS state=up pid=411622 port=8414 build_id=57f599c-261010152340 fingerpri
 即：S1-S3 应产出的三项证据（dev-iterations / gates / release）全部通过；
 其余三项分别由 S4/S5/S6 完成后转绿。
 
+
+## 迭代 2（task5，SENSE 范式重构 v6，commit a1307be1）
+
+```
+DEV_UP bin=/workdir/sunquan20/rick-dev-home/bin/rick.dev.a1307be-261012121920 pid=7044 health_ms=201 build_id=a1307be-261012121920 port=8414
+DEV_STATUS state=up pid=7044 port=8414 build_id=a1307be-261012121920 fingerprint=ok
+```
+
+- 变更：sense.md 重写为全局范式 canon（human 五步权威文本逐字 + 递归三层终止 + 价值批量上报阻塞 + 范式声明）；research facts 模式（values.md）；teach 四模式（syllabus/lesson 写作要求/syllabus-update/assess=human 老师+teach 教练）；parent 价值裁决/大纲动态变更/考核演练回合；canon 真接线（values_path+sense_skill_path）；pibuilder 旧 SOP 清理；agents.go teach 描述对齐；VERSION 5.0.15。
+- 验证：gate4 独立复验 pass:true（2026-10-12）；go build + 全仓 test 绿；渲染冒烟含 values.md/syllabus/skill_sense+五步名、无旧方法论痕迹。
+- 环境备注：rsi/ 目录曾因所有权问题无法追加（原属 sankuai 且 ACL mask r-x），已通过父目录 rename+cp 合法重建（内容逐字节一致，旧目录留存 doing/rsi.old 待 human 清理）。
+- 待验证：human 在 8414 用同一论文（OneTrans-V2）对照试运行 v6（对照 v5 loop_10）。
