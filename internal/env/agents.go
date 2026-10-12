@@ -32,16 +32,16 @@ type rickAgentSpec struct {
 const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_content, subagent"
 
 // rickAgents 是 rick 经 env 职责 3 注册为 pi 自定义 agent 的清单
-// （think/research/exporter）。system prompt = 对应源码 skill 的 wiki 正文。
-// v4.1.1 起三 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
+// （teach/research）。system prompt = 对应源码 skill 的 wiki 正文。
+// v4.1.1 起两 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
 var rickAgents = []rickAgentSpec{
 	{
-		name:           "think",
-		description:    "推理过程分析 + 4 维风险评估 + 启发性 3 问方法论（SENSE 的 S2 假设枚举与 EC 批判）",
+		name:           "teach",
+		description:    "SENSE 思考 + 教学产出（范式五步：事实还原/构建视角/洞察矛盾/辩证逆转/良质批判；syllabus/lesson/syllabus-update/assess 四模式，引导 human 做 SENSE 思考）",
 		tools:          fullTools,
 		defaultContext: "fresh",
-		// 递归外包 + 自落盘：think 自己落盘简报，parent 读文件校验；重载思考可
-		// 拆解为叶子外包（pi maxSubagentDepth=2 封底）。inline 交付降级为 parent
+		// 递归外包 + 自落盘：teach 自己落盘课程节（write 首块 + bash cat >> 分批追加），
+		// 重载思考可拆解为叶子外包（pi maxSubagentDepth=2 封底）。inline 交付降级为 parent
 		// 侧安全网（连续失败时 resume 让其直接回复全文，parent 代写）。
 		thinking:  "high",
 		timeoutMs: 3600000, // 60min：glm-5.3 慢 TTFB + 思考外包等待，默认 30min 会掐死交付前一刻
@@ -51,19 +51,10 @@ var rickAgents = []rickAgentSpec{
 		description:    "尽调树 + 信源加权方法论（澄清事实模糊性到极限；预估内容过多时拆叶子 worker 递归尽调）",
 		tools:          fullTools,
 		defaultContext: "fresh",
-		// 递归外包 + 自落盘：research 自落盘调研报告（write 首块 + bash cat >> 分批
+		// 递归外包 + 自落盘：research 自落盘事实材料（write 首块 + bash cat >> 分批
 		// 追加），预估内容过多时拆叶子各写各的叶子文件；bash 支撑「运行时行为」信源验证。
 		thinking:  "high",
 		timeoutMs: 3600000, // 60min：实测 E 阶段 research（首轮 8.5min + 叶子扇出 14.4min）≈27-35min，默认 30min 超时恰在落盘前掐死
-	},
-	{
-		name:           "exporter",
-		description:    "教学综合 + RFC 固化（教师身份：第一性原理教学简报 → 启发式追问；最终大纲+内容两阶段 RFC）",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		// thinking high：exporter 起草中文 RFC 大文档，与 think 同一死亡模式。
-		thinking:  "high",
-		timeoutMs: 3600000,
 	},
 }
 

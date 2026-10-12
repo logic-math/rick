@@ -42,10 +42,63 @@ interface ChatInputProps {
   disabled?: boolean;
   /** 发送中（请求已发出等待 echo——防连击） */
   busy?: boolean;
+  /** 会话 id：草稿按会话持久化到 localStorage（缺省则纯内存，不持久化） */
+  sessionId?: string;
 }
 
 /** textarea 自适应上限（px）：约 6 行（240px = max-h-60），超出内部滚动 */
 const TA_MAX_HEIGHT = 240;
+
+// ============================================================
+// 草稿持久化（KR3b）：未发送内容不再因刷新 / frontend_reload
+// （sse.ts location.reload）/ 路由切换 / 重挂载而丢失。
+//
+// 键：rick-web-draft:<sessionId>——各会话各存各的。localStorage 不可用
+// （隐私模式 / 配额）时 try/catch 静默降级为纯内存（不报错、不影响发送）。
+// ============================================================
+
+/** 草稿 localStorage 键前缀（导出供测试/复用） */
+export const DRAFT_STORAGE_PREFIX = "rick-web-draft:";
+/** 输入防抖落盘间隔（ms） */
+const DRAFT_SAVE_DEBOUNCE_MS = 500;
+
+function draftKey(sessionId: string): string {
+  return `${DRAFT_STORAGE_PREFIX}${sessionId}`;
+}
+
+/** 读草稿；无 sessionId 或 localStorage 不可用时返回空串 */
+function loadDraft(sessionId: string | undefined): string {
+  if (!sessionId) return "";
+  try {
+    return localStorage.getItem(draftKey(sessionId)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** 写草稿（空串=删除键）；localStorage 不可用时静默降级 */
+function saveDraft(sessionId: string | undefined, text: string): void {
+  if (!sessionId) return;
+  try {
+    if (text) {
+      localStorage.setItem(draftKey(sessionId), text);
+    } else {
+      localStorage.removeItem(draftKey(sessionId));
+    }
+  } catch {
+    // localStorage 不可用（隐私模式/配额）——静默降级为纯内存
+  }
+}
+
+/** 删除草稿（发送成功 / 主动清空） */
+function clearDraft(sessionId: string | undefined): void {
+  if (!sessionId) return;
+  try {
+    localStorage.removeItem(draftKey(sessionId));
+  } catch {
+    // 同上——静默降级
+  }
+}
 
 /** 软键盘高度偏移（px；无 VisualViewport/桌面端为 0） */
 function useKeyboardOffset(): number {
@@ -69,11 +122,46 @@ function useKeyboardOffset(): number {
   return offset;
 }
 
-export default function ChatInput({ onSend, onCommand, placeholder, disabled, busy }: ChatInputProps) {
-  const [text, setText] = useState("");
+export default function ChatInput({ onSend, onCommand, placeholder, disabled, busy, sessionId }: ChatInputProps) {
+  // 挂载即从 localStorage 恢复草稿（刷新 / location.reload / 路由重挂载后仍在）
+  const [text, setText] = useState<string>(() => loadDraft(sessionId));
   const [menuIndex, setMenuIndex] = useState(0);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const keyboardOffset = useKeyboardOffset();
+
+  // effect 闭包里读不到最新 text/sessionId，用 ref 镜像（防抖/卸载落盘用）
+  const textRef = useRef(text);
+  textRef.current = text;
+  /** 已载入草稿的会话 id（会话切换时把旧会话草稿落回旧键） */
+  const draftSessionRef = useRef(sessionId);
+
+  // 输入防抖落盘（~500ms）——正常体验下无感
+  useEffect(() => {
+    if (!sessionId) return;
+    const t = setTimeout(() => saveDraft(draftSessionRef.current, textRef.current), DRAFT_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [text, sessionId]);
+
+  // 会话切换（组件未被 key 重挂时兜底）：旧会话草稿先落盘，再载入新会话草稿
+  useEffect(() => {
+    if (draftSessionRef.current === sessionId) return;
+    saveDraft(draftSessionRef.current, textRef.current);
+    draftSessionRef.current = sessionId;
+    setText(loadDraft(sessionId));
+  }, [sessionId]);
+
+  // 卸载（路由离开 / 重载前组件拆除）：最后一次落盘，避免 <500ms 编辑窗口丢稿
+  useEffect(() => {
+    return () => {
+      saveDraft(draftSessionRef.current, textRef.current);
+    };
+  }, []);
+
+  /** 清空输入并同步删除已持久化草稿（发送成功 / 命令执行 / Esc 清空） */
+  const clearText = (): void => {
+    setText("");
+    clearDraft(draftSessionRef.current);
+  };
 
   // textarea 高度自适应（KR6c）：scrollHeight 驱动——长句自动折行也撑高。
   // 先置 auto 再量 scrollHeight（否则 height 固定时 scrollHeight 量的是内容高，
@@ -123,7 +211,7 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
       if (target) {
         if (target.available) {
           onCommand({ ...target, arg: value.slice(target.name.length).trim() });
-          setText("");
+          clearText();
         } else {
           // 不可用命令就地提示（不清空输入——用户可看到提示）
           setNotice(`${target.name} 暂不可用`);
@@ -133,7 +221,7 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
     }
 
     onSend(value);
-    setText("");
+    clearText();
   };
 
   const [notice, setNotice] = useState<string | null>(null);
@@ -163,7 +251,7 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setText("");
+        clearText();
         return;
       }
     }
@@ -195,7 +283,7 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
               onClick={() => {
                 if (c.available) {
                   onCommand(c);
-                  setText("");
+                  clearText();
                 } else {
                   setNotice(`${c.name} 暂不可用`);
                 }

@@ -2066,7 +2066,7 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		if err != nil {
 			return nil, err
 		}
-		mainFile, _, _, _, method, err := pb.SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir)
+		mainFile, _, _, method, err := pb.SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir)
 		if err != nil {
 			return nil, fmt.Errorf("build human-loop prompt: %w", err)
 		}

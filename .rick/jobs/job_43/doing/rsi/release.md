@@ -1,8 +1,12 @@
+version=3d37918-261004190207
+rollback_point=/home/hadoop-recsys/.rick/releases/8dfa897-260929215314
+released=yes
+
 # release 记录（job_43）
 
 ## 迭代 6 · S3 演练（2026-10-04 18:41，待 S4 人类批准）
 
-RELEASE_GATE pass=true tests=pass frontend=pass took=40s；version=b19cac3-261004184116；prod_untouched=true。
+RELEASE_GATE pass=true tests=pass frontend=pass took=40s；version=3d37918-261004190207；prod_untouched=true。
 内容：task13 文件读取去白名单（human 裁决「不要搞特殊逻辑」——直接读任意路径，保留 token/文件类型/大小防御）。PWA 方案 human 裁决暂缓（「暂时这么用着吧」——留遗留：A 快路径 apple-touch-icon 随时可加）。
 注意：当前生产 8413 为外部启动的 ~/.rick/bin/rick（build_id=dev）；本次 release 将重启并接管为 release 通道二进制。
 
@@ -50,3 +54,10 @@ merged f87dd0e files=53；第一次尝试 build 阶段 bin/releases 权限拒绝
 - RELEASE_MERGE merged=true commit=15881a6 files=14；RESTART health_ms=201 build_id_matches=true；gc=[0d26c68-260929124639]
 - 生产 /api/health：build_id=4b25f12-260929163400 == 本次 version ✓
 - S6：本承载会话（e7dbebd0）挂起 → human 点「恢复继续」接续
+
+## 迭代 6 · S5 提升（2026-10-04 19:02，已完成）
+
+- 实际构建版本 3d37918-261004190207（批准留痕提交推进 dev HEAD——含 task13 + 证据，与 dry-run sha7 不同属正常）
+- RELEASE_MERGE merged=true commit=22f186c files=12；RESTART health_ms=201 build_id_matches=true；stopped=[6440,46,4895]（含休眠期外部启动的 dev 实例 6440——release 接管为正式通道）
+- 生产 /api/health：build_id=3d37918-261004190207 == 本次 version ✓
+- S6：挂起 2 会话（job_4 + 本会话 job_43）→ human 点「恢复继续」接续

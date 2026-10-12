@@ -134,3 +134,10 @@ type ContentBlock struct {
 - **~/.rick/pi 隔离逻辑必须保留**：rick 的 pi（配置 + 运行时）与用户的全局/独立 pi 完全隔离，互不污染，可独立升级
 - 运行时副本保持**原样（stock）**，不做任何代码级修改；UI 定制只走主题配置（`rick tools theme`）
 - 设计权衡（job_34 结论）：pi 的 diff/命令渲染行为（反显高亮、语法高亮）只能通过改 pi 代码实现，主题 token 覆盖不到；该做法需修改运行时副本，当前**不引入**（后续如需再做），仅保留隔离基础设施
+
+## rick web（job_43 起：会话持久持有 + 工具箱）
+
+- **worker 上限可配置**：`~/.rick/config.json` 新增 `web_max_active`（缺省/0 → 64）；组合根 `resolveSupervisorConfig`（internal/cmd/web.go）解析；`internal/runtime.DefaultMaxActive=64`；心跳杀保留（真卡死进程仍清理），**空闲回收已禁用**（`runtime.IdleDisabled` 哨兵负值——server 存续即持久持有）
+- **顶栏工具箱「打开文件」入口**（App 壳层，OpenPathIcon）：路径输入 Dialog → FileReaderPanel（全局挂载）阅读 md；消息里反引号/markdown 链接路径同走 `LocalAwareLink → reader.open()`
+- **GET /api/workspaces/{ws}/file?path=...** 语义（human 裁决 2026-10-01「不要搞特殊逻辑」）：**路径不做根限制**——file:// URL / 绝对路径 / 相对当前 workspace 均直接读；保留防御：token 认证 + 仅文件非目录 + 大小上限 + NUL 拒绝。历史：迭代 5 曾加「全注册 workspaces + ~/.rick + dev 树」白名单（allowedFileRoots），迭代 6 按裁决整体移除
+- 验证：`curl -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8413/api/workspaces/<ws>/file?path=/etc/hostname"`

@@ -514,6 +514,27 @@ export class ApiClient {
   }
 
   // ----------------------------------------------------------
+  // Humans（human-loop 学习材料与进度，只读；与 knowledge 同构）
+  // ----------------------------------------------------------
+
+  /** GET /api/workspaces/{ws}/humans/tree —— .rick/draft/ 扁平文件树（{tree:[{path,size}]}） */
+  humansTree(workspaceId: string): Promise<KnowledgeTree> {
+    return this.request<KnowledgeTree>(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/humans/tree`,
+    );
+  }
+
+  /** GET /api/workspaces/{ws}/humans/file?path=loops/loop_1/judgment.md */
+  humansFile(workspaceId: string, path: string): Promise<KnowledgeFileContent> {
+    return this.request<KnowledgeFileContent>(
+      "GET",
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/humans/file`,
+      { query: { path } },
+    );
+  }
+
+  // ----------------------------------------------------------
   // Web 管理（自迭代）
   // ----------------------------------------------------------
 

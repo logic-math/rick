@@ -26,6 +26,7 @@ const WS_VIEWS = [
   { to: (id: string) => `/ws/${id}/sessions`, label: "Sessions" },
   { to: (id: string) => `/ws/${id}/jobs`, label: "Jobs" },
   { to: (id: string) => `/ws/${id}/dreams`, label: "Dreams" },
+  { to: (id: string) => `/ws/${id}/humans`, label: "Humans" },
 ] as const;
 
 interface WorkspaceListNodeProps {

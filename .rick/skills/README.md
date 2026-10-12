@@ -28,6 +28,10 @@ Skill 是一个原子级能力单元（静态上下文），agent 在遇到触�
 | failure_feedback_skill | 理解/调整 doing 重试时失败信息传递机制 |
 | mark_task_success_skill | rick-gates 门禁报 missing commit_hash 时修复 |
 | global_ref_sync_skill | 修改核心名称/变量前先全局 grep 找引用 |
+| virtualization_component_protocol_skill | 虚拟化库自定义 components（Scroller/Footer）时遵守 props 全量转发协议 |
+| render_layer_acceptance_skill | 前端渲染层结构性改动后、release 前的 dev UI 真渲染验收 |
+| acl_permission_recovery_skill | 共享机环境重置 ACL/属主后 Permission denied 的恢复（rename+git checkout 重建） |
+| rick_release_ops_skill | 本共享机执行 rick tools release（RICK_RELEASES_DIR 重定向/detach 跨休眠/版本号语义） |
 | verify_go_changes_skill | 修改 Go 源文件后验证编译+测试通过 |
 | template_injection_skill | 向 plan/easy 模板注入新 skill 或修改变量 |
 

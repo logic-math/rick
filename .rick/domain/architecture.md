@@ -172,3 +172,11 @@ learning 阶段注入 `{{draft_dir}}` 变量,路径为 `.rick/jobs/{job_id}/draf
 - **挂起语义**：重启后 active→suspended（非 error），人工一键恢复（POST /continue）；doing/dream 恢复时才归一化 running→pending。**绝不自动续跑**（pi 不修复悬挂 toolCall + 配额耗尽不报错）。
 - **RSI 制度**：`.rick/loops/rick-rsi-loop.md`（普通 loop，标准 Loops 目录发现，无专属会话类型）；状态机 S0设计→S1隔离开发→S2门禁→S3演练→S4人类确认→S5提升→S6挂起恢复→S7 `rick tools rsi_check` 留痕（6 项机器契约，含生产 build_id 实时证伪）。
 - **纪律**：job 数据只写 dev 树（main 只经 --merge-source 改动）；冲突即中止报错交 AI 修复；S5 会自挂起 web 承载的 RSI 会话。
+
+## web 前端关键结构（job_43 六轮增量，5.0.12-5.0.13）
+
+- **MessageList 虚拟化（react-virtuoso）**：渲染层虚拟化（≤500 envelope 只渲染可视区），数据层不动。要点：`followOutput="auto"` + `scrollToIndex(LAST)` 双通道贴底 / `firstItemIndex` 前置插入防跳 / `computeItemKey` 稳定身份锚（展开态 overrides 状态提升不丢）/ **components.Scroller 必须 `...rest` 全量转发 props**（P0 教训：丢 `data-virtuoso-scroller` → 测量回调 null 崩 → 全空白）/ 底部间距走 `components.Footer` spacer（12px，计入 footerHeight；容器 padding 不进 Virtuoso 贴底计算）——详见 virtualization_component_protocol skill
+- **FileReaderProvider/Panel 全局挂载**：从 ChatView 提升到 App 壳层（App.tsx）——消息链接（LocalAwareLink→useFileReader）与顶栏工具箱共用同一阅读面板；ChatView 不再持有 Provider（Context 穿透 Virtuoso 正常）
+- **星空移动端静态化（starfieldMode.ts）**：`rick.starfield.mode`（auto/animated/static，localStorage）+ 窄屏判定 + prefers-reduced-motion 统一 resolveShouldAnimate；移动端默认静态一帧（空闲 GPU 成本归零）；窄屏 dpr 封顶 1.5；窄屏动画降级走 theme.css `@media (max-width:767px)`（SMIL 在组件内条件渲染——CSS 管不到 SMIL）
+- **输入框**：单发送按钮；Enter 固定=换行（enterMode 模式已删）；Ctrl/Cmd+Enter 发送、Ctrl+J 换行（隐形快捷键）；空行不发送；textarea scrollHeight 自适应（上限 240px 后内滚）
+- **移动端性能结构**：流式 flush 窄屏 110ms 定时节流（宽屏 rAF 保持，stores/events.ts）；空态飞船全局静态、运行期动画窄屏关闭、ToolElapsed 窄屏 5s

@@ -88,3 +88,21 @@ t.Setenv("RICK_PI_AGENT_DIR", t.TempDir())   // piagent 的隔离 env
 3. 检查该测试是否设置了隔离 env（HOME / RICK_PI_AGENT_DIR / 自定义 agent dir env）
 
 **幂等 patch 的锚点陷阱**（顺带沉淀）：字符串替换式 patch 若锚点在替换后**仍然存在**（如往函数前插 helper，锚点是函数签名本身）→ 二次运行重复插入。解决：用**整函数替换**（old 含完整函数体，替换后被消费）或让 old 包含一段唯一且会被改掉的文本。
+
+### Step 5：RICK_* 显式 env 穿透 HOME 隔离（job_43 gate7 沉淀）
+
+**根因**：测试已做 `t.Setenv("HOME", t.TempDir())` 仍失败——**承载 agent 会话的进程环境里带着 `RICK_STATE_DIR` 等显式绝对路径变量**（statedir 解析优先级：`RICK_STATE_DIR` > HOME 派生），测试隔离了 HOME 却隔离不了显式 env → 读到真实 `~/.rick/web.pid` → 撞上正在运行的生产 web 单例。
+
+**信号词**：「web is already running: PID <真实pid>」「单例锁测试在生产跑着时失败」「t.Setenv(HOME) 已设但还读真实目录」
+
+**精确解决**（gate 脚本/测试驱动器侧净化，测试代码不用改）：
+```python
+# gate 脚本跑 go test 前：剥离所有 RICK_* 变量
+clean_env = {k: v for k, v in os.environ.items() if not k.startswith("RICK_")}
+subprocess.run(["go", "test", "./internal/web/"], env=clean_env, ...)
+```
+```go
+// 或测试内显式清空：t.Setenv("RICK_STATE_DIR", "")
+```
+
+**通用原则**：**任何「HOME 派生路径」都可能被显式 env 覆盖**（RICK_STATE_DIR/RICK_PI_AGENT_DIR/RICK_DEV_HOME/RICK_RELEASES_DIR…）——隔离测试环境时，剥离 `RICK_*` 前缀全家，比逐个枚举可靠。gate 在 agent 会话里跑（环境带 RICK_*）vs release 工具自跑（干净环境）结果不同，正是这类泄漏的特征。

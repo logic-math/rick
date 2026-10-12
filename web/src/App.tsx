@@ -37,6 +37,7 @@ import { useSessionsStore } from "./stores/sessions";
 import type { SseConnectionState } from "./api/sse";
 import Jobs from "./routes/Jobs";
 import Dreams from "./routes/Dreams";
+import Humans from "./routes/Humans";
 import SessionPage from "./routes/SessionPage";
 import Sessions, { AddWorkspaceCard } from "./routes/Sessions";
 import Settings from "./routes/Settings";
@@ -186,8 +187,8 @@ function HomeRedirect() {
   return <Navigate to={`/ws/${list[0].id}/sessions`} replace />;
 }
 
-/** /ws/:wsId/{sessions|jobs|dreams} —— 按路由参数渲染对应工作区视图 */
-function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" }) {
+/** /ws/:wsId/{sessions|jobs|dreams|humans} —— 按路由参数渲染对应工作区视图 */
+function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" | "humans" }) {
   const { wsId = "" } = useParams<{ wsId: string }>();
   const list = useWorkspacesStore((s) => s.list);
   const loading = useWorkspacesStore((s) => s.loading);
@@ -208,7 +209,8 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" }) 
 
   if (kind === "sessions") return <Sessions workspaceId={wsId} />;
   if (kind === "jobs") return <Jobs workspaceId={wsId} />;
-  return <Dreams workspaceId={wsId} />;
+  if (kind === "dreams") return <Dreams workspaceId={wsId} />;
+  return <Humans workspaceId={wsId} />;
 }
 
 // ============================================================
@@ -511,6 +513,7 @@ function AppShell() {
                 <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
                 <Route path="/ws/:wsId/jobs" element={<WorkspaceRoutePage kind="jobs" />} />
                 <Route path="/ws/:wsId/dreams" element={<WorkspaceRoutePage kind="dreams" />} />
+                <Route path="/ws/:wsId/humans" element={<WorkspaceRoutePage kind="humans" />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/session/:id" element={<SessionPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

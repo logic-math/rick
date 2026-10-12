@@ -947,6 +947,9 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 	mux.Handle("GET /api/workspaces/{ws}/jobs/{job}/files", authWrap(deps.Token, http.HandlerFunc(deps.handleJobFileList())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/tree", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeTree())))
 	mux.Handle("GET /api/workspaces/{ws}/knowledge/file", authWrap(deps.Token, http.HandlerFunc(deps.handleKnowledgeFile())))
+	// Humans（工作区 .rick/draft 只读：human-loop 学习材料与进度）
+	mux.Handle("GET /api/workspaces/{ws}/humans/tree", authWrap(deps.Token, http.HandlerFunc(deps.handleHumansTree())))
+	mux.Handle("GET /api/workspaces/{ws}/humans/file", authWrap(deps.Token, http.HandlerFunc(deps.handleHumansFile())))
 	mux.Handle("GET /api/workspaces/{ws}/file", authWrap(deps.Token, http.HandlerFunc(deps.handleWorkspaceFile())))
 
 	// Web 管理（env 层函数注入，task14 前可为 nil → 501）。

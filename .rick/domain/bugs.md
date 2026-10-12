@@ -541,3 +541,61 @@ python3 .rick/skills/rick-gates/helper.py .rick/jobs/job_N/doing
 **真机验收**：场景1 无树 → ⛔「第一动作就是建树」；场景2 树无 OKR/无简报/无提问 → ⛔ 四项并列指引；场景3 OKR+分层+research-L1+第2层显式全消解+提问痕迹 → ✅ 通过。全角括号 O（目标）的正则兼容坑已修（O\s*[（(:：]）。
 
 **首次发现**: 设计决策（用户）+ 实测 / v4.4.15  **验证状态**: ✅ 已实施并真机验收
+
+### Go 测试：RICK_* 环境变量穿透 t.Setenv(HOME) 隔离（gate 跑测试撞生产单例）
+
+**根因**: `internal/web` 状态目录解析优先读 `RICK_STATE_DIR` 环境变量（优先级高于 HOME 派生）。web 承载的 pi 会话环境自带该变量 → gate 脚本 `go test ./internal/cmd/` 继承 → `TestWebSingleton*` 等测试的 `t.Setenv("HOME", t.TempDir())` 隔离被穿透 → 读到真实 `~/.rick/web.pid` → 撞上正在运行的生产 8413 实例单例锁而失败（gate7 首跑 4 个测试红）。
+
+**精确解决步骤**:
+```python
+# gate/测试脚本跑 go test 前剥离 RICK_* 全家（gate7 修正实录）
+clean_env = {k: v for k, v in os.environ.items() if not k.startswith("RICK_")}
+subprocess.run(["go", "test", "./internal/web/", "./internal/cmd/"],
+               env=clean_env, ...)  # 测试代码本身无需改
+```
+
+**首次发现**: job_43 / task10+11 / gate7  **验证状态**: ✅ 已修复（gate 环境净化；详见 subprocess_env_isolation skill Step 5）
+
+### 环境休眠/快照重置 ACL mask 与属主（dev 树目录/文件变只读、属主变 sankuai）
+
+**根因**: 运行环境（cloud-ide 快照/休眠恢复）会外部重置文件属主为 `sankuai` 并把 ACL mask 收紧为 `r-x`（release.go ReleasesRoot 注释早有同族记载）。job_43 两次实测：①job_43/doing/{,rsi,prompts}/ 目录（证据文件全部锁死）②dev HOME（rick-dev-home-hadoop，DEV_TOKEN 不可写）。setfacl/chmod 均 Operation not permitted（非属主），sudo 不可用。
+
+**精确解决步骤**:
+```bash
+# 恢复法（父目录可写即成立——rename 只需父目录写权限）：
+# ① 诊断：getfacl <dir> 看 mask（#effective:r-x = 被锁）；touch <dir>/.wt 测可写性
+# ② 目录级恢复：mv job_43 job_43.locked && mkdir job_43 && git checkout HEAD -- .rick/jobs/job_43
+#    （前提：全部内容已提交，find | wc -l == git ls-files | wc -l）
+# ③ 沙盒级恢复（dev HOME）：mv rick-dev-home-hadoop{,.locked} && rick tools dev-web init && up
+# ④ 备份目录残留文件可能仍锁死（内部目录 mask 未重置）——git rm --cached 误入的备份文件，磁盘留待环境修复
+```
+
+**首次发现**: job_43 / 迭代 2-3 收尾 + 迭代 3  **验证状态**: ✅ 已恢复（两次实战验证零丢失；详见 acl_permission_recovery skill）
+
+### ResumeEasyIn 无条件覆盖任意 job 的 tasks.json（job 数据破坏）
+
+**根因**: `internal/handler/easy.go:144` `ResumeEasyIn` 在 resume 会话结束后调用 `writeEasyTasksJSON(doingDir)`——无条件把该 job 的 tasks.json 重写为合成 easy_session stub。用户 `rick easy --resume <非 easy 作业 id>`（如 plan/doing 多 task 作业）时真实任务史被覆盖（实测：job_36 的 29-task 成功史被 449B stub 覆盖）。
+
+**精确解决步骤**:
+```bash
+# 应急恢复（git HEAD 有完整史）：
+git checkout -- .rick/jobs/job_36/doing/tasks.json
+# 修复方向（遗留下轮）：writeEasyTasksJSON 条件写入——仅当 tasks.json 不存在或本身是 easy_session stub 时写
+```
+
+**首次发现**: job_43 / gate1「生产零触碰」断言捕获  **验证状态**: ❌ 未修复（遗留下轮；debug/bug1 留痕；门禁断言是有效捕获机制）
+
+### rsi/release.md 头部三行（version/rollback_point/released）易在重构时误删
+
+**根因**: release.md 的头部三行是 rsi_check 的机器契约（version= 取**第一个**匹配行做生产 build_id 校验）。迭代整理该文件时（切片重写/替换），头部三行两次被意外丢弃 → rsi_check release 项红「缺回滚点」。实际提升已成功，纯留痕格式问题，但会造成收口阻塞。
+
+**精确解决步骤**:
+```bash
+# 头部三行契约（必须置顶、released=yes 在提升后）：
+version=<实际提升版本 sha7-ts>
+rollback_point=/home/hadoop-recsys/.rick/releases/<上一版>
+released=yes
+# 误删后恢复：python 直接在文件头 prepend 三行再 git commit
+```
+
+**首次发现**: job_43 / 迭代 2+4 收尾（两次）  **验证状态**: ✅ 已恢复；防再犯写入 web-feedback-iteration-loop 步骤 6
