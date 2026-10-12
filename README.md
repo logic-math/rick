@@ -615,7 +615,7 @@ sequenceDiagram
   "max_retries": 5,
   "runtime": "pi",
   "pi_path": "",
-  "pi_extra_args": ["--provider", "deepseek", "--model", "deepseek-v4-pro", "--api-key", "sk-..."],
+  "pi_extra_args": ["--provider", "catpaw-proxy", "--model", "glm-5.3", "--thinking", "high"],
   "default_workspace": "",
   "git": {
     "user_name": "Your Name",
@@ -629,7 +629,7 @@ sequenceDiagram
 | `max_retries` | 标准模式任务失败最大重试次数（默认 5） |
 | `runtime` | 当前 agent runtime 标识（默认 `pi`，为将来 dsh 预留扩展 seam） |
 | `pi_path` | pi CLI 路径（空则使用 PATH 中的 `pi`） |
-| `pi_extra_args` | 透传给 pi 的额外 flags（如 `["--provider","deepseek","--model","deepseek-v4-pro","--api-key","sk-..."]`）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
+| `pi_extra_args` | 透传给 pi 的额外 flags（默认 `["--provider","catpaw-proxy","--model","glm-5.3","--thinking","high"]`，即内网 catpaw-proxy 扩展 + glm-5.3 模型 + thinking high）。pi 不从环境变量读 provider/model/api-key，必须通过此处或命令行配置 |
 | `default_workspace` | 默认工作区路径 |
 | `git.user_name` | 自动 commit 时使用的 Git 用户名 |
 | `git.user_email` | 自动 commit 时使用的 Git 邮箱 |
@@ -640,6 +640,7 @@ sequenceDiagram
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 5.0.15 | 2026-10-12 | 默认模型/思考等级对齐：provider `catpaw-proxy` + model `glm-5.3` + thinking `high`（~/.rick/config.json `pi_extra_args`），文档/知识库示例与默认表述同步更新 |
 | 4.4.15 | 2026-08 | 确定性门禁体系（grilling_gate/pipeline_gate/level_complete）；grilling OKR 设计树 + 防漂移纪律；skill 编排协议单源（prompt 包唯一实现 + builder 全委托，探针法验证「改 skill 一处全 cmd 等价生效」） |
 | 4.3.x | 2026-08 | doing pipeline 重构：分层 DAG + 层门禁（gate{N}.py human 确认）+ 写域确定性检查 + 双 agent TDD → 测试收敛到层门禁（task 自测）；doing 前置 git init；tasks.json watcher 确定性进度反馈；act-path 提取层废除（ctrl/dream/learning 直读 pi 原生行为轨迹） |
 | 4.2.x | 2026-08 | human-loop 四段链协议：research→think→{事实消解循环}→exporter（教师身份·第一性原理详实教学简报 + 启发式追问 + 延伸学习指导）；plan grilling 子代理化（设计树 + research/think 消解）；plan/doing 全局派发规范收敛（timeoutMs 3600000） |

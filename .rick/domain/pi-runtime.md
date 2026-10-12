@@ -1,11 +1,20 @@
 # pi Runtime 事实知识
 
+## 现行默认（catpaw-proxy / glm-5.3 / thinking high）
+
+rick 现行默认 provider/model/thinking：**provider `catpaw-proxy`、model `glm-5.3`、thinking `high`**。
+
+- **落点**：`~/.rick/config.json` 的 `pi_extra_args` = `["--provider","catpaw-proxy","--model","glm-5.3","--thinking","high"]`（prod 与 dev HOME 均已设置）
+- **provider 来源**：pi 扩展 `~/.rick/pi/agent/extensions/catpaw-proxy.ts`（注册内网 mcopilot provider：baseUrl `mcli.sankuai.com`、anthropic-messages API、Bearer token + `X-Working-Dir` 头；token 读自 `~/.config/mcopilot-cli/.config.yaml`）
+- **可用模型**：`glm-5.3`（默认）/ `glm-5.2` / `glm-5.1`（均为 reasoning 模型；glm-5.3/5.2 输入仅 text，glm-5.1 支持 image）；扩展另注册 gpt-5.4 / kimi-k2.6 / kimi-k3 / LongCat-2.0 等，完整清单以扩展文件为准
+- **实测命令**：`pi --provider catpaw-proxy --model glm-5.3 --thinking high -p '<prompt>'` 正常返回
+
 ## pi provider/model/api-key 配置
 
 pi **不读** `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` 环境变量。必须通过命令行 flags 配置：
 
 ```bash
-pi --provider deepseek --model deepseek-v4-flash --api-key sk-... <prompt>
+pi --provider catpaw-proxy --model glm-5.3 --thinking high -p '<prompt>'
 ```
 
 rick 通过 config 的 `pi_extra_args` 字段透传这些 flags（`internal/agent/piagent` 在 `CallCLI`/`Execute` 时合并到 pi 命令行）。**不要试图用 env 注入 provider**。
@@ -40,7 +49,7 @@ claude code 用 `ANTHROPIC_BASE_URL=mcli.sankuai.com` + `ANTHROPIC_AUTH_TOKEN` +
 - claude code 自己能通 → 网关做**客户端识别**（疑似 User-Agent 或 SDK 签名），pi 复制不了
 - catpaw-pilot 支持 pi-coding-agent（`enabled: false`），启用机制不公开
 
-**结论**：pi 不能通过 `models.json` 复用美团内网网关。需用公网 provider（deepseek 等）。
+**结论（历史）**：pi 自身 `models.json` 不能复用美团内网网关。早期只能用公网 provider（deepseek 等，见文末「备选 provider」）。**现行默认改走 `catpaw-proxy` 扩展复用同一网关**（mcopilot token + anthropic-messages API），见文首「现行默认」。
 
 ## pi 不支持的 claude code flags
 
@@ -49,7 +58,9 @@ claude code 用 `ANTHROPIC_BASE_URL=mcli.sankuai.com` + `ANTHROPIC_AUTH_TOKEN` +
 - `--output-format stream-json` → 用 `--mode json`（语义对应，flag 不同）
 - `--session-id` → pi 也支持 `--session-id`（创建），但 `--session` 是加载（见 bugs.md）
 
-## DeepSeek 配置（已验证可用）
+## 备选 provider：DeepSeek 配置（历史记录，已验证可用）
+
+> **历史记录**：这是 rick 早期的默认 provider，**已不是现行默认**（现行默认见文首「现行默认」：catpaw-proxy / glm-5.3 / thinking high）。公网 deepseek 仍可作为备选 provider 使用，以下内容保留作事实记录。
 
 ```json
 // ~/.rick/config.json

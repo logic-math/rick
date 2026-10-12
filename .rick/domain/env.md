@@ -25,7 +25,7 @@
 
 - 当前主题：**VSCode Dark+** 配色（bg #1e1e1e，keyword #c586c0，string #ce9178，comment #6a9955）
 - 源头：`internal/cmd/themes/rick.json`（embedded）；运行时激活副本：`~/.rick/pi/agent/themes/rick.json`
-- 版本 3.1.5；默认模型 deepseek-v4-pro（~/.rick/config.json pi_extra_args）
+- 版本 3.1.5；默认模型 **catpaw-proxy / glm-5.3**（thinking **high**）——落点 `~/.rick/config.json` 的 `pi_extra_args`（prod 与 dev HOME 均已设置）
 
 ## rick 自定义 agent 落盘（job_35 确认）
 
