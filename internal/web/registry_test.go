@@ -73,8 +73,11 @@ func TestRegistryWorkspaceAddListGet(t *testing.T) {
 	if entry.ID != workspaceID(entry.Path) {
 		t.Errorf("entry.ID %q != workspaceID(path) %q", entry.ID, workspaceID(entry.Path))
 	}
-	if len(entry.ID) != 8 {
-		t.Errorf("entry.ID should be 8 hex chars, got %q", entry.ID)
+	// Marker-backed ids are 32 hex chars (job_46 stable identity); legacy
+	// registries keep 8-char ids — both load fine, see
+	// TestRegistryLoadTrustsStoredIDs.
+	if len(entry.ID) != 32 {
+		t.Errorf("entry.ID should be 32 hex chars (marker), got %q", entry.ID)
 	}
 	if entry.Path != ws {
 		t.Errorf("entry.Path: got %q want %q", entry.Path, ws)
