@@ -175,9 +175,10 @@ func Dump(ctx context.Context, opts DumpOptions) (*DumpResult, error) {
 	items := make([]Item, 0, len(opts.Workspaces)+2)
 	for i, ws := range opts.Workspaces {
 		items = append(items, Item{
-			SourcePath:  ws,
-			ArchivePath: "workspaces/" + names[i],
-			Match:       collector.matchFunc(RootWorkspace, ws, matcher, silent.forPath()),
+			SourcePath:   ws,
+			ArchivePath:  "workspaces/" + names[i],
+			Match:        collector.matchFunc(RootWorkspace, ws, matcher, silent.forPath()),
+			OnUnreadable: collector.unreadableHook(ws),
 		})
 	}
 
@@ -194,14 +195,15 @@ func Dump(ctx context.Context, opts DumpOptions) (*DumpResult, error) {
 			}
 		}
 	}
-	items = append(items, Item{SourcePath: stateDir, ArchivePath: "state", Match: stateMatch})
+	items = append(items, Item{SourcePath: stateDir, ArchivePath: "state", Match: stateMatch, OnUnreadable: collector.unreadableHook(stateDir)})
 
 	if res.AgentPacked {
 		base := collector.matchFunc(RootPIAgent, agentDir, matcher, silent.forPath())
 		items = append(items, Item{
-			SourcePath:  agentDir,
-			ArchivePath: "state/pi-agent",
-			Match:       piAgentMatch(base, opts.Sessions, opts.Workspaces, opts.Slim, collector, agentDir),
+			SourcePath:   agentDir,
+			ArchivePath:  "state/pi-agent",
+			Match:        piAgentMatch(base, opts.Sessions, opts.Workspaces, opts.Slim, collector, agentDir),
+			OnUnreadable: collector.unreadableHook(agentDir),
 		})
 	}
 	for _, b := range bins {
@@ -483,6 +485,35 @@ func (c *exclusionCollector) entries() []ExcludedEntry {
 	return out
 }
 
+// recordUnreadable records a walk-unreadable entry (permission hole, vanished
+// file) as a warning-grade exclusion so the manifest stays honest about what
+// did not travel.
+func (c *exclusionCollector) recordUnreadable(sourcePath, rel string, cause error) {
+	key := "unreadable|" + sourcePath + "|" + rel
+	if _, dup := c.seen[key]; dup {
+		return
+	}
+	e := ExcludedEntry{
+		Path:   filepath.Join(sourcePath, filepath.FromSlash(rel)),
+		Root:   string(RootWorkspace),
+		Kind:   "unreadable",
+		Reason: "无法读取，已跳过：" + cause.Error(),
+	}
+	if rel == "." {
+		e.Path = sourcePath
+	}
+	c.seen[key] = e
+	c.order = append(c.order, e)
+}
+
+// unreadableHook builds the Item.OnUnreadable callback: skip-and-record.
+func (c *exclusionCollector) unreadableHook(sourcePath string) func(string, error) bool {
+	return func(rel string, err error) bool {
+		c.recordUnreadable(sourcePath, rel, err)
+		return true
+	}
+}
+
 // matchFunc builds the keep-semantics hook for one archive root: silent
 // paths (dump outputs) drop first, then rule hits are recorded and dropped,
 // everything else is kept.
@@ -575,6 +606,15 @@ func prescanItem(it Item) error {
 	}
 	return filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if it.OnUnreadable != nil {
+				rel, rerr := filepath.Rel(abs, p)
+				if rerr == nil && it.OnUnreadable(filepath.ToSlash(rel), err) {
+					if d != nil && d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
 			return err
 		}
 		rel, err := filepath.Rel(abs, p)

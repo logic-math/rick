@@ -28,6 +28,13 @@ type Item struct {
 	SourcePath  string
 	ArchivePath string // slash-separated archive prefix, no leading slash
 	Match       func(relPath string) bool
+	// OnUnreadable, when set, is invoked for entries the walk cannot read
+	// (permission, vanished mid-walk, …) with the slash-rel path and the
+	// error. Returning true skips the entry (a directory skips its whole
+	// subtree) instead of failing the dump — real machines have permission
+	// holes inside otherwise packable trees. Returning false (or a nil
+	// callback) preserves the hard-fail behavior.
+	OnUnreadable func(relPath string, err error) bool
 }
 
 // WriteArchive streams items into w as a PAX tar.gz, hashing the compressed
@@ -71,6 +78,15 @@ func writeItem(tw *tar.Writer, it Item, fallback func(relPath string) bool) (fil
 	}
 	err = filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if it.OnUnreadable != nil {
+				rel, rerr := filepath.Rel(abs, p)
+				if rerr == nil && it.OnUnreadable(filepath.ToSlash(rel), err) {
+					if d != nil && d.IsDir() {
+						return fs.SkipDir
+					}
+					return nil
+				}
+			}
 			return err
 		}
 		rel, err := filepath.Rel(abs, p)
@@ -90,6 +106,9 @@ func writeItem(tw *tar.Writer, it Item, fallback func(relPath string) bool) (fil
 		}
 		fi, err := d.Info()
 		if err != nil {
+			if it.OnUnreadable != nil && it.OnUnreadable(rel, err) {
+				return nil
+			}
 			return err
 		}
 		link := ""

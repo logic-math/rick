@@ -642,3 +642,68 @@ func archiveHas(t *testing.T, path, name string) bool {
 	}
 	return false
 }
+
+// A permission hole inside a packed tree (another user's 700 dir) must not
+// fail the dump: the subtree is skipped and recorded in the manifest as
+// unreadable (real-machine scenario: rick-dev-home web-search-cache).
+func TestDumpUnreadableSkippedNotFailed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through 0700; test needs a non-root run")
+	}
+	tmp := t.TempDir()
+	ws := fixtureWS(t, tmp)
+	hole := filepath.Join(ws, "someone-else-cache")
+	mustMk(t, hole)
+	write(t, filepath.Join(hole, "secret.txt"), "x")
+	chmod(t, hole, 0o000)
+	defer chmod(t, hole, 0o755) // cleanup on hosts where TempDir removal needs it
+	state := fixtureState(t, tmp, ws)
+	out := filepath.Join(tmp, "hole.tar.gz")
+	_, err := Dump(context.Background(), dumpOpts(ws, state, out, func(o *DumpOptions) {
+		o.BuildDir = helloModule(t, tmp)
+	}))
+	if err != nil {
+		t.Fatalf("dump must survive a permission hole: %v", err)
+	}
+	// archive must not contain the hole
+	if archiveHas(t, out, "workspaces/proj/someone-else-cache/secret.txt") {
+		t.Error("unreadable subtree leaked into archive")
+	}
+	// manifest must record it honestly
+	found := false
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, _ := gzip.NewReader(f)
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name != "manifest.json" {
+			continue
+		}
+		var m Manifest
+		if err := json.NewDecoder(tr).Decode(&m); err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range m.Excluded {
+			if strings.Contains(e.Path, "someone-else-cache") && e.Kind == "unreadable" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("unreadable hole not recorded in manifest exclusions")
+	}
+	// sibling content still traveled
+	if !archiveHas(t, out, "workspaces/proj/README.md") {
+		t.Error("readable content lost")
+	}
+}
