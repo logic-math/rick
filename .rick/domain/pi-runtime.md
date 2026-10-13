@@ -9,6 +9,12 @@ rick 现行默认 provider/model/thinking：**provider `catpaw-proxy`、model `g
 - **可用模型**：`glm-5.3`（默认）/ `glm-5.2` / `glm-5.1`（均为 reasoning 模型；glm-5.3/5.2 输入仅 text，glm-5.1 支持 image）；扩展另注册 gpt-5.4 / kimi-k2.6 / kimi-k3 / LongCat-2.0 等，完整清单以扩展文件为准
 - **实测命令**：`pi --provider catpaw-proxy --model glm-5.3 --thinking high -p '<prompt>'` 正常返回
 
+## pi_extra_args 覆盖链与 web daemon 生效时机（job_44）
+
+- `~/.rick/config.json` 的 `pi_extra_args` **覆盖** pi settings.json 的 defaultProvider/defaultModel/defaultThinkingLevel——两侧不一致时 extra_args 赢（本次模型默认不生效的根因：改了 settings 默认但 extra_args 旧值仍在）
+- **web daemon 启动时把 ExtraArgs 烘焙进 supervisor** → 改 config 的 pi_extra_args 后须**重启 web daemon** 才对 web 会话生效；CLI 会话即时生效（每次调用重读 config）
+  - 来源: job_44  状态: ✅ 已确认（实机验证）
+
 ## pi provider/model/api-key 配置
 
 pi **不读** `PI_PROVIDER` / `PI_MODEL` / `PI_API_KEY` 环境变量。必须通过命令行 flags 配置：

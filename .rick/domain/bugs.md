@@ -599,3 +599,58 @@ released=yes
 ```
 
 **首次发现**: job_43 / 迭代 2+4 收尾（两次）  **验证状态**: ✅ 已恢复；防再犯写入 web-feedback-iteration-loop 步骤 6
+
+### level_complete 的 gate_cmd 用相对路径 → findGitRoot 静默回退起点（file not found 难自证）
+
+**根因**: `level_complete` 的 gate_cmd 用**相对路径**时，rick-gates 的 `findGitRoot` 在异常 cwd（如 `/workdir/sunquan20`）找不到 git 树就静默回退到 cwd 起点，门禁报「file not found」且不含回退细节——难以自证是路径解析问题而非文件缺失。
+
+**精确解决步骤**:
+```bash
+# gate_cmd 一律绝对路径（level_complete 参数传绝对路径）:
+#   /workdir/sunquan20/rick-dev/.rick/jobs/job_44/plan/gates/gate1.py
+# 代码硬化建议（后续 job）:
+#   1) doing_dir 不存在或不在 git 树内 → 直接报错，不静默回退
+#   2) gate_cmd 相对路径 → 拒绝，或按 doing_dir 归一化为绝对路径
+```
+
+**首次发现**: job_44  **验证状态**: ✅ 规避（绝对路径约定）；代码硬化遗留给后续 job
+
+### rsi_check 解析规则：version= 取首个匹配（历史演练记录会抢先）+ resume.md 骨架行误判未填写
+
+**根因**: rsi_check 从 release.md 取**首个** `version=` 匹配行做权威版本校验——release.md 尾部粘贴的历史演练记录若含 `version=` 行会抢先命中，校验到演练版本而非实际提升版本（权威版本行必须置首，头部三行契约见上方 job_43 条目）。另：resume.md 残留 `<!-- TODO` 骨架行会被判「未填写」。
+
+**精确解决步骤**:
+```bash
+# ① 权威 version= 行必须置首；历史演练记录中的 version= 行须删除或改写使其不再匹配
+# ② resume.md 交付前确认无骨架残留（应无输出）:
+grep -n '<!-- TODO' <doing_dir>/resume.md
+```
+
+**首次发现**: job_44  **验证状态**: ✅ 已修复（解析规则已知晓并实机验证）
+
+### git stash push -u 属主不一致部分失败 → staged 残留（62 条）的清理路径
+
+**根因**: 在属主不一致（目标文件属主 sankuai、agent 无写权）的树上执行 `git stash push -u`，对部分文件 unlink 被拒 → **部分失败**，留下大量 staged 残留（实测 62 条），不清理会污染后续索引操作。
+
+**精确解决步骤**:
+```bash
+git reset -q                        # ① 取消全部暂存
+git checkout <stash@{0}> -- <路径>   # ② 从 stash 恢复需要的文件
+git reset -q -- <不需要恢复的路径>   # ③ 定向取消恢复带来的暂存
+git stash drop                      # ④ 确认工作区无误后丢弃 stash
+```
+
+**首次发现**: job_44  **验证状态**: ✅ 已修复（清理路径实机走通）
+
+### git rm --cached 目录前缀 → 921 条删除 delta，merge 将删除生产 job 历史
+
+**根因**: `git rm --cached .rick/jobs`（**目录前缀**）会把 base 中该前缀下全部生产 job 记录标记删除（实测 921 条删除 delta），后续 merge 将删除生产 job 历史（本次靠 43 秒警觉救回）。
+
+**精确解决步骤**: 完整协议已沉淀至 **rick_release_ops_skill 第 7 条（载荷定界索引手术三协议）**，此处简记：
+```bash
+# git rm --cached 只允许精确文件路径，禁止目录前缀
+# 索引手术后核对 delta 数量级（异常放大即停）:
+git diff --cached --stat | tail -1
+```
+
+**首次发现**: job_44  **验证状态**: ✅ 已恢复（921 条救回）；防再犯见 rick_release_ops_skill 第 7 条
