@@ -106,7 +106,7 @@ determine_command_name() {
 get_latest_version() {
     print_debug "Fetching latest version from GitHub..."
 
-    local latest_version=$(curl -s https://api.github.com/repos/anthropics/rick/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
+    local latest_version=$(curl -s https://api.github.com/repos/logic-math/rick/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
 
     if [[ -z "$latest_version" ]]; then
         print_error "Failed to fetch latest version from GitHub"
