@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/sunquan/rick/internal/env/relocate"
@@ -302,10 +303,15 @@ type SessionEntry struct {
 const sessionRegistryVersion = 1
 
 // SessionRegistry persists session metadata across rick web restarts, so the
-// session list (and resume) survives the server process. As with the
-// workspace registry, mutations are serialized by the HTTP layer.
+// session list (and resume) survives the server process. Mutations are
+// serialized by an internal mutex: HTTP handlers and the supervisor loop
+// persist concurrently (suspend snapshots / status transitions), and the
+// atomic write itself (tmp+rename on a fixed tmp path) is not concurrent-safe
+// without it — the loser's rename fails with ENOENT (observed as the
+// TestSuspendRunningMarksAndSnapshots flake).
 type SessionRegistry struct {
 	path    string
+	mu      sync.Mutex
 	Version int            `json:"version"`
 	Items   []SessionEntry `json:"sessions"`
 }
@@ -342,6 +348,8 @@ func LoadSessionRegistry(path string) (*SessionRegistry, error) {
 // (uuid) and PISessionID (the pi --session-id used at spawn time); validation
 // of type/params must have happened before (ValidateSessionRequest).
 func (r *SessionRegistry) Add(entry SessionEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.Items = append(r.Items, entry)
 	if err := r.save(); err != nil {
 		r.Items = r.Items[:len(r.Items)-1]
@@ -353,6 +361,8 @@ func (r *SessionRegistry) Add(entry SessionEntry) error {
 // Update replaces the entry with the same ID (status transitions, title
 // changes, ...). Updating an unknown ID is a not_found error.
 func (r *SessionRegistry) Update(entry SessionEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for i, e := range r.Items {
 		if e.ID == entry.ID {
 			r.Items[i] = entry
@@ -367,6 +377,8 @@ func (r *SessionRegistry) Update(entry SessionEntry) error {
 
 // List returns all sessions (oldest first).
 func (r *SessionRegistry) List() []SessionEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	out := make([]SessionEntry, len(r.Items))
 	copy(out, r.Items)
 	return out
@@ -374,6 +386,8 @@ func (r *SessionRegistry) List() []SessionEntry {
 
 // Get returns the session with the given id and whether it was found.
 func (r *SessionRegistry) Get(id string) (SessionEntry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, e := range r.Items {
 		if e.ID == id {
 			return e, true
@@ -384,6 +398,8 @@ func (r *SessionRegistry) Get(id string) (SessionEntry, bool) {
 
 // GetByWorkspace returns the sessions anchored to the given workspace id.
 func (r *SessionRegistry) GetByWorkspace(workspaceID string) []SessionEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []SessionEntry
 	for _, e := range r.Items {
 		if e.WorkspaceID == workspaceID {
