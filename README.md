@@ -498,6 +498,71 @@ rick tools init-pi
 
 ---
 
+### rick tools dump
+
+**职责**：把一个或多个工作区 + rick 状态（配置、web 注册表、pi agent 目录含会话历史）打包为单个可移植归档（tar.gz + 内嵌 manifest + sha256 边车）——为跨机器/跨平台（Linux ↔ macOS）迁移而生（job_46）。
+
+**用法**：
+```bash
+rick tools dump                                    # 当前目录作工作区，默认选项
+rick tools dump -w ~/proj -w ~/other -o out.tar.gz  # 多工作区
+rick tools dump --slim --sessions none            # 最小包（无 pi runtime/无会话）
+```
+
+**关键 flags**：
+
+| flag | 默认 | 说明 |
+|------|------|------|
+| `-w/--workspace <path>` | $PWD | 要打包的工作区（可重复） |
+| `-o/--output <file>` | `./rick-dump-<ts>.tar.gz` | 归档输出路径（同时产出 `.sha256` 边车） |
+| `--sessions <policy>` | `workspaces` | pi 会话历史：`none` / `workspaces`（只带被打包工作区的）/ `all`（全部，慎用：生产机实测 1.9G） |
+| `--slim` | false | 不含 pi runtime/npm（目标机重跑 `init-pi`） |
+| `--goos <goos/goarch>` | linux/amd64 + darwin/arm64 + darwin/amd64 | 交叉编译内嵌二进制（本机平台构建失败则报错，其他平台失败仅警告跳过） |
+| `--no-exclude` | false | 关闭默认排除规则（字节级全量） |
+| `--state-dir` | `$RICK_STATE_DIR` 或 `~/.rick` | 要打包的状态目录 |
+
+**打包预处理**（每一项命中都记入归档内 manifest，可审计）：
+
+| 类别 | 处理对象 |
+|------|----------|
+| platform-elf | pi 的 `bin/rg`（目标机按平台重下）等机器绑定二进制 |
+| regenerable | `web/node_modules`（含 linux-x64 原生模块，跨平台必坏）、工作区 `bin/`、`web/dist.prev`、slim 模式下的 `runtime/`+`npm/` |
+| cache | `.pi/`、`.morty/`、`web-search-cache/`、`config.json.bak.*` |
+| runtime | `web.pid`、`web.lock`、`web.log`、`release.log` |
+| external | catpaw-proxy 扩展（公司内部 provider，human 裁决不迁） |
+
+**源侧副作用**（幂等）：每个工作区获得 `.rick-workspace.json` 身份 marker（id 与路径解耦），源机 web.json / sessions.json / archived.json / job-names.json 的 id 从旧路径哈希升级为 marker id——**搬迁不再孤儿化会话历史**。
+
+### rick tools import
+
+**职责**：把 dump 归档解到本机并让它直接可用：工作区落位、状态合并、路径重映射、pi 会话历史移植（目录重转义 + header cwd 重写）、平台适配、导入后验证。
+
+**用法**：
+```bash
+# Linux→Mac 迁移三步（在源机 dump，拷贝归档+边车，在目标机）：
+rick tools dump -o migration.tar.gz          # ① 源机
+scp migration.tar.gz* mac:~/                  # ② 拷贝（含 .sha256 边车）
+rick tools import ~/migration.tar.gz --target ~/proj   # ③ 目标机
+```
+
+**关键 flags**：
+
+| flag | 默认 | 说明 |
+|------|------|------|
+| `--target <dir>` | $PWD | 工作区落位目录（单工作区+目标空时直接落 target，否则 target/<name>） |
+| `--state-dir` | `$RICK_STATE_DIR` 或 `~/.rick` | 状态目录（pi agent 目录随之落在 `<state>/pi/agent`，除非 `RICK_PI_AGENT_DIR` 显式覆盖） |
+| `--force` | false | 冲突时先备份（`<path>.bak-import-<ts>`）再整体覆盖，默认合并 |
+
+**合并语义**（默认永不覆盖已有）：已有文件保留；web.json 按 path 去重（目标机优先）；sessions/archived/job-names 按 id/key 去重；config.json / start-web.sh 目标机已有则用目标机的；pi 会话按文件名去重。
+
+**自动重映射**：web.json 路径+id（marker id 跨机稳定）、sessions.json 的 `_prompt_file`/`_method_file`、config.json `default_workspace`、start-web.sh 的 `cd` 行、pi 会话目录名（按新路径重转义）+ 每个会话文件首行 `cwd`。`pi_session_id` 是 UUID 天然跨机。
+
+**导入后验证**（失败则退出非零）：工作区落位 + marker id 一致、web.json 可解析且 id=marker、sessions/config 可解析、会话目录就位。
+
+**已知限制**：catpaw-proxy 等 provider 专属物不迁（凭据/内网拓扑超出 rick 职责）；darwin 侧 `ps/lsof` 进程探测已实现表驱动测试但未真机验证；`--sessions=all` 带来的非随迁工作区会话目录按原样落位（cwd 不存在，仅可按 session id 全局检索）。
+
+---
+
 ## human-loop 设计
 
 ### 定位
