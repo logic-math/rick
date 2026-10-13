@@ -18,13 +18,14 @@ import (
 // internal/env/relocate (job_46 design tree P1/P3).
 func NewDumpCmd(rickVersion string) *cobra.Command {
 	var (
-		workspaces []string
-		output     string
-		sessions   string
-		slim       bool
-		goos       []string
-		noExclude  bool
-		stateDir   string
+		workspaces   []string
+		output       string
+		sessions     string
+		slim         bool
+		goos         []string
+		noExclude    bool
+		extraExclude []string
+		stateDir     string
 	)
 	cmd := &cobra.Command{
 		Use:   "dump",
@@ -72,14 +73,15 @@ Exit codes:
 				return fmt.Errorf("--sessions 取值无效：%q（none|workspaces|all）", sessions)
 			}
 			opts := relocate.DumpOptions{
-				Workspaces:  workspaces,
-				Output:      output,
-				Sessions:    sessions,
-				Slim:        slim,
-				Goos:        goos,
-				NoExclude:   noExclude,
-				StateDir:    stateDir,
-				RickVersion: rickVersion,
+				Workspaces:   workspaces,
+				Output:       output,
+				Sessions:     sessions,
+				Slim:         slim,
+				Goos:         goos,
+				NoExclude:    noExclude,
+				ExtraExclude: extraExclude,
+				StateDir:     stateDir,
+				RickVersion:  rickVersion,
 			}
 			res, err := relocate.Dump(context.Background(), opts)
 			if err != nil {
@@ -115,6 +117,8 @@ Exit codes:
 		"platforms to cross-compile into the archive (goos/goarch each, repeatable)")
 	cmd.Flags().BoolVar(&noExclude, "no-exclude", false,
 		"disable the default exclusion rules (pack everything)")
+	cmd.Flags().StringSliceVar(&extraExclude, "exclude", nil,
+		"extra exclusion pattern relative to a workspace root, repeatable (e.g. --exclude bigdata/work --exclude '*.ckpt')")
 	cmd.Flags().StringVar(&stateDir, "state-dir", "",
 		"rick state dir to pack (default: $RICK_STATE_DIR or ~/.rick)")
 	return cmd

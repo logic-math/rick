@@ -120,15 +120,30 @@ func RewriteWebJSON(data []byte, pm *PathMap) ([]byte, error) {
 		if !hit {
 			continue
 		}
+		// Exact workspace match → stable marker id. A prefix hit that is NOT
+		// an exact workspace (e.g. a registered sub-workspace inside a dumped
+		// tree) keeps its ORIGINAL id: the id is the opaque join key between
+		// web.json and sessions.json/archived/job-names, and neither side is
+		// rewritten for sub-workspaces — recomputing it here would orphan
+		// every session anchored to the sub-workspace.
 		id := ""
+		exact := false
 		for _, w := range pm.Workspaces {
-			if w.OriginPath == path && w.MarkerID != "" {
-				id = w.MarkerID
+			if w.OriginPath == path {
+				exact = true
+				if w.MarkerID != "" {
+					id = w.MarkerID
+				}
 				break
 			}
 		}
-		if id == "" {
+		if id == "" && exact && newPath != "" {
+			// Exact workspace without a marker (should not happen — dump
+			// ensures markers) — fall back to the legacy hash of the new path.
 			id = LegacyWorkspaceID(newPath)
+		}
+		if id == "" {
+			id, _ = entry["id"].(string) // sub-workspace: keep original id
 		}
 		entry["path"] = newPath
 		entry["id"] = id

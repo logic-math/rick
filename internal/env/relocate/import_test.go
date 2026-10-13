@@ -454,3 +454,95 @@ func readLines(t *testing.T, path string) []string {
 	}
 	return strings.Split(s, "\n")
 }
+
+// ─── sub-workspace inside a packed tree ─────────────────────────────────────
+// Dump a PARENT tree as one workspace while web.json registers a
+// sub-directory as its own workspace (the "pack /workdir/sunquan20, ship
+// the whole thing" case). The sub-workspace keeps its original id (join
+// key with sessions.json) and its pi session dir must be re-escaped to the
+// new sub-path, or resume breaks on the target.
+
+func TestImportSubWorkspaceInsidePackedTree(t *testing.T) {
+	tmp := t.TempDir()
+	parent := filepath.Join(tmp, "sunquan20")
+	sub := filepath.Join(parent, "AI_CODING", "rick")
+	// parent tree (the dumped workspace) containing the sub-workspace
+	mustMk(t, sub)
+	write(t, filepath.Join(sub, "README.md"), "# sub\n")
+	write(t, filepath.Join(parent, "sibling.txt"), "x\n")
+	// state registering the SUB workspace (not the parent) + its session
+	state := filepath.Join(tmp, "state")
+	mustMk(t, state, filepath.Join(state, "web"))
+	legacy := LegacyWorkspaceID(sub)
+	writeJSON(t, filepath.Join(state, "web.json"), map[string]any{
+		"version": 1,
+		"workspaces": []any{map[string]any{
+			"id": legacy, "path": sub, "name": "RICK-RSI", "added_at": "t",
+		}},
+	})
+	writeJSON(t, filepath.Join(state, "web", "sessions.json"), map[string]any{
+		"version": 1,
+		"sessions": []any{map[string]any{
+			"id": "sess-1", "workspace_id": legacy, "type": "easy", "status": "closed",
+			"pi_session_id": "pi-sub1",
+		}},
+	})
+	writeJSON(t, filepath.Join(state, "config.json"), map[string]any{"default_workspace": state})
+	agent := filepath.Join(state, "pi", "agent")
+	mustMk(t, agent, filepath.Join(agent, "sessions", EscapeDir(sub)))
+	write(t, filepath.Join(agent, "sessions", EscapeDir(sub), "2026-01-01T00-00-00-000Z_pi-sub1.jsonl"),
+		`{"type":"session","version":3,"id":"pi-sub1","cwd":"`+sub+`"}`+"\n"+
+			`{"type":"message","role":"user","content":"hi"}`+"\n")
+
+	archive := dumpFixture(t, tmp, parent, state, func(o *DumpOptions) {
+		o.Sessions = SessionsPolicyAll // sub-cwd dir is not the exact ws root
+	})
+
+	home := t.TempDir()
+	target := filepath.Join(home, "deploy")
+	stateDir := filepath.Join(home, "state")
+	res, err := Import(ImportOptions{
+		Archive:  archive,
+		Target:   target,
+		StateDir: stateDir,
+		AgentDir: filepath.Join(stateDir, "pi", "agent"),
+		Now:      time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("import: %v (checks: %+v)", err, res.Checks)
+	}
+
+	// web.json: sub-workspace path prefix-remapped, id KEPT (join key).
+	web := readJSON(t, filepath.Join(stateDir, "web.json"))
+	entry := web["workspaces"].([]any)[0].(map[string]any)
+	wantPath := filepath.Join(target, "AI_CODING", "rick")
+	if entry["path"] != wantPath {
+		t.Errorf("sub-workspace path = %v, want %v", entry["path"], wantPath)
+	}
+	if entry["id"] != legacy {
+		t.Errorf("sub-workspace id must keep original %q, got %v", legacy, entry["id"])
+	}
+	// sessions.json link intact
+	sess := readJSON(t, filepath.Join(stateDir, "web", "sessions.json"))
+	s0 := sess["sessions"].([]any)[0].(map[string]any)
+	if s0["workspace_id"] != legacy {
+		t.Errorf("sessions workspace_id = %v, want %q (link must survive)", s0["workspace_id"], legacy)
+	}
+	// sub-cwd session dir re-escaped to the NEW sub path + header rewritten
+	sessDir := filepath.Join(stateDir, "pi", "agent", "sessions", EscapeDir(wantPath))
+	if !dirExists(sessDir) {
+		t.Fatalf("sub-cwd session dir not re-escaped: %s", sessDir)
+	}
+	hdr := firstLine(t, filepath.Join(sessDir, "2026-01-01T00-00-00-000Z_pi-sub1.jsonl"))
+	if !strings.Contains(hdr, `"cwd":"`+wantPath+`"`) {
+		t.Errorf("sub session header cwd not rewritten: %s", hdr)
+	}
+	// origin-escaped dir must not linger
+	if dirExists(filepath.Join(stateDir, "pi", "agent", "sessions", EscapeDir(sub))) {
+		t.Error("origin-escaped sub session dir still present")
+	}
+	// parent content landed
+	if !fileExists(filepath.Join(target, "sibling.txt")) {
+		t.Error("parent tree content missing")
+	}
+}

@@ -37,6 +37,11 @@ type DumpOptions struct {
 	Goos []string
 	// NoExclude disables the default exclusion rules.
 	NoExclude bool
+	// ExtraExclude adds user exclusion patterns (dump --exclude), each a
+	// slash path relative to a workspace root; a directory pattern prunes
+	// the whole subtree. Applied on top of the default rules (NoExclude
+	// disables everything, including these).
+	ExtraExclude []string
 	// StateDir is the source rick state dir. Default: $RICK_STATE_DIR >
 	// $HOME/.rick (same ladder as web.ResolveStateDir, mirrored here
 	// because relocate cannot import web — import cycle).
@@ -154,7 +159,11 @@ func Dump(ctx context.Context, opts DumpOptions) (*DumpResult, error) {
 	}
 
 	// 3. Items + exclusion collection.
-	matcher := NewMatcher(DefaultRules(), opts.NoExclude)
+	rules, err := rulesForDump(opts)
+	if err != nil {
+		return nil, err
+	}
+	matcher := NewMatcher(rules, opts.NoExclude)
 	collector := newExclusionCollector()
 	tmpOut := opts.Output + ".tmp"
 	sidecar := opts.Output + ".sha256"
@@ -760,4 +769,30 @@ func filePermOr(p string, def os.FileMode) os.FileMode {
 		return fi.Mode().Perm()
 	}
 	return def
+}
+
+// KindCustom marks user-supplied --exclude patterns.
+const KindCustom = "custom"
+
+// rulesForDump combines the default rule table with user --exclude
+// patterns (workspace-root-relative). Invalid patterns (absolute, empty,
+// "..") are rejected: a bad pattern silently excluding nothing is worse
+// than a loud error before gigabytes start streaming.
+func rulesForDump(opts DumpOptions) ([]Rule, error) {
+	if len(opts.ExtraExclude) == 0 {
+		return DefaultRules(), nil
+	}
+	extra := make([]Rule, 0, len(opts.ExtraExclude))
+	for _, p := range opts.ExtraExclude {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "../") || p == ".." {
+			return nil, fmt.Errorf("--exclude 模式非法（空/绝对路径/越界）: %q", p)
+		}
+		p = strings.Trim(p, "/")
+		extra = append(extra, Rule{
+			Pattern: p, Root: RootWorkspace, Kind: KindCustom,
+			Reason: "user --exclude",
+		})
+	}
+	return append(DefaultRules(), extra...), nil
 }

@@ -1,6 +1,7 @@
 package relocate
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -149,6 +150,16 @@ func Import(opts ImportOptions) (*ImportResult, error) {
 			MarkerID: d.MarkerID, LegacyID: d.LegacyID,
 		})
 	}
+	// Sub-workspace cwds: web.json entries that live INSIDE a packed
+	// workspace (e.g. dumping /workdir/sunquan20 while the registry holds
+	// /workdir/sunquan20/AI_CODING/rick …). Their paths are prefix-remapped
+	// and their ids kept as-is; their pi session dirs must be re-escaped to
+	// the new cwd too, or resume on the target breaks. Collected from the
+	// ORIGIN web.json before remapStagingState rewrites it.
+	subCwds, err := collectSubWorkspaceCwds(staging, pm)
+	if err != nil {
+		return nil, err
+	}
 	registered, err := remapStagingState(staging, pm)
 	if err != nil {
 		return nil, err
@@ -179,7 +190,7 @@ func Import(opts ImportOptions) (*ImportResult, error) {
 
 	// 7. pi session portability: re-escape session dirs per workspace and
 	// rewrite each session file's header cwd.
-	if err := portSessions(staging, opts, dests, pm, res); err != nil {
+	if err := portSessions(staging, opts, dests, subCwds, pm, res); err != nil {
 		return nil, fmt.Errorf("port pi sessions: %w", err)
 	}
 
@@ -640,7 +651,7 @@ func mergeKeyedArrays(dstData, arcData []byte, key, what string) ([]byte, int, e
 // other cwds (packed via --sessions=all) are placed as-is — their headers
 // keep the origin cwd, so resume by --continue is not possible for them,
 // and they are reported as orphans.
-func portSessions(staging string, opts ImportOptions, dests []workspaceDest, pm *PathMap, res *ImportResult) error {
+func portSessions(staging string, opts ImportOptions, dests []workspaceDest, subCwds []subCwd, pm *PathMap, res *ImportResult) error {
 	srcSessions := filepath.Join(staging, "state", "pi-agent", "sessions")
 	if !dirExists(srcSessions) {
 		return nil
@@ -650,10 +661,17 @@ func portSessions(staging string, opts ImportOptions, dests []workspaceDest, pm 
 		return err
 	}
 
-	// Map escape(origin cwd) → destination cwd.
+	// Map escape(origin cwd) → destination cwd. Exact workspace dests
+	// first; then sub-workspace cwds (registered entries inside a packed
+	// tree) — their destination is the prefix-mapped new path.
 	rename := map[string]string{}
 	for _, d := range dests {
 		rename[EscapeDir(d.OriginPath)] = d.DestPath
+	}
+	for _, s := range subCwds {
+		if _, clash := rename[EscapeDir(s.Origin)]; !clash {
+			rename[EscapeDir(s.Origin)] = s.New
+		}
 	}
 
 	entries, err := os.ReadDir(srcSessions)
@@ -1002,4 +1020,42 @@ func resolveImportDefaults(o *ImportOptions) error {
 		o.Now = time.Now()
 	}
 	return nil
+}
+
+// subCwd is a workspace-registered cwd that lives strictly inside a packed
+// workspace (sub-workspace). Its pi session dirs must be re-escaped to the
+// mapped new path so resume works on the target.
+type subCwd struct {
+	Origin, New string
+}
+
+// collectSubWorkspaceCwds reads the ORIGIN web.json from staging (call
+// before remapStagingState rewrites it) and returns the registered entry
+// paths that map through PathMap without being an exact packed workspace.
+func collectSubWorkspaceCwds(staging string, pm *PathMap) ([]subCwd, error) {
+	data, err := os.ReadFile(filepath.Join(staging, "state", "web.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read staging web.json: %w", err)
+	}
+	var reg struct {
+		Workspaces []struct {
+			Path string `json:"path"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(data, &reg); err != nil {
+		return nil, fmt.Errorf("parse staging web.json: %w", err)
+	}
+	var out []subCwd
+	for _, w := range reg.Workspaces {
+		if w.Path == "" {
+			continue
+		}
+		if newPath, hit := pm.MapPath(w.Path); hit && newPath != w.Path {
+			out = append(out, subCwd{Origin: w.Path, New: newPath})
+		}
+	}
+	return out, nil
 }

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -565,4 +566,79 @@ func symlink(t *testing.T, target, link string) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatalf("symlink %s: %v", link, err)
 	}
+}
+
+// User --exclude patterns prune workspace subtrees on top of the default
+// rules; invalid patterns (absolute / escaping) are rejected before any
+// byte streams.
+func TestDumpExtraExclude(t *testing.T) {
+	tmp := t.TempDir()
+	ws := fixtureWS(t, tmp)
+	write(t, filepath.Join(ws, "bigdata", "work", "ckpt.bin"), "weights")
+	write(t, filepath.Join(ws, "bigdata", "keep.txt"), "keep me")
+	state := fixtureState(t, tmp, ws)
+	out := filepath.Join(tmp, "extra.tar.gz")
+	opts := dumpOpts(ws, state, out, func(o *DumpOptions) {
+		o.BuildDir = helloModule(t, tmp)
+		o.ExtraExclude = []string{"bigdata/work"}
+	})
+	if _, err := Dump(context.Background(), opts); err != nil {
+		t.Fatalf("dump with extra exclude: %v", err)
+	}
+	// archive must NOT contain bigdata/work but MUST contain bigdata/keep.txt
+	list := archiveListing(t, out)
+	for _, n := range list {
+		if strings.HasPrefix(n, "workspaces/proj/bigdata/work/") {
+			t.Errorf("excluded dir leaked into archive: %s", n)
+		}
+	}
+	if !archiveHas(t, out, "workspaces/proj/bigdata/keep.txt") {
+		t.Error("sibling of excluded dir must travel")
+	}
+	// invalid patterns rejected
+	for _, bad := range []string{"/abs/path", "../escape", "", "  "} {
+		o := dumpOpts(ws, state, filepath.Join(tmp, "x.tar.gz"), nil)
+		o.BuildDir = helloModule(t, tmp)
+		o.ExtraExclude = []string{bad}
+		if _, err := Dump(context.Background(), o); err == nil {
+			t.Errorf("pattern %q must be rejected", bad)
+		}
+	}
+}
+
+func archiveListing(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gz.Close()
+	var out []string
+	tr := tar.NewReader(gz)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, h.Name)
+	}
+	return out
+}
+
+func archiveHas(t *testing.T, path, name string) bool {
+	t.Helper()
+	for _, n := range archiveListing(t, path) {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }

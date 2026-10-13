@@ -382,3 +382,58 @@ func TestRewriteStartScriptQuotedAndComments(t *testing.T) {
 		t.Errorf("unmapped cd must survive:\n%s", s)
 	}
 }
+
+// A registered sub-workspace (path strictly inside a packed workspace)
+// must keep its ORIGINAL id — the id is the join key shared with
+// sessions.json / archived.json / job-names.json, none of which are
+// rewritten for sub-workspaces. Recomputing it orphans the sessions.
+func TestRewriteWebJSONSubWorkspaceKeepsID(t *testing.T) {
+	in := `{
+  "version": 1,
+  "workspaces": [
+    {"id": "a8ceb938", "path": "/workdir/sunquan20/AI_CODING/rick", "name": "RICK-RSI", "added_at": "t"},
+    {"id": "79a79993", "path": "/workdir/sunquan20/HUMANS", "name": "HUMANS", "added_at": "t"}
+  ]
+}`
+	// PathMap maps the PARENT /workdir/sunquan20 → /target/sunquan20; both
+	// entries are sub-paths (neither is the exact mapped workspace).
+	pm := &PathMap{
+		Workspaces: []WorkspaceMapping{{
+			Name:       "sunquan20",
+			OriginPath: "/workdir/sunquan20",
+			NewPath:    "/target/sunquan20",
+			MarkerID:   "fedcba0987654321fedcba0987654321",
+			LegacyID:   "cafe0000",
+		}},
+		StateOrigin: "/home/hadoop-recsys/.rick",
+		StateNew:    "/target/state",
+	}
+	out, err := RewriteWebJSON([]byte(in), pm)
+	if err != nil {
+		t.Fatalf("RewriteWebJSON: %v", err)
+	}
+	var doc struct {
+		Workspaces []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("output must be valid JSON: %v\n%s", err, out)
+	}
+	if len(doc.Workspaces) != 2 {
+		t.Fatalf("workspace count changed: %d", len(doc.Workspaces))
+	}
+	for i, want := range []struct{ id, path string }{
+		{"a8ceb938", "/target/sunquan20/AI_CODING/rick"},
+		{"79a79993", "/target/sunquan20/HUMANS"},
+	} {
+		got := doc.Workspaces[i]
+		if got.ID != want.id {
+			t.Errorf("sub-workspace %d id must stay %q (join key!): got %q", i, want.id, got.ID)
+		}
+		if got.Path != want.path {
+			t.Errorf("sub-workspace %d path must be prefix-remapped to %q: got %q", i, want.path, got.Path)
+		}
+	}
+}
