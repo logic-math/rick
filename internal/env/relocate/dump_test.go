@@ -707,3 +707,31 @@ func TestDumpUnreadableSkippedNotFailed(t *testing.T) {
 		t.Error("readable content lost")
 	}
 }
+
+// Traverse-able directory holding an UNREADABLE file (ACL/other-user): the
+// walk passes but the open fails — the entry must be skipped (no empty tar
+// entry) and recorded, the dump must survive.
+func TestDumpUnreadableFileSkippedNotFailed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads through everything; test needs a non-root run")
+	}
+	tmp := t.TempDir()
+	ws := fixtureWS(t, tmp)
+	dir := filepath.Join(ws, "shared-run")
+	mustMk(t, dir)
+	write(t, filepath.Join(dir, "secret.md"), "x")
+	chmod(t, filepath.Join(dir, "secret.md"), 0o000)
+	state := fixtureState(t, tmp, ws)
+	out := filepath.Join(tmp, "hole2.tar.gz")
+	if _, err := Dump(context.Background(), dumpOpts(ws, state, out, func(o *DumpOptions) {
+		o.BuildDir = helloModule(t, tmp)
+	})); err != nil {
+		t.Fatalf("dump must survive an unreadable file: %v", err)
+	}
+	if archiveHas(t, out, "workspaces/proj/shared-run/secret.md") {
+		t.Error("unreadable file leaked into archive (or left an empty entry)")
+	}
+	if !archiveHas(t, out, "workspaces/proj/README.md") {
+		t.Error("readable content lost")
+	}
+}

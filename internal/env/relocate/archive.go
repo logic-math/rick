@@ -130,16 +130,25 @@ func writeItem(tw *tar.Writer, it Item, fallback func(relPath string) bool) (fil
 		if fi.IsDir() && !strings.HasSuffix(hdr.Name, "/") {
 			hdr.Name += "/"
 		}
+		// Open regular files BEFORE writing the header so an unreadable
+		// file (permission hole) can be skipped without leaving an empty
+		// tar entry behind — OnUnreadable decides skip-vs-fail.
+		var src *os.File
+		if fi.Mode().IsRegular() {
+			src, err = os.Open(p)
+			if err != nil {
+				if it.OnUnreadable != nil && it.OnUnreadable(rel, err) {
+					return nil
+				}
+				return fmt.Errorf("open %s: %w", p, err)
+			}
+			defer src.Close()
+		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return fmt.Errorf("write header %s: %w", name, err)
 		}
-		if fi.Mode().IsRegular() {
-			f, err := os.Open(p)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-			n, err := io.Copy(tw, f)
+		if src != nil {
+			n, err := io.Copy(tw, src)
 			if err != nil {
 				return fmt.Errorf("copy %s: %w", p, err)
 			}
