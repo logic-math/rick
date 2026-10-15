@@ -599,3 +599,74 @@ released=yes
 ```
 
 **首次发现**: job_43 / 迭代 2+4 收尾（两次）  **验证状态**: ✅ 已恢复；防再犯写入 web-feedback-iteration-loop 步骤 6
+
+### rick web --state-dir X 的 config 固定读 $HOME/.rick/config.json（token/pi_extra_args 漂移）
+
+**根因**: `internal/config/loader.go` 的 config 路径固定为 `$HOME/.rick/config.json`，**不跟随** `--state-dir` / `RICK_STATE_DIR`（只有 web 状态目录跟随）。非标准 state-dir 部署时：web 在 $HOME 自动生成新 token 写回（旧 token 失效），而 import 落在 state-dir 里的 config（含原 token / pi_extra_args / human_loop 调参）不被读取。job_46 E2E 实测：目标机 `--state-dir ~/rick-e2e/state` 启动后 token 变成 $HOME 里新生成的。
+
+**精确解决步骤**:
+```bash
+# 方案 A（推荐）：标准布局——state 就放默认位，import 不传 --state-dir
+rick tools import <archive> --target ~/workdir     # state → ~/.rick
+# 方案 B：非标准 state-dir 时，读 $HOME 的 token 访问：
+T=$(python3 -c "import json;print(json.load(open('$HOME/.rick/config.json'))['web_token'])")
+# 产品级修复候选：config 加载尊重 RICK_STATE_DIR（改动点 loader.go:14-30）
+```
+
+**首次发现**: job_46 / E2E 目标机部署  **验证状态**: ❌ 未修复（产品缺口；重导入标准布局后自然对齐）
+
+### release gate（runGates 内嵌 go test ./...）继承 RICK_* env 假失败（job_43 gate 脚本变体的兄弟案例）
+
+**根因**: 与上条 job_43 记录同族但**载体不同**——job_43 是 gate{N}.py 脚本跑测试；本条是 `rick tools release --dry-run` 自身（internal/env/release/release.go `runGates` 直接起 `go test ./...` 子进程）继承会话的 `RICK_STATE_DIR=/home/hadoop-recsys/.rick` → `TestWebSingleton*` 4 个测试读到生产 web.pid 存活而假失败 → `RELEASE_FAIL stage=gate`。
+
+**精确解决步骤**:
+```bash
+# shell 侧一行（job_46 S3 实录）：
+env -u RICK_STATE_DIR -u RICK_PI_AGENT_DIR -u PI_CODING_AGENT_DIR \
+  rick tools release --dry-run --prod-repo ... --dev-tree ...
+# 产品级修复候选：runGates 构造 exec.Cmd.Env 时剔除 RICK_*/PI_CODING_AGENT_DIR
+```
+
+**首次发现**: job_46 / RSI S3 首跑  **验证状态**: ❌ 产品侧未修（shell 清洗已验证；见 subprocess_env_isolation skill Step 6）
+
+### git worktree 跨机迁移后 .git gitfile 断链（fatal: gitfile does not point to a valid repository）
+
+**根因**: worktree 的 `.git` 是**单行文件**，内容为绝对路径 `gitdir: /workdir/sunquan20/AI_CODING/rick/.git/worktrees/rick-dev`（指向主仓 .git）。dump/import 原样搬运文件但不重映射 gitfile 内容 → 目标机路径不存在 → `git -C rick-dev log` 报 `fatal: gitfile does not point to a valid repository`。工作目录文件本身完好。
+
+**精确解决步骤**:
+```bash
+# Mac 迁移后修复（一行改指向 + repair）：
+echo "gitdir: /Users/logic/workdir/AI_CODING/rick/.git/worktrees/rick-dev" > /Users/logic/workdir/rick-dev/.git
+git -C /Users/logic/workdir/AI_CODING/rick worktree repair
+git -C /Users/logic/workdir/rick-dev log --oneline -1   # 验证
+# 产品改进候选：dump 预处理识别 .git gitfile 并在 import 时按工作区映射重写
+```
+
+**首次发现**: job_46 / 最终迁移到 Mac 后  **验证状态**: ❌ 待手工修复（命令已给出）
+
+### pkill -f 在 ssh bash -c 里自匹配杀掉自身会话（exit 255）
+
+**根因**: `ssh host 'pkill -f "rick web --listen"'` 的 `-f` 匹配**完整命令行**，而承载它的 `bash -c '...pkill -f "rick web --listen"...'` 自身命令行就含该模式 → pkill 杀掉自己的父 bash → ssh 会话 exit 255，目标进程可能还没杀或一起死。
+
+**精确解决步骤**:
+```bash
+# 远程管理进程的标准姿势：先 pgrep 拿 pid，精确 kill
+ssh host 'PID=$(pgrep -x rick | head -1); [ -n "$PID" ] && kill $PID'
+# 或用 rick web --daemon 的回执 pid 直接 kill；避免 pkill -f 与自命令行同模式
+```
+
+**首次发现**: job_46 / E2E 目标机切端口  **验证状态**: ✅ 已规避（改精确 pid kill；沉淀进 cross_machine_migration skill）
+
+### grilling_gate 层计数正则把「### L1 xxx」小节标题计为层（设计树标题命名约束）
+
+**根因**: gate 的层计数正则 `^(#+\s*(第N层|Layer N|LN))` 匹配任何以 L数字 开头的标题——设计树正文里的小节「### L1 调研消解结果」「### L2 判断节点」被计为独立层，加上 v1 存档的重复「第 1 层」，6 个幻影层触发「缺 research-L3..L6」误报。
+
+**精确解决步骤**:
+```bash
+# 设计树小节标题不能以 L<数字>/第N层/Layer N 开头：
+#   ❌ ### L1 调研消解结果     → ✅ ### 调研消解结果（research-L1.md …）
+#   ❌ ### L2 判断节点         → ✅ ### 判断节点提炼（L2 步）
+# v1/v2 并存时旧「第 N 层」标题要改成「附：v1 xxx（存档不计数）」形态
+```
+
+**首次发现**: job_46 / grilling 收尾  **验证状态**: ✅ 已规避（标题重构后 gate 通过）

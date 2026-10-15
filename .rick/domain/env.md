@@ -31,3 +31,19 @@
 
 - `~/.rick/pi/agent/agents/` — rick 自定义 agent（think/research/exporter）落盘目录，由 env 职责 3 `deployRickAgents` 幂等写入（YAML frontmatter + wiki 正文）
 - 自定义 agent 清单注册在 `internal/env/agents.go` 的 `rickAgents`，就绪 check 在 `CheckRickAgents`
+
+## 本机 Mac 布局（job_46 迁移后，2026-10-15）
+
+- **本机已从 Linux 服务器（10.146.199.52，/workdir/sunquan20）整体迁移到 Mac**
+- 工作区：`~/workdir`（= 源机 /workdir/sunquan20 全树；HUMANS/SLM/BERT_KEETA/.../AI_CODING/rick 11 个注册工作区）
+- rick 状态：`~/.rick`（标准位；config.json / web.json / pi/agent 含 3,778 个会话文件）
+- rick 二进制：`~/.local/bin/rick`（darwin/arm64，main 构建 5.0.15——**不含 dump/import 功能**；该功能在 `/Users/logic/workdir/rick-dev` 树的 6+2 个提交里，gitfile 断链待修，修好后可构建/release）
+- 迁移方式：`rick tools dump`（8.6GB 归档）→ import `--target ~/workdir`（源机 /workdir/sunquan20 marker id `6c925625032d269f4ae0019c9cc224e7` 跨机不变）
+- web 访问：`rick web --listen 0.0.0.0 --port 8413`（端口约定沿源机）；token 在 `~/.rick/config.json` 的 `web_token`
+
+## 目标机迁移依赖（job_46 E2E 实测）
+
+- **node ≥22.19**：目标机无 node 时从 nodejs.org 经代理下 tarball 解压到自管目录即可（无需 root/系统安装）：`curl -sSL -x http://10.229.18.27:8412 -o node.tar.xz https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-x64.tar.xz && tar xf && export PATH=<dir>/bin:$PATH`
+- **模型 API 经代理可达**：内网机器实测 `10.229.18.27:8412` 代理出网（github 200 / api.deepseek.com 401=TLS 通）；pi worker 需 `export http_proxy/https_proxy` + `no_proxy=localhost,127.0.0.1`
+- **`--state-dir` 必须与 `RICK_PI_AGENT_DIR` 成对**：`rick web --state-dir X` 不带 `RICK_PI_AGENT_DIR` 会被启动守卫拒绝（防 pi 沙盒指向生产、init-pi/update-pi 覆写生产 runtime）——迁移部署的标准布局（state 落默认 ~/.rick）无此问题
+- **web 端口约定 8413**（沿生产惯例；目标机若占用需换 --port）

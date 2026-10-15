@@ -87,3 +87,22 @@ git commit -m "chore(taskX): rebuild bin/rick"
 - **生产接管**：休眠期外部启动的非 release 实例（如 `~/.rick/bin/rick`，build_id=dev）会被下一次 release 的重启步骤停掉并接管（stopped 列表含外部 PID）
   - 来源: job_43 / 迭代 6（stopped=[6440,46,4895]）
   - 状态: ✅ 实测确认
+
+## dump/import 验证命令集（job_46 新增，功能在 dev/self-evolve 分支）
+
+- **单元测试**: `go test ./internal/env/relocate/... ./internal/env/procfs/... ./internal/env/devweb/... ./internal/env/release/... -count=1 -timeout 600s`（relocate 68 测试含 dump 7 + import 10）
+  - 来源: job_46 R1-R3  **状态**: ✅ 全绿
+- **darwin 交叉编译代理验证**: `GOOS=darwin GOARCH=arm64 go build ./...` + `GOOS=darwin GOARCH=amd64 go build ./...` + `GOOS=darwin go vet ./internal/env/relocate/... ./internal/cmd/...`
+  - 来源: job_46（procfs_darwin 真机行为仍未实测，解析器表驱动测试代理覆盖）  **状态**: ✅ 通过
+- **e2e 全链路**: `bash tests/relocate_e2e.sh`（67 断言：dump 结构/排除/回填/边车 + import 落位/重映射/marker 跨机稳定/会话重转义 + 重导入合并幂等；sandbox 零触碰真实 ~/.rick）
+  - 来源: job_46 R3  **状态**: ✅ 67/67
+- **测试环境警告**: rick 会话内跑上述命令须先 `env -u RICK_STATE_DIR -u RICK_PI_AGENT_DIR -u PI_CODING_AGENT_DIR`（否则 web 单例测试假失败，见 bugs.md job_46 条目）
+  - 来源: job_46 S3  **状态**: ✅ 已确认
+
+## dump/import 实测数据点（job_46 E2E，Linux 源机 156G 混合树）
+
+- **打包**：156G 混合树（142G ML 权重经 12 条 `--exclude` 剔除）→ 13.2GB payload / 286,032 文件 → **8.6GB gzip**（9,194,720,964 字节）/ 耗时约 10 分钟（含交叉编译 linux/amd64 内嵌）
+- **传输**：scp 8.6GB 内网 47 秒（~190MB/s）
+- **导入**：257,255 工作区文件 + 24,997 状态文件 + 3,778 pi 会话文件 / 耗时约 8 分钟（含 sha256 校验 + 重映射 + header 重写）
+- **验收**：11 个子工作区 id 全保留（连接键不断）、会话目录全重转义、resume 后 pi 加载 9962 tokens 历史正常应答
+- **dump 产物**：`<name>.tar.gz` + `.sha256` 边车；manifest 记录 marker id / origin 主机 / 23 项排除留痕（platform-elf / regenerable / cache / external / custom / unreadable）

@@ -34,6 +34,9 @@ Skill 是一个原子级能力单元（静态上下文），agent 在遇到触�
 | rick_release_ops_skill | 本共享机执行 rick tools release（RICK_RELEASES_DIR 重定向/detach 跨休眠/版本号语义） |
 | verify_go_changes_skill | 修改 Go 源文件后验证编译+测试通过 |
 | template_injection_skill | 向 plan/easy 模板注入新 skill 或修改变量 |
+| cross_machine_migration_skill | rick 工作区跨机搬迁（dump→scp→import→web 启动→四级 API 验收） |
+| baseline_verify_with_worktree_skill | 验证失败是否为改动引入：git worktree 隔离对照，禁 stash 链 |
+| pi_session_portability_skill | pi 会话跨路径手工移植/排障（转义规则 + header.cwd 最小改写集） |
 
 ## skill.md 格式（三段式）
 

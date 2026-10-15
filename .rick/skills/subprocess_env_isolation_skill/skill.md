@@ -106,3 +106,15 @@ subprocess.run(["go", "test", "./internal/web/"], env=clean_env, ...)
 ```
 
 **通用原则**：**任何「HOME 派生路径」都可能被显式 env 覆盖**（RICK_STATE_DIR/RICK_PI_AGENT_DIR/RICK_DEV_HOME/RICK_RELEASES_DIR…）——隔离测试环境时，剥离 `RICK_*` 前缀全家，比逐个枚举可靠。gate 在 agent 会话里跑（环境带 RICK_*）vs release 工具自跑（干净环境）结果不同，正是这类泄漏的特征。
+
+### Step 6：`rick tools release` 的 gate 内嵌 go test 同样中招（job_46 S3 沉淀）
+
+**根因**：`rick tools release` 的 gate 在 dev 树里跑 `go test ./...`，子进程继承 rick 会话环境里的 `RICK_STATE_DIR`（指向生产 `~/.rick`）→ 4 个 web 单例测试读到**生产** web.pid 存活而拒绝启动（假失败）+ suspend flaky 放大——Step 5 的同族泄漏，但发生在**产品命令内部**（不是测试驱动器侧，改测试代码救不了）。
+
+**信号词**：`RELEASE_FAIL stage=gate detail=gate: go test ./... 失败`；单跑失败的那个测试却绿；失败测试报 `web is already running: PID <真实生产pid>`。
+
+**精确解决**（跑 release 的 shell 侧一行，产品命令自身未清洗前的标准姿势）：
+```bash
+env -u RICK_STATE_DIR -u RICK_PI_AGENT_DIR -u PI_CODING_AGENT_DIR rick tools release --dry-run ...
+```
+**产品级修复点**（待做）：release.go `runGates` 构造 `exec.Cmd.Env` 时剔除 `RICK_*` 前缀全家（Step 5 的通用原则同样适用于 rick 自己派生的测试子进程）。

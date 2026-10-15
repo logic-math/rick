@@ -11,6 +11,7 @@ Loop 描述一个带评估机制的迭代控制流，供 agent 在需要反复�
 ├── rick-rsi-loop.md                  # rick 自进化（RSI）：dev 隔离开发 → 门禁 → 人类确认 → release
 ├── web-feedback-iteration-loop.md    # web 验收反馈增量迭代：分级→微任务→dev UI 验收→release（叠加 rsi-loop）
 ├── agent-runtime-bootstrap-loop.md   # pi runtime 初始化/迁移/重装
+├── workspace-relocation-loop.md      # 工作区跨机搬迁（dump/import + 四级验收）
 ├── go-refactor-migration-loop.md     # Go 大重构迁移（build+test 收敛到绿）
 ├── protocol-redesign-loop.md         # 多阶段协议重构
 ├── readme-wiki-sync-loop.md          # README/wiki 同步
