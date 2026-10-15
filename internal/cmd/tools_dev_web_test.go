@@ -97,7 +97,7 @@ func TestDevWebCommandTree(t *testing.T) {
 	}
 	// tools 父命令必须挂载 dev-web（AI 通过 `rick tools --help` 发现）
 	found := false
-	for _, sub := range NewToolsCmd().Commands() {
+	for _, sub := range NewToolsCmd("test").Commands() {
 		if sub.Name() == "dev-web" {
 			found = true
 		}

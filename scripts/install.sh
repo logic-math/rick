@@ -193,6 +193,10 @@ download_binary_from_github() {
         aarch64)
             arch="arm64"
             ;;
+        arm64)
+            # Apple Silicon：`uname -m` 直接输出 arm64（不同于 Linux 的 aarch64）
+            arch="arm64"
+            ;;
         *)
             print_error "Unsupported architecture: $arch"
             return 1
@@ -204,7 +208,7 @@ download_binary_from_github() {
     if [[ "$version" == "latest" ]]; then
         # Get latest version from GitHub API
         print_debug "Fetching latest version from GitHub..."
-        release_version=$(curl -s https://api.github.com/repos/anthropics/rick/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
+        release_version=$(curl -s https://api.github.com/repos/logic-math/rick/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
 
         if [[ -z "$release_version" ]]; then
             print_error "Failed to fetch latest version from GitHub"
@@ -212,7 +216,7 @@ download_binary_from_github() {
         fi
     fi
 
-    local download_url="https://github.com/anthropics/rick/releases/download/v${release_version}/rick-${os}-${arch}"
+    local download_url="https://github.com/logic-math/rick/releases/download/v${release_version}/rick-${os}-${arch}"
     local binary_path="$bin_dir/rick"
 
     print_debug "Download URL: $download_url"

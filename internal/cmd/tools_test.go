@@ -66,7 +66,7 @@ func TestRunLearningCheck_Valid(t *testing.T) {
 // ─── Tools Command Tests ──────────────────────────────────────────────────────
 
 func TestNewToolsCmd(t *testing.T) {
-	cmd := NewToolsCmd()
+	cmd := NewToolsCmd("test")
 	if cmd == nil {
 		t.Fatal("NewToolsCmd returned nil")
 	}
@@ -86,7 +86,7 @@ func TestNewLearningCheckCmd(t *testing.T) {
 }
 
 func TestToolsSubcommands(t *testing.T) {
-	cmd := NewToolsCmd()
+	cmd := NewToolsCmd("test")
 	subNames := make(map[string]bool)
 	for _, sub := range cmd.Commands() {
 		subNames[sub.Name()] = true

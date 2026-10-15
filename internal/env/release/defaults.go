@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sunquan/rick/internal/env"
 )
 
 // DefaultPlan 从**部署事实**推导提升计划：端口/监听地址/状态目录都从部署脚本
@@ -170,18 +172,11 @@ func samePath(a, b string) bool {
 
 // realHomeDir 返回**真实**家目录（不跟随 $HOME）：提升命令可能被 dev 实例
 // 托管的会话调用（其 HOME 是 dev HOME），但生产 HOME 必须始终是真实家目录。
+// 实现收口在 env.RealHomeDir（os/user，linux/darwin 一致），失败时回退 $HOME。
 func realHomeDir() (string, error) {
-	if data, err := os.ReadFile("/etc/passwd"); err == nil {
-		uid := strconv.Itoa(os.Getuid())
-		for _, line := range strings.Split(string(data), "\n") {
-			parts := strings.Split(line, ":")
-			if len(parts) >= 6 && parts[2] == uid {
-				return parts[5], nil
-			}
-		}
+	home := env.RealHomeDir()
+	if home == "" {
+		return "", fmt.Errorf("cannot determine real home directory")
 	}
-	if h := os.Getenv("HOME"); h != "" {
-		return h, nil
-	}
-	return "", fmt.Errorf("cannot determine real home directory")
+	return home, nil
 }

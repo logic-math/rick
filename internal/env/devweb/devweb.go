@@ -15,7 +15,7 @@
 // 纪律（task17 规格，违反即误伤生产）：
 //   - 本包只操作 dev 树与 dev HOME；生产 `~/.rick` 仅**只读**读取 pi 种子文件；
 //   - 任何 TERM/KILL 之前必须断言目标进程属于该 dev HOME
-//     （/proc/<pid>/environ 或 cwd），断言不通过就**拒绝**，宁可不杀。
+//     （environ 或 cwd，跨平台经 internal/env/procfs），断言不通过就**拒绝**，宁可不杀。
 package devweb
 
 import (
@@ -36,6 +36,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sunquan/rick/internal/env"
+	"github.com/sunquan/rick/internal/env/procfs"
 )
 
 // 默认值与环境变量覆盖（全部显式，方便测试与脚本注入）。
@@ -60,6 +63,11 @@ const (
 	// outputTail 是构建失败时回传给调用者的 stderr 尾部长度。
 	outputTail = 2048
 )
+
+// proc 是进程信息抽象的注入 seam：生产代码用 procfs.New()（linux 走 /proc，
+// darwin 走 ps/lsof——原直接读 /proc 的实现在 macOS 上恒失败，导致误判
+// 「进程已死」/删活实例 pid/端口被旧进程占用），测试可替换为 fake。
+var proc procfs.Info = procfs.New()
 
 // Layout 描述一个 dev 实例的全部路径与运行参数（纯数据，便于测试注入）。
 type Layout struct {
@@ -791,7 +799,7 @@ func Up(l Layout, bin string) (UpResult, error) {
 	expected := BuildIDFromBin(bin)
 	running, ferr := runningBuildID(l)
 	if ferr != nil || running == "" {
-		// 指纹缺失（老构建）→ 降级为 /proc/<pid>/exe 的 sha256 比对
+		// 指纹缺失（老构建）→ 降级为运行中二进制（linux: /proc/<pid>/exe）的 sha256 比对
 		if ok, why := exeMatches(l, pid, bin); !ok {
 			return UpResult{Bin: bin, PID: pid, Port: l.Port, HealthMS: healthMS, Stopped: stopped, Skipped: skipped,
 					LogTail: logTail(l)}, &StageError{Stage: "fingerprint",
@@ -848,9 +856,9 @@ func Status(l Layout) (StatusResult, error) {
 
 // ---- 进程发现与安全收尸 ----
 
-// StopOld 停掉属于本 dev 实例的旧进程：先读 pid 文件，再用 /proc 扫描兜底
-// （pid 文件可能缺失/陈旧）。**只有通过所有权断言的进程才会被杀**，其余记录在
-// skipped 里返回给调用者（宁可不杀，也不能误杀生产）。
+// StopOld 停掉属于本 dev 实例的旧进程：先读 pid 文件，再枚举系统进程兜底
+// （pid 文件可能缺失/陈旧；枚举经 internal/env/procfs，linux/darwin 均可用）。**只有通过
+// 所有权断言的进程才会被杀**，其余记录在 skipped 里返回给调用者（宁可不杀，也不能误杀生产）。
 func StopOld(l Layout) (stopped, skipped []int) {
 	seen := map[int]bool{}
 	var candidates []int
@@ -888,17 +896,17 @@ func StopOld(l Layout) (stopped, skipped []int) {
 	return stopped, skipped
 }
 
-// findDevPIDs 在 /proc 里找「属于本 dev 实例」的进程：environ 含
-// RICK_STATE_DIR=<dev state dir> 或 HOME=<dev home>，或 cwd 恰好是 dev 树。
+// findDevPIDs 枚举系统进程里「属于本 dev 实例」的：environ 含
+// RICK_STATE_DIR=<dev state dir> 或 HOME=<dev home>，或 cwd 恰好是 dev 树
+// （darwin 无 environ 等价物 → 只靠 cwd/exe 断言）。
 func findDevPIDs(l Layout) []int {
-	entries, err := os.ReadDir("/proc")
+	pids, err := proc.Enumerate()
 	if err != nil {
 		return nil
 	}
 	var out []int
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid <= 0 || pid == os.Getpid() {
+	for _, pid := range pids {
+		if pid == os.Getpid() {
 			continue
 		}
 		if ownedByDev(pid, l) {
@@ -911,17 +919,15 @@ func findDevPIDs(l Layout) []int {
 // ownedByDev 是**防误杀的核心断言**：只有能证明进程确实属于该 dev 实例
 // （environ 里的 HOME/RICK_STATE_DIR，或 cwd 是 dev 树）才返回 true。
 // 读不到环境且 cwd 也不匹配 → false（拒绝杀）。
+// darwin 无 /proc/<pid>/environ 等价物（procfs.ErrUnsupported）→ 直接走 cwd 断言。
 func ownedByDev(pid int, l Layout) bool {
-	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid)); err == nil {
-		env := strings.Split(string(data), "\x00")
-		for _, kv := range env {
-			if kv == "HOME="+l.Home || kv == "RICK_STATE_DIR="+l.StateDir() {
-				return true
-			}
+	if envMap, err := proc.Environ(pid); err == nil {
+		if envMap["HOME"] == l.Home || envMap["RICK_STATE_DIR"] == l.StateDir() {
+			return true
 		}
 		return false // 环境可读但不含 dev 标记 → 明确不属于本实例
 	}
-	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+	if cwd, err := proc.Cwd(pid); err == nil {
 		return cwd == l.Tree
 	}
 	return false
@@ -929,40 +935,30 @@ func ownedByDev(pid int, l Layout) bool {
 
 // terminate 先 TERM，宽限期后仍存活则 KILL；返回是否确认已消失。
 func terminate(pid int, grace time.Duration) bool {
-	if !alive(pid) {
+	if !proc.Alive(pid) {
 		return true
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
 	deadline := time.Now().Add(grace)
 	for time.Now().Before(deadline) {
-		if !alive(pid) {
+		if !proc.Alive(pid) {
 			return true
 		}
 		time.Sleep(120 * time.Millisecond)
 	}
 	_ = syscall.Kill(pid, syscall.SIGKILL)
 	for i := 0; i < 20; i++ {
-		if !alive(pid) {
+		if !proc.Alive(pid) {
 			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return !alive(pid)
+	return !proc.Alive(pid)
 }
 
-// alive 报告 pid 是否仍存在（供收尸轮询；僵尸态视为已退出）。
-func alive(pid int) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return false
-	}
-	// stat: pid (comm) state ...  —— comm 可能含空格/括号，取最后一个 ')'
-	idx := strings.LastIndexByte(string(data), ')')
-	if idx < 0 || idx+2 >= len(data) {
-		return true
-	}
-	return string(data[idx+2]) != "Z"
-}
+// alive 报告 pid 是否仍存在（收尸轮询；僵尸态视为已退出）。跨平台抽象见
+// internal/env/procfs（linux: /proc；darwin: ps/lsof）。
+func alive(pid int) bool { return proc.Alive(pid) }
 
 // ---- 健康 / 指纹 / 状态文件 ----
 
@@ -996,9 +992,14 @@ func runningBuildID(l Layout) (string, error) {
 	return payload.BuildID, nil
 }
 
-// exeMatches 是指纹校验的降级路径：比对 /proc/<pid>/exe 与目标二进制的 sha256。
+// exeMatches 是指纹校验的降级路径：比对运行中二进制与目标二进制的 sha256
+// （linux 经 /proc/<pid>/exe 魔术链接——文件被替换仍指旧 inode；darwin 经
+// lsof 解析的磁盘路径）。
 func exeMatches(l Layout, pid int, bin string) (bool, string) {
-	exe := fmt.Sprintf("/proc/%d/exe", pid)
+	exe, err := proc.ExeHashPath(pid)
+	if err != nil {
+		return false, fmt.Sprintf("exe path: %v", err)
+	}
 	want, err := fileSHA256(bin)
 	if err != nil {
 		return false, err.Error()
@@ -1212,20 +1213,12 @@ func firstNonEmpty(vals ...string) string {
 }
 
 // realHomeDir 返回**真实**家目录（不跟随 $HOME）：dev 实例的 HOME 已被切换，
-// 但种子文件与构建缓存在真实家目录下。优先 os/user（读 /etc/passwd），失败时
-// 回退 $HOME。
+// 但种子文件与构建缓存在真实家目录下。实现收口在 env.RealHomeDir
+// （os/user，linux/darwin 一致），失败时回退 $HOME。
 func realHomeDir() (string, error) {
-	if data, err := os.ReadFile("/etc/passwd"); err == nil {
-		uid := strconv.Itoa(os.Getuid())
-		for _, line := range strings.Split(string(data), "\n") {
-			parts := strings.Split(line, ":")
-			if len(parts) >= 6 && parts[2] == uid {
-				return parts[5], nil
-			}
-		}
+	home := env.RealHomeDir()
+	if home == "" {
+		return "", fmt.Errorf("cannot determine real home directory")
 	}
-	if home := os.Getenv("HOME"); home != "" {
-		return home, nil
-	}
-	return "", fmt.Errorf("cannot determine real home directory")
+	return home, nil
 }

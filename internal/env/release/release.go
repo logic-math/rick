@@ -36,7 +36,14 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sunquan/rick/internal/env/procfs"
 )
+
+// proc 是进程信息抽象的注入 seam：生产代码用 procfs.New()（linux 走 /proc，
+// darwin 走 ps/lsof——原直接读 /proc 的实现在 macOS 上恒失败，导致误判
+// 「进程已死」/删活实例 pid/端口被旧进程占用），测试可替换为 fake。
+var proc procfs.Info = procfs.New()
 
 // BuildIDLdflag is the linker flag that injects the build fingerprint
 // (task18's cmd.BuildID → /api/health 的 build_id)。提升后用它判定
@@ -772,7 +779,8 @@ func (p Plan) Restart(expectedVersion string) (RestartResult, error) {
 	return res, nil
 }
 
-// stopProd 停掉生产实例：pid 文件 + /proc 扫描，逐个做所有权断言；
+// stopProd 停掉生产实例：pid 文件 + 系统进程枚举（经 internal/env/procfs，
+// linux/darwin 均可用），逐个做所有权断言；
 // 断言不通过的进程记录在 skipped（宁可不杀，也绝不误杀）。
 func (p Plan) stopProd() (stopped, skipped []int) {
 	seen := map[int]bool{}
@@ -1253,36 +1261,35 @@ func (p Plan) LastVersion() (string, error) {
 
 // ownedByProd 是**防误杀的核心断言**：只有能证明进程属于该生产部署才返回 true
 // ——cwd 是生产工作树、或可执行文件在生产 bin 目录下、或 environ 的 HOME 是生产 HOME。
+// darwin 无 /proc/<pid>/environ 等价物（procfs.ErrUnsupported）→ env 断言跳过，
+// 靠 cwd+exe 双断言（linux 下三者全可用）。
 func ownedByProd(p Plan, pid int) bool {
-	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil && cwd == p.ProdRepo {
+	if cwd, err := proc.Cwd(pid); err == nil && cwd == p.ProdRepo {
 		return true
 	}
-	if exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
-		clean := strings.TrimSuffix(exe, " (deleted)")
-		if strings.HasPrefix(clean, filepath.Join(p.ProdRepo, "bin")+string(filepath.Separator)) {
+	if exe, err := proc.Exe(pid); err == nil {
+		if strings.HasPrefix(exe, filepath.Join(p.ProdRepo, "bin")+string(filepath.Separator)) {
 			return true
 		}
 	}
-	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", pid)); err == nil {
-		for _, kv := range strings.Split(string(data), "\x00") {
-			if kv == "HOME="+p.ProdHome {
-				return true
-			}
+	if envMap, err := proc.Environ(pid); err == nil {
+		if envMap["HOME"] == p.ProdHome {
+			return true
 		}
 	}
 	return false
 }
 
-// findProdPIDs 在 /proc 里找属于该生产部署的进程（pid 文件缺失/陈旧时的兜底）。
+// findProdPIDs 枚举系统进程里属于该生产部署的（pid 文件缺失/陈旧时的兜底；
+// 枚举经 internal/env/procfs，linux/darwin 均可用）。
 func findProdPIDs(p Plan) []int {
-	entries, err := os.ReadDir("/proc")
+	pids, err := proc.Enumerate()
 	if err != nil {
 		return nil
 	}
 	var out []int
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid <= 0 || pid == os.Getpid() {
+	for _, pid := range pids {
+		if pid == os.Getpid() {
 			continue
 		}
 		if ownedByProd(p, pid) {
@@ -1292,17 +1299,9 @@ func findProdPIDs(p Plan) []int {
 	return out
 }
 
-func alive(pid int) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return false
-	}
-	idx := strings.LastIndexByte(string(data), ')')
-	if idx < 0 || idx+2 >= len(data) {
-		return true
-	}
-	return string(data[idx+2]) != "Z"
-}
+// alive 报告 pid 是否仍存在（收尸轮询；僵尸态视为已退出）。跨平台抽象见
+// internal/env/procfs（linux: /proc；darwin: ps/lsof）。
+func alive(pid int) bool { return proc.Alive(pid) }
 
 func alivePIDFile(path string) bool {
 	data, err := os.ReadFile(path)
@@ -1317,25 +1316,25 @@ func alivePIDFile(path string) bool {
 }
 
 func terminate(pid int, grace time.Duration) bool {
-	if !alive(pid) {
+	if !proc.Alive(pid) {
 		return true
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
 	deadline := time.Now().Add(grace)
 	for time.Now().Before(deadline) {
-		if !alive(pid) {
+		if !proc.Alive(pid) {
 			return true
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
 	_ = syscall.Kill(pid, syscall.SIGKILL)
 	for i := 0; i < 30; i++ {
-		if !alive(pid) {
+		if !proc.Alive(pid) {
 			return true
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return !alive(pid)
+	return !proc.Alive(pid)
 }
 
 // HostedByProd 判断「当前进程是否被该生产的实例托管」（AI 会话正在被 release
@@ -1348,14 +1347,14 @@ func HostedByProd(p Plan) (bool, string) {
 	}
 	pid := os.Getpid()
 	for i := 0; i < 12; i++ {
-		ppid := parentPID(pid)
+		ppid, _ := proc.PPID(pid)
 		if ppid <= 1 || ppid == pid {
 			return false, ""
 		}
 		if prodPIDs[ppid] {
 			return true, fmt.Sprintf("祖先进程 %d 是生产实例", ppid)
 		}
-		if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ppid)); err == nil && cwd == p.ProdRepo {
+		if cwd, err := proc.Cwd(ppid); err == nil && cwd == p.ProdRepo {
 			return true, fmt.Sprintf("祖先进程 %d 的工作目录是生产工作树", ppid)
 		}
 		pid = ppid
@@ -1363,20 +1362,10 @@ func HostedByProd(p Plan) (bool, string) {
 	return false, ""
 }
 
+// parentPID 返回父进程 pid（祖先链遍历；跨平台经 internal/env/procfs，
+// linux: /proc/<pid>/stat，darwin: ps）。失败返回 0（上层视为到顶）。
 func parentPID(pid int) int {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if err != nil {
-		return 0
-	}
-	idx := strings.LastIndexByte(string(data), ')')
-	if idx < 0 || idx+2 >= len(data) {
-		return 0
-	}
-	fields := strings.Fields(string(data)[idx+2:])
-	if len(fields) < 2 {
-		return 0
-	}
-	ppid, _ := strconv.Atoi(fields[1])
+	ppid, _ := proc.PPID(pid)
 	return ppid
 }
 

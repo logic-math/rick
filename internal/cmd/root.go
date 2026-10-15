@@ -68,7 +68,7 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.AddCommand(NewDoingCmd())
 	rootCmd.AddCommand(NewLearningCmd())
 	rootCmd.AddCommand(NewDreamCmd())
-	rootCmd.AddCommand(NewToolsCmd())
+	rootCmd.AddCommand(NewToolsCmd(version))
 	rootCmd.AddCommand(NewHumanLoopCmd())
 	rootCmd.AddCommand(NewCtrlCmd())
 	rootCmd.AddCommand(NewEasyCmd())
