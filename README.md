@@ -705,6 +705,7 @@ sequenceDiagram
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 5.1.0 | 2026-10-15 | 工作区丝滑搬迁：`rick tools dump`（多工作区+rick 状态→单文件 tar.gz，--exclude/--sessions/--slim/--goos，权限洞跳过留痕，sha256 边车）与 `rick tools import`（合并落位不覆盖、marker 稳定 id、路径重映射、pi 会话移植可续用、10 项验证清单）；ProcFS 跨平台抽象（linux/darwin，修 macOS /proc 依赖）；SessionRegistry 并发持久化竞态修复；dump --exclude 自定义排除与子工作区完整迁移；实测 156G 混合树→8.6GB 归档跨机部署全链路 |
 | 5.0.15 | 2026-10-12 | 默认模型/思考等级对齐：provider `catpaw-proxy` + model `glm-5.3` + thinking `high`（~/.rick/config.json `pi_extra_args`），文档/知识库示例与默认表述同步更新 |
 | 4.4.15 | 2026-08 | 确定性门禁体系（grilling_gate/pipeline_gate/level_complete）；grilling OKR 设计树 + 防漂移纪律；skill 编排协议单源（prompt 包唯一实现 + builder 全委托，探针法验证「改 skill 一处全 cmd 等价生效」） |
 | 4.3.x | 2026-08 | doing pipeline 重构：分层 DAG + 层门禁（gate{N}.py human 确认）+ 写域确定性检查 + 双 agent TDD → 测试收敛到层门禁（task 自测）；doing 前置 git init；tasks.json watcher 确定性进度反馈；act-path 提取层废除（ctrl/dream/learning 直读 pi 原生行为轨迹） |
