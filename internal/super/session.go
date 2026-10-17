@@ -1,0 +1,140 @@
+// session.go — super 中控会话 prompt 构建（job_47/task11）。
+//
+// BuildSuperPrompt 组装 `rick super`（默认 session 子命令）的交互提示词：
+//   - super-loop 全文 inline（super 会话默认加载的工作法，.rick/loops/super-loop.md）
+//   - gen_env skill 全文 inline（env 建设引导，.rick/skills/gen_env_skill/skill.md）
+//   - Loops / Skills 目录（LoadLoopsContext / LoadSkillsContext——super-loop 与
+//     gen_env 均出现在目录里，其余 loop/skill 按目录可发现）
+//   - super 方法 SOP（中控职责/单写者纪律/三层架构分工的浓缩）+ CLI 速查
+//   - 工作区速查（ws 路径/super.json/events/干预队列）
+//
+// 产物落 <ws>/sessions/<uuid>/{session_id,method.md,prompt.md}：session_id 持久化
+// 供 `rick super --resume <name>` 经 pi `--session <id>` 恢复（bugs.md：--session
+// 加载已有语义）。与 easy（jobs/<id>/doing/prompts/）不同，super 会话锚定在
+// super 工作区而非 job 目录——进化系统的运行状态本就以 ws 为家。
+package super
+
+import (
+	"crypto/rand"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/sunquan/rick/internal/prompt"
+)
+
+// superMethodSOP 是 super 会话的方法层浓缩（commandMethod 的 super 侧对应物——
+// internal/builder 不在 super 包写域内，故在本包自持文案）。
+const superMethodSOP = `Super 方法（super-loop 中控）：env 建设与升级（gen_env skill 现场生成/演进 env，门禁系统设计是 env 范畴）→ 启动前门先证红确认（exploit 拒识 100% 才放行）→ rick super start/stop/status 启停监控后台进化 → rick super event 投递 human 干预（经干预队列，绝不直写 events.jsonl/archive.json——单写者纪律）。进化逻辑（采样/门禁/档案/淘汰）全部在后台 py 调度器，中控只做编排与人机接口。`
+
+// superCLICheatsheet 是五子命令速查（与 internal/cmd/super.go 对齐）。
+const superCLICheatsheet = `## CLI 速查
+
+- rick super --name <n>                    # 中控会话（本会话）
+- rick super start --name <n> --env <path> # 初始化工作区 + 拉起 py 调度器（--daemon 后台）
+- rick super status --name <n> [--json]    # 状态 + 心跳 + 北极星（迭代/入格/token）
+- rick super event --name <n> --type <t> --payload '<json>'  # 干预入队
+- rick super stop --name <n>               # 优雅停（SIGTERM 落完当前事件 → SIGKILL 兜底）`
+
+// workspaceCheatsheet 渲染工作区速查段。
+func workspaceCheatsheet(ws string) string {
+	var b strings.Builder
+	b.WriteString("## 工作区速查\n\n")
+	b.WriteString(fmt.Sprintf("- 工作区（ws）：%s\n", ws))
+	b.WriteString(fmt.Sprintf("- 运行元信息：%s\n", filepath.Join(ws, "super.json")))
+	b.WriteString(fmt.Sprintf("- 事件流（唯一真相源，只读）：%s\n", filepath.Join(ws, "events.jsonl")))
+	b.WriteString(fmt.Sprintf("- 精英档案（只读）：%s\n", filepath.Join(ws, "archive.json")))
+	b.WriteString(fmt.Sprintf("- 干预队列（human 写入口）：%s\n", filepath.Join(ws, "interventions")))
+	b.WriteString(fmt.Sprintf("- env（gen_env 产出）：%s\n", filepath.Join(ws, "env")))
+	b.WriteString(fmt.Sprintf("- 后台日志（--daemon）：%s\n", filepath.Join(ws, "super.log")))
+	b.WriteString("\n事件类型速查与目录协议详见仓库 super/README.md。\n")
+	return b.String()
+}
+
+// newSessionUUID 生成 v4 UUID（与 handler.generateUUID 同型；本包不 import handler）。
+func newSessionUUID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+// BuildSuperPrompt 组装 super 中控会话的 method/prompt 两件产物。
+//
+// rickDir 是 .rick 目录（loops/skills 加载源）；ws 是 super 工作区绝对路径。
+// 每次调用新建 <ws>/sessions/<uuid>/ 会话目录（session_id + method.md +
+// prompt.md），返回两个产物的绝对路径。失败原子：任一写失败返回 err
+// （已建目录保留无害）。
+func BuildSuperPrompt(rickDir, ws string) (methodFile, promptFile string, err error) {
+	if rickDir == "" || ws == "" {
+		return "", "", fmt.Errorf("super: BuildSuperPrompt requires rickDir and ws")
+	}
+
+	uuid, err := newSessionUUID()
+	if err != nil {
+		return "", "", fmt.Errorf("super: session uuid: %w", err)
+	}
+	sessDir := filepath.Join(ws, "sessions", uuid)
+	if err := os.MkdirAll(sessDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("super: create session dir: %w", err)
+	}
+
+	// session_id（resume 契约：rick super --resume 经 pi --session 加载）
+	if err := os.WriteFile(filepath.Join(sessDir, "session_id"), []byte(uuid), 0o644); err != nil {
+		return "", "", fmt.Errorf("super: persist session id: %w", err)
+	}
+
+	// method.md：方法层（rick 前缀 + super SOP）
+	method := "你是 rick 的 coding agent。rick = 方法（loops/skills/domain 体系），你 = 实现。工作前先读 domain 事实，执行中遵循 loop 流程，按需加载 skills。\n\n" + superMethodSOP + "\n"
+	methodFile = filepath.Join(sessDir, "method.md")
+	if err := os.WriteFile(methodFile, []byte(method), 0o644); err != nil {
+		return "", "", fmt.Errorf("super: write method.md: %w", err)
+	}
+
+	// inline 材料：super-loop 全文 + gen_env skill 全文（缺失降级为显式提示，
+	// 不静默——中控会话缺工作法必须可见）。
+	superLoop := readInline(filepath.Join(rickDir, "loops", "super-loop.md"),
+		"（super-loop.md 缺失：请先按 .rick/loops 规范落盘 super-loop）")
+	genEnvSkill := readInline(filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"),
+		"（gen_env_skill/skill.md 缺失：请先按三段式规范落盘）")
+
+	var b strings.Builder
+	b.WriteString("# super 中控会话\n\n")
+	b.WriteString("你是 rick super 模式的**中控会话**：env 的建设与升级、后台进化引擎的启停与监控、human 干预的投递。进化本身由后台执行（Go PySupervisor 监督 → py 调度器四状态循环 → pi agent 池），**你不执行进化逻辑**。\n\n")
+	b.WriteString("## 单写者纪律（不可协商）\n\n")
+	b.WriteString("events.jsonl / archive.json 只有后台 py 调度器一个写者。你的任何干预一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取——**永远不直写** events.jsonl / archive.json。\n\n")
+	b.WriteString("---\n\n# Loop: super-loop（默认加载，先完整读取再动手）\n\n")
+	b.WriteString(superLoop)
+	b.WriteString("\n\n---\n\n# Skill: gen-env（env 建设与升级时加载）\n\n")
+	b.WriteString(genEnvSkill)
+	b.WriteString("\n\n---\n\n")
+	b.WriteString(prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))
+	b.WriteString("\n")
+	b.WriteString(prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
+	b.WriteString("\n---\n\n")
+	b.WriteString(superCLICheatsheet)
+	b.WriteString("\n\n---\n\n")
+	b.WriteString(workspaceCheatsheet(ws))
+
+	promptFile = filepath.Join(sessDir, "prompt.md")
+	if err := os.WriteFile(promptFile, []byte(b.String()), 0o644); err != nil {
+		return "", "", fmt.Errorf("super: write prompt.md: %w", err)
+	}
+	return methodFile, promptFile, nil
+}
+
+// readInline 读取 inline 材料；缺失时返回 fallback 提示（带时间戳的缺席说明）。
+func readInline(path, fallback string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback + fmt.Sprintf("\n（路径：%s，探测时间 %s）\n", path,
+			time.Now().Format(time.RFC3339))
+	}
+	return string(data)
+}
