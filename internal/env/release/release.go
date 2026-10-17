@@ -460,7 +460,10 @@ func runGates(p Plan, out io.Writer) (GateResult, error) {
 	if goTestTimeout <= 0 {
 		goTestTimeout = int(defaultGateTimeout.Seconds())
 	}
-	goCmd := exec.Command("go", "test", "./...", "-timeout",
+	// -p 1：包间串行——避免 env/release 真构建用例与 web 等时敏包并发争 CPU
+	// 造成环境性 flaky（job_47 S3 演练在 mac 上实测：并行时 internal/web 超时、
+	// 单独跑绿）
+	goCmd := exec.Command("go", "test", "./...", "-p", "1", "-timeout",
 		fmt.Sprintf("%ds", goTestTimeout))
 	goCmd.Dir = p.DevTree
 	goCmd.Env = p.buildEnv()
