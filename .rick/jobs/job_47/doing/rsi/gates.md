@@ -35,3 +35,10 @@ GATE gate4 pass=true (2026-10-17, Kahn L4: task14——KR 验收门；B 段与 g
 - realpi 冒烟资产就绪（RICK_REAL_PI_ARGS 门控；真跑留 S2 后人工执行贴证）
 - 生产零触碰 ✓
 - gate 修正记录（透明化）：[B] 段补 -skip TestReleaseCmd.*（与 gate2 同款环境适配，断言不变）
+
+REALPI_SMOKE pass=true (2026-10-17, commit ea9dfc6)
+- REALPI_SMOKE OK: iterations=3 tokens=3124113 gate_results=3（真 pi agent 池、无重启风暴）
+- 首跑发现两个真缺陷（此即 realpi 门控价值）：
+  ① 心跳线程缺失→重启风暴（已修：后台心跳线程 10s 地板 + EventWriter 线程锁；回归测试护住）
+  ② 冒烟 HOME 隔离屏蔽 pi 凭据（已修：.config 与 .rick/pi symlink 桥）
+- gate4 复跑 pass=true（276/276 + e2e + 双回归全绿，ea9dfc6 后）
