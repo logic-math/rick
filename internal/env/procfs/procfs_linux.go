@@ -110,3 +110,10 @@ func (linuxInfo) Enumerate() ([]int, error) {
 	}
 	return out, nil
 }
+
+// Snapshot 在 linux 返回 ErrUnsupported：linux 的逐 pid /proc 读取是 µs 级，
+// 批量快照无收益（它是为 darwin 的逐 pid lsof 分钟级痛点设计的）；
+// 调用方（findProdPIDs/findDevPIDs）对本错误回退到原逐 pid 路径。
+func (linuxInfo) Snapshot() (map[int]ProcSnapshot, error) {
+	return nil, ErrUnsupported
+}

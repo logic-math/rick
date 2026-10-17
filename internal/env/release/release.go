@@ -1303,8 +1303,24 @@ func ownedByProd(p Plan, pid int) bool {
 }
 
 // findProdPIDs 枚举系统进程里属于该生产部署的（pid 文件缺失/陈旧时的兜底；
-// 枚举经 internal/env/procfs，linux/darwin 均可用）。
+// 枚举经 internal/env/procfs 的**批量快照**——darwin 上逐 pid 的 lsof 是分钟级
+// （每 pid ~0.1-0.3s × 全进程），批量一次 1-3 次子进程调用；跨机后实测修复）。
 func findProdPIDs(p Plan) []int {
+	// 快路径：批量快照（darwin：3 次子进程调用覆盖全进程；linux 返回
+	// ErrUnsupported → 走下方原路径——逐 pid /proc 读已是 µs 级）。
+	if snaps, err := proc.Snapshot(); err == nil {
+		var out []int
+		for pid := range snaps {
+			if pid == os.Getpid() {
+				continue
+			}
+			if ownedByProdSnapshot(p, snaps[pid]) {
+				out = append(out, pid)
+			}
+		}
+		return out
+	}
+	// 原路径（linux）：逐 pid 全量断言（cwd/exe/env 三重）
 	pids, err := proc.Enumerate()
 	if err != nil {
 		return nil
@@ -1319,6 +1335,27 @@ func findProdPIDs(p Plan) []int {
 		}
 	}
 	return out
+}
+
+// ownedByProdSnapshot 与 ownedByProd 同语义（cwd/exe 断言；darwin 批量快照
+// 无 environ，HOME 断言仅存在于原逐 pid 路径——cwd/exe 是主断言，覆盖
+// 生产实例的全部实际形态：start-web.sh cd 进 prodRepo + 二进制在 bin/ 下）。
+func ownedByProdSnapshot(p Plan, s procfs.ProcSnapshot) bool {
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	prodRepo := norm(p.ProdRepo)
+	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
+	if s.Cwd != "" && norm(s.Cwd) == prodRepo {
+		return true
+	}
+	if s.Exe != "" && strings.HasPrefix(norm(s.Exe), prodBin) {
+		return true
+	}
+	return false
 }
 
 // alive 报告 pid 是否仍存在（收尸轮询；僵尸态视为已退出）。跨平台抽象见

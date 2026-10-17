@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -126,4 +127,64 @@ func runCommand(name string, args ...string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// Snapshot 批量采集：1× ps（pid+comm）+ 1× lsof 全量 cwd + 1× lsof 全量 txt。
+// 三次子进程调用覆盖全系统（对比逐 pid：数百次 lsof）。
+// lsof -F pc 输出形如 "p<pid>\nc<path>"（块状），fd 过滤用 -d cwd / -d txt。
+func (darwinInfo) Snapshot() (map[int]ProcSnapshot, error) {
+	out := map[int]ProcSnapshot{}
+	// ① pid + comm（一次 ps）
+	if o, err := runCommand("ps", "-axo", "pid=,comm="); err == nil {
+		for _, line := range strings.Split(o, "\n") {
+			fields := strings.Fields(strings.TrimSpace(line))
+			if len(fields) < 2 {
+				continue
+			}
+			pid, ok := ParseIntField(fields[0])
+			if !ok || pid <= 0 {
+				continue
+			}
+			out[pid] = ProcSnapshot{PID: pid, Comm: strings.Join(fields[1:], " ")}
+		}
+	}
+	// ② 全量 cwd（一次 lsof，结构化 -F 输出）
+	parseLSOFBlocks := func(o string, field byte) map[int]string {
+		res := map[int]string{}
+		var curPid int
+		for _, line := range strings.Split(o, "\n") {
+			if line == "" {
+				continue
+			}
+			if line[0] == 'p' {
+				if v, ok := ParseIntField(line[1:]); ok {
+					curPid = v
+				}
+				continue
+			}
+			if line[0] == field && curPid > 0 {
+				res[curPid] = line[1:]
+			}
+		}
+		return res
+	}
+	if o, err := runCommand("lsof", "-w", "-F", "pc", "-d", "cwd"); err == nil {
+		for pid, cwd := range parseLSOFBlocks(o, 'c') {
+			s := out[pid]
+			s.PID, s.Cwd = pid, cwd
+			out[pid] = s
+		}
+	}
+	// ③ 全量 exe（txt 文件描述符）
+	if o, err := runCommand("lsof", "-w", "-F", "pn", "-d", "txt"); err == nil {
+		for pid, exe := range parseLSOFBlocks(o, 'n') {
+			s := out[pid]
+			s.PID, s.Exe = pid, exe
+			out[pid] = s
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("snapshot: no processes collected")
+	}
+	return out, nil
 }
