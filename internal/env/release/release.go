@@ -454,7 +454,14 @@ func runGates(p Plan, out io.Writer) (GateResult, error) {
 		timeout = defaultGateTimeout
 	}
 
-	goCmd := exec.Command("go", "test", "./...", "-timeout", "900s")
+	// 内层 go test 超时与外层门禁预算对齐（1800s 默认）：macOS 上
+	// env/release 的真构建用例单次 ~90s×5，900s 会环境性截断（job_47 跨机后实测）
+	goTestTimeout := int(timeout.Seconds())
+	if goTestTimeout <= 0 {
+		goTestTimeout = int(defaultGateTimeout.Seconds())
+	}
+	goCmd := exec.Command("go", "test", "./...", "-timeout",
+		fmt.Sprintf("%ds", goTestTimeout))
 	goCmd.Dir = p.DevTree
 	goCmd.Env = p.buildEnv()
 	raw, err := goCmd.CombinedOutput()
