@@ -1,0 +1,102 @@
+---
+name: super-loop
+trigger: "当启动或操作 rick super 模式（env 建设/升级、启停监控后台进化、干预队列）时触发"
+scope: "super 会话（全局）"
+---
+
+# Loop: super 中控（env 建设 + 后台进化监督）
+
+`rick super`（默认 `session` 子命令）打开一个**中控中心会话**：本会话负责 env 的建设与升级（gen_env skill）、后台进化引擎的启停与监控、以及 human 干预的投递。进化本身由后台三层架构执行（Go PySupervisor 监督 → py 调度器四状态循环 → pi agent 池），**中控会话不执行进化逻辑**。
+
+- 本 loop 是普通的 rick loop：super 会话的提示词注入「可用的项目 Loops」目录，当任务属于 super 模式操作时**先完整读取本文件**再动手。
+- 架构分工（三层）：中控会话（本 loop）= 人机接口；`rick super start` 起的 Go PySupervisor = 进程监督（心跳/kill 梯/游标重启）；py 调度器 = 唯一真相源写者（events.jsonl）与四状态循环（adjust → UCB 采样 → builder → coding → debug → 级联门 → MAP-Elites 入格）。
+- **单写者纪律（不可协商）**：events.jsonl 只有 py 调度器一个写者。human 的任何干预（暂停/降权/复活/停机）一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取入事件——中控会话与 human **永远不直写 events.jsonl / archive.json**。
+
+## 依赖准备（硬约束，缺失则报错停止）
+
+1. `rick super --help` 列出五子命令（session/start/stop/status/event）——super 命令组已构建进当前 rick。
+2. pi runtime 可用：`super.json` 的 `pi_path`（或 `~/.rick/config.json` super 段）指向存在的 pi 二进制（如 `<agent_dir>/runtime/node_modules/.bin/pi`）。缺失 → 按 agent-runtime-bootstrap-loop 处理，不要在缺 pi 时启动进化。
+3. env 就绪或准备建设：目标工作区 `~/.rick/super/<name>/env/` 存在且过验收自检（见 Step 1），否则先走 gen_env 现场生成——**没有合格 env 不启动进化**。
+4. numpy 等 Python 依赖装在 `env/.venv/`（`python3 -m venv env/.venv && env/.venv/bin/pip install -r env/requirements.txt`）——门禁框架优先用 `env/.venv/bin/python` 跑 env 脚本，不污染系统 Python。
+
+不满足任一条件 → 停在对应步骤修复，不绕过（缺 env 就跑 = 调度器在 stage1 环境健康门反复失败）。
+
+## 目标（Goal）
+
+一次 super 中控会话达成四件事（客观判据）：
+
+| # | 达成条件 | 判据 |
+|---|---|---|
+| G1 | env 合格（建设或确认既有） | 参考实现过正确性门 + bench 出分 + 门先证红种子拒识 100% |
+| G2 | 后台进化按预期运行 | `rick super status` → state=running、心跳新鲜、iteration_cursor 递增、北极星（入格数/各格最优 perf/token 成本）可读 |
+| G3 | 干预正确投递且不破坏单写者 | 干预只经 `rick super event` → 队列文件出现在 `interventions/` → 后续事件流出现 intervention 事件（source=human） |
+| G4 | 停止干净 | `rick super stop` 后 state=stopped、session_ended 事件落盘、无孤儿进程（supervisor 整树收割） |
+
+## 上下文管理（Context Management）
+
+- **保留**：env 的任务定义与门禁设计决策（env.json/feature_space.json 内容摘要）、当前迭代游标与北极星快照、human 干预历史、门先证红结论。
+- **压缩**：长跑期间的例行心跳/迭代事件（读 status 聚合摘要即可，不逐条复述事件流）；agent 产出的代码细节（在 codes/{uuid}/ 有快照）。
+- **遗忘**：已出档精英的历史版本代码内容（archive 里只有引用与谱系）；被拒绝提案的中间稿。
+- 落盘位置：工作区 `~/.rick/super/<name>/`（super.json / events.jsonl / archive.json / interventions/ / codes/ / gates/ / prompts/）——速查表见 `super/README.md`。
+
+## 可调用工具（Tool Access）
+
+| 命令 | 用途 | 约束 |
+|---|---|---|
+| `rick super session` | 进入中控会话（super-loop + gen_env skill 默认加载） | 本 loop 的承载形态 |
+| `rick super start --name <n> --env <path> [--daemon]` | 初始化工作区 + 起 PySupervisor + py 调度器（`--daemon` 后台） | 启动内含**门先证红**（exploit 拒识 100% + 金样例零误杀），失败即中止并给出泄漏样本清单 |
+| `rick super status --name <n> [--json]` | 心跳/状态/迭代游标/预算/北极星/事件尾摘要 | 只读 |
+| `rick super event --name <n> --type <t> --payload '<json>'` | human 干预投递（写 `interventions/` 队列文件） | **唯一干预入口**；禁止直写 events.jsonl/archive.json |
+| `rick super stop --name <n>` | 优雅停（SIGTERM 落完当前事件 → grace → SIGKILL 整树） | 停后 state=stopped |
+| gen_env skill（加载） | env 建设/升级的访谈式流程 | Step 1/Step 5 使用 |
+
+- 权限边界：中控会话不采样、不跑门禁、不改档案——进化决策全部在后台调度器；中控只读状态 + 投递意图。
+
+## 会话工作流（Step 0-6）
+
+**Step 0 环境自检**
+- `rick super status --name <n>`：工作区存在性 / state / 心跳；首次没有工作区属正常（走 Step 1）。
+- 确认依赖准备四项（命令组 / pi_path / env / .venv）。
+
+**Step 1 env 建设（缺失时；已有 → 跳 Step 2）**
+- 加载 **gen_env skill** 走访谈式流程：任务定义 → 评分方向 → **门禁系统设计引导**（正确性门容差 / 性能门 / exploit 注册表 / 金样例——门禁阈值属 env 设计范畴，由 human 决策，本 loop 不代答）→ 初始特征空间（2-4 轴，轴间正交）→ 初始解。
+- matmul 类任务可从 `super/env_templates/matmul/` 模板起步（numpy 512×512、2 轴特征空间），在模板上做门禁定制。
+- 验收自检（gen_env 的收尾清单）：参考实现过正确性门 ✓ bench 出分 ✓ exploit 样本被正确性门拒识 ✓（这是 Step 2 门先证红的地基）。
+
+**Step 2 启动**
+- `rick super start --name <n> --env <path> --daemon`：启动即跑**门先证红**（全部 exploit 样本拒识 100% + 全部金样例通过）——不绿即中止启动，把泄漏/误杀清单给 human 看，回 Step 1 修 env 门禁。
+- 启动成功后用 `rick super status` 确认 state=running、心跳新鲜、iteration_cursor 开始递增。
+
+**Step 3 监控**
+- `rick super status --name <n>`（或 `--json` 给机器可读）：心跳/迭代游标/预算墙（--max-wall-time）/北极星（入格数、各格最优 perf、token 分 role 成本）+ 事件尾摘要（最近迭代的 gate_result / elite_admitted / env_failure_concluded）。
+- 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
+
+**Step 4 干预**
+- `rick super event --name <n> --type <t> --payload '<json>'`——类型如 pause / weight（降采样权，0=功能性灭绝不删格）/ resurrect（复活误杀格）/ env_change / stop。
+- 纪律：干预写队列文件，调度器在**迭代边界**摄取（延迟 ≤1 迭代）；不承诺即时生效；重复投递按 seq 幂等去重。
+- 干预后用 Step 3 验证：事件流出现 intervention 事件（source=human）+ 期望的后续效果（如 weight_changed / 恢复采样）。
+
+**Step 5 env 升级（热更新）**
+- 改 env 定义（门禁阈值/评分方向/特征轴/exploit 注册表）直接编辑 `env/` 与 `gates/` 下文件：调度器**每迭代 subprocess 直调 pi**（agent 上下文每迭代重建），env 变更在**下一个迭代自动生效**，无需重启。
+- **改门禁（任何正确性门/容差/评分函数变更）必须重跑门先证红**：exploit 注册表全拒 + 金样例全过才继续跑——否则放水门禁会静默放行坏解入格。改门禁后建议顺带跑双回归（elite 回放防误杀 + exploit 回归防放水）。
+- 特征轴变更影响格定义：新轴只对后续采样生效，既有格保留（不删格原则；旧格降权由 adjust 提案处理）。
+
+**Step 6 停止与收尾**
+- `rick super stop --name <n>`：优雅停（调度器落完当前事件再退）；确认 state=stopped、session_ended 事件、无孤儿进程。
+- 长跑不手动停也会撞预算墙（--max-wall-time，默认 24h）自然收尾——同样确认 state 与事件完整。
+- 收尾报告 human：北极星终值（总迭代/入格数/各格最优 perf/总 token 成本）+ 后续建议（哪些格值得人工深挖、env 门禁哪里值得升级）。
+
+## 产出评估（Output Evaluation）
+
+- 评估类型：客观（命令可验证）。
+- 检查表（对应 G1-G4）：
+  - [ ] env 验收自检三项全过（gen_env 清单）
+  - [ ] `rick super status --json`：state=running（或按预期 stopped）+ iteration_cursor 递增 + 北极星键齐全
+  - [ ] 干预经 `rick super event` 投递且事件流可见 intervention（source=human）；全程无任何对 events.jsonl/archive.json 的直接写入
+  - [ ] 停止后 state=stopped + session_ended 事件 + 进程树干净
+
+## 停止标准（Termination Condition）
+
+- **成功退出**：G1-G4 全达成，human 明示本次中控会话结束。
+- **失败退出**：①门先证红修不动（exploit 持续泄漏或金样例持续被误杀）→ 停止并报告 env 门禁缺陷；②env_failure_concluded 连发且排查无解 → 停机留现场（events.jsonl + stderr_tail），交 human 裁决；③pi runtime 不可用 → 停止，走 agent-runtime-bootstrap-loop。
+- **优雅退出**：任何时刻 human 要求停 → `rick super stop` + 状态确认后再退出会话；不留 running 孤儿进程，不删任何工作区数据（事件流是唯一真相源，留档可审计）。

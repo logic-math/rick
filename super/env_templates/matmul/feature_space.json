@@ -1,0 +1,18 @@
+{
+  "task": "matmul",
+  "axes": [
+    {
+      "name": "impl_strategy",
+      "type": "enum",
+      "values": ["naive_loops", "blocked", "vectorized", "strassen_like"],
+      "desc": "实现策略——算法维度：朴素三重循环 / 分块（cache-blocking）/ 向量化（SIMD/BLAS）/ Strassen 类递归分治"
+    },
+    {
+      "name": "memory_layout",
+      "type": "enum",
+      "values": ["row_major", "col_major", "tiled"],
+      "desc": "内存布局——数据排布维度：行主序 / 列主序 / 分块平铺"
+    }
+  ],
+  "orthogonality": "两轴刻画解的不同正交维度：impl_strategy=算法结构（怎么算），memory_layout=数据在内存中的排布（怎么放）。同一策略可配不同布局（如 blocked+tiled），组合互斥不重叠。"
+}
