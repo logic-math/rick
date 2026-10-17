@@ -48,6 +48,7 @@ import shutil
 import signal
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -246,10 +247,20 @@ class Scheduler:
                            "scheduler")
         self._recover()
         self._install_signal_handlers()
+        # 心跳线程：长 agent 派发（真 pi 单次可达十余分钟）会阻塞主循环，
+        # 若心跳只在主循环 tick 写，Go PySupervisor 会误判心跳超时→kill→重启
+        # →重启风暴（realpi 冒烟实测）。后台线程独立跳心，与主循环并发 append
+        # 由 EventWriter 线程锁保护。
+        self._hb_stop = threading.Event()
+        self._hb_thread = threading.Thread(
+            target=self._heartbeat_loop, name="superopt-heartbeat", daemon=True)
+        self._hb_thread.start()
         try:
             self._write_heartbeat(force=True)
             self._loop()
         finally:
+            self._hb_stop.set()
+            self._hb_thread.join(timeout=5)
             self._restore_signal_handlers()
         self.events.append("session_ended",
                            {"iteration_cursor": self.iteration_cursor},
@@ -284,8 +295,26 @@ class Scheduler:
             if (self.iteration_cursor > 0
                     and self.iteration_cursor % EPOCH_ITERATIONS == 0):
                 self._reevaluate_pending()
-            # ⑥ 心跳
-            self._write_heartbeat()
+            # ⑥ 心跳由后台线程独立跳（长 agent 派发不中断）
+
+    def _heartbeat_loop(self) -> None:
+        """后台心跳：周期性跳，与主循环并发。
+
+        interval<=0（原「每迭代一跳」测试语义）时用 10s 地板：长 agent 派发
+        （真 pi 单次可达十余分钟）主循环阻塞，若无线程跳心，Go PySupervisor
+        会误判心跳超时→kill→重启风暴（realpi 冒烟实测）。地板值远低于任何
+        心跳超时（生产默认 90s / 测试 30s）。
+        """
+        interval = float(self.conf.get("heartbeat_interval_s", 30) or 0)
+        if interval <= 0:
+            interval = 10.0
+        while not self._hb_stop.wait(interval):
+            try:
+                self._write_heartbeat(force=True)
+            except Exception as exc:  # noqa: BLE001
+                # 心跳失败不杀主循环（如事件写器被外部关闭的窗口）；下一轮再试
+                print("[superopt] heartbeat thread error: %s" % exc,
+                      file=sys.stderr, flush=True)
 
     # ------------------------------------------------------------------ #
     # 恢复

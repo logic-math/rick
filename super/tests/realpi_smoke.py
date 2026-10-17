@@ -102,6 +102,18 @@ class RealPiSmoke(unittest.TestCase):
         name = "realpi-smoke"
         home = os.path.join(_master_root(), "home-realpi")
         os.makedirs(home, exist_ok=True)
+        # 真 pi 凭据桥：pi 读 HOME 下的 ~/.config/mcopilot-cli（代理 API key）与
+        # ~/.rick/pi（agent 运行时/auth）——HOME 隔离会静默鉴权失败（usage 全 0、
+        # agent ~0.5s 空退）。秋千带：把真实两目录 symlink 进隔离 HOME，
+        # rick 的 super 工作区仍在 <tmp>/.rick/super 隔离。
+        real_home = os.path.expanduser("~")
+        for rel, target in ((".config", os.path.join(real_home, ".config")),
+                            (os.path.join(".rick", "pi"),
+                             os.path.join(real_home, ".rick", "pi"))):
+            link = os.path.join(home, rel)
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            if not os.path.lexists(link):
+                os.symlink(target, link)
         write_go_home_config(home)
         ws = os.path.join(home, ".rick", "super", name)
         if os.path.exists(ws):

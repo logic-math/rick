@@ -27,6 +27,7 @@ stdlib-only，Python >=3.9 兼容（禁 PEP604 X|Y 联合类型注解，用 Opti
 import json
 import os
 import re
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
@@ -230,6 +231,8 @@ class EventWriter:
         self._fh = open(path, "a", encoding="utf-8")
         self._seal_truncated_tail()
         self._next_seq = _scan_last_seq(path) + 1
+        # 线程锁：调度器心跳线程与主循环同进程并发 append（跨进程仍是单写者架构保证）
+        self._lock = threading.Lock()
 
     # ---- 写 ----
 
@@ -242,22 +245,23 @@ class EventWriter:
         """
         if self._closed:
             raise ValueError("EventWriter is closed")
-        seq = self._next_seq
-        ev = {
-            "ts": _now(),
-            "seq": seq,
-            "type": type,
-            "source": source,
-            "payload": payload,
-        }
-        errors = validate_event(ev)
-        if errors:
-            raise ValueError("invalid event: " + "; ".join(errors))
-        line = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
-        self._fh.write(line + "\n")
-        self._fh.flush()
-        os.fsync(self._fh.fileno())
-        self._next_seq = seq + 1
+        with self._lock:
+            seq = self._next_seq
+            ev = {
+                "ts": _now(),
+                "seq": seq,
+                "type": type,
+                "source": source,
+                "payload": payload,
+            }
+            errors = validate_event(ev)
+            if errors:
+                raise ValueError("invalid event: " + "; ".join(errors))
+            line = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
+            self._fh.write(line + "\n")
+            self._fh.flush()
+            os.fsync(self._fh.fileno())
+            self._next_seq = seq + 1
         return seq
 
     # ---- 读（重放/游标） ----

@@ -30,6 +30,7 @@ import random
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from typing import Any, Dict, List, Optional
 
@@ -398,6 +399,45 @@ class TestCrashRecovery(LoopTestBase):
 # --------------------------------------------------------------------------- #
 # ④ debug 循环
 # --------------------------------------------------------------------------- #
+
+class TestHeartbeatThread(LoopTestBase):
+    """心跳线程回归：长 agent 派发期间心跳不得停跳（realpi 冒烟发现的
+    重启风暴缺陷：主循环阻塞→Go 误判心跳超时→kill→重启循环）。"""
+
+    class _SlowClient(FakeAgentClient):
+        def __init__(self, delay: float):
+            FakeAgentClient.__init__(self)
+            self.delay = delay
+
+        def run(self, role, prompt_path, workdir, timeout_s=1800):
+            time.sleep(self.delay)      # 模拟长 agent 派发（真 pi 可达十余分钟）
+            return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                       timeout_s)
+
+    def test_heartbeat_during_slow_agent_dispatch(self):
+        client = self._SlowClient(1.5)
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result()])
+        sched = self.make_scheduler(
+            cfg_overrides={"max_iterations": 1, "heartbeat_interval_s": 0.2},
+            client=client)
+        sched.run()
+        evs = self.read_events()
+        hbs = [e for e in evs if e["type"] == "heartbeat"]
+        # 1.5s 派发 × （builder+coding）≈ 3s，0.2s 间隔 → 至少 3 跳
+        # （修复前：主循环阻塞，心跳停跳 → 0-1 跳）
+        self.assertGreaterEqual(len(hbs), 3,
+                                "长 agent 派发期间心跳停跳（回归：重启风暴缺陷）")
+        # session_ended 后心跳线程应停止：仅允许 run() 收尾那一跳（state=stopped
+        # 的设计语义，Go 侧靠它读优雅停状态），不允许线程继续跳
+        end_seq = max(e["seq"] for e in evs if e["type"] == "session_ended")
+        time.sleep(0.5)
+        hbs_after = [e for e in self.read_events()
+                     if e["type"] == "heartbeat" and e["seq"] > end_seq]
+        self.assertLessEqual(len(hbs_after), 1,
+                             "session_ended 后心跳线程仍在跳（仅允许收尾 1 跳）：%d"
+                             % len(hbs_after))
+
 
 class TestDebugLoop(LoopTestBase):
 
