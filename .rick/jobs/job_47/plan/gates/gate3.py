@@ -30,8 +30,9 @@ ROOT = get_project_root()
 ERRORS = []
 
 
-def run(cmd, cwd=ROOT, timeout=900):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def run(cmd, cwd=ROOT, timeout=900, env=None):
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                          env=env)
 
 
 def read(path):
@@ -67,8 +68,13 @@ def main():
         for kw in ["--proposal", "--workdir", "approve", "reject", "decision"]:
             if kw not in s:
                 ERRORS.append(f"[B] adjudicator.py 缺关键词 {kw}")
-        if "events.jsonl" in s and "EventWriter" in s:
-            ERRORS.append("[B][单写者] adjudicator 疑似直写 events（应只产 decision 文件）")
+        # [B][单写者] 精确检查：adjudicator 可读 events.jsonl（裁决证据），但不得写入。
+        # 违规信号：import EventWriter / 以写模式打开 events.jsonl / append 调用。
+        import re as _re
+        if _re.search(r"from\s+\S*events\s+import\s+.*EventWriter|import\s+.*EventWriter", s):
+            ERRORS.append("[B][单写者] adjudicator import 了 EventWriter（写入能力）")
+        if _re.search(r'open\([^)]*events\.jsonl[^)]*["\'](w|a)', s):
+            ERRORS.append("[B][单写者] adjudicator 以写模式打开 events.jsonl")
 
     if not exists("super/superopt/intervention.py"):
         ERRORS.append("[B] 缺 intervention.py")
@@ -78,8 +84,10 @@ def main():
             if kw not in s:
                 ERRORS.append(f"[B] intervention.py 缺关键词 {kw}")
 
-    # ---- C. __main__ 冒烟 ----
-    r = run([sys.executable, "-m", "superopt", "--help"])
+    # ---- C. __main__ 冒烟（包在 super/ 下，PYTHONPATH=super 与 Go supervisor spawn 契约一致） ----
+    import os as _os
+    env = dict(_os.environ, PYTHONPATH="super")
+    r = run([sys.executable, "-m", "superopt", "--help"], env=env)
     if r.returncode != 0:
         ERRORS.append(f"[C] python3 -m superopt --help 失败：\n{(r.stdout + r.stderr)[-500:]}")
     else:

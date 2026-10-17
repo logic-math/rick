@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-17T07:43:06.384Z",
+  "updated_at": "2026-10-17T09:16:38.501Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -51,10 +51,10 @@
     {
       "task_id": "task5",
       "task_name": "agents.py pi 池客户端（subprocess pi --mode json+NDJSON+token 计量聚合+兜底链）+ mock_pi.py + test_agents",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-17T10:30:00+08:00",
-      "updated_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
       "dependencies": [
         "task1",
         "task2",
@@ -62,15 +62,15 @@
         "task4"
       ],
       "task_file": "plan/task5.md",
-      "commit_hash": ""
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
     },
     {
       "task_id": "task6",
       "task_name": "prompts.py 渲染器 + 4-agent prompt 模板（adjust/builder/coding/debug）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-17T10:30:00+08:00",
-      "updated_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
       "dependencies": [
         "task1",
         "task2",
@@ -78,15 +78,15 @@
         "task4"
       ],
       "task_file": "plan/task6.md",
-      "commit_hash": ""
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
     },
     {
       "task_id": "task7",
       "task_name": "gates.py 级联门框架（stage1 环境健康→stage2 正确性→stage3 性能+软门禁多计时中位数；preverify_red 门先证红；读 env 门禁定义零硬编码）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-17T10:30:00+08:00",
-      "updated_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
       "dependencies": [
         "task1",
         "task2",
@@ -94,7 +94,7 @@
         "task4"
       ],
       "task_file": "plan/task7.md",
-      "commit_hash": ""
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
     },
     {
       "task_id": "task8",
@@ -140,15 +140,15 @@
     {
       "task_id": "task11",
       "task_name": "Go 命令面 internal/cmd/super.go + handler/super.go + super/session.go（BuildSuperPrompt inline super-loop+gen_env）+ root.go/config.go 修改",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-17T10:30:00+08:00",
-      "updated_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
       "dependencies": [
         "task10"
       ],
       "task_file": "plan/task11.md",
-      "commit_hash": ""
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
     },
     {
       "task_id": "task12",
