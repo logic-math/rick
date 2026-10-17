@@ -32,7 +32,10 @@ func (darwinInfo) Alive(pid int) bool {
 		// kill(pid,0) POSIX 语义：ESRCH=不存在；EPERM=存在但无权限（如 root
 		// 进程）——后者必须视为存在，与 linux 读 /proc/<pid>/stat（全局可读）
 		// 的语义对齐；其他错误保守视为存在，再查僵尸态。
-		if errors.Is(err, syscall.ESRCH) {
+		// macOS 差异：对死 pid，Go runtime 把 kill 的 ESRCH 转成 os.ErrProcessDone
+		// （"os: process already finished"），errors.Is(ESRCH) 不命中——必须
+		// 同检，否则死 pid 被误判「存活」（job_47 跨机后 devweb StopOld 实测）。
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone) {
 			return false
 		}
 		return !isZombie(pid)

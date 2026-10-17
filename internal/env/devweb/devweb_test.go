@@ -540,14 +540,22 @@ func TestLayoutFromInsideDevTree(t *testing.T) {
 		if err != nil {
 			t.Fatalf("从 %s 解析失败: %v", cwd, err)
 		}
-		if l.Tree != tree {
+		// macOS：Chdir 后 cwd 解析为物理路径（/private/var/...），而 tree 是逻辑
+		// 路径（/var/...）——两边 EvalSymlinks 归一后比较（同 supervisor_test 先例）
+		normTree := func(p string) string {
+			if r, err := filepath.EvalSymlinks(p); err == nil {
+				return r
+			}
+		return p
+	}
+		if normTree(l.Tree) != normTree(tree) {
 			t.Fatalf("从 %s：Tree = %q，期望 %q", cwd, l.Tree, tree)
 		}
-		if l.Home != tree+"-home" {
+		if normTree(l.Home) != normTree(tree)+"-home" {
 			t.Fatalf("从 %s：Home = %q，期望 %q", cwd, l.Home, tree+"-home")
 		}
 		// 生产仓库也应从 worktree 的 .git 反推正确（而不是 cwd=dev 树）
-		if l.ProdRepo != prodRepo {
+		if normTree(l.ProdRepo) != normTree(prodRepo) {
 			t.Fatalf("从 %s：ProdRepo = %q，期望 %q（应从 .git gitdir 反推）", cwd, l.ProdRepo, prodRepo)
 		}
 	}
