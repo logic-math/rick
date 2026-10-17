@@ -81,7 +81,7 @@ const (
 	DefaultKeepVersions = 3
 	defaultHealthWait   = 25 * time.Second
 	defaultStopGrace    = 14 * time.Second
-	defaultGateTimeout  = 1800 * time.Second
+	defaultGateTimeout  = 3600 * time.Second
 )
 
 // versionRe 匹配 `<sha7>-<YYMMDDHHMMSS>`（防止 GC 误删非版本目录）。
@@ -1271,11 +1271,23 @@ func (p Plan) LastVersion() (string, error) {
 // darwin 无 /proc/<pid>/environ 等价物（procfs.ErrUnsupported）→ env 断言跳过，
 // 靠 cwd+exe 双断言（linux 下三者全可用）。
 func ownedByProd(p Plan, pid int) bool {
-	if cwd, err := proc.Cwd(pid); err == nil && cwd == p.ProdRepo {
+	// macOS：路径断言统一 EvalSymlinks 后比较——t.TempDir()/cwd 常见 /var ↔
+	// /private/var 双形（lsof 给物理路径，Plan 持逻辑路径），不归一会让所有权
+	// 断言全部失配→stopProd 跳过→旧进程残留端口→重启后 build_id 不一致
+	// （跨机 linux→macOS 暴露，job_47 release S3 演练发现）。
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	prodRepo := norm(p.ProdRepo)
+	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
+	if cwd, err := proc.Cwd(pid); err == nil && norm(cwd) == prodRepo {
 		return true
 	}
 	if exe, err := proc.Exe(pid); err == nil {
-		if strings.HasPrefix(exe, filepath.Join(p.ProdRepo, "bin")+string(filepath.Separator)) {
+		if strings.HasPrefix(norm(exe), prodBin) {
 			return true
 		}
 	}
