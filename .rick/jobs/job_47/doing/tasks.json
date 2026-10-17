@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "job": "superopt 重构为 rick super 模式（RFC 实现）",
+  "created_at": "2026-10-17T10:30:00+08:00",
+  "updated_at": "2026-10-17T10:30:00+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "events.py 单写者真相源（EventWriter：append-only+seq 单调+fsync+游标重放）+ test_events",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task1.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task2",
+      "task_name": "archive.py 精英格档案（load/save+admit 同格替换+pending 延迟入库）+ test_archive",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task2.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task3",
+      "task_name": "feature_space.py + sampler.py（UCB visit 真实递增+冷启动先验加权随机）+ test_sampler",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task3.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task4",
+      "task_name": "config.py（super.json 读写+CLI 合并）+ budget.py（时间/token 双轨账本）+ lineage.py（事件流重建）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task4.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task5",
+      "task_name": "agents.py pi 池客户端（subprocess pi --mode json+NDJSON+token 计量聚合+兜底链）+ mock_pi.py + test_agents",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task5.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task6",
+      "task_name": "prompts.py 渲染器 + 4-agent prompt 模板（adjust/builder/coding/debug）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task6.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task7",
+      "task_name": "gates.py 级联门框架（stage1 环境健康→stage2 正确性→stage3 性能+软门禁多计时中位数；preverify_red 门先证红；读 env 门禁定义零硬编码）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task7.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task8",
+      "task_name": "loop.py 四状态循环 Scheduler（adjust→UCB 采样→builder→coding→debug→框架验证→MAP-Elites 入格；_recover 游标重放）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task5",
+        "task6",
+        "task7"
+      ],
+      "task_file": "plan/task8.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task9",
+      "task_name": "adjudicator.py 外置裁决独立进程 + intervention.py 干预队列摄取 + __main__.py/__init__.py 入口",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task5",
+        "task6",
+        "task7"
+      ],
+      "task_file": "plan/task9.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task10",
+      "task_name": "Go PySupervisor（Setpgid/文件心跳/kill 梯/OnDead 游标重启）+ supervisor_test（fake py 脚本）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task10.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task11",
+      "task_name": "Go 命令面 internal/cmd/super.go + handler/super.go + super/session.go（BuildSuperPrompt inline super-loop+gen_env）+ root.go/config.go 修改",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task10"
+      ],
+      "task_file": "plan/task11.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task12",
+      "task_name": "super-loop.md（中控 loop）+ gen_env_skill/skill.md（env 生成器，含门禁系统设计引导）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task12.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task13",
+      "task_name": "matmul env 模板（env.json/feature_space.json 2 轴/code naive+numpy 参考/skills/data/domain_knowledge.md）+ super/README.md",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task13.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task14",
+      "task_name": "e2e_test.py 全链 mock 验收 + 双回归 harness（elite_replay/exploit_regression）+ 污染注入演练 + realpi 冒烟（≥3 真迭代，RICK_REAL_PI_ARGS 门控）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:30:00+08:00",
+      "dependencies": [
+        "task8",
+        "task9",
+        "task11",
+        "task12",
+        "task13"
+      ],
+      "task_file": "plan/task14.md",
+      "commit_hash": ""
+    }
+  ]
+}
