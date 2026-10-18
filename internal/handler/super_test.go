@@ -488,3 +488,50 @@ func writeSuperJSONForTest(t *testing.T, ws string, v map[string]interface{}) er
 	}
 	return os.WriteFile(filepath.Join(ws, "super.json"), data, 0o644)
 }
+
+// --- 自然完成（exit 0）不触发崩溃重启（job_47 首跑实测缺陷的回归） ---
+
+// fakeSuperoptFinish 心跳若干次后 exit 0（模拟 max_iterations 跑满自然收尾）。
+func fakeSuperoptFinish(t *testing.T) string {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\nexport PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH\n")
+	b.WriteString(`WS=""; prev=""
+for a in "$@"; do
+  if [ "$prev" = "--workdir" ]; then WS="$a"; fi
+  prev="$a"
+done
+mkdir -p "$WS"
+i=0
+while [ $i -lt 8 ]; do
+  i=$((i+1))
+  printf '{"ts":"%s","seq":%d,"state":"running"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$i" > "$WS/heartbeat.json"
+  sleep 0.05
+done
+exit 0
+`)
+	return writeFakeSuperopt(t, "fake-superopt-finish", b.String())
+}
+
+func TestSuperStartNaturalCompletionNotRestarted(t *testing.T) {
+	root, ws := newSuperWS(t)
+	if err := os.MkdirAll(filepath.Join(ws, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testSuperStartConfig(fakeSuperoptFinish(t))
+	cfg.Root = root
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+
+	// 前台监控循环（fake 心跳 8 跳后 exit 0 → 自然完成路径）
+	err := SuperStartMonitored(cfg, "test-super", ws, "", SuperStartOverrides{}, stopCh)
+	if err != nil {
+		t.Fatalf("自然完成不该报错（修复前：重启超限 failed）: %v", err)
+	}
+	sj := readSuperJSONForTest(t, ws)
+	if sj.State != "completed" {
+		t.Fatalf("state = %q，期望 completed（exit 0 是自然完成不是崩溃）", sj.State)
+	}
+	// 不重启：super.log 无 restart 字样（修复前会打 3 次 restarting）
+	_ = root
+}

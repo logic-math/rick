@@ -346,10 +346,12 @@ func SuperStartMonitored(cfg SuperStartConfig, name, ws, envPath string, ov Supe
 
 	// supervisor + worker：OnDead 只处理「首心跳后死亡」的重启；首心跳前的死亡
 	// 留给启动窗口逻辑（门先证红失败路径）。优雅停（shutdown 置位）不重启。
+	// 自然完成（exit 0，如迭代上限跑满）不重启——走 completed 收尾。
 	var mu sync.Mutex
 	shutdown := false
 	restartCh := make(chan struct{}, maxRestarts+1)
 	srvDead := make(chan struct{}, 1)
+	doneCh := make(chan struct{}, 1)
 	var workerRef *superpkg.PyWorker
 
 	supCfg := superpkg.PySupervisorConfig{
@@ -369,6 +371,16 @@ func SuperStartMonitored(cfg SuperStartConfig, name, ws, envPath string, ov Supe
 				// 首心跳前死亡：启动窗口逻辑接管（门先证红失败路径）
 				select {
 				case srvDead <- struct{}{}:
+				default:
+				}
+				return
+			}
+			// 自然完成（exit 0：如 max_iterations 跑满/预算墙到点自然收尾）
+			// ≠ 崩溃：不重启，走 completed 收尾（重启只会空转——py 重新拉起后发现
+			// 无迭代可做立即再退，烧完重启配额后误标 failed；job_47 首跑实测）。
+			if w != nil && w.Reason() == "exited: 0" {
+				select {
+				case doneCh <- struct{}{}:
 				default:
 				}
 				return
@@ -436,11 +448,19 @@ func SuperStartMonitored(cfg SuperStartConfig, name, ws, envPath string, ov Supe
 		}
 	}
 
-	// --- running：等 stop / 崩溃重启 / 重启超限 ---
+	// --- running：等 stop / 自然完成 / 崩溃重启 / 重启超限 ---
 Running:
 	restarts := 0
 	for {
 		select {
+		case <-doneCh:
+			// 调度器自然完成（exit 0）：不是失败，置 completed 收尾
+			mu.Lock()
+			shutdown = true
+			mu.Unlock()
+			sj.State = "completed"
+			_ = writeSuperJSONAtomic(ws, sj)
+			return nil
 		case <-stopCh:
 			mu.Lock()
 			shutdown = true
