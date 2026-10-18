@@ -85,6 +85,13 @@ _TZ = timezone(timedelta(hours=8))
 _WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)")
 
 
+def _fmt_num(v: float) -> str:
+    """性能数字的人读格式：整数不带尾零；浮点保留 1 位小数。"""
+    if v == int(v):
+        return "%d" % int(v)
+    return "%.1f" % v
+
+
 def _now() -> str:
     return datetime.now(_TZ).isoformat(timespec="seconds")
 
@@ -222,6 +229,11 @@ class Scheduler:
         self._iter_cost = {}  # type: Dict[str, float]  # 本迭代累计（iteration_ended 载荷）
         self._last_heartbeat_ts = 0.0
         self._prev_handler = None  # type: Optional[Any]
+        # adjust 并行（优化空间⑤）：在飞线程 + 结果移交（主线程消费）
+        self._adjust_thread = None  # type: Optional[threading.Thread]
+        self._adjust_lock = threading.Lock()
+        self._pending_adjust = None  # type: Optional[Dict[str, Any]]
+        self._adjust_iteration = 0
 
     # ------------------------------------------------------------------ #
     # 主入口
@@ -261,6 +273,7 @@ class Scheduler:
         finally:
             self._hb_stop.set()
             self._hb_thread.join(timeout=5)
+            self._join_adjust()   # 在飞 adjust 收尾（事件先于 session_ended）
             self._restore_signal_handlers()
         self.events.append("session_ended",
                            {"iteration_cursor": self.iteration_cursor},
@@ -273,6 +286,9 @@ class Scheduler:
         max_iter = int(self.conf.get("max_iterations") or 0)
         adjust_every = int(self.conf.get("adjust_interval") or 0)
         while not self.stop_requested:
+            # ⓪ 收菜上一轮在飞的 adjust（优化空间⑤：adjust 与下一迭代并行；
+            # 主线程在此消费结果——保证权重对本次采样生效）
+            self._collect_adjust()
             if not self.ledger.within_budget():
                 break
             if max_iter > 0 and self.iteration_cursor >= max_iter:
@@ -283,12 +299,10 @@ class Scheduler:
                 break
             # ② 裁决决策消费（外置 adjudicator 的 decision 文件）
             self._drain_decisions()
-            # ③ adjust（每 N 迭代；cursor 为已完成迭代数）
+            # ③ adjust（每 N 迭代；cursor 为已完成迭代数）——后台并行派发
             if adjust_every > 0 and self.iteration_cursor > 0 \
                     and self.iteration_cursor % adjust_every == 0:
-                self._run_adjust()
-                if self.stop_requested:
-                    break
+                self._maybe_start_adjust()
             # ④ 单迭代
             self._step()
             # ⑤ epoch 边界：pending 重评估
@@ -419,6 +433,11 @@ class Scheduler:
             "cost_usd": round(float(self._iter_cost.get("cost_usd", 0.0)), 6),
             "had_candidate": candidate is not None,
         }, "scheduler")
+        # 每迭代落盘档案：bump_visit 只改内存，若本迭代无 admit/epoch 则到收尾都
+        # 不 save——kill -9 后重启虽能从事件恢复，但「正常收尾的档案」会缺新采样
+        # 格的 visit（job_47 e2e 实测投影1≠档案0）。每迭代一次 save，崩溃窗口
+        # 从「上次 admit」缩到「本迭代」（事件流仍是唯一真相，恢复幂等）。
+        self.archive.save()
 
     # ---- builder ----
 
@@ -437,6 +456,9 @@ class Scheduler:
             "cell_weight": entry.get("weight", 1.0),
             "neighbor_elites": self._neighbor_elites(cell_id),
             "history_failures": self._recent_gate_failures(5),
+            # 优化空间③（job_47 首跑实测）：同轴历史性能对照——避免重复已被
+            # 轴级证据证伪的方向（如「row_major 劣势已在两分支独立复现」）
+            "axis_perf": self._axis_perf_summary(),
         }
         prompt = render("builder", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "builder", prompt)
@@ -453,6 +475,58 @@ class Scheduler:
                   encoding="utf-8") as f:
             json.dump(plan, f, ensure_ascii=False, indent=2)
         return plan
+
+    def _axis_perf_summary(self) -> str:
+        """同轴历史性能对照（优化空间③）：每轴一段「值 → 最优精英 perf」。
+
+        汇总自 archive 有精英的格；无任何精英时返回占位（尚无精英数据）。
+        低优 perf（越小越好）取 min，高优取 max——方向感知与 archive 一致。
+        """
+        snap = _cells_snapshot(self.archive)
+        lines = []
+        have_any = False
+        low = (self.perf_desc != "high")  # 缺省/low 都是低优
+        for axis in self.fs.axes:
+            name = axis.get("name") or ""
+            if not name:
+                continue
+            parts = []
+            values = axis.get("values") or []
+            if not values:
+                # 非枚举轴（数值/布尔）：从描述子里拿实际值集
+                seen = set()
+                for cid in self.fs.all_cells():
+                    v = (self.fs.describe_cell(cid) or {}).get(name)
+                    if v is not None and v not in seen:
+                        seen.add(v)
+                values = sorted(seen, key=str)
+            for v in values:
+                best = None
+                count = 0
+                for cid in self.fs.all_cells():
+                    desc = self.fs.describe_cell(cid) or {}
+                    if desc.get(name) != v:
+                        continue
+                    e = (snap.get(cid) or {}).get("elite") or {}
+                    pv = e.get("perf_value")
+                    if not isinstance(pv, (int, float)):
+                        continue
+                    count += 1
+                    if best is None:
+                        best = float(pv)
+                    else:
+                        best = min(best, float(pv)) if low else max(best, float(pv))
+                if count > 0:
+                    have_any = True
+                    parts.append("%s→最优 %s（%d 格）"
+                                 % (v, _fmt_num(best), count))
+                else:
+                    parts.append("%s→无数据" % (v,))
+            if parts:
+                lines.append("%s轴：%s" % (name, "；".join(parts)))
+        if not lines or not have_any:
+            return "（尚无精英数据）"
+        return "\n".join(lines)
 
     def _neighbor_elites(self, cell_id: str, limit: int = 3) -> List[Dict[str, Any]]:
         """邻格精英（跨格重组灵感）：同轴单值不同的格，取 visit 最高的几个。"""
@@ -732,7 +806,18 @@ class Scheduler:
     # adjust（软动作直改 / 硬动作提案）
     # ------------------------------------------------------------------ #
 
-    def _run_adjust(self) -> None:
+    def _maybe_start_adjust(self) -> None:
+        """边界触发：后台派发 adjust agent（优化空间⑤：与下一迭代并行）。
+
+        行为约束：同一时刻至多 1 个在飞；在飞未收时到边界不重触发；
+        ctx 组装与 agent_started 事件在主线程（快且共享状态安全），
+        线程只跑 client.run（独立子进程，无共享可变状态）。
+        """
+        if self.stop_requested:
+            return
+        with self._adjust_lock:
+            if self._adjust_thread is not None:
+                return  # 在飞未收：不重触发
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -745,15 +830,96 @@ class Scheduler:
         adjust_dir = os.path.join(self.codes_dir, "adjust")
         os.makedirs(adjust_dir, exist_ok=True)
         prompt_path = write_prompt(adjust_dir, "adjust", prompt)
-        result = self._dispatch_agent("adjust", prompt_path, adjust_dir,
-                                      self.iteration_cursor)
-        proposals = result.data.get("proposals")
+        iteration_id = self.iteration_cursor
+        # agent_started 在主线程（事件序确定性：started 先于下一迭代的任何事件）
+        self.events.append("agent_started", {
+            "role": "adjust", "iteration_id": iteration_id,
+            "workdir": adjust_dir,
+        }, "scheduler")
+        model = (self.conf.get("agent_models") or {}).get("adjust")
+        timeout_s = int(self.conf.get("agent_timeout_s", 1800))
+
+        def _worker():
+            try:
+                result = self.client.run("adjust", prompt_path, adjust_dir,
+                                         timeout_s, model=model)
+            except Exception as exc:  # noqa: BLE001 线程绝不向上抛
+                from superopt.agents import AgentResult as _AR
+                result = _AR(role="adjust", valid=False,
+                             summary="agent error: %s" % exc)
+            with self._adjust_lock:
+                self._pending_adjust = result
+
+        with self._adjust_lock:
+            self._adjust_iteration = iteration_id
+            self._adjust_thread = threading.Thread(
+                target=_worker, name="superopt-adjust", daemon=True)
+            self._adjust_thread.start()
+
+    def _collect_adjust(self) -> None:
+        """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。
+
+        无在飞/未完成 → 空操作；消费后清线程引用（下一边界可重触发）。
+        """
+        with self._adjust_lock:
+            thread = self._adjust_thread
+            pending = self._pending_adjust
+        if thread is None:
+            return
+        if pending is None:
+            if thread.is_alive():
+                return  # 还在飞：下一边界再收
+            # 线程结束但无结果（异常路径未写 pending——防御）
+            with self._adjust_lock:
+                self._adjust_thread = None
+            return
+        thread.join(timeout=5)
+        with self._adjust_lock:
+            self._adjust_thread = None
+            self._pending_adjust = None
+            iteration_id = self._adjust_iteration
+        # ---- 以下与 _dispatch_agent 的收尾同构（主线程执行） ----
+        self.ledger.record_agent("adjust", int(pending.wall_ms),
+                                 len(pending.tool_calls or []),
+                                 dict(pending.usage or {}))
+        self._iter_cost["wall_ms"] = self._iter_cost.get("wall_ms", 0.0) \
+            + float(pending.wall_ms or 0)
+        self._iter_cost["tool_calls"] = self._iter_cost.get("tool_calls", 0.0) \
+            + float(len(pending.tool_calls or []))
+        _u = pending.usage or {}
+        self._iter_cost["tokens"] = self._iter_cost.get("tokens", 0.0) \
+            + float(_u.get("total_tokens", 0) or 0)
+        self._iter_cost["cost_usd"] = self._iter_cost.get("cost_usd", 0.0) \
+            + float(_u.get("cost_usd", 0) or 0)
+        payload = pending.to_payload()
+        payload["iteration_id"] = iteration_id
+        # prompt 物证：adjust 的工作目录里找最新 prompt_adjust.md
+        payload["prompt_path"] = os.path.join(self.codes_dir, "adjust",
+                                              "prompt_adjust.md")
+        self.events.append("agent_ended", payload, "scheduler")
+        try:
+            with open(os.path.join(self.codes_dir, "adjust",
+                                   "agent_adjust.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+        proposals = pending.data.get("proposals")
         if not isinstance(proposals, list):
             return
         for i, p in enumerate(proposals):
             if not isinstance(p, dict):
                 continue
             self._apply_proposal(p, i)
+
+    def _join_adjust(self) -> None:
+        """run() 收尾：等在飞 adjust 线程并消费（事件序：adjust 归档先于
+        session_ended）。超时 5s 未收 → 放弃（daemon 线程不阻退出）。"""
+        with self._adjust_lock:
+            thread = self._adjust_thread
+        if thread is not None:
+            thread.join(timeout=5)
+        self._collect_adjust()
 
     def _apply_proposal(self, p: Dict[str, Any], index: int) -> None:
         ptype = p.get("type")
@@ -939,8 +1105,11 @@ class Scheduler:
             "workdir": workdir,
         }, "scheduler")
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
+        # per-role 模型档位（优化空间①：builder 等角色可降档省 token）
+        model = (self.conf.get("agent_models") or {}).get(role)
         try:
-            result = self.client.run(role, prompt_path, workdir, timeout_s)
+            result = self.client.run(role, prompt_path, workdir, timeout_s,
+                                     model=model)
         except Exception as exc:  # agent 超时/崩溃 → 记失败继续（spec）
             result = PiAgentClient.__new__(PiAgentClient)  # 不用——见下
             from superopt.agents import AgentResult as _AR

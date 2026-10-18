@@ -104,9 +104,9 @@ class FakeAgentClient(object):
         self.script[role] = list(results)
 
     def run(self, role: str, prompt_path: str, workdir: str,
-            timeout_s: int = 1800) -> AgentResult:
+            timeout_s: int = 1800, model: Optional[str] = None) -> AgentResult:
         self.calls.append({"role": role, "prompt_path": prompt_path,
-                           "workdir": workdir})
+                           "workdir": workdir, "model": model})
         seq = self.script.get(role) or []
         if not seq:
             raise AssertionError("FakeAgentClient: role %r 无脚本（调用 %d 次）"
@@ -409,10 +409,11 @@ class TestHeartbeatThread(LoopTestBase):
             FakeAgentClient.__init__(self)
             self.delay = delay
 
-        def run(self, role, prompt_path, workdir, timeout_s=1800):
+        def run(self, role, prompt_path, workdir, timeout_s=1800,
+                model=None):
             time.sleep(self.delay)      # 模拟长 agent 派发（真 pi 可达十余分钟）
             return FakeAgentClient.run(self, role, prompt_path, workdir,
-                                       timeout_s)
+                                       timeout_s, model=model)
 
     def test_heartbeat_during_slow_agent_dispatch(self):
         client = self._SlowClient(1.5)
@@ -811,6 +812,162 @@ class TestEnvFailure(LoopTestBase):
         # 只跑了 3 迭代（不是 5）
         self.assertEqual(len(self.events_of("iteration_started")), 3)
         self.assertEqual(len(self.events_of("session_ended")), 1)
+
+
+# --------------------------------------------------------------------------- #
+# ⑫ 改进点回归：axis_perf 注入 / adjust 并行 / score 传递 / per-role model
+# --------------------------------------------------------------------------- #
+
+class TestAxisPerfInjection(LoopTestBase):
+    """改动③：builder prompt 含同轴历史性能对照。"""
+
+    def test_builder_prompt_contains_axis_perf(self):
+        # 先跑 1 迭代（入格一精英），再跑第 2 迭代——第 2 迭代的 builder
+        # prompt 应含轴级对照文本（具体 perf 数字）
+        self.gate.queue(_gate_pass(4946.8))
+        self.gate.queue(_gate_pass(3610.4))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+
+        # 直接调 _run_builder 验证 prompt（不经 agent）
+        cell = self.events_of("cell_sampled")[0]["payload"]["cell_id"]
+        iter_dir = os.path.join(self.ws, "codes", "probe")
+        os.makedirs(iter_dir, exist_ok=True)
+        sched2 = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        # 在 sched2 上直接调（无 run）：prompt 落盘后断言内容
+        import superopt.loop as _loop_mod
+        ctx_cell = cell
+        # 直接用内部方法组装 prompt 文件（避免走 agent）
+        sched2._run_builder(ctx_cell, 99, iter_dir)
+        prompt_path = os.path.join(iter_dir, "prompt_builder.md")
+        with open(prompt_path, encoding="utf-8") as f:
+            body = f.read()
+        self.assertIn("同轴历史性能对照", body)
+        self.assertIn("4946.8", body)     # 具体数字（低优 1 位小数）
+        self.assertIn("轴：", body)        # 轴级行存在
+
+    def test_axis_perf_empty_when_no_elites(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        text = sched._axis_perf_summary()
+        self.assertEqual(text, "（尚无精英数据）")
+
+
+class TestAdjustParallel(LoopTestBase):
+    """改动⑤：adjust 与下一迭代并行——iteration_started 先于 adjust
+    agent_ended；权重变化在后续迭代边界落地。"""
+
+    class _SlowAdjustClient(FakeAgentClient):
+        """adjust 慢 1.2s（其他角色瞬时）——并行性可观测。"""
+
+        def __init__(self):
+            FakeAgentClient.__init__(self)
+            self.adjust_started_at = {}
+            self.adjust_ended_at = {}
+
+        def run(self, role, prompt_path, workdir, timeout_s=1800, model=None):
+            import time as _t
+            if role == "adjust":
+                self.adjust_started_at[len(self.adjust_started_at)] = _t.time()
+                _t.sleep(1.2)
+                r = FakeAgentClient.run(self, role, prompt_path, workdir,
+                                        timeout_s, model=model)
+                self.adjust_ended_at[len(self.adjust_ended_at)] = _t.time()
+                return r
+            return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                       timeout_s, model=model)
+
+    def test_adjust_overlaps_next_iteration_and_applies(self):
+        client = self._SlowAdjustClient()
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        client.queue("adjust", [_adjust_result([
+            {"type": "soft_weight", "target_cell": "impl=naive|mem=tiled",
+             "action": "weight 0.5", "evidence": "慢格", "rule_id": "R1"},
+        ])])
+        for _ in range(3):
+            self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                   "adjust_interval": 1},
+                                    client=client)
+        sched.run()
+        evs = [e for e in self.read_events() if e["type"] != "heartbeat"]
+        types = [(e["type"], (e["payload"] or {}).get("role")) for e in evs]
+
+        # ① 并行证据：adjust 的 agent_started 之后紧跟 iteration_started(2)
+        #    （旧串行实现：adjust agent_ended 先于 iteration_started(2)）
+        idx_adj_start = types.index(("agent_started", "adjust"))
+        iter_starts = [i for i, t in enumerate(types)
+                       if t[0] == "iteration_started"]
+        idx_iter2 = iter_starts[1]           # 第 2 迭代的 iteration_started
+        self.assertLess(idx_adj_start, idx_iter2,
+                        "adjust 应先启动（不阻塞）再开下一迭代")
+        idx_adj_end = [i for i, t in enumerate(types)
+                       if t == ("agent_ended", "adjust")][0]
+        self.assertGreater(idx_adj_end, idx_iter2,
+                           "adjust agent_ended 应晚于下一迭代开始（并行证据）："
+                           "事件序 %r" % (types[:12],))
+
+        # ② 权重落地：weight_changed（agent:adjust 来源）存在且 archive 生效
+        adj_wcs = [w for w in self.events_of("weight_changed")
+                   if w["source"] == "agent:adjust"]
+        self.assertGreaterEqual(len(adj_wcs), 1)
+        self.assertEqual(adj_wcs[0]["payload"]["cell_id"], "impl=naive|mem=tiled")
+        cells = self.read_archive()["cells"]
+        self.assertAlmostEqual(cells["impl=naive|mem=tiled"]["weight"], 0.5)
+
+        # ③ agent_ended 带 model 字段（可观测性，改动①）
+        ae = [e for e in evs if e["type"] == "agent_ended"][0]
+        self.assertIn("model", ae["payload"])
+
+
+class TestScorePlumbing(LoopTestBase):
+    """改动④：gate metrics.perf.score → 入档精英 score 的传递回归
+    （首跑实测复现：链路本身完好——本测试固化防未来真断链）。"""
+
+    def test_elite_score_equals_gate_score(self):
+        self.gate.queue(_gate_pass(4946.8))
+        # 定制 score：用带 score 的 gate 结果（_gate_pass 固定 0.9——
+        # 换手搓 metrics 验证非平凡值）
+        from superopt.gates import GateResult
+        self.gate.queue(GateResult(
+            passed=True, failure_stage=None,
+            metrics={"perf": {"value": 3610.4, "score": 0.123456,
+                              "perf_type": "runtime_ms", "perf_desc": "low",
+                              "k": 3, "timings": [3610.4] * 3}},
+            details="fake"))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        elites = [e for e in self.events_of("elite_admitted")]
+        self.assertEqual(len(elites), 2)
+        # 第 2 迭代的精英 score == gate 的 score（非 0 非 None）
+        self.assertAlmostEqual(elites[1]["payload"]["score"], 0.123456,
+                               places=9)
+        # archive 同步
+        arch = self.read_archive()
+        scores = [c["elite"]["score"] for c in arch["cells"].values()
+                  if c.get("elite")]
+        self.assertIn(0.123456, scores)
+
+
+class TestPerRoleModelDispatch(LoopTestBase):
+    """改动①：agent_models 配置 → client.run 收到对应 model。"""
+
+    def test_builder_model_passed_to_client(self):
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(
+            cfg_overrides={"max_iterations": 1,
+                           "agent_models": {"builder": "catpaw-proxy/deepseek-v4-flash"}},
+            client=client)
+        sched.run()
+        builder_call = [c for c in client.calls if c["role"] == "builder"][0]
+        self.assertEqual(builder_call["model"],
+                         "catpaw-proxy/deepseek-v4-flash")
+        coding_call = [c for c in client.calls if c["role"] == "coding"][0]
+        self.assertIsNone(coding_call["model"])   # 未配角色 → None
 
 
 if __name__ == "__main__":

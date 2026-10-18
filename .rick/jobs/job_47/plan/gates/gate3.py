@@ -56,8 +56,9 @@ def main():
         ERRORS.append("[B] 缺 loop.py")
     else:
         s = read("super/superopt/loop.py")
-        for kw in ["increment_visit", "_recover", "_run_adjust", "_verify_and_admit",
-                   "preverify-red", "iteration_started", "cell_sampled"]:
+        # _run_adjust 在优化迭代 2 中拆分为 _maybe_start_adjust/_collect_adjust（并行化）
+        for kw in ["increment_visit", "_recover", "_maybe_start_adjust", "_collect_adjust",
+                   "_verify_and_admit", "preverify-red", "iteration_started", "cell_sampled"]:
             if kw not in s:
                 ERRORS.append(f"[B] loop.py 缺关键词 {kw}")
 

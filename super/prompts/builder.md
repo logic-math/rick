@@ -14,6 +14,7 @@
   - 采样统计：visit={{cell_visit}} weight={{cell_weight}}
 - 邻格精英（跨格重组灵感源）：{{neighbor_elites}}
 - 历史失败摘要（近期被拒的 idea 与失败阶段）：{{history_failures}}
+- 同轴历史性能对照（避免重复已被轴级证据证伪的方向）：{{axis_perf}}
 - 特征空间轴定义：{{feature_axes}}
 
 ## 工作纪律

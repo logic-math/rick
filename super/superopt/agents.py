@@ -56,6 +56,7 @@ class AgentResult:
     cost_usd（映射自 pi usage.input/output/cacheRead/cacheWrite/
     totalTokens/cost.total）。全 0 = provider 未上报（降级路径）。
     data：final message 内嵌 JSON 的完整解析结果（角色增量的载体）。
+    model：实际使用的模型 id（per-role 档位可观测；空 = 默认模型）。
     """
     role: str
     valid: bool = False
@@ -70,9 +71,10 @@ class AgentResult:
     tool_calls: List = field(default_factory=list)
     wall_ms: int = 0
     exit_code: int = 0
+    model: str = ""
 
     def to_payload(self) -> Dict:
-        """事件 payload 形态（agent_ended 事件的载荷，含六字段 + usage + 计时）。"""
+        """事件 payload 形态（agent_ended 事件的载荷，含六字段 + usage + 计时 + 模型）。"""
         return {
             "role": self.role,
             "valid": self.valid,
@@ -85,6 +87,7 @@ class AgentResult:
             "wall_ms": self.wall_ms,
             "exit_code": self.exit_code,
             "tool_calls": list(self.tool_calls),
+            "model": self.model,
         }
 
 
@@ -316,23 +319,29 @@ class PiAgentClient:
         self.pi_path = pi_path
         self.agent_dir = agent_dir
 
-    def _build_cmd(self, prompt_path: str):
+    def _build_cmd(self, prompt_path: str, model: Optional[str] = None):
         # 实测（pi --help + rick runtime.go buildArgs 先例）：
         # pi 无 --cwd flag——workdir 经 subprocess cwd 锚定（与 rick cmd.Dir 同型）。
-        return [
+        # --model <pattern>（pi 实测 flag 名）：per-role 模型档位（空 = 默认模型）。
+        cmd = [
             self.pi_path,
             "--mode", "json",
             "--append-system-prompt", prompt_path,
             "-p", BOOTSTRAP_MESSAGE,
         ]
+        if model:
+            cmd += ["--model", model]
+        return cmd
 
     def run(self, role: str, prompt_path: str, workdir: str,
-            timeout_s: int = 1800) -> AgentResult:
+            timeout_s: int = 1800, model: Optional[str] = None) -> AgentResult:
         """派发一个 agent 运行并解析其 NDJSON 事件流。
 
         prompt_path：预渲染的系统提示词文件（绝对化）。
         workdir：agent 的工作目录（须已存在；codes/{uuid}/ 由调用方建好）。
         timeout_s：墙钟超时——超时走 kill 梯 SIGTERM→grace→SIGKILL。
+        model：可选模型档位（pi --model 参数；None/空 = 默认模型）。回填
+            AgentResult.model 供事件观测。
         """
         prompt_path = os.path.abspath(prompt_path)
         workdir = os.path.abspath(workdir)
@@ -345,7 +354,7 @@ class PiAgentClient:
         if self.agent_dir:
             env["PI_CODING_AGENT_DIR"] = self.agent_dir
 
-        cmd = self._build_cmd(prompt_path)
+        cmd = self._build_cmd(prompt_path, model)
         state = _StreamState()
         stderr_tail = []
         t0 = time.monotonic()
@@ -414,6 +423,7 @@ class PiAgentClient:
             tool_calls=state.tool_calls,
             wall_ms=wall_ms,
             exit_code=proc.returncode if proc.returncode is not None else -1,
+            model=model or "",
         )
         # 超时/非零退出的诊断信息附进 summary（保 final_message 原文在字段里）
         if timed_out:

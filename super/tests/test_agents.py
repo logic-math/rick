@@ -215,5 +215,63 @@ class TestAgentClientConstruction(unittest.TestCase):
                        workdir="/nonexistent/workdir/xyz", timeout_s=5)
 
 
+class TestPerRoleModel(unittest.TestCase):
+    """改动①（优化空间①）：per-role 模型档位——--model 参数 + 可观测性。"""
+
+    def _argv_recorder(self, td):
+        """写一个 fake pi：把 argv 落盘后输出最小合法 NDJSON（六字段 JSON）。"""
+        script = os.path.join(td, "fake_argv_pi.py")
+        body = (
+            "#!/usr/bin/env python3\n"
+            "import json, sys\n"
+            "with open(sys.argv[0] + '.argv', 'w') as g:\n"
+            "    json.dump(sys.argv[1:], g)\n"
+            "final = '```json\\n' + json.dumps({'valid': True}) + '\\n```'\n"
+            "ev = {'type': 'message_end', 'message': {'role': 'assistant',\n"
+            "      'content': [{'type': 'text', 'text': final}]}}\n"
+            "print(json.dumps(ev))\n"
+        )
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.chmod(script, 0o755)
+        return script
+
+    def test_model_flag_passed_and_observable(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pi = self._argv_recorder(td)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi)
+            r = client.run(role="builder", prompt_path=prompt, workdir=td,
+                           timeout_s=30, model="catpaw-proxy/deepseek-v4-flash")
+            # 结果可观测：AgentResult.model 回填 + payload 序列化
+            self.assertEqual(r.model, "catpaw-proxy/deepseek-v4-flash")
+            self.assertEqual(r.to_payload()["model"],
+                             "catpaw-proxy/deepseek-v4-flash")
+            # argv 实证：--model <id> 追加在命令尾
+            with open(pi + ".argv", encoding="utf-8") as f:
+                argv = json.load(f)
+            self.assertIn("--model", argv)
+            self.assertEqual(argv[argv.index("--model") + 1],
+                             "catpaw-proxy/deepseek-v4-flash")
+
+    def test_no_model_no_flag(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pi = self._argv_recorder(td)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi)
+            r = client.run(role="builder", prompt_path=prompt, workdir=td,
+                           timeout_s=30)
+            self.assertEqual(r.model, "")           # 默认模型：空串
+            with open(pi + ".argv", encoding="utf-8") as f:
+                argv = json.load(f)
+            self.assertNotIn("--model", argv)        # 不传 flag
+
+
 if __name__ == "__main__":
     unittest.main()

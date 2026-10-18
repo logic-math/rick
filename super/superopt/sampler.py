@@ -75,6 +75,11 @@ class Sampler:
             False=强制热/混合路径（无热格时退化为权重随机——无 UCB 数据可用）
         :return: cell_id
         :raises ValueError: 无可采样格（全部灭绝 / 空间为空）
+
+        分殖优先（优化空间②，job_47 首跑实测）：自动判定下若存在未访问
+        （visit==0 且 weight>0）的格子 → 仅在未访问格中按先验权重加权随机
+        ——保证全空间铺开（每格至少 1 次）后才转入 UCB 利用；灭绝格即使
+        未访问也不参与分殖。cold=True 的强制路径不启用分殖优先（测试语义）。
         """
         snap = self._archive.cells()
         # 候选 = 空间内非灭绝格（weight<=0 过滤；空间是候选全集的权威）
@@ -84,14 +89,27 @@ class Sampler:
             raise ValueError("无可采样格子：全部格子 weight<=0（功能性灭绝）或特征空间为空")
         hot = [cid for cid in candidates if self._visit(cid, snap) > 0]
 
-        if cold is True or (cold is None and not hot):
-            # 冷启动：先验权重加权随机
+        if cold is None:
+            # 分殖优先：有未访问的存活格 → 只在它们里铺开（每格至少 1 次）
+            unvisited = [cid for cid in candidates
+                         if self._visit(cid, snap) == 0]
+            if unvisited:
+                return self._weighted_choice(unvisited, snap)
+            # 全部已访问 → 热/混合路径
+            if not hot:
+                # 防御：全访问却无热格（visit 数据被清）→ 权重随机
+                return self._weighted_choice(candidates, snap)
+            return self._ucb_pick(candidates, hot, snap)
+        if cold is True:
+            # 强制冷启动路径（测试语义）：全部候选按先验权重加权随机
             return self._weighted_choice(candidates, snap)
+        # cold=False 强制热路径
         if not hot:
-            # cold=False 强制热路径但无热格：退化为权重随机（无 UCB 数据可用）
             return self._weighted_choice(candidates, snap)
+        return self._ucb_pick(candidates, hot, snap)
 
-        # 热/混合态：score = ucb * prior_weight → argmax；平局集内权重随机
+    def _ucb_pick(self, candidates, hot, snap: Dict[str, dict]) -> str:
+        """热/混合态：score = ucb * prior_weight → argmax；平局集内权重随机。"""
         total_visit = sum(self._visit(cid, snap) for cid in candidates)
         scores = {cid: self._ucb(cid, total_visit, snap) * self._weight(cid, snap)
                   for cid in candidates}

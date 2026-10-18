@@ -30,6 +30,11 @@ DEFAULTS: Dict[str, Any] = {
     "max_iterations": 0,           # 迭代上限；0 = 无上限（默认仅测试/e2e 传参）
     "python_path": "python3",
     "pi_path": "",                 # pi 二进制路径；空 = 消费方须显式提供
+    # per-role 模型档位（role → pi --model 参数；空 dict = 全角色用默认模型）。
+    # 优化空间①（job_47 首跑实测：builder 占 token 60%+ 而产出比 coding 简单）：
+    # 给便宜角色降档。示例：{"builder": "catpaw-proxy/deepseek-v4-flash"}。
+    # agent_ended 事件 payload.model 可观测每个 agent 实际跑的模型。
+    "agent_models": {},
 }
 
 # merge_cli 允许从 CLI 覆盖的键（与 __main__.py 的 flags 对齐）。

@@ -211,6 +211,35 @@ class Archive:
             return True
         return False
 
+    def set_visit(self, cell_id: str, visit: int) -> None:
+        """崩溃恢复落点：以事件流投影的 visit 覆盖内存档案（真相在事件；
+        job_47 e2e kill-9 场景实测：缺此方法时 _recover 静默跳过，重启后
+        档案 visit 回 0）。未知格：创建格骨架（同 set_weight 语义）。"""
+        if visit < 0:
+            raise ValueError("visit must be >= 0, got %r" % (visit,))
+        cell = self._data["cells"].get(cell_id)
+        if cell is None:
+            cell = {
+                "descriptor": {},
+                "elite": None,
+                "history": [],
+                "weight": 1.0,
+                "visit": 0,
+            }
+            self._data["cells"][cell_id] = cell
+        cell["visit"] = int(visit)
+        cell["last_sampled_at"] = _now()
+
+    def bump_visit(self, cell_id: str) -> None:
+        """visit 递增入口（Sampler.on_visit 回调的档案落地形态：事件之外
+        档案也同步计数——投影恢复与运行时计数双链一致）。"""
+        cell = self._data["cells"].get(cell_id)
+        if cell is None:
+            self.set_visit(cell_id, 1)
+            return
+        cell["visit"] = int(cell.get("visit") or 0) + 1
+        cell["last_sampled_at"] = _now()
+
     def set_weight(self, cell_id: str, weight: float) -> None:
         """adjust 软动作落点。weight=0 = 功能性灭绝（**不删格**）。
         未知格：创建格骨架（elite=None）——adjust 可对未入档格预设权重。"""

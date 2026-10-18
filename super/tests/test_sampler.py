@@ -112,6 +112,69 @@ class TestExtinctCells(unittest.TestCase):
             s.sample_cell()
 
 
+class TestColonizeUnvisitedFirst(unittest.TestCase):
+    """分殖优先（优化空间②，job_47 首跑实测）：自动判定下存在未访问存活格
+    → 仅在未访问格中加权随机——全空间铺开（每格至少 1 次）后才转 UCB；
+    灭绝格即使未访问也不参与分殖。"""
+
+    def test_four_cells_colonized_before_revisit(self):
+        # 4 格（含 1 个未访问灭绝格）：存活 3 格——前 3 采必铺满各 1 次
+        # （无一格被采 2 次），灭绝格全程不被采；第 4 采进入热态（可重访）
+        fs = one_axis_fs(["a", "b", "c", "d"])
+        arch = FakeArchive({
+            "s=a": {"visit": 0, "weight": 9.0},   # 高权未访问
+            "s=b": {"visit": 0, "weight": 0.1},   # 低权未访问（仍必被铺到）
+            "s=c": {"visit": 0, "weight": 1.0},
+            "s=d": {"visit": 0, "weight": 0.0},   # 灭绝未访问：不参与分殖
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(42),
+                    on_visit=arch.bump_visit)
+        picked = []
+        for i in range(3):
+            cid = s.sample_cell()          # 自动判定（cold=None）
+            picked.append(cid)
+            self.assertNotEqual(cid, "s=d", "灭绝格即使未访问也不可被采")
+            s.increment_visit(cid)          # 调用方接线（loop 同型）
+        # 前 3 次覆盖 3 个存活格各 1 次（无一重复——分殖铺满）
+        self.assertEqual(sorted(picked), ["s=a", "s=b", "s=c"],
+                         "分殖阶段应铺满全部存活格：实际 %r" % picked)
+        # 第 4 次：全部存活格已访问 → 热态路径（无未访问格可分殖）
+        # （此时 UCB 拿真实 visit/score 数据决策——不再受分殖优先约束）
+        fourth = s.sample_cell()
+        self.assertIn(fourth, ["s=a", "s=b", "s=c"])
+
+    def test_partial_visited_colonizes_rest_first(self):
+        # 混合态：a 已访问（有精英），b/c 未访问 → 前两采必落在 b/c（分殖），
+        # 不许被 a 的高 UCB 分数抢先（探索压力优先于利用）
+        fs = one_axis_fs(["a", "b", "c"])
+        arch = FakeArchive({
+            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.99}},
+            "s=b": {"visit": 0, "weight": 1.0},
+            "s=c": {"visit": 0, "weight": 0.001},   # 极低权未访问
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(3),
+                    on_visit=arch.bump_visit)
+        first = s.sample_cell()
+        self.assertIn(first, ("s=b", "s=c"))
+        s.increment_visit(first)
+        second = s.sample_cell()
+        self.assertIn(second, ("s=b", "s=c"))
+        self.assertNotEqual(second, first)
+
+    def test_cold_true_keeps_legacy_weighted_random(self):
+        # cold=True 强制冷启动（测试语义）：全部候选按权重随机（含已访问格），
+        # 不启用分殖优先
+        fs = one_axis_fs(["a", "b"])
+        arch = FakeArchive({
+            "s=a": {"visit": 7, "weight": 9.0, "elite": {"score": 0.9}},
+            "s=b": {"visit": 0, "weight": 1.0},
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(9))
+        picked = {s.sample_cell(cold=True) for _ in range(60)}
+        self.assertEqual(picked, {"s=a", "s=b"},
+                         "强制冷路径下高权已访问格应可被采到")
+
+
 class TestUCB(unittest.TestCase):
     """热态 UCB1：argmax(mean_norm + C*sqrt(ln(total)/visit))。"""
 

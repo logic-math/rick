@@ -454,19 +454,22 @@ Running:
 	for {
 		select {
 		case <-doneCh:
-			// 调度器自然完成（exit 0）：不是失败，置 completed 收尾
+			// 调度器自然完成（exit 0）：不是失败，置 completed 收尾。
+			// ⚠以磁盘上 py 最后写的 super.json 为基底（Read-Modify-Write）：py 每跳心跳
+			// 都会 _set_super_state 刷盘（cursor 为最新），而 Go 内存的 sj 从启动窗口后
+			// 就不再跟踪 cursor——直接写内存旧值会把 py 的最新 cursor 倒回覆盖
+			// （job_47 e2e 实测：kill 重启后续跑 9 迭代，completed 写回把 cursor 盖回 7）。
+			mergeFinalState(ws, "completed", sj)
 			mu.Lock()
 			shutdown = true
 			mu.Unlock()
-			sj.State = "completed"
-			_ = writeSuperJSONAtomic(ws, sj)
 			return nil
 		case <-stopCh:
 			mu.Lock()
 			shutdown = true
 			mu.Unlock()
-			sj.State = "stopped"
-			_ = writeSuperJSONAtomic(ws, sj)
+			// RMW：磁盘最新事实为准（防旧内存 cursor 倒回覆盖——与 doneCh 同款）
+			mergeFinalState(ws, "stopped", sj)
 			_ = worker.Close()
 			return nil
 		case <-restartCh:
@@ -507,6 +510,45 @@ func tailOf(s string) string {
 	return s
 }
 
+// readHeartbeatCursor 读 <ws>/heartbeat.json 的 iteration_cursor（自然完成
+// 收尾时刷新 super.json 的游标显示；文件缺失/损坏/字段非法 → 0）。
+func readHeartbeatCursor(ws string) int {
+	data, err := os.ReadFile(filepath.Join(ws, "heartbeat.json"))
+	if err != nil {
+		return 0
+	}
+	var hb struct {
+		IterationCursor int `json:"iteration_cursor"`
+	}
+	if err := json.Unmarshal(data, &hb); err != nil {
+		return 0
+	}
+	return hb.IterationCursor
+}
+
+// mergeFinalState 把 super.json 收尾为给定 state，但 iteration_cursor 等字段
+// 以**磁盘最新事实**为准（Read-Modify-Write）：super.json（py 每跳心跳刷）与
+// heartbeat.json（py 最终一跳）两源取 cursor 最大——防旧内存值倒回覆盖
+// （job_47 实测两例：①自然完成后 Go 内存 sj 把 cursor 盖回启动值；②SuperStop
+// 读盘后 daemon 退出期间 py 已把 cursor 刷到 9，旧 sj 的 7 把它盖回）。
+func mergeFinalState(ws string, state string, local *superJSON) {
+	fresh, err := readSuperJSON(ws)
+	if err != nil || fresh == nil {
+		fresh = local
+	}
+	if fresh == nil {
+		return
+	}
+	if cur := readHeartbeatCursor(ws); cur > fresh.IterationCursor {
+		fresh.IterationCursor = cur
+	}
+	if local != nil && local.IterationCursor > fresh.IterationCursor {
+		fresh.IterationCursor = local.IterationCursor
+	}
+	fresh.State = state
+	_ = writeSuperJSONAtomic(ws, fresh)
+}
+
 // --- stop ---
 
 // SuperStop 优雅停：读 super.json.pid → SIGTERM（daemon 形态 kill 进程组）→
@@ -529,7 +571,7 @@ func SuperStopIn(ws string) error {
 	pid := sj.Pid
 	if pid <= 0 {
 		sj.State = "stopped"
-		_ = writeSuperJSONAtomic(ws, sj)
+		_ = writeSuperJSONAtomic(ws, sj)  // cursor 保留读取值（本地 sj 即刚读的）
 		fmt.Printf("[rick super] no pid recorded; state=stopped\n")
 		return nil
 	}
@@ -538,7 +580,7 @@ func SuperStopIn(ws string) error {
 	}
 	if !pidAliveHandler(pid) {
 		sj.State = "stopped"
-		_ = writeSuperJSONAtomic(ws, sj)
+		_ = writeSuperJSONAtomic(ws, sj)  // cursor 保留读取值（本地 sj 即刚读的）
 		fmt.Printf("[rick super] pid %d not alive; state=stopped\n", pid)
 		return nil
 	}
@@ -553,8 +595,7 @@ func SuperStopIn(ws string) error {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if !pidAliveHandler(pid) {
-			sj.State = "stopped"
-			_ = writeSuperJSONAtomic(ws, sj)
+			mergeFinalState(ws, "stopped", sj)
 			fmt.Printf("[rick super] stopped (pid %d)\n", pid)
 			return nil
 		}
@@ -567,8 +608,7 @@ func SuperStopIn(ws string) error {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 	time.Sleep(200 * time.Millisecond)
-	sj.State = "stopped"
-	_ = writeSuperJSONAtomic(ws, sj)
+	mergeFinalState(ws, "stopped", sj)
 	fmt.Printf("[rick super] force-stopped (pid %d)\n", pid)
 	return nil
 }

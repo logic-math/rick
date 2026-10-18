@@ -460,11 +460,12 @@ func pidAlive(pid int) bool {
 // --- helpers：super.json 读写（测试视角） ---
 
 type superJSONView struct {
-	State        string  `json:"state"`
-	Pid          int     `json:"pid"`
-	Daemon       bool    `json:"daemon"`
-	EnvPath      string  `json:"env_path"`
-	PreverifyRed bool    `json:"preverify_red"`
+	State           string `json:"state"`
+	IterationCursor int    `json:"iteration_cursor"`
+	Pid             int    `json:"pid"`
+	Daemon          bool   `json:"daemon"`
+	EnvPath         string `json:"env_path"`
+	PreverifyRed    bool   `json:"preverify_red"`
 }
 
 func readSuperJSONForTest(t *testing.T, ws string) superJSONView {
@@ -534,4 +535,53 @@ func TestSuperStartNaturalCompletionNotRestarted(t *testing.T) {
 	}
 	// 不重启：super.log 无 restart 字样（修复前会打 3 次 restarting）
 	_ = root
+}
+
+// fakeSuperoptFinishWithCursor 心跳若干次（带 iteration_cursor=5）后 exit 0
+// ——自然完成收尾时 super.json 的游标应从最后的 heartbeat 刷新（改动⑥回归）。
+func fakeSuperoptFinishWithCursor(t *testing.T) string {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\nexport PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH\n")
+	b.WriteString(`WS=""; prev=""
+for a in "$@"; do
+  if [ "$prev" = "--workdir" ]; then WS="$a"; fi
+  prev="$a"
+done
+mkdir -p "$WS"
+i=0
+while [ $i -lt 8 ]; do
+  i=$((i+1))
+  printf '{"ts":"%s","seq":%d,"state":"running","iteration_cursor":5}' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$i" > "$WS/heartbeat.json"
+  sleep 0.05
+done
+exit 0
+`)
+	return writeFakeSuperopt(t, "fake-superopt-finish-cursor", b.String())
+}
+
+func TestSuperStartNaturalCompletionRefreshesCursor(t *testing.T) {
+	root, ws := newSuperWS(t)
+	if err := os.MkdirAll(filepath.Join(ws, "env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testSuperStartConfig(fakeSuperoptFinishWithCursor(t))
+	cfg.Root = root
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+
+	err := SuperStartMonitored(cfg, "test-super", ws, "", SuperStartOverrides{}, stopCh)
+	if err != nil {
+		t.Fatalf("自然完成: %v", err)
+	}
+	sj := readSuperJSONForTest(t, ws)
+	if sj.State != "completed" {
+		t.Fatalf("state = %q, want completed", sj.State)
+	}
+	// 游标从最后的 heartbeat.json 刷新（job_47 首跑实测：曾显示 0）
+	if sj.IterationCursor != 5 {
+		t.Fatalf("IterationCursor = %d, want 5（heartbeat 的 iteration_cursor）",
+			sj.IterationCursor)
+	}
 }
