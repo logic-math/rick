@@ -456,7 +456,8 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 //	  dream:      job_num (optional positive number, default 5),
 //	              mode (optional "interactive"|"background", default background)
 //	  doing:      job (required string)
-//	  super:      name (optional string, default "default"——super_env 工作区名)
+//	super:      requirement (required non-empty string——进化使命),
+//	            title (optional string——会话标题，缺省 "super env_N")
 func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	strParam := func(key string) (string, bool) {
 		v, ok := params[key]
@@ -505,11 +506,19 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 			return err
 		}
 	case SessionTypeSuper:
-		// name 可选（缺省/空 → "default"，由 prepareInteractive 应用默认值）；
-		// 显式提供了就必须是字符串（非字符串 400 invalid_params）。
+		// 目录模型 v2（job_48 迭代2）：requirement 必填非空（进化使命，注入
+		// prompt 并落盘 requirement.md）；title 可选字符串；旧 name 参数已废
+		// ——出现即 invalid_params（防前端旧残留：目录改为自动编号 env_N）。
+		// name 检查在前：仅传 name 的旧调用拿到明确的 name 报错而非 requirement 报错。
 		if v, present := params["name"]; present && v != nil {
+			return newValidationError("invalid_params", "super.name is no longer accepted (auto-numbered env_N); use requirement + title")
+		}
+		if err := requireStr("requirement"); err != nil {
+			return err
+		}
+		if v, present := params["title"]; present && v != nil {
 			if _, ok := v.(string); !ok {
-				return newValidationError("invalid_params", "super.name must be a string")
+				return newValidationError("invalid_params", "super.title must be a string")
 			}
 		}
 	case SessionTypeDream:

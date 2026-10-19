@@ -2095,14 +2095,18 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		return &prep{promptFile: promptFile, methodFile: methodFile, title: "learning " + jobID}, nil
 
 	case SessionTypeSuper:
-		// super 中控会话：严格加载 super-loop + gen_env skill（缺失 → 创建
-		// 失败显式报错，不静默降级——BuildSuperPrompt 内部只降级内嵌提示文本，
-		// prep 层必须预检拦截）；工作区 = <ws>/.rick/super_env/<name>（J2 裁决：
-		// env 在工作区内生成；web 侧有显式 rickDir，不走 cwd 上溯）。
-		name := paramString(params, "name")
-		if name == "" {
-			name = "default"
+		// super 中控会话（目录模型 v2，job_48 迭代2）：严格加载 super-loop +
+		// gen_env skill（缺失 → 创建失败显式报错，不静默降级）；工作区 =
+		// <ws>/.rick/super/env_N（自动编号照 job_N 扫描模式；web 侧有显式
+		// rickDir，不走 cwd 上溯）；requirement 落盘 requirement.md 并注入 prompt
+		// 使命（grilling 追问在会话内跑，见 BuildSuperPrompt 的 workflow 段）。
+		requirement := paramString(params, "requirement")
+		if requirement == "" {
+			// 防御：ValidateSessionRequest 已拦截，直接调用方仍需明确报错
+			return nil, newWebError(http.StatusBadRequest, "invalid_params",
+				"super session requires a non-empty requirement（进化使命）")
 		}
+		title := paramString(params, "title")
 		for _, asset := range []struct{ path, hint string }{
 			{filepath.Join(rickDir, "loops", "super-loop.md"),
 				"super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
@@ -2113,16 +2117,26 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 				return nil, newWebError(http.StatusBadRequest, "invalid_params", "%s：缺失文件 %s", asset.hint, asset.path)
 			}
 		}
-		superWS := filepath.Join(rickDir, "super_env", name)
+		envID, err := scanNextEnvID(rickDir)
+		if err != nil {
+			return nil, fmt.Errorf("scan next env id: %w", err)
+		}
+		superWS := filepath.Join(rickDir, "super", envID)
 		if err := initSuperEnvSkeleton(superWS); err != nil {
 			return nil, fmt.Errorf("init super workspace: %w", err)
 		}
-		methodFile, promptFile, err := superpkg.BuildSuperPrompt(rickDir, superWS)
+		// requirement 落盘（会话全程锚点；CLI --resume 同一 env_N 时由
+		// BuildSuperPrompt 回读注入）
+		if err := os.WriteFile(filepath.Join(superWS, "requirement.md"),
+			[]byte(requirement+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("write requirement.md: %w", err)
+		}
+		methodFile, promptFile, err := superpkg.BuildSuperPrompt(rickDir, superWS, requirement)
 		if err != nil {
 			return nil, fmt.Errorf("build super prompt: %w", err)
 		}
 		return &prep{promptFile: promptFile, methodFile: methodFile,
-			persistDir: filepath.Dir(promptFile), title: "super " + name}, nil
+			persistDir: filepath.Dir(promptFile), title: orDefault(title, "super "+envID)}, nil
 
 	case SessionTypeDream:
 		// interactive dream: same prompt as the CLI dream run
@@ -2152,8 +2166,8 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 	return nil, newWebError(http.StatusBadRequest, "invalid_params", "unknown session type %q", sessionType)
 }
 
-// initSuperEnvSkeleton 为 super 会话初始化工作区骨架（<ws>/.rick/super_env/
-// <name>/）：目录 + events.jsonl（空）+ archive.json（初始）+ super.json 骨架。
+// initSuperEnvSkeleton 为 super 会话初始化工作区骨架（<ws>/.rick/super/
+// env_N/）：目录 + events.jsonl（空）+ archive.json（初始）+ super.json 骨架。
 // 轻量自建（handler.initSuperWorkspace 未导出；与它幂等语义一致——已存在
 // 不删除只补缺；`rick super start` 后续会跑完整 init 再补全字段）。
 func initSuperEnvSkeleton(ws string) error {
@@ -2252,6 +2266,31 @@ func scanNextJobID(rickDir string) (string, error) {
 		}
 	}
 	return fmt.Sprintf("job_%d", maxN+1), nil
+}
+
+// scanNextEnvID 扫描 <rickDir>/super/ 下已存在的 env_%d 目录，返回下一个可用
+// 编号（照 scanNextJobID 同型；目录不存在 → env_1）。CLI `--name env_1` 即达
+// 同一目录——web 自动编号与 CLI 显式命名天然互通。
+func scanNextEnvID(rickDir string) (string, error) {
+	superDir := filepath.Join(rickDir, "super")
+	entries, err := os.ReadDir(superDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "env_1", nil
+		}
+		return "", fmt.Errorf("read super directory: %w", err)
+	}
+	maxN := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(e.Name(), "env_%d", &n); err == nil && n > 0 && n <= 9999 && n > maxN {
+			maxN = n
+		}
+	}
+	return fmt.Sprintf("env_%d", maxN+1), nil
 }
 
 // buildLearningParams assembles builder.LearningParams from the job's

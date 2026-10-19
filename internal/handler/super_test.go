@@ -241,7 +241,7 @@ func TestBuildSuperPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, ws := newSuperWS(t)
-	methodFile, promptFile, err := superpkg.BuildSuperPrompt(rickDir, ws)
+	methodFile, promptFile, err := superpkg.BuildSuperPrompt(rickDir, ws, "")
 	if err != nil {
 		t.Fatalf("BuildSuperPrompt: %v", err)
 	}
@@ -255,8 +255,10 @@ func TestBuildSuperPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := string(prompt)
-	// 含 super-loop 与 gen_env 内容（inline 而非只有目录引用）
-	for _, kw := range []string{"super-loop", "super 中控", "gen_env", "单写者", "rick super start"} {
+	// 含 super-loop 与 gen_env 内容（inline 而非只有目录引用）；目录模型 v2：
+	// grilling skill embedded inline（需求追问）+ 使命/工作流段
+	for _, kw := range []string{"super-loop", "super 中控", "gen_env", "单写者", "rick super start",
+		"Skill: grilling", "设计树", "工作流程（三步", "requirement"} {
 		if !strings.Contains(p, kw) {
 			t.Errorf("prompt missing keyword %q", kw)
 		}
@@ -586,7 +588,7 @@ func TestSuperStartNaturalCompletionRefreshesCursor(t *testing.T) {
 	}
 }
 
-// --- 工作区根解析（job_48 task1：<ws>/.rick/super_env 模型） ---
+// --- 工作区根解析（job_48 task1 + 迭代2：<ws>/.rick/super 模型） ---
 
 // chdirInto 切到 dir 并随测试恢复（t.Chdir 的显式形态，兼容任意 Go 版本）。
 func chdirInto(t *testing.T, dir string) {
@@ -606,7 +608,7 @@ func chdirInto(t *testing.T, dir string) {
 }
 
 // TestSuperWsRootResolvesInsideWorkspace：cwd 在工作区内（含 .rick）→
-// root = <ws>/.rick/super_env（含从子目录上溯的形态）。
+// root = <ws>/.rick/super（含从子目录上溯的形态）。
 func TestSuperWsRootResolvesInsideWorkspace(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home) // 隔离 config（无 super.default_super_dir 覆盖）
@@ -618,14 +620,14 @@ func TestSuperWsRootResolvesInsideWorkspace(t *testing.T) {
 	}
 	// macOS：t.TempDir 逻辑路径 /var/... vs Getwd 物理路径 /private/var/...
 	// ——两边 EvalSymlinks 归一后比较（supervisor_test.go 同款先例；注意
-	// EvalSymlinks 要求路径存在，故只对已存在的 rickDir 归一再拼 super_env）
+	// EvalSymlinks 要求路径存在，故只对已存在的 rickDir 归一再拼 super）
 	norm := func(p string) string {
 		if r, err := filepath.EvalSymlinks(p); err == nil {
 			return r
 		}
 		return p
 	}
-	want := filepath.Join(norm(rickDir), "super_env")
+	want := filepath.Join(norm(rickDir), "super")
 
 	// ① 工作区根本身
 	chdirInto(t, wsRoot)
@@ -708,7 +710,7 @@ func TestSuperWsRootConfigOverrideWins(t *testing.T) {
 	}
 }
 
-// TestSuperLifecycleUnderNewRoot：新 root（<ws>/.rick/super_env/<name>）下的
+// TestSuperLifecycleUnderNewRoot：新 root（<ws>/.rick/super/<name>）下的
 // start→running→stop 全生命周期（fake superopt）依旧绿。
 func TestSuperLifecycleUnderNewRoot(t *testing.T) {
 	home := t.TempDir()
@@ -747,7 +749,7 @@ func TestSuperLifecycleUnderNewRoot(t *testing.T) {
 		return json.Unmarshal(data, &v) == nil && v.State == "running"
 	})
 
-	// 干预队列投递（SuperEventIn 落在 <ws>/.rick/super_env/lifecycle/interventions/）
+	// 干预队列投递（SuperEventIn 落在 <ws>/.rick/super/lifecycle/interventions/）
 	if err := SuperEventIn(ws, "pause", "{}"); err != nil {
 		t.Fatalf("SuperEventIn: %v", err)
 	}

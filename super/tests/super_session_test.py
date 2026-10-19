@@ -2,9 +2,9 @@
 #
 # 覆盖（spec 三段）：
 #   1. fake rick 工作区（.rick/loops/super-loop.md + skills/gen_env_skill/skill.md
-#      + super_env/）——严格加载的最小 fixture
+#      + super/）——严格加载的最小 fixture
 #   2. CLI `rick super --name demo`（fake pi，HOME 隔离 + config.pi_path）→
-#      断言 prompt.md 含：gen_env skill 全文证据（门禁系统设计引导）+ super_env
+#      断言 prompt.md 含：gen_env skill 全文证据（门禁系统设计引导）+ super
 #      绝对路径 + 观察手段清单（events.jsonl/archive.json/codes/heartbeat.json）
 #      + 干预手段（rick super event / 单写者）
 #   3. CLI 互通：`rick super --name demo --resume`（fake pi dump argv）→
@@ -59,11 +59,11 @@ class SuperSessionE2E(unittest.TestCase):
     def setUpClass(cls):
         cls.root = tempfile.mkdtemp(prefix="super-session-e2e-")
         # fake rick 工作区：<root>/ws/.rick/...（cwd=ws 时 superWsRoot →
-        # <ws>/.rick/super_env——job_48 存储模型）
+        # <ws>/.rick/super——job_48 迭代2 目录模型）
         cls.wsdir = os.path.join(cls.root, "ws")
         rick = os.path.join(cls.wsdir, ".rick")
         for d in ("loops", os.path.join("skills", "gen_env_skill"),
-                  "jobs", os.path.join("super_env", "demo")):
+                  "jobs", os.path.join("super", "demo")):
             os.makedirs(os.path.join(rick, d), exist_ok=True)
         with open(os.path.join(rick, "loops", "super-loop.md"), "w",
                   encoding="utf-8") as f:
@@ -117,7 +117,7 @@ class SuperSessionE2E(unittest.TestCase):
         self.assertIn("Session ID:", out, "回执缺 Session ID")
 
         # session 工件：sessions/<uuid>/{session_id, method.md, prompt.md}
-        sess_root = os.path.join(self.wsdir, ".rick", "super_env", "demo", "sessions")
+        sess_root = os.path.join(self.wsdir, ".rick", "super", "demo", "sessions")
         uuids = sorted(os.listdir(sess_root))
         self.assertEqual(len(uuids), 1, "应恰好一个会话目录：%s" % uuids)
         sid_file = os.path.join(sess_root, uuids[0], "session_id")
@@ -138,8 +138,8 @@ class SuperSessionE2E(unittest.TestCase):
         self.assertIn("super-loop", p, "prompt 未内嵌 super-loop")
         # 工作区上下文块
         self.assertIn("## 工作区上下文", p, "缺「## 工作区上下文」块")
-        ws_abs = os.path.join(self.wsdir, ".rick", "super_env", "demo")
-        self.assertIn(ws_abs, p, "缺 super_env 绝对路径 %s" % ws_abs)
+        ws_abs = os.path.join(self.wsdir, ".rick", "super", "demo")
+        self.assertIn(ws_abs, p, "缺 super 工作区绝对路径 %s" % ws_abs)
         self.assertIn(self.wsdir, p, "缺工作区根 %s" % self.wsdir)
         # env 生成约定
         self.assertIn(os.path.join(ws_abs, "env"), p, "缺 env 生成路径约定")

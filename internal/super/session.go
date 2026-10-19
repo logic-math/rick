@@ -1,18 +1,23 @@
-// session.go — super 中控会话 prompt 构建（job_47/task11）。
+// session.go — super 中控会话 prompt 构建（job_47/task11 + job_48/task5 目录模型 v2）。
 //
 // BuildSuperPrompt 组装 `rick super`（默认 session 子命令）的交互提示词：
+//   - 本次进化使命（requirement：参数优先，缺省回读 <ws>/requirement.md；
+//     两者皆无 → 降级提示「先与 human 对齐后落盘」）
+//   - 工作流程三步：grilling 需求追问（skill 全文 inline，工作目录 <ws>/grilling）
+//     → gen_env 生成 env → 运行/观察/干预
 //   - super-loop 全文 inline（super 会话默认加载的工作法，.rick/loops/super-loop.md）
 //   - gen_env skill 全文 inline（env 建设引导，.rick/skills/gen_env_skill/skill.md）
-//   - Loops / Skills 目录（LoadLoopsContext / LoadSkillsContext——super-loop 与
-//     gen_env 均出现在目录里，其余 loop/skill 按目录可发现）
-//   - super 方法 SOP（中控职责/单写者纪律/三层架构分工的浓缩）+ CLI 速查
-//   - 工作区上下文（job_48/task4：工作区根/super_env 路径/env 生成约定/观察与干预手段）
+//   - grilling skill 全文 inline（embedded 模板，编译期内嵌永不缺失；
+//     {{grilling_workdir}} 替换为 <ws>/grilling）
+//   - Loops / Skills 目录（LoadLoopsContext / LoadSkillsContext）
+//   - super 方法 SOP + CLI 速查
+//   - 工作区上下文（job_48/task4：工作区根/super 路径/env 生成约定/观察与干预手段）
 //   - 工作区速查（ws 路径/super.json/events/干预队列）
 //
 // 产物落 <ws>/sessions/<uuid>/{session_id,method.md,prompt.md}：session_id 持久化
 // 供 `rick super --resume <name>` 经 pi `--session <id>` 恢复（bugs.md：--session
 // 加载已有语义）。与 easy（jobs/<id>/doing/prompts/）不同，super 会话锚定在
-// super 工作区而非 job 目录——进化系统的运行状态本就以 ws 为家。
+// super 工作区（<ws>/.rick/super/env_N）而非 job 目录——进化系统的运行状态本就以 ws 为家。
 package super
 
 import (
@@ -56,13 +61,13 @@ func workspaceCheatsheet(ws string) string {
 
 // workspaceContext 渲染工作区上下文块（job_48/task4：中控会话开箱即知全部操作面）。
 // rickDir 是 .rick 目录（workspaceRoot = 其上层）；ws 是 super 工作区绝对路径
-// （<workspaceRoot>/.rick/super_env/<name>）。保持 SOP 级简洁——不是文档。
+// （<workspaceRoot>/.rick/super/env_N——目录模型 v2）。保持 SOP 级简洁——不是文档。
 func workspaceContext(rickDir, ws string) string {
 	workspaceRoot := filepath.Dir(rickDir)
 	var b strings.Builder
 	b.WriteString("## 工作区上下文\n\n")
 	b.WriteString(fmt.Sprintf("- 当前 rick 工作区根：%s\n", workspaceRoot))
-	b.WriteString(fmt.Sprintf("- super 工作区（本会话的 super_env）：%s\n", ws))
+	b.WriteString(fmt.Sprintf("- super 工作区（本会话的 env 目录）：%s\n", ws))
 	b.WriteString("- env 生成约定：按 gen_env skill 引导现场生成/演进，产出落 ")
 	b.WriteString(fmt.Sprintf("%s\n", filepath.Join(ws, "env")))
 	b.WriteString("\n### 观察手段（当前运行状态，任意信息可读）\n\n")
@@ -89,15 +94,74 @@ func newSessionUUID() (string, error) {
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
+// missionBlock 渲染本次进化使命段：requirement 非空 → 使命全文 + requirement.md
+// 锚点；空 → 降级提示（第一步先与 human 对齐落盘 requirement.md）。
+func missionBlock(ws, requirement string) string {
+	reqPath := filepath.Join(ws, "requirement.md")
+	var b strings.Builder
+	b.WriteString("## 本次进化使命（requirement）\n\n")
+	if requirement != "" {
+		b.WriteString(requirement)
+		b.WriteString("\n\n需求原文锚点：")
+		b.WriteString(reqPath)
+		b.WriteString("（会话全程以此为锚；human 修订后同步写回该文件）\n\n---\n\n")
+	} else {
+		b.WriteString("（本工作区暂无 requirement.md——第一步先与 human 对齐进化目标，落盘 ")
+		b.WriteString(reqPath)
+		b.WriteString("）\n\n---\n\n")
+	}
+	return b.String()
+}
+
+// workflowBlock 渲染三步工作流（grilling 需求追问 → gen_env 生成 env → 运行/观察/干预）。
+func workflowBlock(ws string) string {
+	var b strings.Builder
+	b.WriteString("## 工作流程（三步，按序推进）\n\n")
+	b.WriteString("**第一步：需求追问（grilling）**——对本次进化使命跑设计树追问循环（skill: grilling 全文见下），")
+	b.WriteString("直到需求树落盘达标（")
+	b.WriteString(filepath.Join(ws, "grilling", "design-tree.md"))
+	b.WriteString("，经 grilling_gate 校验）。需求未理清前不进入 env 创建。\n\n")
+	b.WriteString("**第二步：生成 env（gen_env）**——按 gen_env skill 引导现场生成/演进 env，产出落 ")
+	b.WriteString(filepath.Join(ws, "env"))
+	b.WriteString("（含门禁系统设计引导——门禁/容差/评分属 env 范畴）。\n\n")
+	b.WriteString("**第三步：运行/观察/干预**——启动前门先证红确认（exploit 拒识 100% 才放行）→ `rick super start` 拉起后台进化 → 观察（status / 直读文件，见工作区上下文）→ `rick super event` 投递干预。\n\n---\n\n")
+	return b.String()
+}
+
+// grillingSkillInline 返回 embedded grilling skill 全文，{{grilling_workdir}}
+// 替换为 <ws>/grilling（embedded 模板编译期内嵌，永不缺失——不需运行时预检）。
+func grillingSkillInline(ws string) (string, error) {
+	content, err := prompt.ReadEmbeddedSkill("grilling")
+	if err != nil {
+		return "", fmt.Errorf("super: embedded grilling skill: %w", err)
+	}
+	return strings.ReplaceAll(content, "{{grilling_workdir}}", filepath.Join(ws, "grilling")), nil
+}
+
 // BuildSuperPrompt 组装 super 中控会话的 method/prompt 两件产物。
 //
-// rickDir 是 .rick 目录（loops/skills 加载源）；ws 是 super 工作区绝对路径。
+// rickDir 是 .rick 目录（loops/skills 加载源）；ws 是 super 工作区绝对路径；
+// requirement 是本次进化使命（参数优先；空则回读 <ws>/requirement.md；
+// 两者皆无 → prompt 里降级提示先对齐落盘——CLI 旧工作区兼容）。
 // 每次调用新建 <ws>/sessions/<uuid>/ 会话目录（session_id + method.md +
 // prompt.md），返回两个产物的绝对路径。失败原子：任一写失败返回 err
 // （已建目录保留无害）。
-func BuildSuperPrompt(rickDir, ws string) (methodFile, promptFile string, err error) {
+func BuildSuperPrompt(rickDir, ws, requirement string) (methodFile, promptFile string, err error) {
 	if rickDir == "" || ws == "" {
 		return "", "", fmt.Errorf("super: BuildSuperPrompt requires rickDir and ws")
+	}
+
+	// requirement 解析：参数空 → 回读 <ws>/requirement.md（web prep 先落盘再调；
+	// CLI resume 同一工作区时由此取回使命）
+	if requirement == "" {
+		if data, rerr := os.ReadFile(filepath.Join(ws, "requirement.md")); rerr == nil {
+			requirement = strings.TrimSpace(string(data))
+		}
+	}
+
+	grilling, gerr := grillingSkillInline(ws)
+	if gerr != nil {
+		return "", "", gerr
 	}
 
 	uuid, err := newSessionUUID()
@@ -131,11 +195,15 @@ func BuildSuperPrompt(rickDir, ws string) (methodFile, promptFile string, err er
 	var b strings.Builder
 	b.WriteString("# super 中控会话\n\n")
 	b.WriteString("你是 rick super 模式的**中控会话**：env 的建设与升级、后台进化引擎的启停与监控、human 干预的投递。进化本身由后台执行（Go PySupervisor 监督 → py 调度器四状态循环 → pi agent 池），**你不执行进化逻辑**。\n\n")
+	b.WriteString(missionBlock(ws, requirement))
 	b.WriteString("## 单写者纪律（不可协商）\n\n")
 	b.WriteString("events.jsonl / archive.json 只有后台 py 调度器一个写者。你的任何干预一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取——**永远不直写** events.jsonl / archive.json。\n\n")
+	b.WriteString(workflowBlock(ws))
 	b.WriteString("---\n\n# Loop: super-loop（默认加载，先完整读取再动手）\n\n")
 	b.WriteString(superLoop)
-	b.WriteString("\n\n---\n\n# Skill: gen-env（env 建设与升级时加载）\n\n")
+	b.WriteString("\n\n---\n\n# Skill: grilling（第一步：需求追问，设计树协议）\n\n")
+	b.WriteString(grilling)
+	b.WriteString("\n\n---\n\n# Skill: gen-env（第二步：env 建设与升级时加载）\n\n")
 	b.WriteString(genEnvSkill)
 	b.WriteString("\n\n---\n\n")
 	b.WriteString(prompt.LoadLoopsContext(filepath.Join(rickDir, "loops")))

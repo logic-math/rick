@@ -409,6 +409,11 @@ def write_go_home_config(home: str) -> None:
         "heartbeat_timeout_ms": 30000,
         "term_grace_ms": 15000,
         "python_path": "python3",
+        # 工作区根显式覆盖（job_48 迭代2 模型：<home>/.rick/super）：run_rick
+        # 的 cwd 必须留在仓库根（PySupervisor.resolveRepoRoot 靠 cwd 找
+        # super/superopt 包），而 superWsRoot 的 cwd 上溯会命中仓库自己的
+        # .rick——测试工作区在 HOME 隔离下，经 config 覆盖显式指向。
+        "default_super_dir": os.path.join(home, ".rick", "super"),
     }
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)

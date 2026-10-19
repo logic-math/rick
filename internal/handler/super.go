@@ -41,7 +41,7 @@ import (
 // SuperStartConfig 汇总一次 start 的全部可注入参数（CLI 从 config+flags 组装，
 // 测试直接构造短心跳节奏）。
 type SuperStartConfig struct {
-	// Root 是 super 工作区根目录（空 = superWsRoot 解析：config 覆盖 > 工作区内 .rick/super_env）。
+	// Root 是 super 工作区根目录（空 = superWsRoot 解析：config 覆盖 > 工作区内 .rick/super）。
 	Root string
 	// HeartbeatInterval/HeartbeatTimeout/TermGrace/PythonPath 透传 PySupervisor。
 	HeartbeatInterval time.Duration
@@ -61,10 +61,12 @@ type SuperStartOverrides struct {
 	AdjustInterval int
 }
 
-// superWsRoot 解析 super 工作区根（job_48 / L2-Q1=A 裁决）：
+// superWsRoot 解析 super 工作区根（job_48 / L2-Q1=A 裁决 + 迭代2 目录模型 v2）：
 //  1. ~/.rick/config.json 的 super.default_super_dir 显式覆盖优先（向后兼容）；
-//  2. 否则当前 rick 工作区内 <ws>/.rick/super_env——从进程 cwd 向上找 .rick
+//  2. 否则当前 rick 工作区内 <ws>/.rick/super——从进程 cwd 向上找 .rick
 //     目录（web 会话 spawn cwd=工作区根天然命中；CLI 在工作区任意子目录也能上溯）；
+//     工作区目录自动编号 env_{n}（web prep 分配；CLI --name env_1 即达同一目录，
+//     天然互通）；
 //  3. 都找不到 → 明确报错（含指引）。
 // 旧全局目录 ~/.rick/super/ 不迁移不兼容读取（历史测试工作区留原地）。
 func superWsRoot() (string, error) {
@@ -78,7 +80,7 @@ func superWsRoot() (string, error) {
 			"super 工作区根解析失败：%w——请在 rick 工作区内运行（当前目录或其上级需含 .rick/），或配置 ~/.rick/config.json 的 super.default_super_dir",
 			err)
 	}
-	return filepath.Join(rickDir, "super_env"), nil
+	return filepath.Join(rickDir, "super"), nil
 }
 
 // findRickDirUpward 从进程 cwd 向上找 .rick 目录（与 internal/super 的
@@ -934,7 +936,9 @@ func SuperSession(opts Options, name string, resume bool) error {
 		}
 		sessionID, mainFile = sid, pfile
 	} else {
-		_, pfile, err := superpkg.BuildSuperPrompt(rickDir, ws)
+		// requirement 传空：BuildSuperPrompt 回读 <ws>/requirement.md（web prep
+		// 创建的工作区由此取回使命；纯 CLI 旧工作区降级提示先对齐落盘）
+		_, pfile, err := superpkg.BuildSuperPrompt(rickDir, ws, "")
 		if err != nil {
 			return fmt.Errorf("build super prompt: %w", err)
 		}
