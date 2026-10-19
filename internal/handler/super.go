@@ -41,7 +41,7 @@ import (
 // SuperStartConfig 汇总一次 start 的全部可注入参数（CLI 从 config+flags 组装，
 // 测试直接构造短心跳节奏）。
 type SuperStartConfig struct {
-	// Root 是 super 工作区根目录（空 = DefaultSuperDir 解析）。
+	// Root 是 super 工作区根目录（空 = superWsRoot 解析：config 覆盖 > 工作区内 .rick/super_env）。
 	Root string
 	// HeartbeatInterval/HeartbeatTimeout/TermGrace/PythonPath 透传 PySupervisor。
 	HeartbeatInterval time.Duration
@@ -61,17 +61,45 @@ type SuperStartOverrides struct {
 	AdjustInterval int
 }
 
-// superWsRoot 解析 super 工作区根：cfg 覆盖 > ~/.rick/super。
-func superWsRoot() string {
+// superWsRoot 解析 super 工作区根（job_48 / L2-Q1=A 裁决）：
+//  1. ~/.rick/config.json 的 super.default_super_dir 显式覆盖优先（向后兼容）；
+//  2. 否则当前 rick 工作区内 <ws>/.rick/super_env——从进程 cwd 向上找 .rick
+//     目录（web 会话 spawn cwd=工作区根天然命中；CLI 在工作区任意子目录也能上溯）；
+//  3. 都找不到 → 明确报错（含指引）。
+// 旧全局目录 ~/.rick/super/ 不迁移不兼容读取（历史测试工作区留原地）。
+func superWsRoot() (string, error) {
 	cfg, err := config.LoadConfig()
 	if err == nil && cfg.Super.DefaultSuperDir != "" {
-		return cfg.Super.DefaultSuperDir
+		return cfg.Super.DefaultSuperDir, nil
 	}
-	home, err := os.UserHomeDir()
+	rickDir, err := findRickDirUpward()
 	if err != nil {
-		return filepath.Join(".rick", "super")
+		return "", fmt.Errorf(
+			"super 工作区根解析失败：%w——请在 rick 工作区内运行（当前目录或其上级需含 .rick/），或配置 ~/.rick/config.json 的 super.default_super_dir",
+			err)
 	}
-	return filepath.Join(home, ".rick", "super")
+	return filepath.Join(rickDir, "super_env"), nil
+}
+
+// findRickDirUpward 从进程 cwd 向上找 .rick 目录（与 internal/super 的
+// resolveRepoRoot 同型遍历：cwd → 逐级父目录 → 文件系统根）。返回 .rick 目录路径。
+func findRickDirUpward() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getwd: %w", err)
+	}
+	dir := cwd
+	for {
+		candidate := filepath.Join(dir, ".rick")
+		if st, err := os.Stat(candidate); err == nil && st.IsDir() {
+			return candidate, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("从 %s 上溯至文件系统根未找到 .rick 目录", cwd)
+		}
+		dir = parent
+	}
 }
 
 // superWsPath 是 <root>/<name> 工作区路径。
@@ -243,7 +271,10 @@ func SuperStart(opts Options, name, env string, daemon bool, ov SuperStartOverri
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	ws := superWsPath(root, name)
 
 	if daemon {
@@ -258,7 +289,10 @@ func SuperStart(opts Options, name, env string, daemon bool, ov SuperStartOverri
 // superStartDaemon re-exec 自身跑 daemon-child（web.go --daemon 先例：Setsid +
 // 日志文件 + RICK_SUPER_DAEMON=1；daemon-child 经环境变量识别自身形态）。
 func superStartDaemon(name, env string, ov SuperStartOverrides) error {
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	ws := superWsPath(root, name)
 	if err := os.MkdirAll(ws, 0o755); err != nil {
 		return err
@@ -554,7 +588,10 @@ func mergeFinalState(ws string, state string, local *superJSON) {
 // SuperStop 优雅停：读 super.json.pid → SIGTERM（daemon 形态 kill 进程组）→
 // 等退出（grace 预算）→ SIGKILL 兜底 → state=stopped。
 func SuperStop(opts Options, name string) error {
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	return SuperStopIn(superWsPath(root, name))
 }
 
@@ -621,7 +658,10 @@ func pidAliveHandler(pid int) bool {
 
 // SuperStatus 人类可读输出。
 func SuperStatus(opts Options, name string, jsonOut bool) error {
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	ws := superWsPath(root, name)
 	if jsonOut {
 		var b strings.Builder
@@ -826,7 +866,10 @@ func (a *eventsAgg) noteCell(payload json.RawMessage, cells map[string]bool) {
 
 // SuperEvent 写干预队列（单写者纪律：human 干预一律经队列，不直写 events.jsonl）。
 func SuperEvent(opts Options, name, etype, payload string) error {
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	return SuperEventIn(superWsPath(root, name), etype, payload)
 }
 
@@ -872,7 +915,10 @@ func SuperSession(opts Options, name string, resume bool) error {
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	root := superWsRoot()
+	root, err := superWsRoot()
+	if err != nil {
+		return err
+	}
 	ws := superWsPath(root, name)
 
 	rickDir, err := rickDirFromCwd()

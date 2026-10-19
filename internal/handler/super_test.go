@@ -585,3 +585,184 @@ func TestSuperStartNaturalCompletionRefreshesCursor(t *testing.T) {
 			sj.IterationCursor)
 	}
 }
+
+// --- 工作区根解析（job_48 task1：<ws>/.rick/super_env 模型） ---
+
+// chdirInto 切到 dir 并随测试恢复（t.Chdir 的显式形态，兼容任意 Go 版本）。
+func chdirInto(t *testing.T, dir string) {
+	t.Helper()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(old); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	})
+}
+
+// TestSuperWsRootResolvesInsideWorkspace：cwd 在工作区内（含 .rick）→
+// root = <ws>/.rick/super_env（含从子目录上溯的形态）。
+func TestSuperWsRootResolvesInsideWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home) // 隔离 config（无 super.default_super_dir 覆盖）
+
+	wsRoot := t.TempDir()
+	rickDir := filepath.Join(wsRoot, ".rick")
+	if err := os.MkdirAll(filepath.Join(rickDir, "jobs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// macOS：t.TempDir 逻辑路径 /var/... vs Getwd 物理路径 /private/var/...
+	// ——两边 EvalSymlinks 归一后比较（supervisor_test.go 同款先例；注意
+	// EvalSymlinks 要求路径存在，故只对已存在的 rickDir 归一再拼 super_env）
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	want := filepath.Join(norm(rickDir), "super_env")
+
+	// ① 工作区根本身
+	chdirInto(t, wsRoot)
+	root, err := superWsRoot()
+	if err != nil {
+		t.Fatalf("superWsRoot: %v", err)
+	}
+	if root != want {
+		t.Fatalf("root = %q, want %q", root, want)
+	}
+
+	// ② 任意子目录上溯
+	sub := filepath.Join(wsRoot, "a", "b", "c")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirInto(t, sub)
+	root2, err := superWsRoot()
+	if err != nil {
+		t.Fatalf("superWsRoot (subdir): %v", err)
+	}
+	if root2 != want {
+		t.Fatalf("root from subdir = %q, want %q", root2, want)
+	}
+}
+
+// TestSuperWsRootFailsOutsideWorkspace：cwd 上溯无 .rick → 明确报错（含指引）。
+func TestSuperWsRootFailsOutsideWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// t.TempDir() 位于系统临时区，正常情况下其父链无 .rick
+	chdirInto(t, t.TempDir())
+	_, err := superWsRoot()
+	if err == nil {
+		t.Fatal("期望在无 .rick 的目录下报错，实际成功")
+	}
+	msg := err.Error()
+	for want := range map[string]bool{
+		".rick":             true, // 指引中须提到 .rick
+		"default_super_dir": true, // 指引中须提到 config 覆盖项
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("错误信息缺 %q：%s", want, msg)
+		}
+	}
+}
+
+// TestSuperWsRootConfigOverrideWins：config default_super_dir 显式覆盖优先
+//（即使 cwd 在工作区内）。
+func TestSuperWsRootConfigOverrideWins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	explicit := filepath.Join(t.TempDir(), "explicit-super-root")
+	if err := os.MkdirAll(explicit, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 写 config：<home>/.rick/config.json 的 super.default_super_dir
+	rickHome := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(rickHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgBody := fmt.Sprintf(`{"super":{"default_super_dir":%q}}`, explicit)
+	if err := os.WriteFile(filepath.Join(rickHome, "config.json"), []byte(cfgBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// cwd 在一个含 .rick 的工作区内——覆盖必须赢
+	wsRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wsRoot, ".rick"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirInto(t, wsRoot)
+	root, err := superWsRoot()
+	if err != nil {
+		t.Fatalf("superWsRoot: %v", err)
+	}
+	if root != explicit {
+		t.Fatalf("root = %q, want 显式覆盖 %q", root, explicit)
+	}
+}
+
+// TestSuperLifecycleUnderNewRoot：新 root（<ws>/.rick/super_env/<name>）下的
+// start→running→stop 全生命周期（fake superopt）依旧绿。
+func TestSuperLifecycleUnderNewRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	wsRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wsRoot, ".rick", "jobs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chdirInto(t, wsRoot)
+
+	root, err := superWsRoot()
+	if err != nil {
+		t.Fatalf("superWsRoot: %v", err)
+	}
+	ws := superWsPath(root, "lifecycle")
+
+	cfg := testSuperStartConfig(fakeSuperoptBeating(t))
+	cfg.Root = root
+
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	var runErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runErr = SuperStartMonitored(cfg, "lifecycle", ws, "", SuperStartOverrides{}, stopCh)
+	}()
+
+	waitFor(t, 5*time.Second, "state=running under new root", func() bool {
+		data, err := os.ReadFile(filepath.Join(ws, "super.json"))
+		if err != nil {
+			return false
+		}
+		var v superJSONView
+		return json.Unmarshal(data, &v) == nil && v.State == "running"
+	})
+
+	// 干预队列投递（SuperEventIn 落在 <ws>/.rick/super_env/lifecycle/interventions/）
+	if err := SuperEventIn(ws, "pause", "{}"); err != nil {
+		t.Fatalf("SuperEventIn: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(ws, "interventions"))
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("干预队列落盘异常：entries=%v err=%v", entries, err)
+	}
+
+	close(stopCh)
+	wg.Wait()
+	if runErr != nil {
+		t.Fatalf("SuperStartMonitored: %v", runErr)
+	}
+	sj := readSuperJSONForTest(t, ws)
+	if sj.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", sj.State)
+	}
+}
