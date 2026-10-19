@@ -8,6 +8,7 @@
  * - ctrl/learning/doing: job（下拉，取该工作区 jobs 列表）
  * - human-loop: topic
  * - dream:      job_num（数字，默认 5）+ mode（interactive/background 单选）
+ * - super:      name（可选，默认 default——super_env 工作区名）
  * 必填缺失时禁用提交；提交成功跳转 /session/:id。
  */
 
@@ -117,6 +118,21 @@ const CMD_META: CmdMeta[] = [
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M17 4h4M19 2v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "super",
+    label: "super",
+    desc: "进化中控：env 生成/启停/观察/干预",
+    icon: (a) => (
+      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
+        {/* 进化分叉树：主干向上 + 三支末端节点——super 多 agent 并行进化 */}
+        <path d="M12 21v-6M12 15l-4-4M12 15l4-4M12 15v-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="21" r="1.4" fill="currentColor" />
+        <circle cx="8" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="16" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.5" />
       </svg>
     ),
   },
@@ -236,6 +252,8 @@ export default function NewSessionModal({
   const [jobId, setJobId] = useState(presetJob ?? "");
   // dream
   const [jobNum, setJobNum] = useState(5);
+  // super（可选工作区名，空 → default；env 生成于 .rick/super_env/<name>/）
+  const [superName, setSuperName] = useState("");
   // 通用
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -252,6 +270,7 @@ export default function NewSessionModal({
       setTopic("");
       setJobId(presetJob ?? "");
       setJobNum(5);
+      setSuperName("");
       setTitle("");
       setError(null);
       setSubmitting(false);
@@ -280,6 +299,11 @@ export default function NewSessionModal({
   if (cmdType === "human-loop" && !topic.trim()) missing.push("主题");
   if (needsJob(cmdType) && !jobId) missing.push("job");
   if (cmdType === "dream" && jobNum < 1) missing.push("job 数量");
+  // super：name 可空（默认 default）；含路径分隔符（/ 或 ..）拒绝——防注入
+  // （后端拼接 <ws>/.rick/super_env/<name>，name 是路径段而非路径）。
+  if (cmdType === "super" && (superName.includes("/") || superName.includes(".."))) {
+    missing.push("合法工作区名（不含 / 或 ..）");
+  }
   // dream 无可学习 job：明确阻塞（提示已给出，后端 409 兜底）
   const dreamBlocked = cmdType === "dream" && !!workspaceId && dreamChecked && dreamPending === 0;
   if (dreamBlocked) missing.push("可学习的 job");
@@ -299,6 +323,7 @@ export default function NewSessionModal({
         topic,
         jobId,
         jobNum,
+        superName,
       });
       const req: CreateSessionRequest = {
         workspace_id: workspaceId,
@@ -440,6 +465,30 @@ export default function NewSessionModal({
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                 />
+              </label>
+            )}
+
+            {cmdType === "super" && (
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm text-ink-2">
+                  工作区名<span className="text-ink-3">（可选，默认 default）</span>
+                </span>
+                <input
+                  className={FIELD_CLS}
+                  placeholder="工作区名（默认 default）"
+                  value={superName}
+                  onChange={(e) => setSuperName(e.target.value)}
+                />
+                <span className="text-[11px] leading-relaxed text-ink-3">
+                  super 进化中控会话（严格加载 super-loop + gen_env skill）：env 将生成于
+                  <code className="rounded bg-white/5 px-1">.rick/super_env/{superName.trim() || "default"}/</code>
+                  ——会话内可生成 env、启动/观察/干预 super 运行。留空一键 default。
+                </span>
+                {(superName.includes("/") || superName.includes("..")) && (
+                  <span className="text-[11px] text-danger">
+                    工作区名不能包含 / 或 ..（它是路径段，不是路径）
+                  </span>
+                )}
               </label>
             )}
 
@@ -620,6 +669,7 @@ function buildParams(input: {
   topic: string;
   jobId: string;
   jobNum: number;
+  superName: string;
 }): CreateSessionRequest["params"] {
   switch (input.type) {
     case "plan":
@@ -638,6 +688,11 @@ function buildParams(input: {
       return { job: input.jobId };
     case "human-loop":
       return { topic: input.topic.trim() };
+    case "super":
+      // name 可选：空 → 不传（后端缺省 "default"）；合法校验在前置 missing 段拦截
+      return {
+        ...(input.superName.trim() ? { name: input.superName.trim() } : {}),
+      };
     case "dream": {
       // web UI 只保留交互模式（后台模式移除：无进度反馈、与交互语义重复；
       // CLI 侧后台 dream 不受影响）。

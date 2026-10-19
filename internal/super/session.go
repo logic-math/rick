@@ -6,6 +6,7 @@
 //   - Loops / Skills 目录（LoadLoopsContext / LoadSkillsContext——super-loop 与
 //     gen_env 均出现在目录里，其余 loop/skill 按目录可发现）
 //   - super 方法 SOP（中控职责/单写者纪律/三层架构分工的浓缩）+ CLI 速查
+//   - 工作区上下文（job_48/task4：工作区根/super_env 路径/env 生成约定/观察与干预手段）
 //   - 工作区速查（ws 路径/super.json/events/干预队列）
 //
 // 产物落 <ws>/sessions/<uuid>/{session_id,method.md,prompt.md}：session_id 持久化
@@ -50,6 +51,29 @@ func workspaceCheatsheet(ws string) string {
 	b.WriteString(fmt.Sprintf("- env（gen_env 产出）：%s\n", filepath.Join(ws, "env")))
 	b.WriteString(fmt.Sprintf("- 后台日志（--daemon）：%s\n", filepath.Join(ws, "super.log")))
 	b.WriteString("\n事件类型速查与目录协议详见仓库 super/README.md。\n")
+	return b.String()
+}
+
+// workspaceContext 渲染工作区上下文块（job_48/task4：中控会话开箱即知全部操作面）。
+// rickDir 是 .rick 目录（workspaceRoot = 其上层）；ws 是 super 工作区绝对路径
+// （<workspaceRoot>/.rick/super_env/<name>）。保持 SOP 级简洁——不是文档。
+func workspaceContext(rickDir, ws string) string {
+	workspaceRoot := filepath.Dir(rickDir)
+	var b strings.Builder
+	b.WriteString("## 工作区上下文\n\n")
+	b.WriteString(fmt.Sprintf("- 当前 rick 工作区根：%s\n", workspaceRoot))
+	b.WriteString(fmt.Sprintf("- super 工作区（本会话的 super_env）：%s\n", ws))
+	b.WriteString("- env 生成约定：按 gen_env skill 引导现场生成/演进，产出落 ")
+	b.WriteString(fmt.Sprintf("%s\n", filepath.Join(ws, "env")))
+	b.WriteString("\n### 观察手段（当前运行状态，任意信息可读）\n\n")
+	b.WriteString("- CLI：`rick super status --json`（心跳/迭代游标/北极星）；事件尾随可读事件流文件\n")
+	b.WriteString(fmt.Sprintf("- 直读文件（真相源）：`%s`（事件流）\n", filepath.Join(ws, "events.jsonl")))
+	b.WriteString(fmt.Sprintf("  `%s`（精英格档案）；`%s/`（每代代码快照 + prompt + agent 产物）\n",
+		filepath.Join(ws, "archive.json"), filepath.Join(ws, "codes")))
+	b.WriteString(fmt.Sprintf("  `%s`（心跳）\n", filepath.Join(ws, "heartbeat.json")))
+	b.WriteString("- pi agent 的执行 session 文件同样可读——只要能描绘运行状态，读任何信息\n")
+	b.WriteString("\n### 干预手段\n\n")
+	b.WriteString("- `rick super event --type <t> --payload '<json>'`（写干预队列，由调度器在迭代边界摄取；单写者保证——绝不直写 events.jsonl / archive.json）\n")
 	return b.String()
 }
 
@@ -119,6 +143,8 @@ func BuildSuperPrompt(rickDir, ws string) (methodFile, promptFile string, err er
 	b.WriteString(prompt.LoadSkillsContext(filepath.Join(rickDir, "skills")))
 	b.WriteString("\n---\n\n")
 	b.WriteString(superCLICheatsheet)
+	b.WriteString("\n\n---\n\n")
+	b.WriteString(workspaceContext(rickDir, ws))
 	b.WriteString("\n\n---\n\n")
 	b.WriteString(workspaceCheatsheet(ws))
 

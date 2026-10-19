@@ -74,7 +74,8 @@ export type SessionType =
   | "human-loop"
   | "learning"
   | "dream"
-  | "doing";
+  | "doing"
+  | "super";
 
 /**
  * 会话状态（server 权威）。五态语义：
@@ -121,6 +122,12 @@ export interface DoingParams {
   job: string;
 }
 
+/** super 中控会话（job_48）：env 生成/启停/观察/干预 super 进化运行。
+ *  name 可选（缺省 "default"）——super_env 工作区名（<ws>/.rick/super_env/<name>）。 */
+export interface SuperParams {
+  name?: string;
+}
+
 export type SessionParams =
   | PlanParams
   | EasyParams
@@ -128,7 +135,8 @@ export type SessionParams =
   | HumanLoopParams
   | LearningParams
   | DreamParams
-  | DoingParams;
+  | DoingParams
+  | SuperParams;
 
 /** POST /api/sessions 请求体 */
 export interface CreateSessionRequest {

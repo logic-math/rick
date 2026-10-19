@@ -38,6 +38,7 @@ const TYPE_TONE: Record<string, string> = {
   learning: "border-rick/50 bg-rick/10 text-rick",
   dream: "border-nebula/60 bg-nebula/15 text-ink",
   doing: "border-morty/50 bg-morty/10 text-morty",
+  super: "border-morty/60 bg-morty/15 text-morty",
 };
 
 function sessionSubtitle(s: SessionInfo): string {
@@ -55,6 +56,11 @@ function sessionSubtitle(s: SessionInfo): string {
       return typeof p?.job === "string" ? p.job : "";
     case "dream":
       return `job_num=${String(p?.job_num ?? "?")} mode=${String(p?.mode ?? "?")}`;
+    case "super":
+      // 工作区名（缺省 default）——卡片副标题直观区分多个 super_env 运行
+      return typeof p?.name === "string" && p.name
+        ? `super_env/${p.name}`
+        : "super_env/default";
     default:
       return "";
   }
