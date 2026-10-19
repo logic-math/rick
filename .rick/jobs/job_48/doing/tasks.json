@@ -2,7 +2,7 @@
   "version": 1,
   "job": "web super 中控会话（job_48）",
   "created_at": "2026-10-18T16:00:00+08:00",
-  "updated_at": "2026-10-19T11:30:00+08:00",
+  "updated_at": "2026-10-19T14:45:20.334Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -57,13 +57,13 @@
     {
       "task_id": "task5",
       "task_name": "super 会话目录模型 v2（.rick/super/env_N 自动编号 + requirement 使命 + grilling 追问 inline）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-19T11:30:00+08:00",
-      "updated_at": "2026-10-19T11:30:00+08:00",
+      "updated_at": "2026-10-19T14:45:20.334Z",
       "dependencies": [],
       "task_file": "plan/task5.md",
-      "commit_hash": ""
+      "commit_hash": "c62979ff2746c07dd721c2de8a5e88202d01e18e"
     },
     {
       "task_id": "task6",
