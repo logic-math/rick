@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "job": "web super 中控会话（job_48）",
+  "created_at": "2026-10-18T16:00:00+08:00",
+  "updated_at": "2026-10-18T16:00:00+08:00",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "CLI super 工作区解析切换：superWsRoot → <工作区>/.rick/super_env（cwd 向上找 .rick；config default_super_dir 显式覆盖保留；super.json/路径解析/handler 全链适配 + 单测）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-18T16:00:00+08:00",
+      "updated_at": "2026-10-18T16:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task1.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task2",
+      "task_name": "web super 会话类型：registry 常量+ValidateSessionRequest（name 可选）+ prepareInteractive（解析 ws→super_env init 骨架→BuildSuperPrompt 严格加载→prep）+ spawn 接线 + Go 测试",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-18T16:00:00+08:00",
+      "updated_at": "2026-10-18T16:00:00+08:00",
+      "dependencies": [
+        "task1"
+      ],
+      "task_file": "plan/task2.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task3",
+      "task_name": "前端：NewSessionModal super 表单（name 输入）+ Sessions/ChatView super 类型徽章与渲染 + npm build 通过",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-18T16:00:00+08:00",
+      "updated_at": "2026-10-18T16:00:00+08:00",
+      "dependencies": [
+        "task2"
+      ],
+      "task_file": "plan/task3.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task4",
+      "task_name": "中控会话提示词增强：BuildSuperPrompt 注入工作区根上下文（super_env 路径/env 生成约定/观察手段=CLI+直读文件/干预手段）+ e2e 冒烟（创建会话→prompt 含 gen_env skill 全文→CLI 互通 resume）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-18T16:00:00+08:00",
+      "updated_at": "2026-10-18T16:00:00+08:00",
+      "dependencies": [
+        "task2"
+      ],
+      "task_file": "plan/task4.md",
+      "commit_hash": ""
+    }
+  ]
+}
