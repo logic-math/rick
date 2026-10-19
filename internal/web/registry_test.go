@@ -386,6 +386,11 @@ func TestRegistryValidateSessionMatrix(t *testing.T) {
 		{"dream string job_num", SessionTypeDream, map[string]any{"job_num": "five"}, "job_num"},
 		{"dream bad mode", SessionTypeDream, map[string]any{"mode": "both"}, "mode"},
 		{"dream non-string mode", SessionTypeDream, map[string]any{"mode": 1}, "mode"},
+		// super
+		{"super ok defaults", SessionTypeSuper, map[string]any{}, ""},
+		{"super ok with name", SessionTypeSuper, map[string]any{"name": "matmul"}, ""},
+		{"super ok empty name", SessionTypeSuper, map[string]any{"name": ""}, ""},
+		{"super non-string name", SessionTypeSuper, map[string]any{"name": 42}, "name"},
 		// unknown type
 		{"unknown type", "tdd", map[string]any{}, "unknown session type"},
 	}

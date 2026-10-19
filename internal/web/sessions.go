@@ -40,8 +40,10 @@ import (
 	"time"
 
 	"github.com/sunquan/rick/internal/builder"
+	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/handler"
 	"github.com/sunquan/rick/internal/runtime"
+	superpkg "github.com/sunquan/rick/internal/super"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -2092,6 +2094,36 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		}
 		return &prep{promptFile: promptFile, methodFile: methodFile, title: "learning " + jobID}, nil
 
+	case SessionTypeSuper:
+		// super 中控会话：严格加载 super-loop + gen_env skill（缺失 → 创建
+		// 失败显式报错，不静默降级——BuildSuperPrompt 内部只降级内嵌提示文本，
+		// prep 层必须预检拦截）；工作区 = <ws>/.rick/super_env/<name>（J2 裁决：
+		// env 在工作区内生成；web 侧有显式 rickDir，不走 cwd 上溯）。
+		name := paramString(params, "name")
+		if name == "" {
+			name = "default"
+		}
+		for _, asset := range []struct{ path, hint string }{
+			{filepath.Join(rickDir, "loops", "super-loop.md"),
+				"super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
+			{filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"),
+				"super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},
+		} {
+			if _, err := os.Stat(asset.path); err != nil {
+				return nil, newWebError(http.StatusBadRequest, "invalid_params", "%s：缺失文件 %s", asset.hint, asset.path)
+			}
+		}
+		superWS := filepath.Join(rickDir, "super_env", name)
+		if err := initSuperEnvSkeleton(superWS); err != nil {
+			return nil, fmt.Errorf("init super workspace: %w", err)
+		}
+		methodFile, promptFile, err := superpkg.BuildSuperPrompt(rickDir, superWS)
+		if err != nil {
+			return nil, fmt.Errorf("build super prompt: %w", err)
+		}
+		return &prep{promptFile: promptFile, methodFile: methodFile,
+			persistDir: filepath.Dir(promptFile), title: "super " + name}, nil
+
 	case SessionTypeDream:
 		// interactive dream: same prompt as the CLI dream run
 		jobNum := DreamDefaultJobNum
@@ -2118,6 +2150,67 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		return &prep{promptFile: promptFile, methodFile: methodFile, title: fmt.Sprintf("dream ×%d", len(jobIDs))}, nil
 	}
 	return nil, newWebError(http.StatusBadRequest, "invalid_params", "unknown session type %q", sessionType)
+}
+
+// initSuperEnvSkeleton 为 super 会话初始化工作区骨架（<ws>/.rick/super_env/
+// <name>/）：目录 + events.jsonl（空）+ archive.json（初始）+ super.json 骨架。
+// 轻量自建（handler.initSuperWorkspace 未导出；与它幂等语义一致——已存在
+// 不删除只补缺；`rick super start` 后续会跑完整 init 再补全字段）。
+func initSuperEnvSkeleton(ws string) error {
+	for _, d := range []string{"interventions", "codes", "prompts", "sessions"} {
+		if err := os.MkdirAll(filepath.Join(ws, d), 0o755); err != nil {
+			return err
+		}
+	}
+	eventsPath := filepath.Join(ws, "events.jsonl")
+	if _, err := os.Stat(eventsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(eventsPath, []byte(""), 0o644); err != nil {
+			return err
+		}
+	}
+	archivePath := filepath.Join(ws, "archive.json")
+	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
+		if err := os.WriteFile(archivePath, []byte(`{"cells": {}, "pending": []}`), 0o644); err != nil {
+			return err
+		}
+	}
+	// super.json 骨架（字段参照 handler/super.go superJSON + goSuperDefaults；
+	// 已存在则保留不动——start 会幂等补全）
+	superJSONPath := filepath.Join(ws, "super.json")
+	if _, err := os.Stat(superJSONPath); os.IsNotExist(err) {
+		d := config.DefaultSuperConfig()
+		skeleton := map[string]any{
+			"state":           "idle",
+			"iteration_cursor": 0,
+			"pid":             nil,
+			"worker_pid":      nil,
+			"daemon":          false,
+			"preverify_red":   true,
+			"heartbeat_path":  filepath.Join(ws, "heartbeat.json"),
+			"budget":          map[string]any{"wall_start": nil, "max_wall_time_h": 24.0},
+			"config": map[string]any{
+				"adjust_interval":      d.AdjustInterval,
+				"debug_max_attempts":   d.DebugMaxAttempts,
+				"soft_gate_k":          3,
+				"heartbeat_interval_s": d.HeartbeatIntervalMs / 1000,
+				"heartbeat_timeout_s":  d.HeartbeatTimeoutMs / 1000,
+				"term_grace_s":         d.TermGraceMs / 1000,
+				"max_wall_time_h":      24.0,
+				"max_iterations":       0,
+				"python_path":          d.PythonPath,
+				"pi_path":              "",
+			},
+			"updated_at": time.Now().Format(time.RFC3339),
+		}
+		data, err := json.MarshalIndent(skeleton, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(superJSONPath, data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // writeMethodFile persists the method-layer SOP text next to the prompt so

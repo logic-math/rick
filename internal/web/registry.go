@@ -21,6 +21,7 @@ const (
 	SessionTypeLearning  = "learning"
 	SessionTypeDream     = "dream"
 	SessionTypeDoing     = "doing"
+	SessionTypeSuper     = "super"
 )
 
 // Session status constants (api-contract.md SessionInfo.status).
@@ -455,6 +456,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 //	  dream:      job_num (optional positive number, default 5),
 //	              mode (optional "interactive"|"background", default background)
 //	  doing:      job (required string)
+//	  super:      name (optional string, default "default"——super_env 工作区名)
 func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	strParam := func(key string) (string, bool) {
 		v, ok := params[key]
@@ -501,6 +503,14 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	case SessionTypeHumanLoop:
 		if err := requireStr("topic"); err != nil {
 			return err
+		}
+	case SessionTypeSuper:
+		// name 可选（缺省/空 → "default"，由 prepareInteractive 应用默认值）；
+		// 显式提供了就必须是字符串（非字符串 400 invalid_params）。
+		if v, present := params["name"]; present && v != nil {
+			if _, ok := v.(string); !ok {
+				return newValidationError("invalid_params", "super.name must be a string")
+			}
 		}
 	case SessionTypeDream:
 		if v, present := params["job_num"]; present && v != nil {
