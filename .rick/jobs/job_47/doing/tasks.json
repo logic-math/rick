@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-22T00:30:00+08:00",
+  "updated_at": "2026-10-21T17:18:28.521Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -276,13 +276,13 @@
     {
       "task_id": "task22",
       "task_name": "agents.py 回合预算（run(max_turns) NDJSON 计数 assistant 回合→超限优雅终止+截断标记）+ config DEFAULTS 四角色回合上限 + test_agents",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-21T23:30:00+08:00",
-      "updated_at": "2026-10-22T00:30:00+08:00",
+      "updated_at": "2026-10-21T17:18:28.521Z",
       "dependencies": [],
       "task_file": "plan/task22.md",
-      "commit_hash": ""
+      "commit_hash": "dde493d07f4bf38b6ace1998511ea677660e16e6"
     },
     {
       "task_id": "task23",
@@ -328,13 +328,13 @@
     {
       "task_id": "task26",
       "task_name": "ledger.py 实验台账模块（append/read/brief：iter/cell/idea/parents/gate/verdict/perf_delta/reject_reason）+ test_ledger",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-22T00:30:00+08:00",
-      "updated_at": "2026-10-22T00:30:00+08:00",
+      "updated_at": "2026-10-21T17:18:28.521Z",
       "dependencies": [],
       "task_file": "plan/task26.md",
-      "commit_hash": ""
+      "commit_hash": "dde493d07f4bf38b6ace1998511ea677660e16e6"
     }
   ]
 }

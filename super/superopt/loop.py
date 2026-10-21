@@ -43,6 +43,7 @@
 stdlib-only，Python >=3.9（禁 PEP604 X|Y）。
 """
 import copy
+import inspect
 import json
 import os
 import re
@@ -64,6 +65,7 @@ from superopt.events import EventWriter
 from superopt.feature_space import FeatureSpace
 from superopt.gates import CascadeGate
 from superopt.intervention import InterventionQueue
+from superopt.ledger import Ledger as ExperimentLedger
 from superopt.lineage import project_state
 from superopt.prompts import render, write_prompt
 from superopt.sampler import Sampler
@@ -167,7 +169,8 @@ class Scheduler:
                  feature_space: Optional[FeatureSpace] = None,
                  sampler: Optional[Sampler] = None,
                  ledger: Optional[CostLedger] = None,
-                 queue: Optional[InterventionQueue] = None) -> None:
+                 queue: Optional[InterventionQueue] = None,
+                 exp_ledger: Optional[Any] = None) -> None:
         self.ws = os.path.abspath(ws)
         self.cfg = cfg
         conf = dict(DEFAULTS)
@@ -219,6 +222,11 @@ class Scheduler:
                 max_wall_time_h=float(conf.get("max_wall_time_h", 0) or 0),
                 max_total_tokens=float(conf.get("max_total_tokens", 0) or 0))
             self.queue = queue or InterventionQueue(self.ws)
+            # 实验台账（task26）：跨迭代实验档案（idea→实现→门禁→结论）。
+            # 注意：self.ledger 已被 CostLedger（成本账本）占用——实验台账用
+            # self.exp_ledger 区分（名字不同但语义即规格里的 Ledger）。
+            # 台账是分析副产品，写失败不影响主循环。
+            self.exp_ledger = exp_ledger or ExperimentLedger(self.ws)
         except (OSError, ValueError) as exc:
             # env 缺失/损坏（如 feature_space.json 不存在）——不炸构造，
             # run() 对此返回可诊断退出码（与 __main__ 的 0/3/4 契约对齐）
@@ -247,6 +255,22 @@ class Scheduler:
             self._fs_mtime = None
         # 预算耗尽标注（session_ended.budget_exhausted：task16 接线）
         self._budget_exhausted = False
+        # ---- 饱和信号状态（task23 E 段）----
+        # _best_perf：历史最优 perf（方向感知）；_stale_iters：自上次刷新的
+        # 完成迭代数；_champion_misses：冠军格连续采样未刷新次数；
+        # _record_this_iter：本迭代是否刷新了纪录（_step 尾更新 stale）
+        self._best_perf = None  # type: Optional[float]
+        self._stale_iters = 0
+        self._champion_misses = 0
+        self._record_this_iter = False
+        # ---- 本迭代 agent 统计（ledger 条目用：role → {wall_ms, tokens, truncated}）
+        self._iter_agents = {}  # type: Dict[str, Dict[str, Any]]
+        # adjust 跨迭代并行：统计在收集时暂存，归属到「收集发生的迭代」
+        self._adjust_stats_carry = {}  # type: Dict[str, Dict[str, Any]]
+        # 本迭代入格结果（ledger.verdict：admit|replace|reject|no_candidate）
+        self._last_admit_verdict = ""
+        self._last_reject_reason = ""
+        self._recover_saturation_state()
 
     # ------------------------------------------------------------------ #
     # 主入口
@@ -405,6 +429,12 @@ class Scheduler:
         iter_started = time.time()
         self._iter_cost = {"wall_ms": 0.0, "tool_calls": 0.0,
                            "tokens": 0.0, "cost_usd": 0.0}
+        self._iter_agents = dict(self._adjust_stats_carry)  # adjust 收集侧归属
+        self._adjust_stats_carry = {}
+        self._best_perf_before_iter = self._best_perf  # ledger perf_delta 基准
+        self._last_admit_verdict = ""
+        self._last_reject_reason = ""
+        self._record_this_iter = False
         self.events.append("iteration_started",
                            {"iteration_id": cursor}, "scheduler")
 
@@ -439,9 +469,36 @@ class Scheduler:
         candidate = self._run_coding(plan, cell_id, cursor, iter_dir)
 
         # ---- 状态 4：框架验证 + 入格 ----
+        gr = None  # type: Optional[Any]
         if candidate is not None:
-            self._verify_and_admit(candidate, cell_id, cursor, plan)
+            gr = self._verify_and_admit(candidate, cell_id, cursor, plan)
+            # 框架门禁失败 → debug 接管（task23 D 段）：env_8 实测 it19
+            # soft_gate 失败后直接丢弃——但门禁给了比自检更权威的
+            # failure_stage/metrics，本可修复。每迭代仅 1 次（防死循环）。
+            if (gr is not None and not gr.passed
+                    and self._gate_fixable(gr.failure_stage)):
+                fixed = self._run_gate_debug(gr, plan, cell_id, cursor, iter_dir)
+                if fixed is not None:
+                    gr = self._verify_and_admit(fixed, cell_id, cursor, plan)
+                    if gr is not None and gr.passed:
+                        candidate = fixed
+                    else:
+                        candidate = None  # 降级：重验仍挂 → 本迭代无产出
+                else:
+                    candidate = None
         # else：coding/debug 全失败 → 已记失败事件，跳过终验（本迭代无产出）
+
+        # ---- 饱和状态维护（task23 E 段：每迭代完一次） ----
+        if not self._record_this_iter:
+            self._stale_iters += 1
+        else:
+            self._stale_iters = 0
+        # 冠军格连续未刷新计数：本迭代采了当前冠军格且无新纪录 → miss+1
+        champ = self._champion_cell()
+        if champ is not None and champ == cell_id and not self._record_this_iter:
+            self._champion_misses += 1
+        elif self._record_this_iter:
+            self._champion_misses = 0
 
         # ---- 收尾 ----
         wall_ms = int((time.time() - iter_started) * 1000)
@@ -458,12 +515,15 @@ class Scheduler:
         # 格的 visit（job_47 e2e 实测投影1≠档案0）。每迭代一次 save，崩溃窗口
         # 从「上次 admit」缩到「本迭代」（事件流仍是唯一真相，恢复幂等）。
         self.archive.save()
+        # 实验台账（task23 G 段）：跨迭代档案——idea→实现→门禁→结论一行
+        self._append_ledger_entry(cursor, cell_id, plan, gr)
 
     # ---- builder ----
 
     def _run_builder(self, cell_id: str, cursor: int, iter_dir: str) -> Dict[str, Any]:
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite") or {}
+        cmds = self._self_check_and_profile_cmds()
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -479,6 +539,17 @@ class Scheduler:
             # 优化空间③（job_47 首跑实测）：同轴历史性能对照——避免重复已被
             # 轴级证据证伪的方向（如「row_major 劣势已在两分支独立复现」）
             "axis_perf": self._axis_perf_summary(),
+            # ---- 迭代5（env_8 信息审计）：消除硬编码 + 注入上下文 ----
+            "env_dir": self.env_dir,
+            "self_check_cmd": cmds["self_check_cmd"],
+            "perf_profile_cmd": cmds["perf_profile_cmd"],
+            "saturation": self._saturation_signal(),
+            "domain_brief": self._domain_brief(),
+            "perf_timeline": self._perf_timeline(10),
+            "budget_status": self._budget_status(),
+            "ledger_brief": self._ledger_brief(8),
+            "gate_defs": self._gate_defs(),
+            "interventions": self._recent_interventions(3),
         }
         prompt = render("builder", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "builder", prompt)
@@ -585,7 +656,8 @@ class Scheduler:
                     iter_dir: str) -> Optional[str]:
         """实现 + 自检 + debug 循环。返回候选绝对路径（全失败 → None）。"""
         self._seed_parent_code(plan, cell_id, iter_dir)
-        self_check_cmd = self._self_check_cmd()
+        cmds = self._self_check_and_profile_cmds()
+        self_check_cmd = cmds["self_check_cmd"]
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -594,6 +666,12 @@ class Scheduler:
             "workdir": iter_dir,
             "env_dir": self.env_dir,
             "self_check_cmd": self_check_cmd,
+            # ---- 迭代5：门禁定义/基线/工作区文件/台账（env_8 审计） ----
+            "gate_defs": self._gate_defs(),
+            "perf_baseline": self._perf_baseline(cell_id),
+            "workdir_files": self._workdir_files(iter_dir),
+            "ledger_brief": self._ledger_brief(8),
+            "saturation": self._saturation_signal(),
         }
         prompt = render("coding", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "coding", prompt)
@@ -636,7 +714,9 @@ class Scheduler:
 
     def _run_debug(self, plan: Dict[str, Any], cell_id: str, cursor: int,
                    iter_dir: str, attempt: int, max_attempts: int,
-                   self_check: Dict[str, Any], last_err: str) -> Any:
+                   self_check: Dict[str, Any], last_err: str,
+                   gate_failure: Optional[Dict[str, Any]] = None) -> Any:
+        cmds = self._self_check_and_profile_cmds()
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -644,11 +724,17 @@ class Scheduler:
             "experiment_plan": plan,
             "workdir": iter_dir,
             "env_dir": self.env_dir,
-            "self_check_cmd": self._self_check_cmd(),
+            "self_check_cmd": cmds["self_check_cmd"],
             "attempt": attempt, "max_attempts": max_attempts,
             "self_check_result": self_check,
             "failure_stage": self_check.get("stage"),
             "stderr_tail": last_err[-400:],
+            # ---- 迭代5：框架门禁失败上下文 + 共用资产 ----
+            "gate_failure": gate_failure or None,
+            "perf_profile_cmd": cmds["perf_profile_cmd"],
+            "gate_defs": self._gate_defs(),
+            "ledger_brief": self._ledger_brief(8),
+            "saturation": self._saturation_signal(),
         }
         prompt = render("debug", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "debug", prompt)
@@ -678,12 +764,8 @@ class Scheduler:
                         shutil.copy2(src, os.path.join(iter_dir, name))
 
     def _self_check_cmd(self) -> str:
-        py = "python3"
-        venv = os.path.join(self.env_dir, ".venv", "bin", "python")
-        if os.path.exists(venv):
-            py = venv
         sc = os.path.join(self.env_dir, "skills", "self_check.py")
-        return "%s %s --candidate ." % (py, sc)
+        return "%s %s --candidate ." % (self._python_cmd(), sc)
 
     @staticmethod
     def _candidate_path(result: Any, iter_dir: str) -> Optional[str]:
@@ -722,7 +804,8 @@ class Scheduler:
     # ---- 验证 + 入格 ----
 
     def _verify_and_admit(self, candidate: str, cell_id: str, cursor: int,
-                          plan: Dict[str, Any]) -> None:
+                          plan: Dict[str, Any]) -> Any:
+        """框架终验 + 入格。返回 GateResult（供 _step 的 gate→debug 判断）。"""
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite")
         history = [h.get("perf_value") for h in (entry.get("history") or [])
@@ -736,12 +819,13 @@ class Scheduler:
             "failure_stage": gr.failure_stage,
             "passed": bool(gr.passed),
             "metrics": gr.metrics,
+            "details": (gr.details or "")[-400:],
         }, "gate")
 
         if gr.passed:
             self._admit(candidate, cell_id, cursor, plan, gr, had_elite=bool(elite))
             self.env_fail_streak = 0
-            return
+            return gr
 
         stage = gr.failure_stage or ""
         if stage.startswith("stage1"):
@@ -759,6 +843,92 @@ class Scheduler:
         else:
             # 正常实验失败（正确性/性能不达标）：记失败继续下迭代
             self.env_fail_streak = 0
+            self._last_admit_verdict = "reject"
+            self._last_reject_reason = str(gr.failure_stage or "gate_failed")
+        return gr
+
+    # 框架门禁失败→debug 的可修阶段（stage1 是环境坏，交给环境失败结论化）
+    _GATE_FIXABLE_STAGES = ("stage2_correctness", "stage3_perf", "soft_gate")
+
+    @classmethod
+    def _gate_fixable(cls, failure_stage: Any) -> bool:
+        return isinstance(failure_stage, str) and \
+            failure_stage in cls._GATE_FIXABLE_STAGES
+
+    def _run_gate_debug(self, gr: Any, plan: Dict[str, Any], cell_id: str,
+                        cursor: int, iter_dir: str) -> Optional[str]:
+        """框架门禁失败 → debug 修复（task23 D 段：每迭代仅 1 次）。
+
+        attempt=100 起编号（与自检 debug 的 1..M 区分，事件可归因）；
+        返回候选路径（无法产出 → None）。
+        """
+        failure = {
+            "failure_stage": gr.failure_stage,
+            "metrics": gr.metrics or {},
+            "details": (gr.details or "")[-600:],
+        }
+        self_check = {"passed": False, "stage": gr.failure_stage or "gate",
+                      "metrics": gr.metrics or {}}
+        last_err = json.dumps(failure, ensure_ascii=False)
+        result = self._run_debug(plan, cell_id, cursor, iter_dir,
+                                 attempt=100, max_attempts=1,
+                                 self_check=self_check, last_err=last_err,
+                                 gate_failure=failure)
+        dpath = self._candidate_path(result, iter_dir)
+        self.events.append("candidate_produced", {
+            "iteration_id": cursor, "cell_id": cell_id,
+            "role": "debug", "attempt": 100,
+            "code_path": dpath or "",
+            "fix_report": result.data.get("fix_report")
+            or {"attempts": 100, "root_cause": None, "changes": []},
+            "self_check": {"passed": bool(dpath), "stage": "gate_fix",
+                           "metrics": {}},
+        }, "agent:debug")
+        return dpath
+
+    def _append_ledger_entry(self, cursor: int, cell_id: str,
+                             plan: Dict[str, Any], gr: Any) -> None:
+        """迭代收尾写实验台账（task23 G 段）：跨迭代档案。"""
+        gate = None  # type: Optional[Dict[str, Any]]
+        if gr is not None:
+            perf = (getattr(gr, "metrics", None) or {}).get("perf") or {}
+            gate = {
+                "passed": bool(getattr(gr, "passed", False)),
+                "failure_stage": getattr(gr, "failure_stage", None),
+                "perf_value": perf.get("value"),
+            }
+        verdict = self._last_admit_verdict or (
+            "reject" if (gr is not None and not gr.passed) else "no_candidate")
+        prev_best = getattr(self, "_best_perf_before_iter", None)
+        perf_value = (gate or {}).get("perf_value")
+        perf_delta = None
+        if isinstance(perf_value, (int, float)):
+            elite = self._cell_entry(cell_id).get("elite") or {}
+            base = elite.get("perf_value")
+            # 同格同解时 base==perf（无 delta 信息）；用历史最优作参照
+            ref = prev_best if prev_best is not None else None
+            if isinstance(base, (int, float)) and isinstance(ref, (int, float)):
+                perf_delta = round(float(perf_value) - float(ref), 6)
+        reject_reason = None
+        if gate is not None and not gate["passed"]:
+            reject_reason = str(gate.get("failure_stage") or "unknown")
+        if reject_reason is None and self._last_reject_reason:
+            reject_reason = self._last_reject_reason
+        idea = plan.get("idea") if isinstance(plan, dict) else None
+        entry = {
+            "iteration_id": cursor,
+            "cell_id": cell_id,
+            "idea": idea,
+            "parents": (plan.get("parents") if isinstance(plan, dict) else None),
+            "plan_steps_count": (len(plan.get("plan_steps") or [])
+                                 if isinstance(plan, dict) else 0),
+            "gate": gate,
+            "verdict": verdict,
+            "perf_delta": perf_delta,
+            "reject_reason": reject_reason,
+            "agents": dict(self._iter_agents),
+        }
+        self.exp_ledger.append(entry)
 
     def _admit(self, candidate: str, cell_id: str, cursor: int,
                plan: Dict[str, Any], gr: Any, had_elite: bool) -> None:
@@ -790,7 +960,13 @@ class Scheduler:
         }
         admitted = self.archive.admit(cell_id, entry)
         if not admitted:
-            return  # 更差解：同格替换条件不满足（事件流无 elite_*——诚实记录）
+            # 更差解：同格替换条件不满足（事件流无 elite_*——诚实记录）
+            self._last_admit_verdict = "reject"
+            self._last_reject_reason = "worse_than_elite"
+            return
+        self._last_admit_verdict = "replace" if had_elite else "admit"
+        # 饱和状态：历史最优刷新（方向感知）
+        self._note_perf_record(perf_value)
 
         # ---- 延迟入库判定（L2-Q6：三者任一） ----
         _w = self._cell_entry(cell_id).get("weight")
@@ -849,7 +1025,17 @@ class Scheduler:
             "feature_axes": self.fs.axes,
             "iteration_id": self.iteration_cursor,
             "cells_status": self._cells_status(),
-            "recent_events": self._recent_events_summary(12),
+            # 迭代5（env_8 审计 P0）：recent_events 给真值（原实现只给字段名，
+            # 「决策须引用事件证据」的纪律无从执行）；条数 12 → 15
+            "recent_events": self._recent_events_summary(15),
+            # 迭代5：饱和信号 + 历史/预算/领域/台账/自己的决策史
+            "saturation": self._saturation_signal(),
+            "perf_timeline": self._perf_timeline(10),
+            "budget_status": self._budget_status(),
+            "domain_brief": self._domain_brief(),
+            "ledger_brief": self._ledger_brief(8),
+            "own_decisions": self._own_decisions("adjust", 5),
+            "interventions": self._recent_interventions(3),
         }
         prompt = render("adjust", self.ws, ctx)
         # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
@@ -866,11 +1052,12 @@ class Scheduler:
         }, "scheduler")
         model = (self.conf.get("agent_models") or {}).get("adjust")
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
+        max_turns = self._role_max_turns("adjust")
 
         def _worker():
             try:
-                result = self.client.run("adjust", prompt_path, adjust_dir,
-                                         timeout_s, model=model)
+                result = self._call_client("adjust", prompt_path, adjust_dir,
+                                           timeout_s, model, max_turns)
             except Exception as exc:  # noqa: BLE001 线程绝不向上抛
                 from superopt.agents import AgentResult as _AR
                 result = _AR(role="adjust", valid=False,
@@ -927,6 +1114,12 @@ class Scheduler:
         # prompt 物证：本轮快照目录（iter_N）下的 prompt_adjust.md
         payload["prompt_path"] = os.path.join(adjust_dir, "prompt_adjust.md")
         self.events.append("agent_ended", payload, "scheduler")
+        # adjust 统计暂存（下一个 _step 头部并入 _iter_agents）
+        self._adjust_stats_carry["adjust"] = {
+            "wall_ms": int(pending.wall_ms or 0),
+            "tokens": int((pending.usage or {}).get("total_tokens") or 0),
+            "truncated": bool(getattr(pending, "truncated", False)),
+        }
         # 决策快照按迭代归档（task19）：agent_adjust.json 落 iter_N 目录
         # （不覆盖写——历史轨迹完整保留，自改进分析的物证）
         try:
@@ -965,6 +1158,30 @@ class Scheduler:
         ptype = p.get("type")
         target = p.get("target_cell") or p.get("cell_id") or ""
         reason = str(p.get("evidence") or p.get("reason") or "")[:200]
+        if ptype == "terminate_recommend":
+            # 建议性动作（task23 F 段）：不进裁决自动执行——落提案文件
+            # （needs_human=true）+ proposal 事件，供中控会话/人决策收手或换轴
+            pid = str(p.get("proposal_id") or
+                      "term-%d-%d" % (self.iteration_cursor, index))
+            record = {"proposal_id": pid, "type": "terminate_recommend",
+                      "target_cell": target, "action": p.get("action"),
+                      "evidence": reason,
+                      "rationale": str(p.get("rationale") or "")[:400],
+                      "rule_id": p.get("rule_id"),
+                      "needs_human": True,
+                      "proposed_at": _now(),
+                      "iteration": self.iteration_cursor}
+            os.makedirs(self.proposals_dir, exist_ok=True)
+            with open(os.path.join(self.proposals_dir, pid + ".json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
+            self.events.append("proposal", {
+                "proposal_id": pid, "type": "terminate_recommend",
+                "target_cell": target, "action": p.get("action"),
+                "evidence": reason, "rule_id": p.get("rule_id"),
+                "needs_human": True,
+            }, "agent:adjust")
+            return
         if ptype == "soft_weight":
             # 软动作：直接应用（weight_changed 事件 + archive）
             m = _WEIGHT_RE.search(str(p.get("action") or ""))
@@ -1025,11 +1242,303 @@ class Scheduler:
                                   if e.get("elite") else None)})
         return out
 
-    def _recent_events_summary(self, n: int) -> List[Dict[str, Any]]:
-        return [{"type": e.get("type"),
-                 "seq": e.get("seq"),
-                 "payload_keys": sorted((e.get("payload") or {}).keys())[:6]}
-                for e in self.events.read_all()[-n:]]
+    def _recent_events_summary(self, n: int = 15) -> List[Dict[str, Any]]:
+        """近期事件摘要——**真值**（task23 A 段）。
+
+        env_8 实测：原实现只给 `payload_keys`（字段名列表、零值），adjust 的
+        「每次权重变动必须引用 ≥1 条具体事件证据」纪律无从执行（它看不到
+        failure_stage / perf_value / self_check 结果）。本版按事件类型提取
+        归因必需字段；heartbeat 过滤（运维噪音，占事件流 70%+）。
+        """
+        items = []
+        for e in self.events.read_all():
+            typ = e.get("type")
+            p = e.get("payload") or {}
+            if typ == "heartbeat":
+                continue
+            item = {"type": typ, "seq": e.get("seq")}  # type: Dict[str, Any]
+            if typ == "gate_result":
+                metrics = p.get("metrics") or {}
+                perf = metrics.get("perf") or {}
+                soft = metrics.get("soft") or {}
+                item.update({
+                    "iteration_id": p.get("iteration_id"),
+                    "cell_id": p.get("cell_id"),
+                    "passed": p.get("passed"),
+                    "stage": p.get("stage"),
+                    "failure_stage": p.get("failure_stage"),
+                    "perf_value": perf.get("value"),
+                    "soft_verdict": soft.get("verdict"),
+                })
+            elif typ == "agent_ended":
+                usage = p.get("usage") or {}
+                item.update({
+                    "iteration_id": p.get("iteration_id"),
+                    "role": p.get("role"),
+                    "wall_s": round(float(p.get("wall_ms") or 0) / 1000.0),
+                    "total_tokens": usage.get("total_tokens"),
+                    "truncated": p.get("truncated"),
+                    "valid": p.get("valid"),
+                })
+            elif typ == "cell_sampled":
+                item.update({
+                    "iteration_id": p.get("iteration_id"),
+                    "cell_id": p.get("cell_id"),
+                    "weight_share": p.get("weight_share"),
+                    "cold_start": p.get("cold_start"),
+                    "visit": p.get("visit"),
+                })
+            elif typ in ("elite_admitted", "elite_replaced"):
+                item.update({
+                    "iteration_id": p.get("iteration_id"),
+                    "cell_id": p.get("cell_id"),
+                    "perf_value": p.get("perf_value"),
+                    "gen": p.get("gen"),
+                    "score": p.get("score"),
+                })
+            elif typ == "weight_changed":
+                item.update({
+                    "cell_id": p.get("cell_id"),
+                    "old_weight": p.get("old_weight"),
+                    "new_weight": p.get("new_weight"),
+                    "rule_id": p.get("rule_id"),
+                })
+            elif typ == "candidate_produced":
+                sc = p.get("self_check") or {}
+                item.update({
+                    "iteration_id": p.get("iteration_id"),
+                    "cell_id": p.get("cell_id"),
+                    "role": p.get("role"),
+                    "self_check_passed": sc.get("passed"),
+                    "diff_path": p.get("diff_path"),
+                })
+            elif typ == "adjust_decision":
+                props = p.get("proposals") or []
+                item.update({
+                    "iteration": p.get("iteration"),
+                    "proposals": props[:4],
+                })
+            elif typ == "intervention":
+                item.update({"raw": str(p.get("text") or "")[:200],
+                             "category": p.get("category")})
+            elif typ in ("resurrection", "invalidation", "env_failure_concluded"):
+                item.update({
+                    "cell_id": p.get("cell_id"),
+                    "reason": str(p.get("reason") or p.get("cause") or "")[:120],
+                })
+            elif typ in ("iteration_started", "iteration_ended",
+                         "session_started", "session_ended"):
+                item.update({"iteration_id": p.get("iteration_id")})
+            elif typ in ("proposal", "adjudicated"):
+                item.update({
+                    "proposal_id": p.get("proposal_id"),
+                    "ptype": p.get("type"),
+                    "decision": p.get("decision"),
+                })
+            else:
+                item.update({"payload": {k: p.get(k) for k in list(p)[:4]}})
+            items.append(item)
+        return items[-n:]
+
+    # ---- ctx 组装辅助（task23 B 段：四角色共用的剩余盲点修复） ----
+
+    def _perf_timeline(self, n: int = 10) -> List[Dict[str, Any]]:
+        """性能时间线（近 n 条带 perf 的台账条目 + is_record）。"""
+        return self.exp_ledger.perf_timeline(n)
+
+    def _budget_status(self) -> Dict[str, Any]:
+        """预算余额（迭代/墙钟/token 三轨——agent 不知道剩余预算就无法权衡）。"""
+        try:
+            wall_min = round((time.time() - self.ledger.wall_start) / 60.0, 1)
+        except (AttributeError, TypeError):
+            wall_min = 0.0
+        tokens_used = int(self.ledger.total_tokens() or 0)
+        max_tokens = int(self.ledger.max_total_tokens or 0)
+        return {
+            "iterations_used": int(self.iteration_cursor),
+            "max_iterations": int(self.conf.get("max_iterations") or 0),
+            "wall_minutes": wall_min,
+            "max_wall_h": float(self.ledger.max_wall_time_h or 0),
+            "tokens_used": tokens_used,
+            "max_tokens": max_tokens,
+            "tokens_pct": (round(100.0 * tokens_used / max_tokens, 1)
+                           if max_tokens > 0 else None),
+        }
+
+    def _gate_defs(self) -> Dict[str, Any]:
+        """env 的门禁定义关键值（coding 需要知道「改善多少才算赢」）。"""
+        meta = self._load_env_meta()
+        tol = meta.get("tolerance") if isinstance(meta.get("tolerance"), dict) else {}
+        bench = meta.get("bench") if isinstance(meta.get("bench"), dict) else {}
+        gates = meta.get("gates") if isinstance(meta.get("gates"), dict) else {}
+        return {
+            "tolerance": tol,
+            "bench": {k: bench.get(k) for k in ("size", "k", "timeout_s")
+                      if k in bench},
+            "gates": {k: gates.get(k) for k in
+                      ("score_max", "runtime_ms_min", "ref_runtime_band_ms")
+                      if k in gates},
+        }
+
+    def _domain_brief(self, limit: int = 2000) -> str:
+        """领域知识摘要（priority 行优先：SOP/死族/天花板/容差）。
+
+        env_8 实测：agent 每轮都 read 整个 domain_knowledge.md（吃回合预算、
+        且内容随 env 升级漂移）；摘要直接进 ctx 省回合。
+        """
+        path = os.path.join(self.env_dir, "domain_knowledge.md")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return ""
+        if limit <= 0 or len(text) <= limit:
+            return text
+        keys = ("SOP", "死族", "天花板", "score 阶梯", "容差", "score_max",
+                "BLAS", "无法", "上限")
+        lines = text.splitlines()
+        picked = []  # type: List[str]
+        for i, ln in enumerate(lines):
+            if any(k in ln for k in keys):
+                picked.extend(lines[max(0, i - 2):i + 6])
+        out = "\n".join(picked).strip()
+        if len(out) < 200:
+            return text[:limit]
+        return out[:limit]
+
+    def _python_cmd(self) -> str:
+        """env venv python 优先，回退 python3。"""
+        venv = os.path.join(self.env_dir, ".venv", "bin", "python")
+        return venv if os.path.exists(venv) else "python3"
+
+    def _self_check_and_profile_cmds(self) -> Dict[str, str]:
+        """返回 (self_check_cmd, perf_profile_cmd)；perf_profile 缺失 → 空串。"""
+        self_check_cmd = self._self_check_cmd()
+        py = self._python_cmd()
+        prof = os.path.join(self.env_dir, "skills", "perf_profile.py")
+        profile_cmd = ("%s %s --candidate <path>" % (py, prof)
+                       if os.path.exists(prof) else "")
+        return {"self_check_cmd": self_check_cmd,
+                "perf_profile_cmd": profile_cmd}
+
+    def _workdir_files(self, iter_dir: str) -> List[str]:
+        """迭代工作区文件清单（父本/solution——coding 不用先 ls 一遍）。"""
+        try:
+            names = sorted(os.listdir(iter_dir))
+        except OSError:
+            return []
+        return [n for n in names if not n.startswith(".")]
+
+    def _recent_interventions(self, n: int = 3) -> List[Dict[str, Any]]:
+        """human 干预（原文）——人能引导 agent 的最小通道。"""
+        out = []
+        for e in self.events.read_all():
+            if e.get("type") != "intervention":
+                continue
+            p = e.get("payload") or {}
+            out.append({"seq": e.get("seq"),
+                        "text": p.get("text"),
+                        "category": p.get("category")})
+        return out[-n:]
+
+    def _ledger_brief(self, n: int = 8) -> List[Dict[str, Any]]:
+        """实验台账摘要（跨迭代记忆：避免重复已失败方向）。"""
+        return self.exp_ledger.brief(n)
+
+    def _own_decisions(self, role: str = "adjust", n: int = 5) -> List[Dict[str, Any]]:
+        """某角色历史参与条目的摘要（adjust 回看自己的决策与效果）。"""
+        return self.exp_ledger.own_decisions(role, n)
+
+    def _perf_baseline(self, cell_id: str) -> Dict[str, Any]:
+        """该格当前精英 perf 基线（coding 的改善判据参照）。"""
+        elite = self._cell_entry(cell_id).get("elite") or {}
+        pv = elite.get("perf_value")
+        return {"cell_id": cell_id,
+                "elite_perf": pv if isinstance(pv, (int, float)) else None,
+                "perf_type": self.perf_type,
+                "perf_desc": self.perf_desc}
+
+    # ---- 饱和信号（task23 E 段） ----
+
+    def _recover_saturation_state(self) -> None:
+        """从事件流恢复历史最优 perf（崩溃重启后 stale 计数不从头来）。"""
+        best = None  # type: Optional[float]
+        try:
+            events = self.events.read_all()
+        except (AttributeError, OSError):
+            return
+        for ev in events:
+            if ev.get("type") not in ("elite_admitted", "elite_replaced"):
+                continue
+            pv = (ev.get("payload") or {}).get("perf_value")
+            if not isinstance(pv, (int, float)):
+                continue
+            v = float(pv)
+            if best is None:
+                best = v
+            else:
+                best = max(best, v) if self.perf_desc == "high" else min(best, v)
+        self._best_perf = best
+
+    def _champion_cell(self) -> Optional[str]:
+        """当前全局最优格（按 perf 方向）。"""
+        snap = _cells_snapshot(self.archive)
+        low = (self.perf_desc != "high")
+        best_cid = None  # type: Optional[str]
+        best = None  # type: Optional[float]
+        for cid in self.fs.all_cells():
+            elite = (snap.get(cid) or {}).get("elite") or {}
+            pv = elite.get("perf_value")
+            if not isinstance(pv, (int, float)):
+                continue
+            v = float(pv)
+            if best is None or (v < best if low else v > best):
+                best, best_cid = v, cid
+        return best_cid
+
+    def _saturation_signal(self) -> Optional[Dict[str, Any]]:
+        """数据饱和信号（env_8 实测：18 轮无新纪录仍只调权重、0 次加格）。
+
+        三条件全满足才返回非空：
+          - stale_iterations >= 3（自上次全局最优刷新）
+          - all_visited：所有 weight>0 的格 visit >= 2
+          - champion_misses >= 3（冠军格近 3 次采样未刷新）
+        """
+        try:
+            snap = _cells_snapshot(self.archive)
+            cells = list(self.fs.all_cells())
+        except AttributeError:
+            return None
+        alive = [c for c in cells
+                 if float((snap.get(c) or {}).get("weight", 1.0) or 0) > 0]
+        if not alive:
+            return None
+        all_visited = all(int((snap.get(c) or {}).get("visit") or 0) >= 2
+                          for c in alive)
+        if not (self._stale_iters >= 3 and all_visited
+                and self._champion_misses >= 3):
+            return None
+        return {
+            "stale_iterations": int(self._stale_iters),
+            "all_visited": True,
+            "champion_cell": self._champion_cell(),
+            "best_perf": self._best_perf,
+            "alive_cells": len(alive),
+        }
+
+    def _note_perf_record(self, perf_value: Any) -> None:
+        """入格时维护历史最优/静止计数（方向感知）。"""
+        if not isinstance(perf_value, (int, float)):
+            return
+        v = float(perf_value)
+        improved = (self._best_perf is None or
+                    (v > self._best_perf if self.perf_desc == "high"
+                     else v < self._best_perf))
+        if improved:
+            self._best_perf = v
+            self._record_this_iter = True
+            self._champion_misses = 0
+
 
     def _proposal_digest(self, proposals: List[Any]) -> List[Dict[str, Any]]:
         """proposals 的紧凑摘要（adjust_decision 事件载荷）。
@@ -1321,6 +1830,36 @@ class Scheduler:
     # agent 派发（事件包夹 + 记账）
     # ------------------------------------------------------------------ #
 
+    def _role_max_turns(self, role: str) -> Optional[int]:
+        """per-role 回合预算（<role>_max_turns；0/缺失 = 不限）。"""
+        raw = self.conf.get("%s_max_turns" % role)
+        try:
+            n = int(raw or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return n if n > 0 else None
+
+    def _call_client(self, role: str, prompt_path: str, workdir: str,
+                     timeout_s: int, model: Optional[str],
+                     max_turns: Optional[int]) -> Any:
+        """调 client.run，按签名能力选择是否传 max_turns。
+
+        注入的客户端（测试 fake / 第三方实现）可能没有 max_turns 形参——
+        用签名探测而不是 try/except TypeError（后者会吞掉 client 内部错误）。
+        """
+        accepts = False
+        try:
+            params = inspect.signature(self.client.run).parameters
+            accepts = "max_turns" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        except (TypeError, ValueError):
+            accepts = False
+        if accepts:
+            return self.client.run(role, prompt_path, workdir, timeout_s,
+                                   model=model, max_turns=max_turns)
+        return self.client.run(role, prompt_path, workdir, timeout_s,
+                               model=model)
+
     def _dispatch_agent(self, role: str, prompt_path: str, workdir: str,
                         iteration_id: int) -> Any:
         self.events.append("agent_started", {
@@ -1330,13 +1869,23 @@ class Scheduler:
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
         # per-role 模型档位（优化空间①：builder 等角色可降档省 token）
         model = (self.conf.get("agent_models") or {}).get(role)
+        # per-role 回合预算（task23 H 段：env_8 实测 builder 极值 23 回合）
+        max_turns = self._role_max_turns(role)
         try:
-            result = self.client.run(role, prompt_path, workdir, timeout_s,
-                                     model=model)
+            result = self._call_client(role, prompt_path, workdir, timeout_s,
+                                       model, max_turns)
         except Exception as exc:  # agent 超时/崩溃 → 记失败继续（spec）
-            result = PiAgentClient.__new__(PiAgentClient)  # 不用——见下
             from superopt.agents import AgentResult as _AR
             result = _AR(role=role, valid=False, summary="agent error: %s" % exc)
+        # 本迭代 agent 统计（ledger 条目用；同 role 多次运行累加）
+        acc = self._iter_agents.get(role) or {"wall_ms": 0, "tokens": 0,
+                                              "truncated": False}
+        acc["wall_ms"] = int(acc["wall_ms"]) + int(getattr(result, "wall_ms", 0) or 0)
+        acc["tokens"] = int(acc["tokens"]) + int(
+            (result.usage or {}).get("total_tokens") or 0)
+        acc["truncated"] = bool(acc["truncated"]) or bool(
+            getattr(result, "truncated", False))
+        self._iter_agents[role] = acc
         # 记账 + 事件
         self.ledger.record_agent(role, int(result.wall_ms),
                                  len(result.tool_calls or []),

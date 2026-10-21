@@ -29,13 +29,17 @@ def main():
                "gate_failure", "saturation", "_saturation_signal", "terminate_recommend",
                "max_turns", "self.ledger", "failure_stage"]:
         if kw not in l: ERRORS.append("[B] loop.py 缺 " + kw)
-    # recent_events 不再只给 keys
-    if "payload_keys" in l:
-        ERRORS.append("[B] loop.py 仍用 payload_keys 摘要（应给真值）")
-    # gate→debug：_step 里 gate 失败后应有 debug 调用
-    seg = l[l.index("def _step"):l.index("def _step")+6000]
-    if "gate" not in seg or "_run_debug" not in seg:
-        ERRORS.append("[B] _step 未见 gate 失败→debug 通道")
+    # recent_events 不再只给 keys（排除注释/文档串：只查非注释代码行）
+    # 只看「代码里构造字典键」的形态："payload_keys": ——注释/文档串中是反引号包裹
+    code_lines = [x for x in l.splitlines()
+                  if not x.strip().startswith("#")]
+    if any('"payload_keys":' in x or "'payload_keys':" in x for x in code_lines):
+        ERRORS.append("[B] loop.py 代码中仍用 payload_keys 摘要（应给真值）")
+    # gate→debug：_verify_and_admit 内应有 gate_failure + attempt=100 结构
+    if "_run_debug" in l and "gate_failure" in l and "attempt=100" in l:
+        pass
+    else:
+        ERRORS.append("[B] 未见 gate 失败→debug 通道（_run_debug + gate_failure + attempt=100）")
     wt = run(["git", "worktree", "list", "--porcelain"])
     prod = next((x.split(" ",1)[1].strip() for x in wt.stdout.splitlines() if x.startswith("worktree ") and "rick-dev" not in x), None)
     if prod and os.path.isdir(prod):

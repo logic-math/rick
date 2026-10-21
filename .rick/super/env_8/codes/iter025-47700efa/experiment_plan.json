@@ -1,0 +1,15 @@
+{
+  "idea": "perf_profile 证实父本（einsum_path|m_quarters 精英 9.17ms）95.8% 时间在 4 次串行 einsum 调用（8.79ms），Python 解析仅 ~0.1ms——劣化在 BLAS 派发串行而非包装层。单变量改动：将 4 个非空块的 np.einsum('jk,ij->ik', b32, a32[s:e], optimize=True) 提交到模块级懒加载 ThreadPoolExecutor(max_workers=4)（移植邻格 iter017 在 np_dot|m_quarters 验证过的机制：每块一线程，vecLib GCD 防超订下单调用退化单线程而总吞吐上升；iter022 已证 concurrency=2 争抢劣化，4 块恰好对齐制胜形态），主线程依序 future.result() 收敛后 np.concatenate 拼接（装配与父本逐字一致）。builder 预研配对实测（load~4-5，18 轮交错）：7.35ms vs 父本形态 8.99ms，配对 Δ中位 −1.67ms、18/18 全胜、三臂 max_error 均 0.0；线程只改调度不改 K 求和序，逐位一致于 np.matmul 锚",
+  "target_cell": "dispatch_target=einsum_path|impl_strategy=m_quarters",
+  "parents": [
+    "codes/iter014-134ed9e4/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter014-134ed9e4/solution.py 与机制参照 codes/iter017-245a85b7/solution.py：确认父本的 swapped 拼写、M 四分边界与空块跳过、concatenate 装配、m==0 守卫与实现纪律（禁 out= 直写/不转置/不动 K 维），以及 iter017 的 _get_pool 懒加载池单例 + 创建失败回退顺序路径模式",
+    "单变量线程化：加模块级 _POOL=None 懒加载 ThreadPoolExecutor(max_workers=4)（首调创建、跨调用复用，失败回退父本顺序路径，勿加任何 QoS/优先级操作——iter024 已证伪）；matmul 内把每个非空块 einsum 用 pool.submit(np.einsum, 'jk,ij->ik', b32, a32[s:e], optimize=True) 提交，依序 f.result() 收敛，np.concatenate(blocks, axis=0) 拼接；非空块 ≤1（m<4）或池不可用时走父本顺序路径；其余一切与父本逐字一致",
+    "正确性自检：python3 solution.py --n 64 与 --n 2048，及 env/skills/self_check.py——@2048 必须 max_error=0.0（M 分解+线程不改 K 求和序；探针已验三臂全 0.0），小规模/退化形状（m<4、m=0）与父本同量级",
+    "性能预验：env/skills/perf_profile.py 看 subcalls（预期 +池机器 ~百次 μs 级、主线程阻塞于 result()，热点仍在 einsum/tensordot）+ 15 轮以上与父本交错配对 A/B——预期配对 Δ中位 ≈ −1.2~−1.7ms、胜率 >80%（builder 探针 18/18、Δ−1.67）；若配对 Δ ≥ −0.2ms 或胜率 <50% 判证伪并如实归档",
+    "头注写全机制归因（串行 BLAS 派发→并发、iter017 形态移植依据、iter022 concurrency=2 反例）、预研数据与证伪线：门禁 K=3 中位 < 9.17 刷新格精英；≥ 9.17 证伪归档（并发未迁移至 einsum 形态）；软门禁上限 ~9.63（9.17×1.05），回退即持平"
+  ],
+  "expected_behavior": "runtime_ms 从父本门禁 9.17（自检 ~9.0，ref ~7.3-7.56）降至 ~7.3-7.7（builder 同负载探针中位 7.35，配对 Δ−1.67、18/18 胜；参照 iter017 np_dot 同形态 7.10-7.65），score 0.805→~0.92-0.99；正确性 @2048 逐位一致 max_error=0.0，小规模与父本同量级；负载尖峰下尾部可至 ~8.4ms（门禁 K=3 中位可容忍），subcalls 上升为 μs 级池机器开销。若门禁中位 ≥9.17 或环境态较父本劣化 >0.2ms 则证伪"
+}

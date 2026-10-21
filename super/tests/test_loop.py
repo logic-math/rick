@@ -104,9 +104,11 @@ class FakeAgentClient(object):
         self.script[role] = list(results)
 
     def run(self, role: str, prompt_path: str, workdir: str,
-            timeout_s: int = 1800, model: Optional[str] = None) -> AgentResult:
+            timeout_s: int = 1800, model: Optional[str] = None,
+            max_turns: Optional[int] = None) -> AgentResult:
         self.calls.append({"role": role, "prompt_path": prompt_path,
-                           "workdir": workdir, "model": model})
+                           "workdir": workdir, "model": model,
+                           "max_turns": max_turns})
         seq = self.script.get(role) or []
         if not seq:
             raise AssertionError("FakeAgentClient: role %r 无脚本（调用 %d 次）"
@@ -188,7 +190,17 @@ class LoopTestBase(unittest.TestCase):
         os.makedirs(os.path.join(self.ws, "gates"))
         with open(os.path.join(env_dir, "env.json"), "w", encoding="utf-8") as f:
             json.dump({"task": "matmul", "perf_desc": "low",
-                       "perf_type": "runtime_ms"}, f)
+                       "perf_type": "runtime_ms",
+                       # 迭代5 夹具：门禁定义（coding ctx gate_defs 的来源）
+                       "tolerance": {"correctness": {"max_error": 0.001},
+                                     "soft_gate": {"relative_band": 0.05}},
+                       "bench": {"size": 2048, "k": 3, "timeout_s": 60},
+                       "gates": {"score_max": 2.0, "runtime_ms_min": 0.01}},
+                      f)
+        with open(os.path.join(env_dir, "domain_knowledge.md"), "w",
+                  encoding="utf-8") as f:
+            f.write("# matmul 领域知识\n\n## 性能分析 SOP\n先做热点剖析。\n\n"
+                    "## 已知死族\n纯 python 三重循环不可达天花板。\n")
         with open(os.path.join(env_dir, "feature_space.json"), "w",
                   encoding="utf-8") as f:
             json.dump({"axes": AXES}, f)
@@ -410,10 +422,11 @@ class TestHeartbeatThread(LoopTestBase):
             self.delay = delay
 
         def run(self, role, prompt_path, workdir, timeout_s=1800,
-                model=None):
+                model=None, max_turns=None):
             time.sleep(self.delay)      # 模拟长 agent 派发（真 pi 可达十余分钟）
             return FakeAgentClient.run(self, role, prompt_path, workdir,
-                                       timeout_s, model=model)
+                                       timeout_s, model=model,
+                                       max_turns=max_turns)
 
     def test_heartbeat_during_slow_agent_dispatch(self):
         client = self._SlowClient(1.5)
@@ -1204,3 +1217,226 @@ class TestPerRoleModelDispatch(LoopTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --------------------------------------------------------------------------- #
+# ⑫ 迭代5：agent 信息完整性（ctx 真值 / gate→debug / 台账 / 饱和 / 回合预算）
+# --------------------------------------------------------------------------- #
+
+class TestContextCompleteness(LoopTestBase):
+    """P0/P1/P2/P3：四角色 ctx 的盲点修复。"""
+
+    def test_recent_events_real_values(self):
+        """A：recent_events 给真值（不再是 payload_keys）。"""
+        self.gate.queue(_gate_fail("stage1_env"))  # stage1 不进 debug 通道
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        summary = sched._recent_events_summary(15)
+        gates = [e for e in summary if e["type"] == "gate_result"]
+        self.assertEqual(len(gates), 1)
+        self.assertEqual(gates[0]["failure_stage"], "stage1_env")
+        self.assertFalse(gates[0]["passed"])
+        # heartbeat 被过滤
+        self.assertEqual([e for e in summary if e["type"] == "heartbeat"], [])
+        # 无 payload_keys 残留形态
+        for e in summary:
+            self.assertNotIn("payload_keys", e)
+
+    def test_ctx_helpers_structure(self):
+        """B：perf_timeline / budget_status / gate_defs / domain_brief。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        timeline = sched._perf_timeline(10)
+        self.assertTrue(timeline)
+        self.assertIn("is_record", timeline[0])
+        bs = sched._budget_status()
+        for k in ("iterations_used", "max_iterations", "wall_minutes",
+                  "tokens_used", "max_tokens", "tokens_pct"):
+            self.assertIn(k, bs)
+        self.assertEqual(bs["iterations_used"], 1)
+        gd = sched._gate_defs()
+        self.assertEqual(gd["tolerance"]["soft_gate"]["relative_band"], 0.05)
+        self.assertEqual(gd["bench"]["k"], 3)
+        self.assertEqual(gd["gates"]["score_max"], 2.0)
+        brief = sched._domain_brief()
+        self.assertIn("SOP", brief)
+        self.assertIn("死族", brief)
+        files = sched._workdir_files(os.path.join(self.ws, "codes"))
+        self.assertTrue(files)
+
+    def test_role_prompts_contain_new_ctx(self):
+        """C：四角色 prompt 各自带新 ctx 渲染值。"""
+        self.client.queue("adjust", [_adjust_result([])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        # builder：env_dir + gate_defs（relative_band）
+        iter_dirs = sorted(d for d in os.listdir(os.path.join(self.ws, "codes"))
+                           if d.startswith("iter"))
+        bprompt = open(os.path.join(self.ws, "codes", iter_dirs[0],
+                                    "prompt_builder.md"), encoding="utf-8").read()
+        self.assertIn(self.ws, bprompt)          # env_dir 绝对路径
+        self.assertIn("relative_band", bprompt)  # gate_defs
+        self.assertIn("tokens_used", bprompt)    # budget_status
+        self.assertIn("SOP", bprompt)            # domain_brief
+        # coding：gate_defs + 文件清单 + 精英基线（断言渲染后的标签/内容）
+        cprompt = open(os.path.join(self.ws, "codes", iter_dirs[0],
+                                    "prompt_coding.md"), encoding="utf-8").read()
+        self.assertIn("relative_band", cprompt)      # gate_defs 值
+        self.assertIn("文件清单", cprompt)            # workdir_files 标签
+        self.assertIn("reference.py", cprompt)       # 文件清单内容（父本）
+        self.assertIn("精英基线", cprompt)            # perf_baseline 标签
+        # adjust：budget_status + perf_timeline + own_decisions
+        ap = os.path.join(self.ws, "codes", "adjust", "iter_1",
+                          "prompt_adjust.md")
+        self.assertTrue(os.path.exists(ap))
+        aprompt = open(ap, encoding="utf-8").read()
+        self.assertIn("tokens_used", aprompt)
+        self.assertIn("perf_timeline", aprompt)
+        self.assertIn("own_decisions", aprompt)
+
+    def test_max_turns_passthrough(self):
+        """H：per-role 回合预算透传（fake client 记 kwargs）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1,
+                                                   "builder_max_turns": 5,
+                                                   "coding_max_turns": 7})
+        sched.run()
+        by_role = {c["role"]: c for c in self.client.calls}
+        self.assertEqual(by_role["builder"]["max_turns"], 5)
+        self.assertEqual(by_role["coding"]["max_turns"], 7)
+
+
+class TestGateToDebug(LoopTestBase):
+    """D：框架门禁失败 → debug 接管（每迭代 1 次）。"""
+
+    def test_gate_failure_debug_fixes_and_readmits(self):
+        # 首次门禁失败（stage2）→ debug 修复 → 重验通过 → 入格
+        self.gate.queue(_gate_fail("stage2_correctness"))
+        self.gate.queue(_gate_pass(value=90.0))
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(self.gate.verify_calls), 2)
+        # debug 被派发一次，attempt=100（与自检 debug 区分）
+        debug_starts = [e for e in self.events_of("agent_started")
+                        if e["payload"]["role"] == "debug"]
+        self.assertEqual(len(debug_starts), 1)
+        cands = [e for e in self.events_of("candidate_produced")
+                 if e["payload"].get("role") == "debug"]
+        self.assertEqual(len(cands), 1)
+        self.assertEqual(cands[0]["payload"]["attempt"], 100)
+        # 重验通过 → 入格
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+        # debug prompt 含框架失败上下文
+        iter_dirs = sorted(d for d in os.listdir(os.path.join(self.ws, "codes"))
+                           if d.startswith("iter"))
+        dp = os.path.join(self.ws, "codes", iter_dirs[0], "prompt_debug.md")
+        self.assertTrue(os.path.exists(dp))
+        dprompt = open(dp, encoding="utf-8").read()
+        self.assertIn("框架门禁失败详情", dprompt)    # gate_failure 标签
+        self.assertIn("stage2_correctness", dprompt)  # gate_failure 值
+        self.assertIn("relative_band", dprompt)       # gate_defs 值
+
+    def test_gate_failure_debug_still_fails_records_reject(self):
+        # 门禁失败 → debug → 重验仍失败：记 reject、不崩、无入格
+        self.gate.queue(_gate_fail("stage3_perf"))
+        self.gate.queue(_gate_fail("stage3_perf"))
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(self.gate.verify_calls), 2)
+        self.assertEqual(self.events_of("elite_admitted"), [])
+        ended = self.events_of("iteration_ended")[0]["payload"]
+        self.assertFalse(ended["had_candidate"])
+        # 台账记 reject + reject_reason
+        entries = sched.exp_ledger.read_all()
+        self.assertEqual(entries[-1]["verdict"], "reject")
+        self.assertEqual(entries[-1]["reject_reason"], "stage3_perf")
+
+    def test_stage1_failure_not_routed_to_debug(self):
+        # stage1（环境坏）不进 debug 通道——交给 env_failure_concluded
+        self.gate.queue(_gate_fail("stage1_env"))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        self.assertEqual(len(self.gate.verify_calls), 1)
+        self.assertEqual(len(self.events_of("env_failure_concluded")), 1)
+        self.assertEqual([e for e in self.events_of("agent_started")
+                          if e["payload"]["role"] == "debug"], [])
+
+
+class TestLedgerAndSaturation(LoopTestBase):
+    """G/E/F：台账接线 / 饱和信号 / terminate_recommend。"""
+
+    def test_ledger_entry_written(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        entries = sched.exp_ledger.read_all()
+        self.assertEqual(len(entries), 1)
+        e = entries[0]
+        for k in ("iteration_id", "cell_id", "idea", "gate", "verdict",
+                  "perf_delta", "reject_reason", "agents"):
+            self.assertIn(k, e)
+        self.assertIn(e["verdict"], ("admit", "replace"))
+        self.assertTrue(e["gate"]["passed"])
+        self.assertIn("builder", e["agents"])
+        self.assertIn("coding", e["agents"])
+
+    def test_saturation_signal_states(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        # 初始（纪录刚刷新）→ 不饱和
+        self.assertIsNone(sched._saturation_signal())
+        # 构造饱和：全格 visit>=2 + stale>=3 + 冠军连续 miss>=3
+        for cid in self.fs_all_cells():
+            sched.archive.set_visit(cid, 2)
+        sched._stale_iters = 3
+        sched._champion_misses = 3
+        sig = sched._saturation_signal()
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["stale_iterations"], 3)
+        self.assertTrue(sig["all_visited"])
+        self.assertIn("champion_cell", sig)
+        self.assertEqual(sig["alive_cells"], len(self.fs_all_cells()))
+
+    def test_saturation_requires_all_conditions(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        # 只 stale 无全访问 → None
+        sched._stale_iters = 5
+        sched._champion_misses = 5
+        self.assertIsNone(sched._saturation_signal())
+        # 全访问 + stale + champion miss 齐 → 非空
+        for cid in self.fs_all_cells():
+            sched.archive.set_visit(cid, 2)
+        self.assertIsNotNone(sched._saturation_signal())
+
+    def test_terminate_recommend_needs_human(self):
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "terminate_recommend",
+             "evidence": "seq 5 连续 8 迭代无新纪录",
+             "rationale": "全部格触及 domain 天花板",
+             "rule_id": "saturated_terminate"}])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        # proposal 文件：needs_human=true
+        pdir = os.path.join(self.ws, "proposals")
+        files = [n for n in os.listdir(pdir) if n.endswith(".json")]
+        self.assertEqual(len(files), 1)
+        rec = json.load(open(os.path.join(pdir, files[0]), encoding="utf-8"))
+        self.assertEqual(rec["type"], "terminate_recommend")
+        self.assertTrue(rec["needs_human"])
+        # proposal 事件：needs_human 透出
+        props = self.events_of("proposal")
+        self.assertEqual(len(props), 1)
+        self.assertTrue(props[0]["payload"]["needs_human"])
+        # 不进裁决自动执行：无 adjudicated 事件、无 weight 变更
+        self.assertEqual(self.events_of("adjudicated"), [])
+        self.assertEqual([w for w in self.events_of("weight_changed")
+                          if w["source"] == "agent:adjust"], [])
+        # 权重全部保持缺省（建议性动作不动 archive）
+        cells = self.read_archive()["cells"]
+        self.assertTrue(all(float(c.get("weight", 1.0)) == 1.0
+                            for c in cells.values()))

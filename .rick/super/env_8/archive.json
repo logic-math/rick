@@ -152,17 +152,17 @@
     "dispatch_target=einsum_path|impl_strategy=m_quarters": {
       "descriptor": {},
       "elite": {
-        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter014-134ed9e4/solution.py",
-        "perf_value": 9.174584,
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter025-47700efa/solution.py",
+        "perf_value": 7.355833000000006,
         "perf_type": "runtime_ms",
         "perf_desc": "low",
-        "score": 0.8053427752672773,
+        "score": 0.9507025241056988,
         "lineage": [
-          "codes/iter007-19438cde/solution.py"
+          "codes/iter014-134ed9e4/solution.py"
         ],
-        "confidence": 0.5,
-        "admitted_at": "2026-10-21T22:45:08+08:00",
-        "gen": 2
+        "confidence": 0.8,
+        "admitted_at": "2026-10-22T01:25:34+08:00",
+        "gen": 3
       },
       "history": [
         {
@@ -177,12 +177,25 @@
           "confidence": 0.8,
           "admitted_at": "2026-10-21T21:09:52+08:00",
           "gen": 1
+        },
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter014-134ed9e4/solution.py",
+          "perf_value": 9.174584,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.8053427752672773,
+          "lineage": [
+            "codes/iter007-19438cde/solution.py"
+          ],
+          "confidence": 0.5,
+          "admitted_at": "2026-10-21T22:45:08+08:00",
+          "gen": 2
         }
       ],
       "weight": 0.5,
-      "visit": 2,
-      "sample_count": 2,
-      "last_sampled_at": "2026-10-21T22:24:31+08:00"
+      "visit": 3,
+      "sample_count": 3,
+      "last_sampled_at": "2026-10-22T01:17:53+08:00"
     },
     "dispatch_target=np_matmul|impl_strategy=m_halves": {
       "descriptor": {},
@@ -335,12 +348,18 @@
       "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter022-56336ab0/solution.py",
       "reason": "tolerance_band",
       "added_at": "2026-10-22T00:36:54+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=einsum_path|impl_strategy=m_quarters",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter025-47700efa/solution.py",
+      "reason": "low_weight_src",
+      "added_at": "2026-10-22T01:25:34+08:00"
     }
   ],
   "meta": {
     "env": "",
     "feature_axes": [],
     "perf_desc": "low",
-    "updated_at": "2026-10-22T01:17:53+08:00"
+    "updated_at": "2026-10-22T01:25:34+08:00"
   }
 }
