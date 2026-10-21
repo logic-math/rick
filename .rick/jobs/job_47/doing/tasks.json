@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-21T07:20:06.765Z",
+  "updated_at": "2026-10-21T23:30:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -272,6 +272,57 @@
       ],
       "task_file": "plan/task21.md",
       "commit_hash": "24680521f34a9e0104d9f18e23beae61cc32d33f"
+    },
+    {
+      "task_id": "task22",
+      "task_name": "agents.py 回合预算（run(max_turns) NDJSON 计数 assistant 回合→超限优雅终止+截断标记）+ config DEFAULTS 四角色回合上限 + test_agents",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T23:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task22.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task23",
+      "task_name": "loop.py 输入完整性+saturation 信号+terminate_recommend+预算传参（builder ctx 补 env_dir/perf_profile_cmd；_saturation_signal；adjust ctx 注入；terminate 提案走 proposal 事件）+ test_loop",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T23:30:00+08:00",
+      "dependencies": [
+        "task22"
+      ],
+      "task_file": "plan/task23.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task24",
+      "task_name": "super/prompts 三模板：builder（env_dir/工具路径占位+saturation 动作）+adjust（saturation+terminate_recommend）+debug（占位对齐）——消灭硬编码",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T23:30:00+08:00",
+      "dependencies": [
+        "task22"
+      ],
+      "task_file": "plan/task24.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task25",
+      "task_name": "gen_env skill + super-loop：prompt 进化可移植性纪律（占位符替代硬编码+PROMPTS_LOG 可移植性检查）+ 饱和/认输解读指引",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T23:30:00+08:00",
+      "dependencies": [
+        "task23",
+        "task24"
+      ],
+      "task_file": "plan/task25.md",
+      "commit_hash": ""
     }
   ]
 }
