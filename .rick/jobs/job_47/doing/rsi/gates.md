@@ -48,3 +48,9 @@ GATE gate6 pass=true (迭代3 L2: task19——expand_cell 链+热重载+决策�
 GATE gate7 pass=true (迭代3 L3: task20-21——adjust_trace 工具+gen_env/super-loop 自改进层；run_all 全量+e2e 10/10 稳定)
 迭代3 全 7 task success（eb36fd9d/36fe59e2/24680521）
 过程修复：①t20 限流中断的 _repo_root 补全 ②pending 语义统一（档案 add_pending 同格 last-wins 去重——与投影一格一项对齐，e2e flaky 根治 10/10）③add_pending 移到 elite 事件后（事件先于档案原则）
+
+GATE gate8 pass=true (迭代5 L1: task22 回合预算 + task26 ledger 台账——37 用例)
+GATE gate9 pass=true (迭代5 L2: task23 loop 九段 + task24 四模板——336 单测全绿；断言精确化 2 处误伤: payload_keys 仅注释/ gate→debug 在 _verify_and_admit)
+GATE gate10 pass=true (迭代5 L3: task25 文档 + 模板渲染兜底——run_all 全量绿)
+迭代5 全 5 task success（dde493d0/a0e11450/HEAD）
+迭代4 遗留（saturation/env_dir/terminate/回合预算）已在迭代5 内合并完成
