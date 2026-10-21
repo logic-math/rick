@@ -1,0 +1,26 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "在 np_matmul|m_halves 精英（7.39ms）的 np.matmul+out= 直写机制上重组 iter010 的行四分结构（4 块 × np.matmul 直写预分配缓冲），填充 np_matmul|m_quarters 空格，补全 np_matmul 轴 M 粒度阶梯第三点并与 np_dot|quarters（8.53ms）配对隔离派发层差异",
+  "usage": {
+    "input_tokens": 26639,
+    "output_tokens": 9086,
+    "cache_read": 114368,
+    "cache_write": 0,
+    "total_tokens": 150093,
+    "cost_usd": 0.10700868000000001
+  },
+  "wall_ms": 129010,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash"
+  ],
+  "model": "",
+  "iteration_id": 11,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter011-e0dd0ac8/prompt_builder.md"
+}

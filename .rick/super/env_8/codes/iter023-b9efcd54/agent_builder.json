@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "把 BLAS 预热从导入期搬到首调自预热（真实输入、零间隙紧贴计时区），消除预热-计时间隙的状态衰减与爬坡尾，把候选压在本格物理地板 ~6.7-7.0ms 上，靠机器窗口击败在位精英 6.859ms",
+  "usage": {
+    "input_tokens": 356348,
+    "output_tokens": 39414,
+    "cache_read": 672256,
+    "cache_write": 0,
+    "total_tokens": 1068018,
+    "cost_usd": 0.8470953600000001
+  },
+  "wall_ms": 645293,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 23,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter023-b9efcd54/prompt_builder.md"
+}

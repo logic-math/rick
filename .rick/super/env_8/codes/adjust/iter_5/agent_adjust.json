@@ -1,0 +1,26 @@
+{
+  "role": "adjust",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "iter004 A/B 归因实测证明 rowwise 族受 ~137-144ms 结构性内存墙支配（~20× 冠军 6.859ms）且与派发入口无关：灭绝两格有直接多次实测的死格（einsum×rowwise、np_dot×rowwise），仅机制外推的 np_matmul×rowwise 按单证据上限降到 0.5，冠军 np_matmul×full_blas 温和加权至 1.5，M 分解未访格保持 1.0 探索；总权重 10.0，预算从死族转向 full_blas 精修与 M 分解探索",
+  "usage": {
+    "input_tokens": 53616,
+    "output_tokens": 16657,
+    "cache_read": 90880,
+    "cache_write": 0,
+    "total_tokens": 161153,
+    "cost_usd": 0.171982
+  },
+  "wall_ms": 204731,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "iteration_id": 5,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/adjust/iter_5/prompt_adjust.md"
+}

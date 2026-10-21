@@ -1,0 +1,28 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "在父本 4-worker 线程池的 initializer 中把 worker QoS 升为 USER_INTERACTIVE（ctypes pthread_set_qos_class_self_np）：空闲零成本、背景负载下夺回 P 核调度优先级，保护中位与尾部（探针实测负载 +1.14ms、14/15 轮）",
+  "usage": {
+    "input_tokens": 238236,
+    "output_tokens": 59543,
+    "cache_read": 1540608,
+    "cache_write": 0,
+    "total_tokens": 1838387,
+    "cost_usd": 0.99607768
+  },
+  "wall_ms": 953407,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 24,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter024-72825847/prompt_builder.md"
+}

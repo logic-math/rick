@@ -8,7 +8,9 @@
   adjust_interval=5 / debug_max_attempts=3 / soft_gate_k=3 /
   heartbeat_interval_s=30 / heartbeat_timeout_s=90 / term_grace_s=5 /
   max_wall_time_h=24.0 / max_iterations=0（0=无迭代上限）/ python_path="python3" /
-  pi_path=""（空=必须由 super.json 显式给出；消费方（agents/loop）对空值报错）。
+  pi_path=""（空=必须由 super.json 显式给出；消费方（agents/loop）对空值报错）/
+  builder_max_turns=12 / coding_max_turns=16 / debug_max_turns=10 /
+  adjust_max_turns=8（assistant 回合预算；0=不限）。
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 联合类型注解）。
 """
@@ -39,6 +41,17 @@ DEFAULTS: Dict[str, Any] = {
     # 给便宜角色降档。示例：{"builder": "catpaw-proxy/deepseek-v4-flash"}。
     # agent_ended 事件 payload.model 可观测每个 agent 实际跑的模型。
     "agent_models": {},
+    # per-role 回合预算（assistant 回合上限；None/0 = 不限）——env_8 实测：
+    # 21 迭代 25M token，builder 单次中位 478s/646k token、极值 1575s/2101k
+    # （≈ 23 个 assistant 回合），每回合重算完整 input 是成本主因。pi 无
+    # max-turns flag → agents.PiAgentClient 在 NDJSON 流计数 assistant
+    # message_end，达上限走 kill 梯优雅终止（truncated 标记，已产出内容保留）。
+    # 默认值依据：env_8 实测中位 3-7 回合、极值 23 → 截尾部；
+    # coding 实现回合略多，debug 修复窗口短，adjust 只需审视一次。
+    "builder_max_turns": 12,
+    "coding_max_turns": 16,
+    "debug_max_turns": 10,
+    "adjust_max_turns": 8,
 }
 
 # merge_cli 允许从 CLI 覆盖的键（与 __main__.py 的 flags 对齐）。

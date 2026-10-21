@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.95,
+  "perf_value": 8.52,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "单变量替换派发入口 np.matmul→np.dot（其余零改动）：2-D f32 下同 cblas_sgemm 同 K 求和序，max_error=0.0 构造性成立；A/B 实测与父本平价（干净态配对差 +0.007ms，负载态 ≤0.1ms 噪声带内），gufunc 包装节省假设被证伪，门分数与父本同级（bench ×5 中位 0.972 vs 父本 0.985）",
+  "usage": {
+    "input_tokens": 53182,
+    "output_tokens": 10465,
+    "cache_read": 392320,
+    "cache_write": 0,
+    "total_tokens": 455967,
+    "cost_usd": 0.22250399999999995
+  },
+  "wall_ms": 153502,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 5,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter005-c8d039f5/prompt_coding.md"
+}

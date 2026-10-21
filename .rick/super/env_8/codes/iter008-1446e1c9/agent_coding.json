@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.909,
+  "perf_value": 8.072,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "以 iter001 m_halves 骨架为基础单变量替换派发入口 np.dot→np.matmul（上下半各一次 np.matmul(a32[:h],b32,out=c[:h]) 直写预分配缓冲，其余逐字不动）：自检 5 轮全过（max_error=0.0，64/2048 双规模双 seed，双跑一致，静态检查干净），A/B 配对 5 轮候选稳定快于父本 halves_dot_out 0.06-0.14ms、快于 concat 金样例 0.31-0.78ms（中位 7.30ms，负载态单发 7.5-8.2ms 随机器 load 5.0-5.3 波动），四项成功判据全过、假设成立",
+  "usage": {
+    "input_tokens": 29966,
+    "output_tokens": 16711,
+    "cache_read": 549632,
+    "cache_write": 0,
+    "total_tokens": 596309,
+    "cost_usd": 0.25838512
+  },
+  "wall_ms": 216648,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 8,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter008-1446e1c9/prompt_coding.md"
+}

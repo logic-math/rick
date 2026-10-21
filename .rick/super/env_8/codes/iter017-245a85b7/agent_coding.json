@@ -1,0 +1,28 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.949,
+  "perf_value": 7.33,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "m_quarters 四块改 4 线程池并发 np.dot 直写（懒加载单例+顺序回退）：k=3 中位 7.25ms（父本 8.62ms，5/5 配对轮 +1.0~1.5ms，score 0.91-0.99），max_error=0.0 逐位一致，2w 对照 8.7-9.1ms 劣化佐证 GCD 防超订仅在非对齐并发度显形",
+  "usage": {
+    "input_tokens": 101778,
+    "output_tokens": 17134,
+    "cache_read": 567616,
+    "cache_write": 0,
+    "total_tokens": 686528,
+    "cost_usd": 0.36545896
+  },
+  "wall_ms": 278914,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 17,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter017-245a85b7/prompt_coding.md"
+}

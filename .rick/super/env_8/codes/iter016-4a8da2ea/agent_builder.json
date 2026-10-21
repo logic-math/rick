@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "导入期 BLAS 状态预热：核心派发通道不变，把冷启动爬坡（GCD 线程池/电源状态）移出 bench 的候选计时区，消除『先计时候选、后计时 ref』协议的下尾惩罚，score 复跑离散度收窄 2-3 倍",
+  "usage": {
+    "input_tokens": 82566,
+    "output_tokens": 37500,
+    "cache_read": 685440,
+    "cache_write": 0,
+    "total_tokens": 805506,
+    "cost_usd": 0.45880679999999996
+  },
+  "wall_ms": 649220,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 16,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter016-4a8da2ea/prompt_builder.md"
+}

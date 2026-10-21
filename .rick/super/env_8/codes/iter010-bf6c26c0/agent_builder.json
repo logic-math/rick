@@ -1,0 +1,26 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "在 np_dot|m_halves 父本（iter001，7.42ms）上把 M 行二分升为四分——4 次 np.dot gemm 各自 out= 直写预分配缓冲（无 concatenate），产出 np_dot|m_quarters 冷格数据点：验证 quarters 惩罚在薄 C 派发层下只剩 sgemm 结构性分裂损失（预期 ~7.9-8.6ms，显著快于 einsum|m_quarters 的 9.31ms）",
+  "usage": {
+    "input_tokens": 53447,
+    "output_tokens": 11358,
+    "cache_read": 115840,
+    "cache_write": 0,
+    "total_tokens": 180645,
+    "cost_usd": 0.15491939999999998
+  },
+  "wall_ms": 151800,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash"
+  ],
+  "model": "",
+  "iteration_id": 10,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter010-bf6c26c0/prompt_builder.md"
+}

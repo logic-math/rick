@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "把 einsum 整阵派发拼写从 canonical(T-标志 gemm+尾部转置视图)换成 swapped(C-标志 gemm+无尾部跳变)——当前机器态 CC 比 TT 快约 0.23ms（今日门协议直测 swapped 中位 7.008 vs 父本 7.191），预期压过在库精英 7.2757。",
+  "usage": {
+    "input_tokens": 273655,
+    "output_tokens": 47229,
+    "cache_read": 606464,
+    "cache_write": 0,
+    "total_tokens": 927348,
+    "cost_usd": 0.74860524
+  },
+  "wall_ms": 740526,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 12,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter012-d7d3748e/prompt_builder.md"
+}

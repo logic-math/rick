@@ -1,0 +1,15 @@
+{
+  "idea": "邻格精英（einsum_path|full_blas_dispatch，7.276ms）证明单次整阵派发结构已达天花板附近，其剩余损耗是 einsum 包装层（iter002 ab_notes 实测包装开销 ~0.1-0.15ms：字符串 parse + path 计算 + tensordot 转置视图派发）。本实验把该骨架的派发入口换成 np.matmul 直接整阵派发（本格代码形态的定义本身），消除全部中间包装，直达与 reference 相同的 BLAS gemm 调用路径——预期 runtime 从 7.28ms 收敛到 BLAS 平价 ~6.9-7.3ms（score ~1.0），且因与锚同 K 求和序保持逐位一致（max_error=0.0）",
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+  "parents": [
+    "codes/iter002-7b950b83/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter002-7b950b83/solution.py 与 env/code/reference.py、env/code/naive_start.py，确认整阵派发骨架与契约：matmul(a,b) 接受二维数组/嵌套 list、全程 float32、模块级 np.seterr 抑制 vecLib 虚假 FP 标志、argparse 自检 main",
+    "在 codes/iter003-93ddaebc/solution.py 写候选——单变量替换：核心行改为 a32=np.asarray(a,dtype=np.float32); b32=np.asarray(b,dtype=np.float32); return np.matmul(a32,b32)，删除 einsum 行；其余结构（契约、seterr、main）与父本同构；明确不加 out=/不加转置/不动 K 维/无任何模块级缓存或状态",
+    "跑正确性自检：env/.venv/bin/python env/skills/self_check.py --candidate codes/iter003-93ddaebc/solution.py——验证 [64,2048] 双 seed、双跑一致性、max_error==0.0（np.matmul 与锚同 BLAS 求和序应逐位一致）",
+    "进程内配对 A/B 归因（临时脚本，不进提交）：候选 np.matmul vs 父本 einsum canonical，交错随机次序 ≥10 对、每对 K=3 取中位——验证『候选不劣于父本』方向（低负载态应可见 ~0.1ms 包装开销削减，负载态持平于噪声带）",
+    "终验口径 ×3 轮：env/.venv/bin/python env/data/bench.py --candidate codes/iter003-93ddaebc/solution.py（K=3 门协议，候选先计时）——预期 runtime_ms ~6.9-7.3、score ~0.95-1.05、ref_runtime_ms 落 [5,10] 合理带；将 A/B 与终验数字写入 codes/iter003-93ddaebc/ab_notes.md 供归因"
+  ],
+  "expected_behavior": "runtime_ms 从父本 7.28 降至 ~6.9-7.3（BLAS 平价）：低负载态可见削掉 einsum 包装层 ~0.1-0.15ms，高负载态持平于 ±0.15ms 噪声带内；score ~0.95-1.05（不再出现父本 0.87 级离群下探则更稳）；max_error 保持 0.0（与 np.matmul 锚逐位一致，64/2048 双 seed、双跑一致均过）。可证伪点：若配对 A/B 中候选系统性慢于父本 >0.1ms（中位之差）或 bench 终验 score 稳定 <0.93，则『删除包装层直达 gemm 入口更优/不劣』的主张被证伪"
+}

@@ -90,3 +90,14 @@ deepseek-v4-flash 默认带 thinking（思考慢），可用 `--thinking off` �
 - 主题只有 51 个颜色 token（fg/bg 颜色映射），**只能决定颜色**
 - 渲染行为（diff 变更词反显 `\x1b[7m`、diff/命令行语法高亮）**不可主题化**——pi 无配置口，改行为必须改 dist JS
 - 已否决运行时 patch → diff/命令渲染保持 pi 原生行为（反显高亮、平色文本）
+
+## catpaw 账号/额度切换（dev 实例）
+
+- **凭据唯一源**：`$HOME/.config/mcopilot-cli/.config.yaml` 的 `AUTHORIZATION:`（32 位 hex）；单账号扁平结构，`mc` 无 login/切换命令 → 切换 = 换这**一个值**
+- **dev 与 prod 是两套独立 HOME**：dev `HOME=/Users/logic/workdir/rick-dev-home`（本工作区会话的 `PI_CODING_AGENT_DIR` 也在这里）；prod `HOME=/Users/logic`。两者 token/vault 互不相同，切 dev 不影响 prod
+- **工具**：`bash .rick/skills/mcopilot-account-switch_skill/switch.sh {list|show|save|add|use|restore|verify|pioff}`（skill 由 MT_INFER 正源同步；**必须带目标 HOME 运行**：`HOME=<目标> bash …`）
+- **双写语义**：`use/restore` 同时写 ① `config.yaml`（mc CLI 用）② `$HOME/.rick/pi/agent/auth.json` 的 `catpaw-proxy.api_key`（pi 用，**stored credential 优先级 > 扩展启动时读的 config.yaml**，且 `AuthStorage` 按 revision 热重载 → 已运行会话下一条请求即换号，上下文不丢）
+  - 但 provider 回落别的模型（如 deepseek）时，需 TUI `/model` 选回 GLM 才走 catpaw-proxy
+- **保险箱**：`$HOME/.rick/accounts/tokens/{me,zwm}`（600/700）+ `_prev` 快照（restore 与 _prev 互换）；每次写前自动 `.bak.<时间戳>`
+- **额度按天计**（次日 00:00 重置）；耗尽判别用 `switch.sh verify` 探针（`ok` / `401` / `额度已使用完毕` 三态可区分）
+- **dev 侧现状（2026-10-21 19:12）**：dev HOME 已建 vault（`me`=dad328…、`zwm`=cd818d…），当前生效 **zwm**，探针 `ok`；prod HOME 独立保持在 zwm 并装有 launchd `com.rick.mcopilot-switchback`（每日 00:00 切回 me，日志 `~/.rick/accounts/switchback.log`）—— **dev 未装该定时任务**，需要「每日自动切回 me」须另建 launchd 条目并注入 `HOME=/Users/logic/workdir/rick-dev-home`

@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.0417,
+  "perf_value": 166.429,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "父本 iter002 上的单变量结构实验：派发入口保持 einsum optimize=True，impl_strategy 改为预分配 out 后逐行 np.einsum('j,jk->k', a32[i], b32)——@2048 与 np.matmul 逐位一致（@64 max_error 7.63e-06），门协议 runtime 167-180ms/score 0.039-0.046 落预期带，A/B 分解为内存墙 ~137ms + einsum 包装税 ~23.5ms，为 rowwise_vectorized 冷格建立首条实测证据",
+  "usage": {
+    "input_tokens": 111311,
+    "output_tokens": 10736,
+    "cache_read": 322624,
+    "cache_write": 0,
+    "total_tokens": 444671,
+    "cost_usd": 0.28695604
+  },
+  "wall_ms": 151056,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 4,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter004-09d14ede/prompt_coding.md"
+}

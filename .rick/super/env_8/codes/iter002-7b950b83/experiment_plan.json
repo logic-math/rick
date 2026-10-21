@@ -1,0 +1,15 @@
+{
+  "idea": "einsum_path|full_blas_dispatch 冷格首建：单次整阵 np.einsum('ij,jk->ik', a32, b32, optimize=True) 派发（canonical 拼写）。预研机制（numpy 2.0.2 源码 einsumfunc.py:1441 起实测）：2 操作数 optimize 路径固定逆序 pop 出 [b,a]，走 tensordot(b,a,((0,),(1,)))→dot(b.T,a.T) 即 T-标志 gemm（转置视图零拷贝），尾部 c_einsum('ki->ik') 仅返回转置视图（np.shares_memory=True，实测 0.0002ms，无 16MB 拷贝），输出 F-布局但与 np.matmul 逐位一致（max_error=0.0）。本机实测（负载 4.3-5.1）：canonical 比 swapped 拼写 einsum('jk,ij->ik', b, a)（C-标志 gemm）在 6/6 独立进程配对 A/B 中快 0.24-0.64ms，且 bench 门『候选先计时』时序对 C-标志先计时函数惩罚更重（swapped 退化到 7.5-8.6ms）；canonical 门协议实测 7.19-7.47ms / score 0.95-0.97。远离全部已知死族（K 分块/Strassen/转置后 gemv/降精度/多进程/多线程），不用 out=（einsum out= 实测 16.8ms 病态）",
+  "target_cell": "dispatch_target=einsum_path|impl_strategy=full_blas_dispatch",
+  "parents": [
+    "env/code/naive_start.py"
+  ],
+  "plan_steps": [
+    "读父本 env/code/naive_start.py 与 env/code/reference.py，确认 matmul(a,b) 契约（二维数组/嵌套 list 输入→f32 矩阵积、模块级 np.seterr 抑制）；对照 venv numpy 2.0.2 _core/einsumfunc.py（einsum→einsum_path→contraction_list）确认解剖：2 操作数逆序 pop→tensordot(b,a,((0,),(1,)))→dot(b.T,a.T)（T-标志 gemm）→c_einsum('ki->ik') 转置视图零拷贝",
+    "在本迭代目录 codes/iter002-7b950b83/ 写 solution.py：matmul(a,b) 内 a32/b32=np.asarray(...,np.float32)，return np.einsum('ij,jk->ik', a32, b32, optimize=True)；保留 naive_start 同款模块级 np.seterr 与 --n 自检 main()（打印 runtime_ms 与 max_error_vs_matmul 的单行 JSON）",
+    "跑 env/skills/self_check.py --candidate solution.py：预期 correctness passed=true（sizes [64,2048]×双 seed，max_error=0.0，双跑逐位一致）+ bench 单次 ~7.0-7.6ms",
+    "A/B 归因（临时脚本，进程内配对、随机次序 ≥8 对、每对 K=3 取中位）：canonical vs swapped（np.einsum('jk,ij->ik', b32, a32, optimize=True)）vs np.matmul——预期负载态 canonical 比 swapped 快 ≥0.2ms；结果（方向与幅度）写入本迭代目录 ab_notes.md 供归因，不改变提交实现",
+    "终验复跑 env/data/bench.py --candidate solution.py（K=3）×3：预期 runtime_ms ~7.2-7.6、score ~0.94-0.97、ref ~7.0 落 [5,10] 合理带；若 canonical 反而持续慢于 swapped ≥0.2ms、或 max_error>0、或双跑不一致 → 假设证伪，如实记录归因（不引入 out=/order='C'/多线程/降精度/结果缓存等任何新机制）"
+  ],
+  "expected_behavior": "@2048 门协议（warmup1+K3 中位、候选先计时）：runtime_ms ~7.2-7.6（跨机器状态区间 7.0-7.8），score ~0.95（区间 0.93-1.00，本机负载与门时序依赖），与 np_dot|m_halves 格精英 7.42ms/0.9497 同档，成为 einsum_path 轴首条实测证据；max_error=0.0（T-标志 gemm 与 np.matmul 同底 BLAS，2048/64 双 seed、嵌套 list、非方阵均实测逐位一致）→ 1e-3 容差/双跑一致/静态检查全过，ref ~7.0 落 [5,10] 合理带，score_max=2.0 不构成约束。可证伪点：①负载态进程内配对 A/B 中 canonical 未比 swapped 快 ≥0.2ms → 『T-标志内核在 Accelerate 上更稳』的机制主张不成立；②max_error>0 或双跑不一致 → 派发路径改变了 K 求和序；③score<0.93 → einsum 包装开销（parse+path+wrapper，实测 @64 约 12μs）被低估或机器状态漂移"
+}

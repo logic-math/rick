@@ -1,0 +1,28 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "不对称 M 二分：把切分点从对称 m//2 移到 h=7m//16（块数仍为 2），利用单块 t(M) 固定开销低谷——今日预研证伪了线程三形态与邻接零拷贝后，这是本格唯一存活的末位杠杆（宽优区 −0.09~−0.11ms），同时是格地板终局裁决点",
+  "usage": {
+    "input_tokens": 286890,
+    "output_tokens": 58559,
+    "cache_read": 924608,
+    "cache_write": 0,
+    "total_tokens": 1270057,
+    "cost_usd": 0.89970368
+  },
+  "wall_ms": 909235,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 22,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter022-56336ab0/prompt_builder.md"
+}

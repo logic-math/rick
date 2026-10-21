@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.793,
+  "perf_value": 8.976,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "单变量操作数顺序翻转：np.einsum('jk,ij->ik', b32, a32[s:e], optimize=True) 使 einsumfunc 降序弹出后还原为 tensordot(a_blk,b)→N-N gemm→C-布局块，消除每块 4MB 内部转置拷贝与 concatenate 的 F-输入跨步拼接；拼接仍用 np.concatenate；@2048 与 np.matmul 逐位一致（max_error=0.0），self_check 8.976ms（score 0.793），3×30 轮配对 vs 父本中位差 -0.21~-0.26ms、同向率 80-93%",
+  "usage": {
+    "input_tokens": 28993,
+    "output_tokens": 5621,
+    "cache_read": 227392,
+    "cache_write": 0,
+    "total_tokens": 262006,
+    "cost_usd": 0.12444452000000002
+  },
+  "wall_ms": 98727,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 14,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter014-134ed9e4/prompt_coding.md"
+}

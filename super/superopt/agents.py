@@ -57,6 +57,9 @@ class AgentResult:
     totalTokens/cost.total）。全 0 = provider 未上报（降级路径）。
     data：final message 内嵌 JSON 的完整解析结果（角色增量的载体）。
     model：实际使用的模型 id（per-role 档位可观测；空 = 默认模型）。
+    truncated：回合预算耗尽被终止（env_8 实测成本失控治理：pi 无 max-turns
+        flag，客户端在 NDJSON 流中计数 assistant message_end；截断不等于无产出——
+        final_message/usage/tool_calls/六字段全部保留）。
     """
     role: str
     valid: bool = False
@@ -72,6 +75,7 @@ class AgentResult:
     wall_ms: int = 0
     exit_code: int = 0
     model: str = ""
+    truncated: bool = False
 
     def to_payload(self) -> Dict:
         """事件 payload 形态（agent_ended 事件的载荷，含六字段 + usage + 计时 + 模型）。"""
@@ -88,6 +92,7 @@ class AgentResult:
             "exit_code": self.exit_code,
             "tool_calls": list(self.tool_calls),
             "model": self.model,
+            "truncated": self.truncated,
         }
 
 
@@ -236,6 +241,7 @@ class _StreamState:
         self.agg = _zero_usage()      # message_end 聚合（权威路径）
         self.last_update = None       # 最后一次非零 message_update（兜底）
         self.bad_lines = 0
+        self.assistant_turns = 0      # assistant message_end 回合计数（回合预算）
 
     def feed(self, line: str):
         line = line.strip()
@@ -273,6 +279,7 @@ class _StreamState:
         # agent_settled / 其它事件：无需处理（以 EOF 为终止）
 
     def _take_assistant_message(self, msg: dict):
+        self.assistant_turns += 1
         parts = []
         content = msg.get("content")
         if isinstance(content, list):
@@ -334,7 +341,8 @@ class PiAgentClient:
         return cmd
 
     def run(self, role: str, prompt_path: str, workdir: str,
-            timeout_s: int = 1800, model: Optional[str] = None) -> AgentResult:
+            timeout_s: int = 1800, model: Optional[str] = None,
+            max_turns: Optional[int] = None) -> AgentResult:
         """派发一个 agent 运行并解析其 NDJSON 事件流。
 
         prompt_path：预渲染的系统提示词文件（绝对化）。
@@ -342,6 +350,12 @@ class PiAgentClient:
         timeout_s：墙钟超时——超时走 kill 梯 SIGTERM→grace→SIGKILL。
         model：可选模型档位（pi --model 参数；None/空 = 默认模型）。回填
             AgentResult.model 供事件观测。
+        max_turns：assistant 回合上限（None/<=0 = 不限）。pi 无 max-turns
+            flag（env_8 实测：builder 单次极值 1575s/2101k token ≈ 23 回合，
+            每回合重算完整 input 是成本主因）——故在 NDJSON 流中计数
+            assistant message_end 回合数，达上限即走 kill 梯终止；
+            AgentResult.truncated=True，已产出内容（final_message/usage/
+            tool_calls/六字段）全部保留——截断不等于无产出。
         """
         prompt_path = os.path.abspath(prompt_path)
         workdir = os.path.abspath(workdir)
@@ -353,6 +367,9 @@ class PiAgentClient:
         env = os.environ.copy()
         if self.agent_dir:
             env["PI_CODING_AGENT_DIR"] = self.agent_dir
+
+        budget = int(max_turns) if isinstance(max_turns, int) and max_turns > 0 else 0
+        budget_hit = threading.Event()
 
         cmd = self._build_cmd(prompt_path, model)
         state = _StreamState()
@@ -370,6 +387,11 @@ class PiAgentClient:
             try:
                 for line in proc.stdout:
                     state.feed(line)
+                    # 回合预算：达上限置位（主线程负责 kill 梯）；不 break——
+                    # 继续读到 EOF，保留终止前全部已产出内容
+                    if budget and state.assistant_turns >= budget \
+                            and not budget_hit.is_set():
+                        budget_hit.set()
             except Exception:  # noqa: BLE001 读线程绝不向上抛
                 pass
             finally:
@@ -397,11 +419,25 @@ class PiAgentClient:
         err_reader.start()
 
         timed_out = False
-        try:
-            proc.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            self._kill_ladder(proc)
+        truncated = False
+        deadline = time.monotonic() + max(0.0, float(timeout_s))
+        while True:
+            if proc.poll() is not None:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                self._kill_ladder(proc)
+                break
+            try:
+                proc.wait(timeout=min(0.1, remaining))
+                break
+            except subprocess.TimeoutExpired:
+                pass
+            if budget_hit.is_set():
+                truncated = True
+                self._kill_ladder(proc)
+                break
         reader.join(timeout=10)
         err_reader.join(timeout=10)
 
@@ -411,7 +447,8 @@ class PiAgentClient:
 
         result = AgentResult(
             role=role,
-            valid=bool(six["valid"]) and not timed_out and proc.returncode == 0,
+            valid=bool(six["valid"]) and not timed_out
+            and (proc.returncode == 0 or truncated),
             score=six["score"],
             perf_value=six["perf_value"],
             perf_type=six["perf_type"],
@@ -424,15 +461,21 @@ class PiAgentClient:
             wall_ms=wall_ms,
             exit_code=proc.returncode if proc.returncode is not None else -1,
             model=model or "",
+            truncated=truncated,
         )
-        # 超时/非零退出的诊断信息附进 summary（保 final_message 原文在字段里）
+        # 超时/回合截断/非零退出的诊断信息附进 summary（保 final_message 原文在字段里）
         if timed_out:
             marker = "[timeout after %ss]" % timeout_s
             if not result.summary:
                 result.summary = marker
             elif marker not in result.summary:
                 result.summary = (result.summary[:180] + " " + marker)[:200]
-        if proc.returncode not in (0, None) and not timed_out:
+        elif truncated:
+            # 前缀标注（spec："[turn-budget-exceeded: N] "），六字段与
+            # final_message 原样保留供上层 fallback 解析
+            marker = "[turn-budget-exceeded: %d]" % budget
+            result.summary = (marker + " " + (result.summary or "")).strip()[:200]
+        elif proc.returncode not in (0, None):
             marker = "[exit %s]" % proc.returncode
             if stderr_tail:
                 marker += " stderr_tail: " + " | ".join(stderr_tail[-3:])

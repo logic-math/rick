@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.98,
+  "perf_value": 7.237,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "单变量换 swapped 拼写 einsum('jk,ij->ik', b32, a32, optimize=True)（tensordot(a,b)=dot(a,b) 纯 C-标志 gemm、跳过尾部 ki->ik 视图、原生 C 序返回）；max_error=0.0 逐位一致（双规模双 seed 双跑），门协议 ×3 中位 7.237ms 优于父本当日 7.307ms（证伪条款未触发，保持 swapped），score 中位 0.98；但 load~7 下对在库精英 7.2757 余量仅 0.04ms（低于预期 0.15ms，负载态压缩所致，已如实记录 ab_notes.md）",
+  "usage": {
+    "input_tokens": 122173,
+    "output_tokens": 18657,
+    "cache_read": 632768,
+    "cache_write": 0,
+    "total_tokens": 773598,
+    "cost_usd": 0.41765268
+  },
+  "wall_ms": 275481,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 12,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter012-d7d3748e/prompt_coding.md"
+}

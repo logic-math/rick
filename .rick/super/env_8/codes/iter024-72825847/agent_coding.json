@@ -1,0 +1,28 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.956,
+  "perf_value": 7.743,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "单变量实现 worker QoS=USER_INTERACTIVE(0x21,0) 初始化器（含线程局部 seterr），行为代码与父本逐字一致、全 m 值逐位一致；正确性门 max_error=0.0；如实记录证伪证据：门禁同形态 fresh-process 下本机常态 load~4 劣化 -0.42~-0.54ms（超计划 0.2ms 证伪线，成分拆解 100% 归因 QoS 升级本身），受益区仅在 load≳10（6-spinner 实测 +0.77~0.90ms、4/4 轮），同进程 A/B 中性系探针方法学盲区——idea 在本机常态证伪，提交框架门禁终验",
+  "usage": {
+    "input_tokens": 164061,
+    "output_tokens": 45949,
+    "cache_read": 1388736,
+    "cache_write": 0,
+    "total_tokens": 1598746,
+    "cost_usd": 0.7929323600000001
+  },
+  "wall_ms": 682067,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 24,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter024-72825847/prompt_coding.md"
+}

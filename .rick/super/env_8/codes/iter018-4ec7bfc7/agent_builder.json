@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "把 np_dot|m_quarters 邻格精英（iter017，7.10ms）已验证的 4-worker 线程池并发派发机制跨格移植到本格父本 iter011（8.48ms）：行四分 + np.matmul out= 直写结构不变，仅把顺序 for 循环换成 4 线程并发 submit，预期 runtime 8.5→~7.6ms、max_error 保持 0.0。",
+  "usage": {
+    "input_tokens": 22846,
+    "output_tokens": 16529,
+    "cache_read": 286208,
+    "cache_write": 0,
+    "total_tokens": 325583,
+    "cost_usd": 0.17912608
+  },
+  "wall_ms": 250588,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 18,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter018-4ec7bfc7/prompt_builder.md"
+}

@@ -1,0 +1,25 @@
+{
+  "role": "adjust",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "冠军 6.859（iter003，seq 108）18 轮未被超越，且 iter020（seq 716）证据显示 full_blas 双格已抵 BLAS 平价地板（~6.83，剩余空间 ≤0.4%），故冠军权重维持 2.0（rowwise 重新灭绝后份额自动 21%→23%）；seq 720 复活的 np_matmul|rowwise 按 seq 387/389 先例重新灭绝（复测 3/3 仅证有效性，146.1ms=冠军 21.3× 且家族 3/3 派发入口证死）；iter017 线程池突破（8.53→7.103，全场第 4、非 full_blas 最佳）触发 np_dot|m_quarters 回调 0.5→1.0；einsum|m_halves 三采停滞+seq 691 soft_gate 拒绝降至 0.75；存活格 visit≤3 未达饱和阈值（4-5），不提加格——若 iter25 调整时仍无新纪录且 visit≥4，再评估结构性扩张（K 维分块/转置重排）或接受硬件地板",
+  "usage": {
+    "input_tokens": 48401,
+    "output_tokens": 36153,
+    "cache_read": 223296,
+    "cache_write": 0,
+    "total_tokens": 307850,
+    "cost_usd": 0.28489156000000004
+  },
+  "wall_ms": 488193,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash"
+  ],
+  "model": "",
+  "iteration_id": 20,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/adjust/iter_20/prompt_adjust.md"
+}

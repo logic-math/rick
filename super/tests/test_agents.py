@@ -37,7 +37,8 @@ def make_client():
     return PiAgentClient(pi_path=MOCK_PI)
 
 
-def run_scenario(scenario, timeout_s=30, role="builder", agent_dir=None):
+def run_scenario(scenario, timeout_s=30, role="builder", agent_dir=None,
+                 max_turns=None):
     """在 MOCK_SCENARIO 下跑一次客户端（临时 prompt 文件 + 临时 workdir）。"""
     import tempfile
     with tempfile.TemporaryDirectory() as td:
@@ -49,7 +50,8 @@ def run_scenario(scenario, timeout_s=30, role="builder", agent_dir=None):
             if agent_dir is not None:
                 client = PiAgentClient(pi_path=MOCK_PI, agent_dir=agent_dir)
             return client.run(role=role, prompt_path=prompt,
-                              workdir=td, timeout_s=timeout_s)
+                              workdir=td, timeout_s=timeout_s,
+                              max_turns=max_turns)
 
 
 class TestOkBuilder(unittest.TestCase):
@@ -145,6 +147,46 @@ class TestTimeoutKill(unittest.TestCase):
         self.assertFalse(r.valid)
         self.assertEqual(r.usage["total_tokens"], 0)
         self.assertGreaterEqual(r.wall_ms, 1800)
+
+
+class TestTurnBudget(unittest.TestCase):
+    """改动②（env_8 实测成本失控）：回合预算——NDJSON 计数 assistant 回合，
+    达上限走 kill 梯优雅终止；已产出内容全部保留（截断不等于无产出）。"""
+
+    def test_truncated_at_budget(self):
+        r = run_scenario("many_turns", timeout_s=60, max_turns=5)
+        self.assertTrue(r.truncated)
+        # summary 前缀标注（spec：[turn-budget-exceeded: N] ）
+        self.assertTrue((r.summary or "").startswith("[turn-budget-exceeded: 5]"),
+                        r.summary)
+        # 不是等到墙钟超时（many_turns 全跑完约 2s；截断应在 ~1s 内）
+        self.assertLess(r.wall_ms, 30000)
+        # 进程被 kill 梯终止（SIGTERM → 非零退出）
+        self.assertNotEqual(r.exit_code, 0)
+        # 截断不等于无产出：已产出的回合内容/usage/tool_calls 保留
+        self.assertIn("回合分析中", r.final_message)
+        self.assertGreater(r.usage["total_tokens"], 0)
+        self.assertIn("read", r.tool_calls)
+        # payload 携带 truncated（事件可观测性）
+        self.assertTrue(r.to_payload()["truncated"])
+        # 证明早期终止：未跑满 20 回合（每回合 input=100）
+        self.assertLess(r.usage["input_tokens"], 20 * 100)
+
+    def test_no_budget_runs_to_completion(self):
+        r = run_scenario("many_turns", timeout_s=60, max_turns=None)
+        self.assertFalse(r.truncated)
+        self.assertEqual(r.exit_code, 0)
+        # 完整跑完 20 回合：20 × (input=100, output=20)
+        self.assertEqual(r.usage["input_tokens"], 20 * 100)
+        self.assertEqual(r.usage["output_tokens"], 20 * 20)
+        # 最后回合的六字段照常提取
+        self.assertTrue(r.valid)
+        self.assertAlmostEqual(r.score, 0.85)
+
+    def test_zero_budget_means_unlimited(self):
+        r = run_scenario("many_turns", timeout_s=60, max_turns=0)
+        self.assertFalse(r.truncated)
+        self.assertEqual(r.exit_code, 0)
 
 
 class TestExtractSixFields(unittest.TestCase):

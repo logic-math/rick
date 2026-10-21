@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "在 np_dot 整阵派发上闭合分配轴最后一臂：模块级持久 out 缓冲（形状不符才重分配、跨调用恒热页）替代每调用 16MB 输出分配——预研 2×40 轮配对中位差 −0.017~−0.021ms（噪声带内、方向为正）、正确性预验证逐位一致，门禁裁决要么刷新格精英（<7.009）要么终局确认格地板=BLAS 平价、scheduler 可降权本格",
+  "usage": {
+    "input_tokens": 105845,
+    "output_tokens": 29166,
+    "cache_read": 467328,
+    "cache_write": 0,
+    "total_tokens": 602339,
+    "cost_usd": 0.39801868
+  },
+  "wall_ms": 477516,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 21,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter021-5eeaa523/prompt_builder.md"
+}

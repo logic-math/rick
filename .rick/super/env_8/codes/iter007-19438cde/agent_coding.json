@@ -1,0 +1,28 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.77,
+  "perf_value": 9.33,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "M 维四分 einsum 派发 + concatenate 拼接：4×512 行块 canonical einsum（T-标志 gemm 同派发层）+ concat 组装，避开 out 直写 F→C 陷阱；@2048 与 np.matmul 逐位一致（max_error=0.0），bench 5 轮中位 9.33ms / score 0.77，配对 vs 父本慢 +2.21ms（10/10 对）落在预期带 +1.9~2.3ms，三因子归因（sgemm 分裂 +0.9~1.1 / einsum 包装 ×4 +0.56 / concat +0.69）与总差距吻合，谱系 M 粒度-代价曲线数据点落位",
+  "usage": {
+    "input_tokens": 129238,
+    "output_tokens": 18952,
+    "cache_read": 621568,
+    "cache_write": 0,
+    "total_tokens": 769758,
+    "cost_usd": 0.42592968
+  },
+  "wall_ms": 257335,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 7,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter007-19438cde/prompt_coding.md"
+}

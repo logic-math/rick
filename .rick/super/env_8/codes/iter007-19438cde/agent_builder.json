@@ -1,0 +1,26 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "从 einsum_path|full_blas_dispatch 精英（iter002，7.28ms）跨格重组：派发入口保持 canonical einsum optimize=True 不变，单变量把结构从整阵单发改为 M 维四分（4 个 512 行块各一次 einsum 派发 + concatenate 拼接），给 einsum_path×m_quarters 冷格建立首条可归因实测，并补全 M 粒度阶梯（full 7.16 / halves 8.23 / quarters ~9.2，每次 M 分裂 ~+1ms，分裂损失由 vecLib 小 M sgemm 效率主导）",
+  "usage": {
+    "input_tokens": 175934,
+    "output_tokens": 28758,
+    "cache_read": 140288,
+    "cache_write": 0,
+    "total_tokens": 344980,
+    "cost_usd": 0.40931768
+  },
+  "wall_ms": 403267,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "iteration_id": 7,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter007-19438cde/prompt_builder.md"
+}

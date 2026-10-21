@@ -19,6 +19,8 @@
     all_zero       全程零 usage → 客户端降级全 0
     bad_json       final 是废话无 JSON → 客户端 valid=False 优雅降级
     timeout_sleep  无输出长眠 → 客户端超时 kill（TERM→grace→KILL）
+    many_turns     连续 N 个 assistant 回合（默认 20；MOCK_TURNS 可调）+ 回合
+                   间隔短睡 → 回合预算达上限 kill（truncated=True，部分产出保留）
 
 自测：python3 mock_pi.py --self-test（不依赖客户端，直接校验各场景输出可解析）
 """
@@ -173,6 +175,28 @@ def scenario_timeout_sleep():
     time.sleep(300)
 
 
+def scenario_many_turns():
+    """回合预算场景（task22）：连续 N 个 assistant 回合（默认 20，> 默认
+    builder_max_turns=12），每回合带 tool 调用 + 短睡（保证达上限时进程仍活，
+    kill 梯可验证）；最后一回合带六字段 JSON——验证「截断不等于无产出」的
+    fallback 解析路径。MOCK_TURNS 可调回合数。"""
+    try:
+        turns = int(os.environ.get("MOCK_TURNS", "20"))
+    except ValueError:
+        turns = 20
+    _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
+    for i in range(turns):
+        _emit(_tool_exec("read" if i % 2 == 0 else "bash"))
+        text = "第 %d 回合分析中……" % (i + 1)
+        if i == turns - 1:
+            text += "\n```json\n" + json.dumps(
+                SIX_FIELDS_BUILDER, ensure_ascii=False) + "\n```"
+        _emit(_message_end("assistant", text,
+                           _usage(100, 20, cost_total=0.001)))
+        time.sleep(0.1)  # 回合间隔（达上限时进程仍活 → kill 梯生效）
+    _emit({"type": "agent_settled", "reason": "end_turn"})
+
+
 SCENARIOS = {
     "ok_builder": scenario_ok_builder,
     "ok_coding": scenario_ok_coding,
@@ -180,6 +204,7 @@ SCENARIOS = {
     "all_zero": scenario_all_zero,
     "bad_json": scenario_bad_json,
     "timeout_sleep": scenario_timeout_sleep,
+    "many_turns": scenario_many_turns,
 }
 
 

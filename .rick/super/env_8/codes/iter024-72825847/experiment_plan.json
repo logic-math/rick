@@ -1,0 +1,16 @@
+{
+  "idea": "归因：父本（M 四分 np.dot + out= 直写 + 4 workers）P 核侧已近饱和（探针1：q4w 7.13ms vs 整阵 7.01ms = 98.4% 饱和吞吐；本轮穷举证伪其余结构方向——6 分块 8.0ms、8 分块 7.6ms、N 维细分 10.8-17.2ms、E 核协同 88.6ms 均劣，见 probe*.py）。剩余可动杠杆只有负载鲁棒性：本机（M5 Max 6P+12E）持续带 ~4-5 背景负载且有突发尖峰（探针会话 full 单跑 max 25.9-31.6ms），父本 4 个 worker 均为默认 QoS，与背景默认 QoS 线程公平争抢 P 核。本实验单变量：线程池 initializer 把 worker QoS 升为 USER_INTERACTIVE(0x21)——P 核调度优先于默认 QoS 背景线程。探针证据（顺序对消消除 A/B 顺序偏差后）：空闲态中性（±0.1ms，改善率≈抛硬币）；6-spinner 合成负载下中位 +1.14ms、14/15 轮改善、max 尾部收紧（探针4/5 双设计独立复现 +0.24/+1.14ms）。负载下父本 threaded 形态本就反超整阵派发（探针3 1.25×），QoS 加固把该优势变为可预期的常态。初始化器内顺带设置 worker 线程局部 np.seterr（iter018 已验证的防御性修正，零计时成本，只抑制 vecLib 虚假 FP 告警）",
+  "target_cell": "dispatch_target=np_dot|impl_strategy=m_quarters",
+  "parents": [
+    "codes/iter017-245a85b7/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter017-245a85b7/solution.py，确认不变量：模块级懒加载池单例 _get_pool、行四分边界 edges（i*m//4）、np.dot(a32[s:e], b32, out=c[s:e]) 直写、池创建失败回退顺序路径、m==0 守卫、1-D b gemv 兼容、全程 float32",
+    "单变量修改：新增 _init_worker() 初始化器——函数体内 try/except 包裹 ctypes.CDLL(None).pthread_set_qos_class_self_np(0x21)（QOS_CLASS_USER_INTERACTIVE，失败静默回退默认 QoS）并设 np.seterr(divide/over/invalid='ignore')（线程局部）；ThreadPoolExecutor(max_workers=4, initializer=_init_worker)；其余代码与父本逐字一致（M 四分边界、out= 直写、回退路径全部不动）",
+    "正确性自检：env/.venv/bin/python env/skills/self_check.py --candidate solution.py——预期双规模（64/2048）max_error=0.0、双 seed、两遍一致（QoS 只改调度优先级，BLAS 求和序与父本完全相同）",
+    "A/B 复核（参考 codes/iter024-72825847/probe5_ab_qos.py 的顺序对消设计，两个顺序各 ≥15 轮）：空闲态预期 |配对差中位| < 0.15ms 且改善率 40-60%（中性）；可选 6 个 default-QoS spinner 子进程合成负载复核 ≥+0.5ms 中位改善",
+    "性能门演练：env/.venv/bin/python env/data/bench.py --candidate solution.py 起多次新进程——预期中位落在 [父本−1ms, 父本+0.15ms]（取决于当日背景负载）、score ≥0.95、无 ≥8ms 尖峰成员",
+    "提交框架门禁，如实记录：门禁日带背景负载则预期 score 0.95→0.95-1.05（threaded+QoS 在负载下优于整阵 ref）；完全空闲则与父本持平；若门禁统计出现空闲态劣化 >0.2ms 或正确性非逐位一致 → 判定 idea 证伪并记录"
+  ],
+  "expected_behavior": "正确性：max_error=0.0 逐位一致不变（QoS 只影响线程调度优先级）。性能：空闲态与父本持平（顺序对消配对差 |Δ|<0.15ms，改善率≈50%）；背景负载态（load≥6 或突发尖峰）中位改善 0.5-1.2ms、max 尾部收紧（探针实测 6-spinner 负载 +1.14ms、14/15 轮）；本机 load avg 常态 ~4-5，门禁日大概率落在受益区，score 预期 0.95-1.05。若空闲态出现 >0.2ms 劣化或负载态无改善 → 证伪"
+}

@@ -1,0 +1,26 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "保持 np.matmul 入口不变，把整阵单发改为预分配 out + 逐行 1-D×2-D 派发（2048 次子调用），为 np_matmul×rowwise_vectorized 冷格建立首条可归因实测证据——预期 @2048 ~135-165ms 落 naive np.dot 同带（gufunc 派发税不可见），比 einsum rowwise 快 ~23.5ms、比父本整阵慢 ~20×（内存墙）",
+  "usage": {
+    "input_tokens": 45595,
+    "output_tokens": 17362,
+    "cache_read": 145216,
+    "cache_write": 0,
+    "total_tokens": 208173,
+    "cost_usd": 0.17798195999999997
+  },
+  "wall_ms": 233690,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash"
+  ],
+  "model": "",
+  "iteration_id": 6,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter006-4c29c00a/prompt_builder.md"
+}

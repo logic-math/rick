@@ -1,0 +1,346 @@
+{
+  "cells": {
+    "dispatch_target=np_dot|impl_strategy=m_halves": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter001-4fe95963/solution.py",
+        "perf_value": 7.4224999999999985,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9497137083192986,
+        "lineage": [
+          "env/code/naive_start.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T20:01:26+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 1.0,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-21T19:54:33+08:00"
+    },
+    "dispatch_target=einsum_path|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter012-d7d3748e/solution.py",
+        "perf_value": 7.105625000000004,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9573366425850212,
+        "lineage": [
+          "codes/iter002-7b950b83/solution.py"
+        ],
+        "confidence": 0.5,
+        "admitted_at": "2026-10-21T22:01:37+08:00",
+        "gen": 2
+      },
+      "history": [
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter002-7b950b83/solution.py",
+          "perf_value": 7.275666999999999,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.9738855557847811,
+          "lineage": [
+            "env/code/naive_start.py"
+          ],
+          "confidence": 0.8,
+          "admitted_at": "2026-10-21T20:22:05+08:00",
+          "gen": 1
+        }
+      ],
+      "weight": 1.0,
+      "visit": 2,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-21T21:44:40+08:00"
+    },
+    "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter003-93ddaebc/solution.py",
+        "perf_value": 6.859249999999998,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9916939569402898,
+        "lineage": [
+          "codes/iter002-7b950b83/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T20:33:20+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 2.0,
+      "visit": 4,
+      "sample_count": 4,
+      "last_sampled_at": "2026-10-22T00:36:54+08:00"
+    },
+    "dispatch_target=einsum_path|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter004-09d14ede/solution.py",
+        "perf_value": 169.888041,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.041657693021140765,
+        "lineage": [
+          "codes/iter002-7b950b83/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T20:47:11+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 0.0,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-21T20:33:20+08:00"
+    },
+    "dispatch_target=np_dot|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter005-c8d039f5/solution.py",
+        "perf_value": 7.009041999999993,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9810784636160303,
+        "lineage": [
+          "codes/iter003-93ddaebc/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T20:50:17+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 1.0,
+      "visit": 3,
+      "sample_count": 3,
+      "last_sampled_at": "2026-10-22T00:05:59+08:00"
+    },
+    "dispatch_target=np_matmul|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter006-4c29c00a/solution.py",
+        "perf_value": 146.10520900000006,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.047450685392911654,
+        "lineage": [
+          "codes/iter003-93ddaebc/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T20:58:51+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 0.0,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-21T20:50:17+08:00"
+    },
+    "dispatch_target=np_dot|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.0,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=einsum_path|impl_strategy=m_quarters": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter014-134ed9e4/solution.py",
+        "perf_value": 9.174584,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.8053427752672773,
+        "lineage": [
+          "codes/iter007-19438cde/solution.py"
+        ],
+        "confidence": 0.5,
+        "admitted_at": "2026-10-21T22:45:08+08:00",
+        "gen": 2
+      },
+      "history": [
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter007-19438cde/solution.py",
+          "perf_value": 9.309250000000006,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.746365917295024,
+          "lineage": [
+            "codes/iter002-7b950b83/solution.py"
+          ],
+          "confidence": 0.8,
+          "admitted_at": "2026-10-21T21:09:52+08:00",
+          "gen": 1
+        }
+      ],
+      "weight": 0.5,
+      "visit": 2,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-21T22:24:31+08:00"
+    },
+    "dispatch_target=np_matmul|impl_strategy=m_halves": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter008-1446e1c9/solution.py",
+        "perf_value": 7.387208000000006,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9551060016453592,
+        "lineage": [
+          "codes/iter001-4fe95963/solution.py",
+          "codes/iter003-93ddaebc/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T21:17:22+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 1.0,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-21T21:09:52+08:00"
+    },
+    "dispatch_target=einsum_path|impl_strategy=m_halves": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter022-56336ab0/solution.py",
+        "perf_value": 7.753374999999993,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.8864427710361803,
+        "lineage": [
+          "codes/iter013-0a966897/solution.py"
+        ],
+        "confidence": 0.5,
+        "admitted_at": "2026-10-22T00:36:54+08:00",
+        "gen": 3
+      },
+      "history": [
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter009-a556ffa2/solution.py",
+          "perf_value": 8.083292000000005,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.8593961470153493,
+          "lineage": [
+            "codes/iter008-1446e1c9/solution.py",
+            "codes/iter007-19438cde/solution.py",
+            "codes/iter002-7b950b83/solution.py"
+          ],
+          "confidence": 0.8,
+          "admitted_at": "2026-10-21T21:32:20+08:00",
+          "gen": 1
+        },
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter013-0a966897/solution.py",
+          "perf_value": 7.838750000000005,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.8572790233145311,
+          "lineage": [
+            "codes/iter009-a556ffa2/solution.py"
+          ],
+          "confidence": 0.5,
+          "admitted_at": "2026-10-21T22:24:31+08:00",
+          "gen": 2
+        }
+      ],
+      "weight": 0.75,
+      "visit": 4,
+      "sample_count": 4,
+      "last_sampled_at": "2026-10-22T00:18:43+08:00"
+    },
+    "dispatch_target=np_dot|impl_strategy=m_quarters": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter017-245a85b7/solution.py",
+        "perf_value": 7.103042000000004,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9488545047528584,
+        "lineage": [
+          "codes/iter010-bf6c26c0/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T23:21:35+08:00",
+        "gen": 2
+      },
+      "history": [
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter010-bf6c26c0/solution.py",
+          "perf_value": 8.525541999999998,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.8217424496979697,
+          "lineage": [
+            "codes/iter001-4fe95963/solution.py"
+          ],
+          "confidence": 0.8,
+          "admitted_at": "2026-10-21T21:37:59+08:00",
+          "gen": 1
+        }
+      ],
+      "weight": 1.0,
+      "visit": 3,
+      "sample_count": 3,
+      "last_sampled_at": "2026-10-22T00:50:37+08:00"
+    },
+    "dispatch_target=np_matmul|impl_strategy=m_quarters": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter018-4ec7bfc7/solution.py",
+        "perf_value": 7.814667000000012,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.8939783714425649,
+        "lineage": [
+          "codes/iter011-e0dd0ac8/solution.py",
+          "codes/iter017-245a85b7/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-21T23:27:18+08:00",
+        "gen": 2
+      },
+      "history": [
+        {
+          "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter011-e0dd0ac8/solution.py",
+          "perf_value": 8.476249999999991,
+          "perf_type": "runtime_ms",
+          "perf_desc": "low",
+          "score": 0.8058979471448803,
+          "lineage": [
+            "codes/iter008-1446e1c9/solution.py",
+            "codes/iter010-bf6c26c0/solution.py"
+          ],
+          "confidence": 0.8,
+          "admitted_at": "2026-10-21T21:44:40+08:00",
+          "gen": 1
+        }
+      ],
+      "weight": 0.5,
+      "visit": 2,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-21T23:21:35+08:00"
+    }
+  },
+  "pending": [
+    {
+      "cell_id": "dispatch_target=einsum_path|impl_strategy=m_halves",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter022-56336ab0/solution.py",
+      "reason": "tolerance_band",
+      "added_at": "2026-10-22T00:36:54+08:00"
+    }
+  ],
+  "meta": {
+    "env": "",
+    "feature_axes": [],
+    "perf_desc": "low",
+    "updated_at": "2026-10-22T01:17:53+08:00"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.9695,
+  "perf_value": 7.167,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "零开销派发通道：模块级 _matmul = np.matmul 预绑定、函数体仅 return _matmul(a,b)，wrapper 开销 @64 从父本 +0.137µs 压至 +0.007µs（20.6×）、@2048 占 0.002%，max_error=0.0 逐位一致；3 次 K=3 bench score 0.992/0.970/0.964 未跨 1.0（严格证伪未全触发、边缘证据指向候选先计时顺序惩罚，供 adjust 决策）",
+  "usage": {
+    "input_tokens": 62433,
+    "output_tokens": 9296,
+    "cache_read": 198592,
+    "cache_write": 0,
+    "total_tokens": 270321,
+    "cost_usd": 0.17994252
+  },
+  "wall_ms": 120850,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "iteration_id": 15,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter015-614d495c/prompt_coding.md"
+}

@@ -1,0 +1,15 @@
+{
+  "idea": "out= 预分配裁决：父本 np.dot(a32, b32) 让 C 层内部分配 16MB 输出；改为显式 c = np.empty((m,)+b32.shape[1:]) 后 np.dot(a32, b32, out=c) 直写。机制假设：整阵派发下输出装配本为零拷贝，out= 只改变「谁分配输出」——预期分配器暖复用下无收益（预研 40 轮配对 A/B：out= 中位 6.909 vs 父本 6.890、12/40 胜，判持平），本实验用门禁口径裁决该杠杆并闭合 domain_knowledge 未覆盖方向 #2 在本格的遗留；正确性已预验证逐位一致（64/2047/2048×3seed、1-D b gemv、嵌套 list、退化形状 max_error 全部=0.0）",
+  "target_cell": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch",
+  "parents": [
+    "codes/iter005-c8d039f5/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter005-c8d039f5/solution.py，确认结构：asarray×2 转 float32 后单次整阵 np.dot 派发，无 out=、无转置、无模块级状态",
+    "单变量改动 solution.py 的 matmul：a32.ndim!=2 时回退原生 np.dot（保 1-D gemv 语义），否则 c = np.empty((a32.shape[0],) + b32.shape[1:], dtype=np.float32) 并 return np.dot(a32, b32, out=c)；其余一切不动（不动 K 维、不转置、不缓存、不加线程，保留 seterr 与 main() 自检块）",
+    "正确性验证：跑 env/skills/self_check.py --candidate solution.py（64/2048 双规模多 seed 双跑一致），要求 max_error=0.0；并用本目录 ab_test.py 内的边界用例复核 1-D b / 嵌套 list / 退化形状（0×k、k×0）逐位一致",
+    "性能裁决：跑 bench（self_check 含 k=1）记录门禁口径中位；再跑本目录 ab_test.py（40 轮交错配对 A/B，父本同会话重测作对照），判定规则：|Δ中位|≤0.05ms → 持平（杠杆闭合、地板确认）；Δ≤−0.05ms → 真实收益采纳为改进证据",
+    "把 A/B 数字与裁决结论写进 solution.py docstring（机制、预研数据、out= 在整阵派发下的裁决），保持与 naive_start/reference 的契约完全一致"
+  ],
+  "expected_behavior": "runtime_ms 与父本持平（±0.05ms 噪声带内；预研配对 A/B 中位 6.909 vs 6.890、胜率 12/40——机器负载抖动 ±0.3ms 主导一切微优化）；门禁中位预期 6.7-7.0ms、score 预期 0.98-0.99；正确性逐位一致 max_error=0.0（已预验证，含双跑一致性）；软门禁对基线 7.009 的通过上限 7.36ms 余量充足，测得 <7.009 即刷新格精英（负载态依赖）；若持平则 out= 杠杆在本格闭合、格地板=BLAS 平价获门禁口径确认，调度器可据此降权本格"
+}

@@ -1,0 +1,15 @@
+{
+  "idea": "M 粒度阶梯 2→4：沿用父本的 np.dot 派发 + out= 直写机制，把行二分边界改为行四分边界（edges=[(i*m//4,(i+1)*m//4) for i in range(4)]），每块 np.dot(a32[s:e], b32, out=c[s:e]) 直写预分配缓冲——相比 einsum|m_quarters（iter007）消除 einsum 包装×4（+0.56ms）与 16MB concatenate 拷贝（+0.69ms）两项开销，隔离测量纯 sgemm 分裂损失，补全 np_dot 轴 M 粒度-代价曲线（full 7.01 / halves 7.42 / quarters 本格）",
+  "target_cell": "dispatch_target=np_dot|impl_strategy=m_quarters",
+  "parents": [
+    "codes/iter001-4fe95963/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter001-4fe95963/solution.py（np_dot|m_halves 精英，7.42ms）：确认 h=m//2 二分结构、c=np.empty((m,)+b32.shape[1:]) 预分配、np.dot(..., out=c[s:e]) 直写机制与契约（暴露 matmul(a,b)、全程 float32、模块级 np.seterr、1-D b 走 gemv 兼容）",
+    "单变量改动——M 粒度 2→4：把二分替换为四分边界 edges=[(i*m//4, (i+1)*m//4) for i in range(4)]，循环对每个非空块（e>s）执行 np.dot(a32[s:e], b32, out=c[s:e]) 直写（c 仍预分配，无 concatenate、无转置、不动 K 维）；m==0 时返回 np.zeros((0,)+b32.shape[1:], f32) 退化守卫；其余一切（np.seterr、asarray 转换、main 自检框架）保持父本原样，只更新 docstring 中的 impl 名与迭代注记",
+    "正确性自检：python3 solution.py --n 64 与 --n 2048 确认 max_error_vs_matmul=0.0（M 分解不改 K 求和序）；补测非整除非方阵 (2050,2048)×(2048,100) 与 1-D b gemv 路径的形状与逐位一致（builder 预研探针已实测全部通过：max_error=0.0，m=0/3 退化形状正确）",
+    "性能测量：用 env/.venv/bin/python env/data/bench.py --candidate solution.py（2048 f32，k=3 取中位）记录 runtime_ms 与 score；builder 同机探针实测 quarters 8.41ms / halves 7.39ms（当前负载态差 +1.0ms 量级；归档态 halves 7.42），预期落点 7.9-8.6ms",
+    "归因核验与记录：对照 iter007（einsum|m_quarters）三因子归因（sgemm 分裂 +0.9~1.1ms / einsum 包装×4 +0.56ms / concatenate +0.69ms），把本格实测写进 docstring 作为 np_dot 轴 M 粒度阶梯数据点；若实测落在预期带外（<7.5ms 或 >8.6ms），在注记中记录偏差方向与候选原因（vecLib/AMX 小 M 内核选择差异），供 M 细分方向后续裁决"
+  ],
+  "expected_behavior": "runtime_ms：预期 7.9-8.6ms——劣于父本 m_halves（7.42，+0.5~1.0ms 纯 sgemm 结构性分裂损失）但显著优于 einsum|m_quarters（9.31，省去 ~1.2ms 的 einsum 包装×4 与 concatenate 拷贝）；builder 预研探针同机实测 quarters 8.41 vs halves 7.39ms 方向一致。正确性：M 行分解不改 K 求和序 → 64/2048 双规模、多 seed、双跑一致性均 max_error=0.0 逐位一致，必过 1e-3 容差门。可证伪点：实测 <7.5ms 说明 iter007 归因高估结构性损失（quarters 近乎免费）；实测 >8.6ms 说明 np.dot 路径的 4×512 分裂代价异常大于 einsum 路径，M 方向继续细分应立即止损"
+}

@@ -1,0 +1,27 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.985,
+  "perf_value": 6.904,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "iter020 骨架上单变量改为模块级持久 _OUT 缓冲（2-D×2-D 形状不符才重分配，np.dot out= 直写，其余维度回退原生 dot）：正确性 max_error=0.0 全过（含 25 项边界用例与两遍一致），配对 A/B Δ中位 +0.001~−0.010ms 判持平——分配轴三臂（内部/每调用/持久）全平闭合，门禁协议 6 轮中位 6.904ms/score 0.985，软门禁 7.36ms 余量充足；别名语义已 docstring 披露且两道门构造上安全，import 期预热明确不做并留档",
+  "usage": {
+    "input_tokens": 88091,
+    "output_tokens": 19974,
+    "cache_read": 675584,
+    "cache_write": 0,
+    "total_tokens": 783649,
+    "cost_usd": 0.38686484
+  },
+  "wall_ms": 286165,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "write"
+  ],
+  "model": "",
+  "iteration_id": 21,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_8/codes/iter021-5eeaa523/prompt_coding.md"
+}
