@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-21T06:46:30.718Z",
+  "updated_at": "2026-10-21T07:20:06.765Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -250,28 +250,28 @@
     {
       "task_id": "task20",
       "task_name": "adjust_trace.py 决策-效果对照工具 + e2e 断言适配（weight_share 字段等）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T07:20:06.765Z",
       "dependencies": [
         "task19"
       ],
       "task_file": "plan/task20.md",
-      "commit_hash": ""
+      "commit_hash": "24680521f34a9e0104d9f18e23beae61cc32d33f"
     },
     {
       "task_id": "task21",
       "task_name": "gen_env skill 轨迹→prompt 进化流程（四角色可进化+PROMPTS_LOG 约定+模型分配引导）+ super-loop 自改进 SOP",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T07:20:06.765Z",
       "dependencies": [
         "task19"
       ],
       "task_file": "plan/task21.md",
-      "commit_hash": ""
+      "commit_hash": "24680521f34a9e0104d9f18e23beae61cc32d33f"
     }
   ]
 }

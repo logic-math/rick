@@ -42,3 +42,9 @@ REALPI_SMOKE pass=true (2026-10-17, commit ea9dfc6)
   ① 心跳线程缺失→重启风暴（已修：后台心跳线程 10s 地板 + EventWriter 线程锁；回归测试护住）
   ② 冒烟 HOME 隔离屏蔽 pi 凭据（已修：.config 与 .rick/pi symlink 桥）
 - gate4 复跑 pass=true（276/276 + e2e + 双回归全绿，ea9dfc6 后）
+
+GATE gate5 pass=true (迭代3 L1: task15-18——加权随机采样+token 预算+格手术 225→6+adjust.md 契约)
+GATE gate6 pass=true (迭代3 L2: task19——expand_cell 链+热重载+决策快照+adjust_decision 事件+weight_share；全量 308 绿)
+GATE gate7 pass=true (迭代3 L3: task20-21——adjust_trace 工具+gen_env/super-loop 自改进层；run_all 全量+e2e 10/10 稳定)
+迭代3 全 7 task success（eb36fd9d/36fe59e2/24680521）
+过程修复：①t20 限流中断的 _repo_root 补全 ②pending 语义统一（档案 add_pending 同格 last-wins 去重——与投影一格一项对齐，e2e flaky 根治 10/10）③add_pending 移到 elite 事件后（事件先于档案原则）
