@@ -205,13 +205,18 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                 cell(cid)["elite"] = elite
                 if p.get("pending"):
                     reason = p.get("pending_reason") or "tolerance_band"
+                    # last-wins：同格再次 pending（复测保留后重新入库）时替换旧项——
+                    # 档案语义是 drain 后 add 新 code_path，投影若按 cell 去重丢弃
+                    # 新项会与档案不一致（e2e 实测：iter008 项丢失）
                     if cid not in pending_cells:
                         pending_cells.add(cid)
-                        pending.append({
-                            "cell_id": cid,
-                            "code_path": p.get("code_path"),
-                            "reason": reason,
-                        })
+                    else:
+                        pending = [q for q in pending if q["cell_id"] != cid]
+                    pending.append({
+                        "cell_id": cid,
+                        "code_path": p.get("code_path"),
+                        "reason": reason,
+                    })
         elif typ in (_INVALIDATION_EVENT, _RESURRECTION_EVENT):
             cid = p.get("cell_id")
             if isinstance(cid, str):

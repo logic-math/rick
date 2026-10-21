@@ -262,10 +262,17 @@ class Archive:
     # ---- pending（延迟入库队列） ----
 
     def add_pending(self, cell_id: str, code_path: str, reason: str) -> None:
+        """同格去重（last-wins）：同格再次 pending 时替换旧项——与
+        lineage.project_state 的投影语义对齐（一格一个待复测项；旧 code_path
+        被新精英覆盖后，复测对象应是新的。e2e 实测：不去重会两侧 pending 集
+        合不一致）。"""
         if reason not in PENDING_REASONS:
             raise ValueError(
                 "reason must be one of %s, got %r" % (sorted(PENDING_REASONS), reason)
             )
+        self._data["pending"] = [
+            p for p in self._data["pending"] if p.get("cell_id") != cell_id
+        ]
         self._data["pending"].append({
             "cell_id": cell_id,
             "code_path": code_path,

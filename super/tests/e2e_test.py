@@ -868,7 +868,8 @@ class TestPollutionDrill(unittest.TestCase):
                           "scheduler")
         writer.append("cell_sampled",
                       {"iteration_id": 5, "cell_id": cell_b, "visit": 1,
-                       "ucb_score": 1.0, "cold_start": True, "total_visit": 1},
+                       "weight_share": 0.0, "cold_start": True,
+                       "total_visit": 1},
                       "scheduler")
         writer.append("weight_changed",
                       {"cell_id": cell_b, "old_weight": 1.0, "new_weight": 0.0,
@@ -882,7 +883,8 @@ class TestPollutionDrill(unittest.TestCase):
                       "scheduler")
         writer.append("cell_sampled",
                       {"iteration_id": 7, "cell_id": cell_a, "visit": 1,
-                       "ucb_score": 1.0, "cold_start": True, "total_visit": 2},
+                       "weight_share": 0.5, "cold_start": True,
+                       "total_visit": 2},
                       "scheduler")
         writer.append("elite_admitted",
                       {"iteration_id": 7, "cell_id": cell_a,
@@ -1012,3 +1014,114 @@ class _DrillClient:
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestAdjustTraceTool(unittest.TestCase):
+    """super/tools/adjust_trace.py 冒烟（task20：决策-效果对照工具）。
+
+    fixture：手工造最小事件流（adjust_decision 主路径 + legacy 回退路径 +
+    空流），断言 markdown 输出非空且含关键列。
+    """
+
+    def _run_tool(self, ws, *extra):
+        import subprocess
+        # 仓库根：从本文件位置向上找（super/tests/e2e_test.py → 三层上即根）
+        def _repo_root():
+            p = os.path.abspath(__file__)
+            for _ in range(3):
+                p = os.path.dirname(p)
+            return p
+        tool = os.path.join(_repo_root(), "super", "tools",
+                            "adjust_trace.py")
+        r = subprocess.run([sys.executable, tool, "--workdir", ws] + list(extra),
+                           capture_output=True, text=True, timeout=60)
+        return r
+
+    def test_adjust_decision_path(self):
+        """主路径：adjust_decision 事件 → 表含迭代/proposals/效果列。"""
+        with tempfile.TemporaryDirectory(prefix="adjust-trace-") as ws:
+            with open(os.path.join(ws, "events.jsonl"), "w",
+                      encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
+                    "type": "adjust_decision", "source": "scheduler",
+                    "payload": {"iteration": 2, "agent_valid": True,
+                                "proposals": [{
+                                    "type": "soft_weight",
+                                    "target_cell": "a=x",
+                                    "action": "weight 1.0 -> 0.5",
+                                    "evidence": "gate 2 连败"}],
+                                "cells_status_summary": [
+                                    {"cell_id": "a=x", "visit": 2,
+                                     "weight": 1.0, "elite_perf": 100.0}]}})
+                       + "\n")
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:01:00+08:00", "seq": 2,
+                    "type": "cell_sampled", "source": "scheduler",
+                    "payload": {"iteration_id": 3, "cell_id": "a=x",
+                                "visit": 3, "weight_share": 0.5,
+                                "cold_start": False, "total_visit": 3}}) + "\n")
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:02:00+08:00", "seq": 3,
+                    "type": "gate_result", "source": "gate",
+                    "payload": {"iteration_id": 3, "cell_id": "a=x",
+                                "stage": "passed", "passed": True}}) + "\n")
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:03:00+08:00", "seq": 4,
+                    "type": "elite_replaced", "source": "scheduler",
+                    "payload": {"iteration_id": 3, "cell_id": "a=x",
+                                "code_path": "codes/i3/solution.py",
+                                "perf_value": 80.0, "score": 0.9,
+                                "lineage": [], "gen": 2, "confidence": 0.8}})
+                       + "\n")
+            r = self._run_tool(ws)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = r.stdout
+            self.assertIn("# adjust 决策-效果对照", out)
+            self.assertIn("soft_weight", out)
+            self.assertIn("a=x", out)
+            # 效果列：被采 1 次 / gate 1/1 / perf Δ = 80-100 = -20（改善）
+            self.assertIn("1/1", out)
+            self.assertIn("-20", out)
+
+    def test_legacy_fallback_path(self):
+        """回退路径：无 adjust_decision → weight_changed 重构决策帧。"""
+        with tempfile.TemporaryDirectory(prefix="adjust-trace-legacy-") as ws:
+            with open(os.path.join(ws, "events.jsonl"), "w",
+                      encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
+                    "type": "iteration_ended", "source": "scheduler",
+                    "payload": {"iteration_id": 2}}) + "\n")
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:00:30+08:00", "seq": 2,
+                    "type": "weight_changed", "source": "agent:adjust",
+                    "payload": {"cell_id": "b=y", "old_weight": 1.0,
+                                "new_weight": 0.0,
+                                "reason": "drill: extinct"}}) + "\n")
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:01:00+08:00", "seq": 3,
+                    "type": "cell_sampled", "source": "scheduler",
+                    "payload": {"iteration_id": 3, "cell_id": "b=y",
+                                "visit": 2, "weight_share": 0.0,
+                                "cold_start": False, "total_visit": 3}}) + "\n")
+            r = self._run_tool(ws, "--window", "3")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("weight 1.0 -> 0.0", r.stdout)
+            self.assertIn("b=y", r.stdout)
+
+    def test_empty_events(self):
+        """空流：明确提示无决策，退出码 0（可消费）。"""
+        with tempfile.TemporaryDirectory(prefix="adjust-trace-empty-") as ws:
+            with open(os.path.join(ws, "events.jsonl"), "w",
+                      encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
+                    "type": "session_started", "source": "scheduler",
+                    "payload": {}}) + "\n")
+            r = self._run_tool(ws)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("无 adjust 决策事件", r.stdout)
+
+
+# --------------------------------------------------------------------------- #

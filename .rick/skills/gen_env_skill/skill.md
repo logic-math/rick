@@ -5,8 +5,8 @@
 super 会话（super-loop）中出现以下情形时加载本 skill：
 
 - **env 缺失**：`rick super start` 前目标工作区还没有 `env/`，需要现场生成一个可运行的进化环境
-- **env 升级**：既有 env 需要演进——门禁加强（新增 exploit 样本/收紧容差）、评分方向调整、特征轴增改、任务域换版本
-- 信号词：「建一个 env」「这个域的进化环境」「门禁怎么设计」「加特征轴」「收紧正确性容差」
+- **env 升级**：既有 env 需要演进——门禁加强（新增 exploit 样本/收紧容差）、评分方向调整、特征轴增改、任务域换版本、**提示词进化（跑完一轮后用轨迹证据迭代四角色模板，见第 7 节）**
+- 信号词：「建一个 env」「这个域的进化环境」「门禁怎么设计」「加特征轴」「收紧正确性容差」「分析上轮 adjust 的决策轨迹」「进化 builder/coding 的 prompt」
 
 matmul 类任务不必从零访谈：`super/env_templates/matmul/` 模板已是完整实例，本 skill 的流程用于**定制**它或从零建设其它任务域。
 
@@ -25,7 +25,8 @@ env/
 ├── data/                    # 框架终验脚本：test_correctness.py + bench.py（stdout 单行 JSON 协议）
 ├── domain_knowledge.md      # 领域知识 + 「## 性能分析 SOP」「## 性能调优 SOP」两节
 ├── requirements.txt         # 非标准库依赖声明（如 numpy）
-└── .venv/                   # 可选：依赖隔离（python3 -m venv；门禁优先用 .venv/bin/python）
+├── .venv/                   # 可选：依赖隔离（python3 -m venv；门禁优先用 .venv/bin/python）
+└── prompts/                # 可选：四角色提示词模板的 env 级定制/进化产物（见第 8 节，延迟具体化）
 gates/                       # 工作区级（非 env 内）：
 ├── exploit_registry.json    # 已知作弊/坏解样本（门先证红的种子）
 └── golden_examples/         # 金样例（参考实现即首个金样例）
@@ -106,5 +107,58 @@ $PY env/data/test_correctness.py --candidate env/code/naive_start.py
 ### env 升级路径（触发场景之二）
 
 - 改门禁（容差/评分/exploit 注册表）→ **必须重跑门先证红**（exploit 全拒 + 金样例全过），建议顺带跑双回归（elite 回放 + exploit 回归）；改完下迭代自动生效（调度器每迭代 subprocess 直调 pi，无需重启）。
-- 加特征轴 → 新轴只影响后续采样；既有格不删（不删格原则），旧格降权走 adjust 提案。
+- 加特征轴 → 新轴只影响后续采样；既有格不删（不删格原则），旧格降权走 adjust 提案（run 内的运行时加格走 adjust 的 expand_cell 提案→裁决链；跨 run 的轴级改版走本升级路径）。
 - 升级访谈只需覆盖变更涉及的环节 + 第 6 节清单重过。
+
+### 7. 轨迹分析 → 提示词进化（《自改进的进化搜索算法》外层循环）
+
+搜索的「智能」住在 env 层的可进化资产里（特征空间 + 门禁 + **四角色提示词模板**）。
+本环节用上一轮 run 的**执行轨迹证据**迭代这些资产——跑一轮，不仅解在进化，搜索算法本身也在进化。
+
+适用对象：**四角色提示词均适用**（`adjust.md` / `builder.md` / `coding.md` / `debug.md`），
+其中 adjust 是首要对象（它是 run 内唯一采样决策者：权重=采样份额、加格=探索、灭绝=淘汰），
+builder 是第二优先级（成本大户，计划质量直接决定后续迭代的成功率）。
+
+**渲染机制（改造的对象在哪）**：调度器每迭代按三级查找链解析角色模板——
+`<ws>/prompts/<role>.md` → `<ws>/env/prompts/<role>.md`（**env 级覆盖**）→ 仓内默认
+`super/prompts/<role>.md`；解析后注入上下文（格元信息/实验计划/失败诊断）落盘为
+`codes/{uuid}/prompt_{role}.md` 派 pi 实例。改 env 级模板 = 改变该 env 下每次 agent
+调用的行为契约。
+
+**流程（五步，逐环节产出物落盘后再进下一步）**：
+
+1. **取证**：跑 `python3 super/tools/adjust_trace.py --workdir <ws> [--window 5]`
+   → 决策-效果对照表（每次 adjust 决策 → 之后 K 迭代受影响格的表现变化，markdown 表输出）。
+   证据补充源：`codes/adjust/iter_{N}/`（每次 adjust 的输入 prompt 与输出 proposals 快照）、
+   `events.jsonl` 里的 `adjust_decision` / `weight_changed` / `proposal` / `expand_cell` 事件。
+2. **诊断坏模式**（对照表 + 快照逐条核对）：
+   - **震荡**：同一格反复升降权（A↑B↓ 来回摆）
+   - **过激**：单次事件证据就大改权重（如 0.5→0）
+   - **迟钝**：连续多迭代的失败证据不动权重
+   - **漏杀**：垃圾格（持续差 perf 且无改善信号）长期占采样预算
+   - **探索不足**：全程 expand_cell 从未发生（数据饱和后仍不加格）
+   - **builder/coding/debug 各自的坏模式**：计划与结果脱节（builder 计划从不被执行）、
+     自检通过但框架门拒（coding 自检与门禁口径不一）、debug 修不动同类根因（缺诊断 SOP）
+3. **处方：改写 `env/prompts/<role>.md`**——针对诊断出的模式加/改**决策纪律与判断启发**
+   （如 adjust：每次权重变动须引用 ≥1 条事件 seq 号 / 同类连续降权须间隔防震荡 /
+   何时机值得 expand_cell；如 builder：计划的 plan_steps 必须可被 coding 直接执行）。
+   只改出问题的角色的模板——其余角色不动（可归因性：一次迭代一个变量）。
+4. **版本管理（三件套，缺一不可）**：
+   - **延迟具体化**：默认继承仓内模板（不复制不落盘）；仅当需要定制/进化时才首次落
+     `env/prompts/<role>.md`——env 协议保持最小。
+   - **旧版存档**：改写前把当前版本拷到 `env/prompts/_history/<role>.{yyyymmdd-HHMMSS}.md`。
+   - **PROMPTS_LOG.md**（`env/prompts/` 下）：每行记「时间 | 角色 | 版本要点（改了什么/为什么） |
+     证据链接（adjust_trace 输出/事件 seq）」——进化史可审计、可回滚、可对照。
+5. **下轮验证回环**：改完模板 → 回 super-loop 启动下一轮 run → run 完成后重跑第 1 步对照——
+   **改善 → 固化（PROMPTS_LOG 追加「已验证」）**；**恶化 → 回滚**（从 `_history/` 恢复上一版并记原因）。
+   一次只改一个角色的模板（否则改善/恶化都不可归因）。
+
+**模型分配引导（prompt 之外的另一个性能杠杆）**：计划/执行分离下两档模型分工是共识——
+`builder` 用贵档（实验计划质量优先），`coding` 可配轻档（执行性任务容错高）。
+配置走 `super.json` 的 `config.agent_models`（示例：
+`{"builder": "catpaw-proxy/glm-5.3", "coding": "catpaw-proxy/deepseek-v4-flash"}`）——
+与模板进化独立调优、独立归因；模型分配的调整同样记入 PROMPTS_LOG。
+
+**两级进化路径（接通点）**：本环节进化的是 **env 级资产**（该 run 的搜索 DNA）；
+super-loop / gen_env skill 自身等**仓级方法知识**的进化走 rick 既有 learning/dream 循环
+（轨迹分析发现系统性坏模式 → learning job 沉淀 → 更新 loop/skill）——两层各司其职、互不越界。

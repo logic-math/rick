@@ -30,7 +30,7 @@ def main():
         if "--workdir" not in s: ERRORS.append("[B] adjust_trace.py 缺 --workdir")
         # 冒烟：手工造最小事件流
         with tempfile.TemporaryDirectory() as td:
-            os.makedirs(td)
+            os.makedirs(td, exist_ok=True)
             evs = [
                 {"ts":"2026-10-20T10:00:00+08:00","seq":1,"type":"adjust_decision","source":"scheduler","payload":{"iteration":2,"proposals":[{"type":"soft_weight","target_cell":"a=x","new_weight":0.5}]}},
                 {"ts":"2026-10-20T10:01:00+08:00","seq":2,"type":"cell_sampled","source":"scheduler","payload":{"iteration_id":3,"cell_id":"a=x","visit":2,"cold_start":False,"weight_share":0.33}},

@@ -804,7 +804,10 @@ class Scheduler:
         else:
             reason = None
         if reason:
-            self.archive.add_pending(cell_id, candidate, reason)
+            # 事件先于档案（§2.5 原则）：add_pending 在 elite 事件之后——
+            # 原实现 add_pending 先于事件写，kill 落在两若之间会产生「档案有 pending、
+            # 事件流无记录」→ 重启投影丢失该项（e2e kill 场景 flaky 实测）
+            pass
 
         self.events.append(
             "elite_replaced" if had_elite else "elite_admitted",
@@ -820,6 +823,8 @@ class Scheduler:
                 # 投影重建契约字段（缺省 fallback 是 tolerance_band——必须显式）
                 "reason": reason, "pending_reason": reason,
             }, "scheduler")
+        if reason:
+            self.archive.add_pending(cell_id, candidate, reason)
         self.archive.save()
 
     # ------------------------------------------------------------------ #
