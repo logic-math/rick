@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-21T23:30:00+08:00",
+  "updated_at": "2026-10-22T00:30:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -279,31 +279,32 @@
       "status": "pending",
       "attempts": 0,
       "created_at": "2026-10-21T23:30:00+08:00",
-      "updated_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-22T00:30:00+08:00",
       "dependencies": [],
       "task_file": "plan/task22.md",
       "commit_hash": ""
     },
     {
       "task_id": "task23",
-      "task_name": "loop.py 输入完整性+saturation 信号+terminate_recommend+预算传参（builder ctx 补 env_dir/perf_profile_cmd；_saturation_signal；adjust ctx 注入；terminate 提案走 proposal 事件）+ test_loop",
+      "task_name": "loop.py 全面 ctx 增强（recent_events 真值/perf 时间线/预算/门禁定义/domain 摘要/父本清单/干预/saturation/env_dir）+ gate 失败接 debug + ledger 接线 + max_turns 传参",
       "status": "pending",
       "attempts": 0,
       "created_at": "2026-10-21T23:30:00+08:00",
-      "updated_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-22T00:30:00+08:00",
       "dependencies": [
-        "task22"
+        "task22",
+        "task26"
       ],
       "task_file": "plan/task23.md",
       "commit_hash": ""
     },
     {
       "task_id": "task24",
-      "task_name": "super/prompts 三模板：builder（env_dir/工具路径占位+saturation 动作）+adjust（saturation+terminate_recommend）+debug（占位对齐）——消灭硬编码",
+      "task_name": "四模板升级（builder/adjust/coding/debug：saturation/terminate/门禁定义/台账/可移植占位符）",
       "status": "pending",
       "attempts": 0,
       "created_at": "2026-10-21T23:30:00+08:00",
-      "updated_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-22T00:30:00+08:00",
       "dependencies": [
         "task22"
       ],
@@ -312,16 +313,27 @@
     },
     {
       "task_id": "task25",
-      "task_name": "gen_env skill + super-loop：prompt 进化可移植性纪律（占位符替代硬编码+PROMPTS_LOG 可移植性检查）+ 饱和/认输解读指引",
+      "task_name": "gen_env skill + super-loop：可移植性纪律 + 饱和/认输/台账解读 + gate→debug 说明",
       "status": "pending",
       "attempts": 0,
       "created_at": "2026-10-21T23:30:00+08:00",
-      "updated_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-22T00:30:00+08:00",
       "dependencies": [
         "task23",
         "task24"
       ],
       "task_file": "plan/task25.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task26",
+      "task_name": "ledger.py 实验台账模块（append/read/brief：iter/cell/idea/parents/gate/verdict/perf_delta/reject_reason）+ test_ledger",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-22T00:30:00+08:00",
+      "updated_at": "2026-10-22T00:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task26.md",
       "commit_hash": ""
     }
   ]
