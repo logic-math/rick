@@ -10,6 +10,42 @@
 - 评分方向：`runtime_ms` 越小越好（`perf_desc: "low"`）；基准 = `np.matmul` 同机计时，
   `score = ref_median / candidate_median`（加速比）
 
+## 特征格实验指引（6 格精选空间，3 策略 × 2 布局）
+
+> 格手术依据（env_7 实测 score 阶梯）：naive 三重循环 2.1e-5 → 逐行 np.dot **0.153**
+> （LLM 一步可达的跳变，~7000×）→ 整阵 BLAS **0.98-1.00**（天花板族）。
+> strassen / 多进程 / 线程池 / einsum 系在本机 512×512 实测**劣化**（死格族已裁除）；
+> >1.0 需绕开单调用 SME 路径，本机无实测可达方案，不作默认目标。
+
+### impl_strategy 轴（算法结构）
+
+- **blocked_loops（分块循环）**：把 n×n 切成块（如 64×64），块内乘积装进 L1/L2。
+  纯 Python 收益有限，但它是向量化/BLAS 路径的**前置结构**——分块边界预计算、
+  行引用提升（`ai = a[i]`）、循环序调优在这里做。实测：blocked+tiled 比 naive 快 ~3.2×
+  （demo 数据）。适合作为「结构性改进」的实验格。
+- **rowwise_vectorized（逐行向量化）**：`c[i] = np.dot(ai, b)` 行向量×矩阵——
+  score 0.153 的已验证跳板。注意 sgemv（np.dot）不触发 vecLib FP 噪声路径。
+  本格的深挖方向：批量行处理（`np.dot(a[i:i+8], b)`）、避免逐行调度开销。
+- **full_blas_dispatch（整阵 BLAS 派发）**：`np.matmul(a, b)` / `a @ b` / ctypes 直调
+  cblas_sgemm——**score ~1.0 的天花板族**（唯一能出平价解的族）。深挖方向：
+  out= 预分配、dtype 全程 float32、ctypes 走 Accelerate 的调用开销消减。
+  ⚠️ 与参考全同的候选 score 在 0.977-1.002 波动（±3% 噪声）——软门禁带 5% 匹配。
+
+### memory_layout 轴（数据排布）
+
+- **standard（标准 C 序）**：NumPy 默认行主序直用，`a[i]` 连续。基线布局——
+  实验方向是与算法结构的最优配对（哪些结构根本不需要数据预处理）。
+- **fused_transpose（预转置融合）**：`bt = list(zip(*b))` 或 `np.ascontiguousarray(b.T)`——
+  内积沿连续内存访问，通常 3-5× 提升（纯 Python 路径实测最大单变量收益）。
+  转置成本一次性摊销在 n 次内积里。进阶形态是按访问序打包（连续段重排），
+  与分块/BLAS 路径的数据准备天然衔接。
+
+### 格间迁移建议（builder 上下文）
+
+- 跨格重组最有价值的方向：blocked_loops 的**结构发现**（块尺寸、循环序）可迁移到
+  full_blas_dispatch 的分块派发；fused_transpose 的**数据洞察**（连续性/打包）对所有策略普适。
+- 同格深挖（full_blas_dispatch 族）是通往 score~1.0 的主路径——首访后值得连续投入。
+
 ## 性能分析 SOP
 
 **先测量，后动手——没有 profile 的优化是猜测。**
@@ -24,30 +60,25 @@
 
 ## 性能调优 SOP
 
-按「改动小→收益大」排序的路径（对应特征轴 `impl_strategy` 的取值域）：
+按「改动小→收益大」排序的路径（对应特征轴取值域）：
 
-1. **循环结构（naive_loops → blocked）**
-   - 先做转置视图：`bt = list(zip(*b))`，内层沿连续内存访问——通常 3-5× 提升
-   - 分块（cache-blocking）：把 n×n 切成块（如 64×64），块内乘积装进 L1/L2——
-     纯 Python 收益有限，但对后续向量化是前置结构
-2. **向量化（vectorized）**
-   - NumPy 整行/整块运算替代标量循环：`c[i] = np.dot(ai, b)`（行向量×矩阵）——通常 10-100×
-   - 全矩阵 `np.matmul(a, b)` / `a @ b`：直接命中 BLAS（参考实现即此，是「天花板」而非「作弊」）
-   - 注意 dtype：`float32` 输入全程保持 `float32`，中途升 `float64` 会慢且改变误差特性
-3. **内存布局（memory_layout 轴）**
-   - 行主序（row_major）：NumPy 默认 `C` 序，`a[i]` 连续——按行遍历友好
-   - 列主序（col_major）：`Fortran` 序，对「按列累加」的写法友好；`np.asfortranarray` 转换有一次性成本
-   - 分块平铺（tiled）：自管块状布局，配 blocked 策略
-4. **Strassen 类（strassen_like）**
-   - 递归分治：`2×2` 分块 + 7 次子矩阵乘（省 1/8 乘法量）——**边界**：递归/额外加减
-   - 的常数开销在 n=512、且底层已是 BLAS 时通常得不偿失；只在对纯 Python 分块实现
-   做结构优化时有意义。先测再上。
+1. **布局先行（memory_layout）**：内积沿连续内存——先做转置视图（fused_transpose），
+   纯 Python 路径通常 3-5×；2. **结构改进（blocked_loops）**：分块边界预计算、行引用提升、循环序（i-k-j）调优
+3. **向量化跳变（rowwise_vectorized）**：`np.dot(ai, b)` 替代内层标量循环——~7000× 跳变
+4. **BLAS 平价（full_blas_dispatch）**：`np.matmul` / ctypes 直调——score ~1.0 天花板；
+   注意 dtype 全程 float32，中途升 float64 会慢且改变误差特性
+
+**已实测劣化路径（不要重复探索）**：Strassen 递归（1.6× 慢）、多进程 fork/spawn/持久池
+（score≤0.063）、线程池（0.81-0.94）、fp64 累加（3.4× 慢）——env_7 实测数据，
+死格族已从特征空间裁除。
 
 ## 已知陷阱
 
-- **作弊模式（门会拒）**：返回预存固定矩阵（不依赖输入）/ 篡改计时（线程内偷跑）/ 
+- **作弊模式（门会拒）**：返回预存固定矩阵（不依赖输入）/ 篡改计时（线程内偷跑）/
   降低精度换速度（float16/截断）——正确性门与 exploit 注册表都会拒识
 - **形状错误**：返回 `(n,1,n)` 广播结果或转置结果——`shape mismatch` 直接拒
 - **首次运行抖动**：模块导入/BLAS 线程池初始化吃几十 ms——bench 已做预热 1 次，你自测也要预热
 - **BLAS 线程数**：`np.matmul` 在多核 BLAS 上自动并行；候选若手工设
   `OMP_NUM_THREADS=1` 之类的环境变量来「稳定计时」，不要在代码里改全局状态（污染门禁环境）
+- **score=1.0 非安全线**：与参考全同的候选有 ±3% 噪声波动（软门禁带 5% 兜底）；
+  >1.0 在本机 512×512 CPython+numpy 约束下无实测可达路径

@@ -1,0 +1,68 @@
+{
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=naive_loops|memory_layout=col_major|parallelism=multiprocess",
+  "note": "iter002 builder 校准证据（本机 env/.venv，numpy 2.0.2，2026-10-20）。两个来源：scratch_calib.py 两跑 + dryrun_validate.py（结构镜像候选）过官方门 dry-run。coding 可复跑验证。",
+  "scratch_calib_run1": {
+    "cpu_count": 18,
+    "ref_matmul_ms": 0.1894,
+    "percall_matmul_contig_us": 0.327,
+    "percall_dot_contig_us": 0.252,
+    "percall_matmul_strided_us": 0.594,
+    "percall_colslice_us": 0.07,
+    "serial_col_major_ms": 82.48,
+    "serial_row_major_ms": 158.31,
+    "layout_ratio_rm_over_cm": 1.919,
+    "per_element_ns": 314.6,
+    "mp_col_major_calls_ms": [35.33, 23.36, 25.21, 26.27],
+    "mp_col_major_steady_ms": 25.21,
+    "fork_join_noop_x6_ms": 6.85,
+    "asfortranarray_512_ms": 0.286,
+    "mp_max_error_vs_ref": 0.00018310546875,
+    "mp_double_run_bitwise": true,
+    "score_prediction_steady": 0.007512,
+    "serial_over_mp_speedup": 3.27,
+    "mp_overhead_share": 0.272
+  },
+  "scratch_calib_run2": {
+    "ref_matmul_ms": 0.1868,
+    "percall_matmul_contig_us": 0.335,
+    "percall_dot_contig_us": 0.263,
+    "percall_matmul_strided_us": 0.628,
+    "percall_colslice_us": 0.065,
+    "serial_col_major_ms": 82.98,
+    "serial_row_major_ms": 162.22,
+    "layout_ratio_rm_over_cm": 1.955,
+    "per_element_ns": 316.5,
+    "mp_col_major_calls_ms": [38.14, 25.48, 25.25, 25.13],
+    "mp_col_major_steady_ms": 25.25,
+    "fork_join_noop_x6_ms": 6.79,
+    "asfortranarray_512_ms": 0.288,
+    "mp_max_error_vs_ref": 0.00018310546875,
+    "mp_double_run_bitwise": true,
+    "score_prediction_steady": 0.007398,
+    "serial_over_mp_speedup": 3.29,
+    "mp_overhead_share": 0.269
+  },
+  "official_gate_dryrun_dryrun_validate_py": {
+    "test_correctness": {
+      "passed": true,
+      "max_error": 0.00018310546875,
+      "sizes": [64, 512],
+      "seeds": {"64": [42, 1022693636], "512": [42, 1704891479]},
+      "tolerance": 0.001,
+      "exit_code": 0
+    },
+    "bench_run1": {"runtime_ms": 25.516, "score": 0.007264, "timings": [25.516, 25.470, 26.230], "ref_runtime_ms": 0.18533, "exit_code": 0},
+    "bench_run2": {"runtime_ms": 25.552, "score": 0.007178, "timings": [25.146, 26.253, 25.552], "ref_runtime_ms": 0.18342, "exit_code": 0},
+    "self_check": {"correctness_passed": true, "max_error": 0.000213623046875, "perf_k1_runtime_ms": 23.787, "perf_k1_score": 0.007723, "exit_code": 0}
+  },
+  "plan_band": {
+    "runtime_ms_k3_median": "24-28ms（带外判缺陷域：<20 或 >35）",
+    "score": "0.0068-0.0080",
+    "max_error": "1.8-2.2e-4",
+    "axis_contrast_payload": {
+      "layout_direction_reversal": "col_major 在本格（1-D np.matmul 列访问）是 ~1.9x 收益；在 iter001 einsum 格是 1.53x 罚分——memory_layout x dispatch_target 交互方向反转证据",
+      "mp_overhead_share_crossover": "fork 开销占比 ~27%（本格 ~25ms 尺度）vs ~78%（iter001 ~10ms 尺度）——开销占比随总工作量下降的交叉点数据",
+      "dispatch_axis_premium": "np.matmul 1-D 入口较 np.dot 慢 ~30%（0.33 vs 0.25us/call）——dispatch_target 轴选择在 naive 粒度下的每元素差价"
+    }
+  }
+}

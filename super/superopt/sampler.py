@@ -1,85 +1,93 @@
-"""sampler.py — UCB 采样（visit 真实递增）+ 冷启动先验加权随机。
+"""sampler.py — 纯加权随机采样（概率 ∝ adjust 权重）+ 分殖优先。
 
-修复 v5 两大采样缺陷（本模块存在的理由）：
-1. **visit 断链**（db.py:201 零调用）：采样不递增 visit → UCB 分母恒不变。
-   本实现：``increment_visit`` 是唯一递增入口（经 on_visit 回调写 archive）；
-   ``sample_cell`` 为纯计算（调用方显式递增——loop 在采样后接线）。
-2. **UCB 退化 / StrategyAgent 权重接管**（feature_space.py:95-162 / :135-141）：
-   本实现是纯 UCB1 + 先验权重乘子——无启发式、无 agent 直改权重通道
-   （adjust 的软动作经 archive.weight 生效，硬动作走外置裁决，均不经本模块）。
+架构定位（job_47 迭代 3 裁决 J-i3-1/J-i3-2）：**采样决策权集中 adjust agent**。
+- 探索 = adjust 加格（expand_cell，走裁决链与 feature_space 热重载——loop 侧）
+- 利用 = adjust 权重（权重高 → 采样份额大）
+- 淘汰 = 灭绝（weight=0 = 功能性灭绝，R2-2：不删格）
+本模块因此退化为**纯执行器**：不做任何统计决策（UCB 数学已退役——迭代 3
+裁决；v5 时代的 UCB 实现见 git 历史与本模块的旧文档字符串）。
 
-采样决策（设计树 R2-3 裁决）：
-- **冷启动**（全格 visit==0，或 ``cold=True`` 强制）：按格子先验权重
-  （archive weight；无记录=1.0）加权随机（random.choices）
-- **热态/混合态**：``score(cell) = ucb_score(cell) * prior_weight(cell)`` 取
-  argmax（R2-3 合并形态的简并实现）。visit==0 的格 ucb=+inf（未探索臂的
-  乐观上界）→ 必进 argmax 平局集 → 冷格必被探索；平局集内按先验权重
-  加权随机（保住冷启动的权重语义）
-- **灭绝格**（weight<=0）：任何态下永不被采样（功能性灭绝，R2-2：不删格）
+历史价值保留说明：v5 两大采样缺陷的回归防线**全部保留**：
+1. **visit 断链**（db.py:201 零调用）：``increment_visit`` 仍是唯一递增入口
+   （经 on_visit 回调写 archive）——visit 现在只服务事件流/统计/自改进分析，
+   不再参与采样决策，但断链防御（未注入回调即显式报错）不变。
+2. **静默权重接管**：权重语义现在**显式委派**给 adjust（有 weight_changed
+   事件审计 + 裁决链），不再是绕过统计层的静默旁路。
+
+采样规则：
+- 候选 = 空间内存活格（weight>0；特征空间是候选全集的权威）
+- **分殖优先**：存在未访问（visit==0 且 weight>0）的格 → 仅在未访问格中
+  按权重加权随机（保证全空间铺开：每格至少 1 次——评估新格用确定性机会，
+  新加格由此自动获得首访）
+- 全部已访问 → 全部存活格按权重加权随机
+- ``cold=True`` 强制参数保留（测试语义：全候选权重随机，跳过分殖优先）
 
 与 Archive 的接口约定（鸭子类型，零 import 耦合）：
 - ``archive.cells() -> {cell_id: {visit, weight, elite, ...}}``（返回副本）
 - visit 递增经构造注入的 ``on_visit: Callable[[str], None]``（loop 接
-  ``archive.bump_visit``）；未注入而调 increment_visit → 显式报错（断链防御）
-- 特征空间是候选全集的权威：archive 中空间外脏格不参与采样
+  ``archive.bump_visit``）；未注入而调 increment_visit → 显式报错
+
+事件字段契约（⚠️ loop 侧适配归 task19）：``cell_sampled`` 事件的
+``ucb_score`` 字段已改名 ``weight_share``（= 该格 weight / 候选集总 weight，
+采样前快照的可观测值）——由本模块 ``weight_share()`` 提供，loop 写事件时
+应改用该值（本 task 只改 sampler 与其测试，loop.py 的 ucb_score 引用
+由 task19 统一适配）。
 
 stdlib-only，Python >= 3.9。
 """
-import math
 import random
 from typing import Any, Callable, Dict, Optional
 
-# UCB1 探索系数默认值（可配：构造参数 c）
-DEFAULT_C = 0.7
-
 
 class Sampler:
-    """格子采样器：冷启动先验加权随机 + 热/混合态 UCB×weight argmax。"""
+    """格子采样器：纯加权随机（概率 ∝ weight）+ 分殖优先。
+
+    权重语义（J-i3-1）：weight 是 **相对采样份额**——允许 >1（如 2.0 =
+    平均份额的两倍），0 = 功能性灭绝。adjust agent 是权重的唯一合法作者
+    （weight_changed 事件审计）；本模块不做任何修饰（不乘、不加成）。
+    """
 
     def __init__(self,
                  archive: Any,
                  feature_space: Any,
                  on_visit: Optional[Callable[[str], None]] = None,
-                 c: float = DEFAULT_C,
-                 rng: Optional[random.Random] = None) -> None:
+                 rng: Optional[random.Random] = None,
+                 c: Optional[float] = None) -> None:
         """
         :param archive: 鸭子类型 Archive（须有 cells() 方法）
         :param feature_space: 鸭子类型 FeatureSpace（须有 all_cells() 方法）
         :param on_visit: visit 递增回调（loop 接 archive.bump_visit）；None 时
             increment_visit 会显式报错（防 v5 断链复发）
-        :param c: UCB 探索系数（>0）
         :param rng: 随机源（random.Random 实例；默认用 random 模块——测试注入固定种子）
+        :param c: 【已废弃】UCB 探索系数（迭代 3 退役）。仅为 loop.py 构造点的
+            向后兼容保留（接受并忽略）；task19 将清理调用侧并移除此参数。
         """
         if not callable(getattr(archive, "cells", None)):
             raise ValueError("archive 需提供 cells() 方法（鸭子类型接口），收到 %r" % (archive,))
         if not callable(getattr(feature_space, "all_cells", None)):
             raise ValueError("feature_space 需提供 all_cells() 方法（鸭子类型接口），收到 %r"
                              % (feature_space,))
-        if not (isinstance(c, (int, float)) and c > 0):
-            raise ValueError("UCB 探索系数 c 必须为正数，收到 %r" % (c,))
         if on_visit is not None and not callable(on_visit):
             raise ValueError("on_visit 必须是 Callable[[str], None] 或 None")
         self._archive = archive
         self._fs = feature_space
         self._on_visit = on_visit
-        self._c = float(c)
         self._rng = rng if rng is not None else random
+        # c 已废弃：忽略（UCB 数学退役；见类 docstring）
 
     # ---- 对外 API ----
 
     def sample_cell(self, cold: Optional[bool] = None) -> str:
         """采样一个目标格（纯计算：不改任何状态）。
 
-        :param cold: None=自动判定（全冷走冷启动，否则热/混合路径）；
-            True=强制冷启动路径（无视 visit，纯权重随机）；
-            False=强制热/混合路径（无热格时退化为权重随机——无 UCB 数据可用）
+        :param cold: None=自动判定（分殖优先 → 全量加权随机）；
+            True=强制全候选权重随机（跳过分殖优先——测试语义）
         :return: cell_id
         :raises ValueError: 无可采样格（全部灭绝 / 空间为空）
 
-        分殖优先（优化空间②，job_47 首跑实测）：自动判定下若存在未访问
-        （visit==0 且 weight>0）的格子 → 仅在未访问格中按先验权重加权随机
-        ——保证全空间铺开（每格至少 1 次）后才转入 UCB 利用；灭绝格即使
-        未访问也不参与分殖。cold=True 的强制路径不启用分殖优先（测试语义）。
+        分殖优先：自动判定下若存在未访问（visit==0 且 weight>0）的格子 →
+        仅在未访问格中按权重加权随机——保证全空间铺开（每格至少 1 次）；
+        灭绝格即使未访问也不参与分殖。cold=True 不启用分殖优先（测试语义）。
         """
         snap = self._archive.cells()
         # 候选 = 空间内非灭绝格（weight<=0 过滤；空间是候选全集的权威）
@@ -87,40 +95,37 @@ class Sampler:
                       if self._weight(cid, snap) > 0.0]
         if not candidates:
             raise ValueError("无可采样格子：全部格子 weight<=0（功能性灭绝）或特征空间为空")
-        hot = [cid for cid in candidates if self._visit(cid, snap) > 0]
 
-        if cold is None:
-            # 分殖优先：有未访问的存活格 → 只在它们里铺开（每格至少 1 次）
-            unvisited = [cid for cid in candidates
-                         if self._visit(cid, snap) == 0]
-            if unvisited:
-                return self._weighted_choice(unvisited, snap)
-            # 全部已访问 → 热/混合路径
-            if not hot:
-                # 防御：全访问却无热格（visit 数据被清）→ 权重随机
-                return self._weighted_choice(candidates, snap)
-            return self._ucb_pick(candidates, hot, snap)
         if cold is True:
-            # 强制冷启动路径（测试语义）：全部候选按先验权重加权随机
             return self._weighted_choice(candidates, snap)
-        # cold=False 强制热路径
-        if not hot:
-            return self._weighted_choice(candidates, snap)
-        return self._ucb_pick(candidates, hot, snap)
+        # 自动判定 / cold=False：分殖优先（未访问存活格铺开）
+        unvisited = [cid for cid in candidates
+                     if self._visit(cid, snap) == 0]
+        if unvisited:
+            return self._weighted_choice(unvisited, snap)
+        return self._weighted_choice(candidates, snap)
 
-    def _ucb_pick(self, candidates, hot, snap: Dict[str, dict]) -> str:
-        """热/混合态：score = ucb * prior_weight → argmax；平局集内权重随机。"""
-        total_visit = sum(self._visit(cid, snap) for cid in candidates)
-        scores = {cid: self._ucb(cid, total_visit, snap) * self._weight(cid, snap)
-                  for cid in candidates}
-        best = max(scores.values())
-        tie = [cid for cid in candidates if scores[cid] == best]
-        if len(tie) == 1:
-            return tie[0]
-        return self._weighted_choice(tie, snap)
+    def weight_share(self, cell_id: str) -> float:
+        """该格在当前候选集中的采样份额（= weight / 候选集总 weight）。
+
+        供 ``cell_sampled`` 事件 payload 的 ``weight_share`` 字段（可观测性：
+        每次采样时的实际概率分布快照）。灭绝格/空间外格返回 0.0。
+        """
+        snap = self._archive.cells()
+        if cell_id not in self._fs.all_cells():
+            return 0.0
+        candidates = [cid for cid in self._fs.all_cells()
+                      if self._weight(cid, snap) > 0.0]
+        total = sum(self._weight(cid, snap) for cid in candidates)
+        if total <= 0.0:
+            return 0.0
+        return self._weight(cell_id, snap) / total
 
     def increment_visit(self, cell_id: str) -> None:
-        """唯一 visit 递增入口（修复 v5 断链；写 archive 经 on_visit 回调）。
+        """唯一 visit 递增入口（v5 断链防御保留；写 archive 经 on_visit 回调）。
+
+        visit 现在只服务事件流/统计/自改进分析（不再参与采样决策），
+        但递增必须落到 archive 的防线不变。
 
         :raises ValueError: 未注入回调 / 格不在特征空间内（拒脏格）
         """
@@ -130,28 +135,10 @@ class Sampler:
             raise ValueError("increment_visit 需要 on_visit 回调（断链防御：递增必须落到 archive）")
         self._on_visit(cell_id)
 
-    def ucb_score(self, cell_id: str, total_visit: int) -> float:
-        """单格 UCB 分（不含先验权重；供测试与 cell_sampled 事件 payload）。
-
-        - visit>0：``mean_norm + C*sqrt(ln(total_visit)/visit)``
-        - visit==0：``+inf``（未探索臂的乐观上界——序列化进事件 payload 时
-          调用方需注意 JSON 无 Infinity，应 cap/标注）
-        - mean_norm：格内 elite.score clamp 到 [0,1]；无精英=0.5 中性值
-        """
-        snap = self._archive.cells()
-        return self._ucb(cell_id, total_visit, snap)
-
     # ---- 内部 ----
 
-    def _ucb(self, cell_id: str, total_visit: int, snap: Dict[str, dict]) -> float:
-        visit = self._visit(cell_id, snap)
-        if visit <= 0:
-            return math.inf
-        total = max(int(total_visit), 1)  # 防御：total<1 时 log 非法
-        mean = self._mean_norm(cell_id, snap)
-        return mean + self._c * math.sqrt(math.log(total) / visit)
-
     def _weighted_choice(self, cell_ids, snap: Dict[str, dict]) -> str:
+        """存活格按 weight 比例随机（唯一采样原语）。"""
         weights = [self._weight(cid, snap) for cid in cell_ids]
         return self._rng.choices(cell_ids, weights=weights, k=1)[0]
 
@@ -174,16 +161,3 @@ class Sampler:
         except (TypeError, ValueError):
             return 0.0  # 脏数据保守视为灭绝（不可采），不炸采样循环
         return wf if wf > 0.0 else 0.0
-
-    @staticmethod
-    def _mean_norm(cell_id: str, snap: Dict[str, dict]) -> float:
-        entry = snap.get(cell_id) or {}
-        elite = entry.get("elite")
-        score = elite.get("score") if isinstance(elite, dict) else None
-        if score is None:
-            return 0.5  # 无精英：中性值
-        try:
-            sc = float(score)
-        except (TypeError, ValueError):
-            return 0.5
-        return min(1.0, max(0.0, sc))  # clamp 到 [0,1]（防 0-100 制/负值脏数据）

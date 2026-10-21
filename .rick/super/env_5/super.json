@@ -1,0 +1,26 @@
+{
+  "budget": {
+    "max_wall_time_h": 24,
+    "wall_start": null
+  },
+  "config": {
+    "adjust_interval": 5,
+    "debug_max_attempts": 3,
+    "heartbeat_interval_s": 30,
+    "heartbeat_timeout_s": 90,
+    "max_iterations": 0,
+    "max_wall_time_h": 24,
+    "pi_path": "",
+    "python_path": "python3",
+    "soft_gate_k": 3,
+    "term_grace_s": 5
+  },
+  "daemon": false,
+  "heartbeat_path": "/Users/logic/workdir/rick-dev/.rick/super/env_5/heartbeat.json",
+  "iteration_cursor": 0,
+  "pid": null,
+  "preverify_red": true,
+  "state": "idle",
+  "updated_at": "2026-10-20T10:36:19+08:00",
+  "worker_pid": null
+}

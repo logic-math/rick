@@ -62,7 +62,9 @@ def main():
     prod = next((l.split(" ",1)[1].strip() for l in wt.stdout.splitlines() if l.startswith("worktree ") and "rick-dev" not in l), None)
     if prod and os.path.isdir(prod):
         r = run(["git", "status", "--porcelain", "-uno"], cwd=prod)
-        if r.stdout.strip(): ERRORS.append(f"[D][RSI] 生产被改动：{r.stdout.strip()[:300]}")
+        # .rick/dream 等知识资产是用户侧自有改动（非本 job 产物），不计违规
+        changed = [l for l in r.stdout.splitlines() if ".rick/dream/" not in l]
+        if changed: ERRORS.append("[D][RSI] 生产被改动：" + chr(10).join(changed)[:300])
 
     print(json.dumps({"pass": not ERRORS, "errors": ERRORS}, ensure_ascii=False, indent=2))
     sys.exit(0 if not ERRORS else 1)

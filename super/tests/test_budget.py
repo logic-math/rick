@@ -1,8 +1,10 @@
-"""test_budget.py — superopt.budget 单元测试（job_47/task4）
+"""test_budget.py — superopt.budget 单元测试（job_47/task4 + 迭代3/task16）
 
 覆盖：record_agent 聚合（数值精确）、summary 分 role 与总计、
 零 token 降级标注（token_degraded）、within_budget 墙钟检查、
 record_event 占位行为。
+迭代3/task16 新增：total_tokens 查询、max_total_tokens 双轨预算
+（触发/不触发/降级轨不锁死/两轨独立/向后兼容）。
 """
 import os
 import sys
@@ -118,6 +120,84 @@ class TestWithinBudget(unittest.TestCase):
         led = CostLedger(max_wall_time_h=1.0)
         self.assertGreaterEqual(led.wall_start, before)
         self.assertLessEqual(led.wall_start, time.time())
+
+
+class TestTokenBudget(unittest.TestCase):
+    """迭代3/task16：max_total_tokens 双轨预算检查。"""
+
+    def test_total_tokens_query(self):
+        """total_tokens() 与 summary()[total][total_tokens] 同源同值。"""
+        led = CostLedger(max_wall_time_h=24.0)
+        led.record_agent("builder", wall_ms=100, tool_calls=1,
+                         usage=_usage(100, 50, 150, 0.01))
+        led.record_agent("coding", wall_ms=200, tool_calls=2,
+                         usage=_usage(200, 100, 300, 0.03))
+        self.assertEqual(led.total_tokens(), 450)
+        self.assertEqual(led.summary()["total"]["total_tokens"], 450)
+
+    def test_total_tokens_empty_ledger(self):
+        led = CostLedger(max_wall_time_h=24.0)
+        self.assertEqual(led.total_tokens(), 0)
+
+    def test_token_limit_triggers_false(self):
+        """累计 token 达到上限 → within_budget False（>= 判定：达到即耗尽）。"""
+        led = CostLedger(max_wall_time_h=24.0, max_total_tokens=450)
+        led.record_agent("builder", wall_ms=100, tool_calls=1,
+                         usage=_usage(100, 50, 150, 0.01))
+        self.assertTrue(led.within_budget(), "300 < 450 仍在预算内")
+        led.record_agent("coding", wall_ms=200, tool_calls=2,
+                         usage=_usage(200, 100, 300, 0.03))
+        self.assertEqual(led.total_tokens(), 450)
+        self.assertFalse(led.within_budget(), "达到 450 上限 → 耗尽")
+
+    def test_token_limit_exceeded(self):
+        """单次记录直接超上限 → False。"""
+        led = CostLedger(max_wall_time_h=24.0, max_total_tokens=100)
+        led.record_agent("builder", wall_ms=100, tool_calls=1,
+                         usage=_usage(90, 20, 110, 0.01))
+        self.assertFalse(led.within_budget())
+
+    def test_zero_tokens_unlimited(self):
+        """max_total_tokens=0/负 = 不限 token（向后兼容默认）。"""
+        led = CostLedger(max_wall_time_h=0, max_total_tokens=0)
+        led.record_agent("builder", wall_ms=100, tool_calls=1,
+                         usage=_usage(10**9, 10**9, 2 * 10**9, 1.0))
+        self.assertTrue(led.within_budget())
+        led2 = CostLedger(max_wall_time_h=0, max_total_tokens=-5)
+        led2.record_agent("builder", wall_ms=100, tool_calls=1,
+                          usage=_usage(10, 5, 15, 0.0))
+        self.assertTrue(led2.within_budget(), "负值同样视为不限")
+
+    def test_degraded_usage_never_trips_token_limit(self):
+        """provider 未上报 usage（全 0 降级轨）→ token 检查恒不触发，
+        墙钟轨仍兜底（降级不能把系统锁死）。"""
+        led = CostLedger(max_wall_time_h=24.0, max_total_tokens=10)
+        for _ in range(5):
+            led.record_agent("builder", wall_ms=100, tool_calls=1, usage=None)
+        self.assertTrue(led.within_budget(), "全零 token 的降级轨不触发上限")
+
+    def test_wall_and_token_tracks_independent(self):
+        """两轨独立：墙钟耗尽 + token 不限 → False；反向亦然。"""
+        led = CostLedger(max_wall_time_h=1.0,
+                         wall_start=time.time() - 7200,
+                         max_total_tokens=0)
+        led.record_agent("builder", wall_ms=1, tool_calls=0,
+                         usage=_usage(1, 1, 2, 0.0))
+        self.assertFalse(led.within_budget(), "墙钟耗尽")
+        led2 = CostLedger(max_wall_time_h=0, max_total_tokens=1)
+        led2.record_agent("builder", wall_ms=1, tool_calls=0,
+                          usage=_usage(1, 1, 2, 0.0))
+        self.assertFalse(led2.within_budget(), "token 耗尽")
+
+    def test_default_constructor_unaffected(self):
+        """向后兼容：不传 max_total_tokens 的既有构造行为不变。"""
+        led = CostLedger(max_wall_time_h=1.0,
+                         wall_start=time.time() + 3600)
+        led.record_agent("builder", wall_ms=1, tool_calls=0,
+                         usage=_usage(10**6, 10**6, 2 * 10**6, 5.0))
+        self.assertTrue(led.within_budget(),
+                        "默认 0=不限 token，仅墙钟轨生效")
+        self.assertEqual(led.max_total_tokens, 0)
 
 
 class TestRecordEventPlaceholder(unittest.TestCase):

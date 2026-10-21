@@ -27,6 +27,10 @@ DEFAULTS: Dict[str, Any] = {
     "heartbeat_timeout_s": 90,     # Go 侧判心跳超时的阈值
     "term_grace_s": 5,             # SIGTERM → SIGKILL 的宽限期
     "max_wall_time_h": 24.0,       # 墙钟预算（小时）；0/负 = 不限时
+    "max_total_tokens": 0,         # token 预算上限（迭代3/task16）；0 = 不限。
+                                   # 例：50_000_000（5000 万——约 demo 两轮的
+                                   # 总量级）；超限 within_budget=False →
+                                   # loop 优雅停（session_ended 标注）。
     "max_iterations": 0,           # 迭代上限；0 = 无上限（默认仅测试/e2e 传参）
     "python_path": "python3",
     "pi_path": "",                 # pi 二进制路径；空 = 消费方须显式提供

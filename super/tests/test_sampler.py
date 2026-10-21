@@ -1,17 +1,18 @@
-"""test_sampler.py — Sampler 单元测试（job_47 / task3）。
+"""test_sampler.py — Sampler 单元测试（job_47 / task15：纯加权随机）。
 
 跑法（仓库根）：
     python3 -m unittest super.tests.test_sampler -v
 
-这是修复 v5 两大采样缺陷的回归测试集：
-1. visit 断链（db.py:201 零调用）→ increment_visit 唯一递增入口（on_visit 回调写 archive）
-2. UCB 退化 / StrategyAgent 权重接管 → 纯 UCB1 + 先验权重，无启发式
+迭代 3 裁决（J-i3-1/J-i3-2）后的采样契约：
+- 采样 = 纯加权随机（概率 ∝ adjust 权重）；UCB 数学退役
+- 分殖优先保留：未访问存活格先铺满（每格至少 1 次）
+- 灭绝格（weight=0）永不被采；weight 允许 >1（相对份额语义）
+- visit 递增入口/断链防御（v5 回归防线）不变
+- weight_share()：采样份额可观测值（cell_sampled 事件字段，loop 侧接线）
 
-覆盖：冷启动先验加权随机 / UCB argmax（手工算例）/ visit 真实递增 /
-灭绝格永不被采 / 未探索格必被探索（ucb=inf）/ 软降权乘性折扣 /
-混合态平局集权重随机 / 空间外脏格忽略 / 构造校验。
+覆盖：权重比例随机 / 灭绝不采 / 分殖覆盖 / weight_share / cold 强制路径 /
+增量 visit 防线 / 空间外脏格忽略 / 构造校验。
 """
-import math
 import random
 import unittest
 
@@ -20,11 +21,7 @@ from super.superopt.sampler import Sampler
 
 
 class FakeArchive:
-    """内存假 Archive（鸭子类型：cells() 返回副本 / bump_visit 递增）。
-
-    与真 Archive（task2）接口约定一致：cells() -> {cell_id: {visit, weight,
-    elite, ...}} 副本；visit 递增经 bump_visit（loop 集成时由 on_visit 接线）。
-    """
+    """内存假 Archive（鸭子类型：cells() 返回副本 / bump_visit 递增）。"""
 
     def __init__(self, cells=None):
         self._cells = cells or {}
@@ -43,42 +40,78 @@ def one_axis_fs(values):
     ])
 
 
-class TestColdStart(unittest.TestCase):
-    """冷启动：全格无 visit → 先验权重加权随机（R2-3 裁决）。"""
+class TestWeightedRandom(unittest.TestCase):
+    """核心：概率 ∝ 权重的纯加权随机（无 UCB/无加成修饰）。"""
 
-    def test_weighted_random_ratio(self):
-        # 权重 9:1 两格 → 200 次采样选中比 > 3:1（固定 rng 无 flake）
+    def test_weight_ratio_3_to_1(self):
+        # 权重 3:1 两格 → 200 次采样选中比在 2~3.5:1 之间（固定 rng 无 flake）
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
-            "s=a": {"visit": 0, "weight": 9.0},
-            "s=b": {"visit": 0, "weight": 1.0},
+            "s=a": {"visit": 5, "weight": 3.0, "elite": {"score": 0.9}},
+            "s=b": {"visit": 5, "weight": 1.0, "elite": {"score": 0.1}},
         })
         s = Sampler(archive=arch, feature_space=fs, rng=random.Random(42))
         counts = {"s=a": 0, "s=b": 0}
         for _ in range(200):
             counts[s.sample_cell()] += 1
-        self.assertGreater(counts["s=a"], counts["s=b"] * 3,
-                           "权重 9:1 下选中比应 > 3:1，实际 %r" % counts)
+        ratio = counts["s=a"] / counts["s=b"]
+        self.assertGreaterEqual(ratio, 2.0,
+                                "3:1 权重选中比应 >= 2:1，实际 %r" % counts)
+        self.assertLessEqual(ratio, 3.5,
+                              "3:1 权重选中比应 <= 3.5:1（无加成修饰），实际 %r" % counts)
 
-    def test_unrecorded_cell_default_weight_one(self):
-        # archive 无记录 = weight 1.0：均匀可采
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive()
-        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(11))
-        picked = {s.sample_cell() for _ in range(30)}
-        self.assertEqual(picked, {"s=a", "s=b"})
-
-    def test_cold_param_forces_cold_path(self):
-        # cold=True 强制冷启动路径（无视 visit 数据）：低权格仍有机会被采到
-        fs = one_axis_fs(["a", "b"])
+    def test_equal_weights_uniform(self):
+        fs = one_axis_fs(["a", "b", "c"])
         arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 9.0, "elite": {"score": 0.9}},
-            "s=b": {"visit": 1, "weight": 1.0},
+            "s=a": {"visit": 2, "weight": 1.0},
+            "s=b": {"visit": 7, "weight": 1.0, "elite": {"score": 0.99}},
+            "s=c": {"visit": 1, "weight": 1.0},
         })
         s = Sampler(archive=arch, feature_space=fs, rng=random.Random(7))
-        picked = {s.sample_cell(cold=True) for _ in range(50)}
-        self.assertIn("s=b", picked,
-                      "冷路径下 weight=1.0 的格 50 次内应至少命中一次")
+        picked = {s.sample_cell() for _ in range(60)}
+        self.assertEqual(picked, {"s=a", "s=b", "s=c"},
+                         "等权（visit/score 不影响采样）三格都应被采到")
+
+    def test_weight_above_one_scales_share(self):
+        # J-i3-1：weight 允许 >1（相对份额语义）——2.0 = 平均份额两倍
+        fs = one_axis_fs(["a", "b", "c"])
+        arch = FakeArchive({
+            "s=a": {"visit": 3, "weight": 2.0},
+            "s=b": {"visit": 3, "weight": 1.0},
+            "s=c": {"visit": 3, "weight": 1.0},
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(42))
+        counts = {"s=a": 0, "s=b": 0, "s=c": 0}
+        for _ in range(300):
+            counts[s.sample_cell()] += 1
+        self.assertGreater(counts["s=a"], counts["s=b"],
+                           "weight=2.0 的格份额应超过 weight=1.0：实际 %r" % counts)
+        self.assertGreater(counts["s=a"], counts["s=c"])
+
+    def test_elite_score_does_not_affect_sampling(self):
+        # 采样不看精英分数（决策权全在权重）——高精英分低权格 vs 低分高权格
+        fs = one_axis_fs(["a", "b"])
+        arch = FakeArchive({
+            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.99}},
+            "s=b": {"visit": 5, "weight": 9.0, "elite": {"score": 0.01}},
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(3))
+        counts = {"s=a": 0, "s=b": 0}
+        for _ in range(200):
+            counts[s.sample_cell()] += 1
+        self.assertGreater(counts["s=b"], counts["s=a"] * 3,
+                           "9:1 权重应压倒精英分数：实际 %r" % counts)
+
+    def test_sample_is_pure_computation(self):
+        fs = one_axis_fs(["a", "b"])
+        arch = FakeArchive({
+            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.95}},
+            "s=b": {"visit": 3, "weight": 1.0},
+        })
+        before = arch.cells()
+        s = Sampler(archive=arch, feature_space=fs)
+        s.sample_cell()
+        self.assertEqual(arch.cells(), before)
 
 
 class TestExtinctCells(unittest.TestCase):
@@ -111,15 +144,22 @@ class TestExtinctCells(unittest.TestCase):
         with self.assertRaises(ValueError):
             s.sample_cell()
 
+    def test_negative_weight_treated_as_extinct(self):
+        fs = one_axis_fs(["a", "b"])
+        arch = FakeArchive({
+            "s=a": {"visit": 1, "weight": -0.5},
+            "s=b": {"visit": 1, "weight": 1.0},
+        })
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(6))
+        for _ in range(20):
+            self.assertEqual(s.sample_cell(), "s=b")
+
 
 class TestColonizeUnvisitedFirst(unittest.TestCase):
-    """分殖优先（优化空间②，job_47 首跑实测）：自动判定下存在未访问存活格
-    → 仅在未访问格中加权随机——全空间铺开（每格至少 1 次）后才转 UCB；
-    灭绝格即使未访问也不参与分殖。"""
+    """分殖优先：存在未访问存活格 → 仅在其中加权随机（全空间铺开）。"""
 
     def test_four_cells_colonized_before_revisit(self):
         # 4 格（含 1 个未访问灭绝格）：存活 3 格——前 3 采必铺满各 1 次
-        # （无一格被采 2 次），灭绝格全程不被采；第 4 采进入热态（可重访）
         fs = one_axis_fs(["a", "b", "c", "d"])
         arch = FakeArchive({
             "s=a": {"visit": 0, "weight": 9.0},   # 高权未访问
@@ -135,20 +175,18 @@ class TestColonizeUnvisitedFirst(unittest.TestCase):
             picked.append(cid)
             self.assertNotEqual(cid, "s=d", "灭绝格即使未访问也不可被采")
             s.increment_visit(cid)          # 调用方接线（loop 同型）
-        # 前 3 次覆盖 3 个存活格各 1 次（无一重复——分殖铺满）
         self.assertEqual(sorted(picked), ["s=a", "s=b", "s=c"],
                          "分殖阶段应铺满全部存活格：实际 %r" % picked)
-        # 第 4 次：全部存活格已访问 → 热态路径（无未访问格可分殖）
-        # （此时 UCB 拿真实 visit/score 数据决策——不再受分殖优先约束）
+        # 第 4 次：全部存活格已访问 → 全量加权随机（可重访任意存活格）
         fourth = s.sample_cell()
         self.assertIn(fourth, ["s=a", "s=b", "s=c"])
 
     def test_partial_visited_colonizes_rest_first(self):
-        # 混合态：a 已访问（有精英），b/c 未访问 → 前两采必落在 b/c（分殖），
-        # 不许被 a 的高 UCB 分数抢先（探索压力优先于利用）
+        # 混合态：a 已访问（高权），b/c 未访问 → 前两采必落在 b/c（分殖），
+        # 不许被 a 的高权重抢走首访机会
         fs = one_axis_fs(["a", "b", "c"])
         arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.99}},
+            "s=a": {"visit": 5, "weight": 9.0, "elite": {"score": 0.99}},
             "s=b": {"visit": 0, "weight": 1.0},
             "s=c": {"visit": 0, "weight": 0.001},   # 极低权未访问
         })
@@ -161,8 +199,8 @@ class TestColonizeUnvisitedFirst(unittest.TestCase):
         self.assertIn(second, ("s=b", "s=c"))
         self.assertNotEqual(second, first)
 
-    def test_cold_true_keeps_legacy_weighted_random(self):
-        # cold=True 强制冷启动（测试语义）：全部候选按权重随机（含已访问格），
+    def test_cold_true_keeps_weighted_random_no_colonize(self):
+        # cold=True 强制（测试语义）：全部候选按权重随机（含已访问格），
         # 不启用分殖优先
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
@@ -175,120 +213,45 @@ class TestColonizeUnvisitedFirst(unittest.TestCase):
                          "强制冷路径下高权已访问格应可被采到")
 
 
-class TestUCB(unittest.TestCase):
-    """热态 UCB1：argmax(mean_norm + C*sqrt(ln(total)/visit))。"""
+class TestWeightShare(unittest.TestCase):
+    """weight_share()：采样份额可观测值（cell_sampled 事件字段，loop 接线）。"""
 
-    def _three_hot(self):
+    def test_share_proportional_to_weight(self):
         fs = one_axis_fs(["a", "b", "c"])
-        cells = {
-            "s=a": {"visit": 10, "weight": 1.0, "elite": {"score": 0.8}},
-            "s=b": {"visit": 2, "weight": 1.0, "elite": {"score": 0.6}},
-            "s=c": {"visit": 30, "weight": 1.0, "elite": {"score": 0.9}},
-        }
-        return fs, FakeArchive(cells)
-
-    def test_picks_ucb_argmax(self):
-        # 手工算例（C=0.7, total=42）：
-        #   a: 0.8+0.7*sqrt(ln42/10)=1.2280  b: 0.6+0.7*sqrt(ln42/2)=1.5566
-        #   c: 0.9+0.7*sqrt(ln42/30)=1.1473  → b 的探索项压倒 c 的均值
-        fs, arch = self._three_hot()
-        s = Sampler(archive=arch, feature_space=fs)
-        self.assertEqual(s.sample_cell(), "s=b")
-
-    def test_ucb_score_formula(self):
-        fs, arch = self._three_hot()
-        s = Sampler(archive=arch, feature_space=fs)
-        self.assertAlmostEqual(
-            s.ucb_score("s=b", 42), 0.6 + 0.7 * math.sqrt(math.log(42) / 2),
-            places=9)
-        self.assertAlmostEqual(
-            s.ucb_score("s=a", 42), 0.8 + 0.7 * math.sqrt(math.log(42) / 10),
-            places=9)
-
-    def test_visit_zero_ucb_is_inf(self):
-        fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.95}},
+            "s=a": {"visit": 2, "weight": 3.0},
+            "s=b": {"visit": 5, "weight": 1.0},
+            "s=c": {"visit": 1, "weight": 0.0},   # 灭绝：不计入分母
         })
         s = Sampler(archive=arch, feature_space=fs)
-        self.assertEqual(s.ucb_score("s=b", 5), math.inf)
+        self.assertAlmostEqual(s.weight_share("s=a"), 3.0 / 4.0)
+        self.assertAlmostEqual(s.weight_share("s=b"), 1.0 / 4.0)
+        self.assertEqual(s.weight_share("s=c"), 0.0)
 
-    def test_unvisited_cell_must_be_explored(self):
-        # 混合态存在 visit=0 格 → 采样必选冷格（ucb=inf 平局集，探索压力真实）
+    def test_share_of_unrecorded_cell(self):
+        # 无记录格（默认权重 1.0）计入分母
         fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.95}},
-        })
+        arch = FakeArchive({"s=a": {"visit": 1, "weight": 1.0}})
         s = Sampler(archive=arch, feature_space=fs)
-        for _ in range(20):
-            self.assertEqual(s.sample_cell(), "s=b")
+        self.assertAlmostEqual(s.weight_share("s=a"), 0.5)
+        self.assertAlmostEqual(s.weight_share("s=b"), 0.5)
 
-    def test_sample_is_pure_computation(self):
-        # sample_cell 不改 archive（visit 递增是调用方显式 increment_visit）
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.95}},
-        })
-        before = arch.cells()
+    def test_share_of_cell_outside_space(self):
+        fs = one_axis_fs(["a"])
+        arch = FakeArchive({"ghost=v": {"visit": 9, "weight": 9.0}})
         s = Sampler(archive=arch, feature_space=fs)
-        s.sample_cell()
-        self.assertEqual(arch.cells(), before)
+        self.assertEqual(s.weight_share("ghost=v"), 0.0)
 
-    def test_no_elite_mean_is_neutral(self):
-        # visit>0 但无精英：exploit 项取 0.5 中性值
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 4, "weight": 1.0},  # 无 elite
-            "s=b": {"visit": 4, "weight": 1.0, "elite": {"score": 0.5}},
-        })
+    def test_all_extinct_share_zero(self):
+        fs = one_axis_fs(["a"])
+        arch = FakeArchive({"s=a": {"visit": 2, "weight": 0.0}})
         s = Sampler(archive=arch, feature_space=fs)
-        # 两格 UCB 同分（0.5 + 同探索项）→ 平局集 {a,b} 均匀随机
-        rng = random.Random(5)
-        s = Sampler(archive=arch, feature_space=fs, rng=rng)
-        picked = {s.sample_cell() for _ in range(20)}
-        self.assertEqual(picked, {"s=a", "s=b"})
-
-    def test_score_clamped_to_unit_interval(self):
-        # elite.score 越界（0-100 制 / 负值）→ clamp 到 [0,1]
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 2, "weight": 1.0, "elite": {"score": 87.0}},
-            "s=b": {"visit": 2, "weight": 1.0, "elite": {"score": -3.0}},
-        })
-        s = Sampler(archive=arch, feature_space=fs)
-        self.assertEqual(s.ucb_score("s=a", 4), 1.0 + 0.7 * math.sqrt(math.log(4) / 2))
-        self.assertEqual(s.ucb_score("s=b", 4), 0.0 + 0.7 * math.sqrt(math.log(4) / 2))
-
-
-class TestSoftWeight(unittest.TestCase):
-    """软降权（R2-2）：weight 乘性折扣采样分，weight=0 即灭绝。"""
-
-    def test_weight_scales_score_deterministically(self):
-        # 同 UCB 分、weight 1.0 vs 0.1 → 低权格 score 打折永不被选
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 5, "weight": 1.0, "elite": {"score": 0.9}},
-            "s=b": {"visit": 5, "weight": 0.1, "elite": {"score": 0.9}},
-        })
-        s = Sampler(archive=arch, feature_space=fs)
-        for _ in range(10):
-            self.assertEqual(s.sample_cell(), "s=a")
-
-    def test_low_weight_cell_can_win_when_ucb_higher(self):
-        # 软降权不是硬禁：低权格 UCB 分显著更高时仍可胜出
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 50, "weight": 1.0, "elite": {"score": 0.6}},
-            "s=b": {"visit": 1, "weight": 0.5, "elite": {"score": 0.6}},
-        })
-        s = Sampler(archive=arch, feature_space=fs)
-        # total=51: a = 0.6+0.7*sqrt(ln51/50)=0.6+0.197=0.797 → score 0.797
-        #          b = 0.6+0.7*sqrt(ln51/1)=0.6+2.745=3.345 → score 1.672 → b 胜
-        self.assertEqual(s.sample_cell(), "s=b")
+        self.assertEqual(s.weight_share("s=a"), 0.0)
 
 
 class TestIncrementVisit(unittest.TestCase):
-    """visit 断链修复（v5 db.py:201 零调用的回归防线）。"""
+    """visit 断链修复（v5 db.py:201 零调用的回归防线）——采样不再用 visit，
+    但递增必须落 archive 的防线不变（事件流/统计/自改进分析依赖它）。"""
 
     def test_updates_archive_via_callback(self):
         fs = one_axis_fs(["a"])
@@ -298,21 +261,7 @@ class TestIncrementVisit(unittest.TestCase):
         s.increment_visit("s=a")
         self.assertEqual(arch.cells()["s=a"]["visit"], before + 1)
 
-    def test_total_visit_reflects_increment(self):
-        fs = one_axis_fs(["a", "b"])
-        arch = FakeArchive({
-            "s=a": {"visit": 1, "weight": 1.0, "elite": {"score": 0.5}},
-        })
-        s = Sampler(archive=arch, feature_space=fs, on_visit=arch.bump_visit)
-        s.increment_visit("s=b")  # b: 0 → 1（热化）
-        self.assertEqual(arch.cells()["s=b"]["visit"], 1)
-        # total 现=2；ucb_score(a, 2) 用新快照计算
-        self.assertAlmostEqual(
-            s.ucb_score("s=a", 2), 0.5 + 0.7 * math.sqrt(math.log(2)),
-            places=9)
-
     def test_requires_callback(self):
-        # 未注入 on_visit 而调用 increment_visit → 显式报错（断链防御）
         fs = one_axis_fs(["a"])
         s = Sampler(archive=FakeArchive(), feature_space=fs)
         with self.assertRaises(ValueError):
@@ -333,38 +282,22 @@ class TestIncrementVisit(unittest.TestCase):
             s.increment_visit("s=a")
         self.assertEqual(arch.cells()["s=a"]["visit"], 7)
 
-
-class TestMixedStateTieBreak(unittest.TestCase):
-    """混合态：冷格 ucb=inf 平局集内按先验权重随机。"""
-
-    def test_cold_tie_broken_by_weight(self):
-        # 1 热 + 2 冷（5:1）：冷格必被探索（热格永不出线），且高权冷格占多数
-        fs = one_axis_fs(["h", "a", "b"])
-        arch = FakeArchive({
-            "s=h": {"visit": 5, "weight": 1.0, "elite": {"score": 0.9}},
-            "s=a": {"visit": 0, "weight": 5.0},
-            "s=b": {"visit": 0, "weight": 1.0},
-        })
-        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(3))
-        counts = {"s=a": 0, "s=b": 0, "s=h": 0}
-        for _ in range(200):
-            counts[s.sample_cell()] += 1
-        self.assertEqual(counts["s=h"], 0, "冷格存在时热格不得出线")
-        self.assertGreater(counts["s=a"], counts["s=b"] * 2,
-                           "平局集 5:1 加权随机，选中比应 > 2:1，实际 %r" % counts)
-
-    def test_hot_tie_broken_by_weight(self):
-        # 热格对称构造（同 visit 同 score）→ 同分平局集，按权重随机
+    def test_visit_does_not_change_sampling_distribution(self):
+        # visit 只是计数（不再参与决策）：递增后分布仍由权重决定
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
-            "s=a": {"visit": 4, "weight": 3.0, "elite": {"score": 0.5}},
-            "s=b": {"visit": 4, "weight": 1.0, "elite": {"score": 0.5}},
+            "s=a": {"visit": 0, "weight": 3.0},
+            "s=b": {"visit": 0, "weight": 1.0},
         })
-        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(9))
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(42),
+                    on_visit=arch.bump_visit)
+        for _ in range(10):
+            s.increment_visit("s=b")       # b 访问拉满
         counts = {"s=a": 0, "s=b": 0}
-        for _ in range(100):
+        for _ in range(200):
             counts[s.sample_cell()] += 1
-        self.assertGreater(counts["s=a"], counts["s=b"])
+        self.assertGreater(counts["s=a"], counts["s=b"],
+                           "visit=10 的低权格不应挤占 3:1 权重分布：实际 %r" % counts)
 
 
 class TestDirtyArchiveCells(unittest.TestCase):
@@ -381,7 +314,6 @@ class TestDirtyArchiveCells(unittest.TestCase):
             self.assertEqual(s.sample_cell(), "s=a")
 
     def test_missing_weight_entry_defaults(self):
-        # archive 记录存在但缺 weight/visit 字段 → 默认 1.0/0
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({"s=a": {}})
         s = Sampler(archive=arch, feature_space=fs, rng=random.Random(4))
@@ -389,7 +321,6 @@ class TestDirtyArchiveCells(unittest.TestCase):
         self.assertEqual(picked, {"s=a", "s=b"})
 
     def test_corrupt_weight_treated_as_extinct(self):
-        # weight 非数值（脏数据）→ 保守视为灭绝（不可采），不炸采样循环
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
             "s=a": {"visit": 2, "weight": "broken"},
@@ -401,13 +332,6 @@ class TestDirtyArchiveCells(unittest.TestCase):
 
 
 class TestConstruction(unittest.TestCase):
-    def test_rejects_non_positive_c(self):
-        fs = one_axis_fs(["a"])
-        with self.assertRaises(ValueError):
-            Sampler(archive=FakeArchive(), feature_space=fs, c=0)
-        with self.assertRaises(ValueError):
-            Sampler(archive=FakeArchive(), feature_space=fs, c=-0.5)
-
     def test_rejects_bad_archive_duck(self):
         fs = one_axis_fs(["a"])
         with self.assertRaises(ValueError):
@@ -422,20 +346,26 @@ class TestConstruction(unittest.TestCase):
         with self.assertRaises(ValueError):
             Sampler(archive=FakeArchive(), feature_space=fs, on_visit="not-callable")
 
-    def test_custom_c_changes_choice(self):
-        # C 极大 → 探索主导（visit 最低者胜）；C 极小 → 均值主导（score 最高者胜）
+    def test_deprecated_c_kwarg_accepted_and_ignored(self):
+        # 迭代 3 兼容垫片：loop 构造点仍传 c= → 接受且忽略（task19 将清理）
         fs = one_axis_fs(["a", "b"])
         arch = FakeArchive({
-            "s=a": {"visit": 2, "weight": 1.0, "elite": {"score": 0.55}},
-            "s=b": {"visit": 9, "weight": 1.0, "elite": {"score": 0.9}},
+            "s=a": {"visit": 3, "weight": 3.0},
+            "s=b": {"visit": 3, "weight": 1.0},
         })
-        explore = Sampler(archive=arch, feature_space=fs, c=5.0)
-        exploit = Sampler(archive=arch, feature_space=fs, c=0.01)
-        # total=11: explore 项 a=5*sqrt(ln11/2)=6.88 → a≈7.43；b=5*sqrt(ln11/9)=3.24 → b≈4.14
-        self.assertEqual(explore.sample_cell(), "s=a")
-        self.assertEqual(explore.sample_cell(), "s=a")  # 纯计算：可重复
-        # exploit 项可忽略：a≈0.564；b≈0.906 → b（均值主导）
-        self.assertEqual(exploit.sample_cell(), "s=b")
+        s = Sampler(archive=arch, feature_space=fs, rng=random.Random(42), c=0.7)
+        counts = {"s=a": 0, "s=b": 0}
+        for _ in range(200):
+            counts[s.sample_cell()] += 1
+        self.assertGreater(counts["s=a"], counts["s=b"],
+                           "c= 被忽略，分布仍由 3:1 权重决定：%r" % counts)
+
+    def test_default_rng_is_module_random(self):
+        # 不注入 rng → 用 random 模块（生产形态）；可采样不炸
+        fs = one_axis_fs(["a"])
+        arch = FakeArchive({"s=a": {"visit": 1, "weight": 1.0}})
+        s = Sampler(archive=arch, feature_space=fs)
+        self.assertIn(s.sample_cell(), ("s=a",))
 
 
 if __name__ == "__main__":

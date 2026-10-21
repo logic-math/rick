@@ -49,13 +49,22 @@ class CostLedger(object):
     """内存成本账本：分 role 聚合 wall_ms / tool_calls / token / cost。
 
     构造参数：
-        max_wall_time_h —— 墙钟预算（小时）；0/负 = 不限时。
-        wall_start     —— 预算计时起点（unix 秒）；None = 当前时刻。
+        max_wall_time_h   —— 墙钟预算（小时）；0/负 = 不限时。
+        wall_start        —— 预算计时起点（unix 秒）；None = 当前时刻。
+        max_total_tokens  —— token 预算上限（迭代3/task16：对抗评审发现的
+                             真缺陷修复——budget 原先只有墙钟无 token 上限，
+                             「采样策略省 token」的论证在结构上无从兑现）。
+                             0/负 = 不限 token；>0 时 within_budget 在累计
+                             total tokens 达到上限后返回 False（>= 判定：
+                             上限即耗尽）。默认 0（向后兼容：loop 侧接线归
+                             task19，现有调用不受影响）。
     """
 
     def __init__(self, max_wall_time_h: float,
-                 wall_start: Optional[float] = None) -> None:
+                 wall_start: Optional[float] = None,
+                 max_total_tokens: float = 0) -> None:
         self.max_wall_time_h = float(max_wall_time_h)
+        self.max_total_tokens = float(max_total_tokens)
         self.wall_start = time.time() if wall_start is None else float(wall_start)
         # per-role 累加器：{role: {wall_ms, tool_calls, <六 usage 字段>}}
         self._by_role = {}  # type: Dict[str, Dict[str, float]]
@@ -87,6 +96,15 @@ class CostLedger(object):
         return None
 
     # ---- 查询 ----
+
+    def total_tokens(self) -> float:
+        """全 role 累计 total tokens（token 预算检查的数据源）。
+
+        与 summary()["total"]["total_tokens"] 同源同值（轻量直查，不组表）。
+        provider 未上报 usage 时恒 0（token 轨降级——上限检查对降级轨
+        恒不触发，墙钟轨仍兜底）。
+        """
+        return sum(acc["total"] for acc in self._by_role.values())
 
     def summary(self) -> Dict[str, Any]:
         """分 role 汇总 + 总计；全零 token（且有记录）→ token_degraded=true。"""
@@ -123,11 +141,20 @@ class CostLedger(object):
         return out
 
     def within_budget(self) -> bool:
-        """墙钟预算检查（无迭代上限——迭代上限由 loop 的 max_iterations 控制）。
+        """预算检查（无迭代上限——迭代上限由 loop 的 max_iterations 控制）。
 
-        max_wall_time_h <= 0 → 不限时（True）。
+        双轨（迭代3/task16）：
+        - 墙钟：max_wall_time_h <= 0 → 不限时；否则 elapsed < 上限。
+        - token：max_total_tokens <= 0 → 不限；否则累计 total_tokens 必须
+          严格小于上限（>= 判定：达到即耗尽——loop 的 break 语义见
+          session_ended.budget_exhausted 标注，由 task19 接线）。
+        两轨都过才 within（任一耗尽即 False）。
         """
-        if self.max_wall_time_h <= 0:
-            return True
-        elapsed = time.time() - self.wall_start
-        return elapsed < self.max_wall_time_h * 3600.0
+        if self.max_wall_time_h > 0:
+            elapsed = time.time() - self.wall_start
+            if elapsed >= self.max_wall_time_h * 3600.0:
+                return False
+        if self.max_total_tokens > 0:
+            if self.total_tokens() >= self.max_total_tokens:
+                return False
+        return True

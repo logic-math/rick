@@ -4,15 +4,15 @@
     {
       "name": "impl_strategy",
       "type": "enum",
-      "values": ["naive_loops", "blocked", "vectorized", "strassen_like"],
-      "desc": "实现策略——算法维度：朴素三重循环 / 分块（cache-blocking）/ 向量化（SIMD/BLAS）/ Strassen 类递归分治"
+      "values": ["blocked_loops", "rowwise_vectorized", "full_blas_dispatch"],
+      "desc": "实现策略——算法结构维度（怎么组织 FLOPs）：分块循环（cache-blocking，为向量化铺路）/ 逐行向量化（np.dot 派发行向量×矩阵）/ 整阵 BLAS 派发（np.matmul/ctypes 直调，性能天花板族）"
     },
     {
       "name": "memory_layout",
       "type": "enum",
-      "values": ["row_major", "col_major", "tiled"],
-      "desc": "内存布局——数据排布维度：行主序 / 列主序 / 分块平铺"
+      "values": ["standard", "fused_transpose"],
+      "desc": "内存布局——数据排布维度（操作数怎么预处理摆放）：标准 C 序直用 / 预转置融合（B 转置视图或打包，内积沿连续内存访问）"
     }
   ],
-  "orthogonality": "两轴刻画解的不同正交维度：impl_strategy=算法结构（怎么算），memory_layout=数据在内存中的排布（怎么放）。同一策略可配不同布局（如 blocked+tiled），组合互斥不重叠。"
+  "orthogonality": "两轴刻画解的不同正交维度：impl_strategy=算法结构（怎么算），memory_layout=数据在内存中的排布（怎么放）。同一策略可配不同布局（如 blocked_loops|fused_transpose），组合互斥不重叠。格手术依据（env_7 实测）：性能阶梯 naive 2e-5 → rowwise 0.15 → BLAS ~1.0；strassen/multiprocess/threaded/einsum/col_major 系实测劣化或冗余（死格族已裁）。"
 }
