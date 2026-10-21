@@ -94,12 +94,22 @@ scope: "super 会话（全局）"
 
 - **轨迹复盘**：加载 **gen_env skill 第 7 节（轨迹分析 → 提示词进化）** 走五步流程——
   ① 取证：跑 `python3 super/tools/adjust_trace.py --workdir <ws>` 得决策-效果对照表；
+     并读工作区 `ledger.jsonl`（跨迭代实验台账：idea→实现→门禁→结论，密度最高的证据源——解读见 gen_env 第 7 节）；
   ② 诊断坏模式（震荡/过激/迟钝/漏杀/探索不足，及 builder/coding/debug 各自的模式）；
   ③ 处方：改写 `env/prompts/<role>.md`（四角色均适用；一次只改一个角色）；
   ④ 版本管理：延迟具体化 + `_history/` 存旧版 + PROMPTS_LOG.md 记录；
   ⑤ 下轮验证回环（改善固化/恶化回滚）。
 - **prompt 迭代决策**：把诊断结论 + 改/不改/回滚的决策呈给 human 确认（首轮改模板建议 human 在环；跑顺后可放开）。
 - **重跑**：模板迭代确认后回 Step 2 启动下一轮——新模板经渲染链（env/prompts 覆盖优先）立即生效于下一轮全部 agent 调用。
+- **饱和信号处置**：`saturation` 非空（连续 ≥3 迭代无新纪录 + 全格已充分采样 + 冠军停滞）时——
+  adjust 应优先提 `expand_cell`（加格 = 探索唯一入口，经裁决链 + feature_space 热重载，新格下一迭代即被分殖采到）；
+  若判断空间已榨干（冠军 perf 已触及 `domain_brief` 的天花板），应提 `terminate_recommend`
+  （落 `proposals/`，`needs_human: true`）→ 你与 human 决策：**收手归档**或**换轴**（走 gen_env 轴级改版）。
+  复盘时若发现「长时间无新纪录但从未加格/认输」→ 先查 saturation 注入链与模板文案（见 gen_env 第 7 节）。
+- **gate→debug 通道（框架内置）**：**框架门禁失败**（级联门的 stage2 正确性 / stage3 性能 / soft_gate）会自动交给
+  debug agent 修复 **1 次**（attempt 从 100 起编号，与自检失败的 1..M 区分）；debug 修完重跑门禁，
+  仍失败则本迭代记失败（不循环）。复盘时若发现「门禁失败后 debug 修复率低」，属 debug 模板诊断 SOP
+  待进化（走第 7 节流程），而不是让 human 手工改候选代码。
 - **两级接通**：本步进化的是 env 级资产（该 run 的搜索 DNA：四角色模板/特征空间/门禁）；
   若轨迹分析发现的坏模式是**系统性**的（跨 env 都会出现，如「adjust 普遍不引用事件证据」），
   升级为 rick 既有 **learning/dream 循环**（learning job 沉淀 → 更新 super-loop/gen_env skill 等仓级知识）——

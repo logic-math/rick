@@ -531,7 +531,7 @@ class Scheduler:
             "iteration_id": cursor,
             "cell_id": cell_id,
             "cell_descriptor": self.fs.describe_cell(cell_id) or {},
-            "cell_elite": elite or None,
+            "cell_elite": self._or_default(elite or None, "（无精英——本格首访）"),
             "cell_visit": entry.get("visit", 0),
             "cell_weight": entry.get("weight", 1.0),
             "neighbor_elites": self._neighbor_elites(cell_id),
@@ -543,7 +543,7 @@ class Scheduler:
             "env_dir": self.env_dir,
             "self_check_cmd": cmds["self_check_cmd"],
             "perf_profile_cmd": cmds["perf_profile_cmd"],
-            "saturation": self._saturation_signal(),
+            "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
             "domain_brief": self._domain_brief(),
             "perf_timeline": self._perf_timeline(10),
             "budget_status": self._budget_status(),
@@ -668,10 +668,10 @@ class Scheduler:
             "self_check_cmd": self_check_cmd,
             # ---- 迭代5：门禁定义/基线/工作区文件/台账（env_8 审计） ----
             "gate_defs": self._gate_defs(),
-            "perf_baseline": self._perf_baseline(cell_id),
+            "perf_baseline": self._or_default(self._perf_baseline(cell_id), "（本格暂无精英基线）"),
             "workdir_files": self._workdir_files(iter_dir),
             "ledger_brief": self._ledger_brief(8),
-            "saturation": self._saturation_signal(),
+            "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
         }
         prompt = render("coding", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "coding", prompt)
@@ -730,11 +730,11 @@ class Scheduler:
             "failure_stage": self_check.get("stage"),
             "stderr_tail": last_err[-400:],
             # ---- 迭代5：框架门禁失败上下文 + 共用资产 ----
-            "gate_failure": gate_failure or None,
+            "gate_failure": self._or_default(gate_failure or None, "（无——本次为自检失败触发）"),
             "perf_profile_cmd": cmds["perf_profile_cmd"],
             "gate_defs": self._gate_defs(),
             "ledger_brief": self._ledger_brief(8),
-            "saturation": self._saturation_signal(),
+            "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
         }
         prompt = render("debug", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "debug", prompt)
@@ -1029,12 +1029,12 @@ class Scheduler:
             # 「决策须引用事件证据」的纪律无从执行）；条数 12 → 15
             "recent_events": self._recent_events_summary(15),
             # 迭代5：饱和信号 + 历史/预算/领域/台账/自己的决策史
-            "saturation": self._saturation_signal(),
+            "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
             "perf_timeline": self._perf_timeline(10),
             "budget_status": self._budget_status(),
             "domain_brief": self._domain_brief(),
             "ledger_brief": self._ledger_brief(8),
-            "own_decisions": self._own_decisions("adjust", 5),
+            "own_decisions": self._or_default(self._own_decisions("adjust", 5), "（暂无历史决策）"),
             "interventions": self._recent_interventions(3),
         }
         prompt = render("adjust", self.ws, ctx)
@@ -1495,6 +1495,19 @@ class Scheduler:
             if best is None or (v < best if low else v > best):
                 best, best_cid = v, cid
         return best_cid
+
+    @staticmethod
+    def _or_default(value, default):
+        """ctx 值的可读兜底：None/空 → default 文案。
+
+        render 的宽松语义会保留未替换的 {{key}}（agent 看到裸占位符会困惑），
+        因此在组装 ctx 时就把 None/空值转成人读文案（env_8/迭代5 冒烟实测）。
+        """
+        if value is None:
+            return default
+        if isinstance(value, (list, dict)) and not value:
+            return default
+        return value
 
     def _saturation_signal(self) -> Optional[Dict[str, Any]]:
         """数据饱和信号（env_8 实测：18 轮无新纪录仍只调权重、0 次加格）。

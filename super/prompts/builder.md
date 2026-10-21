@@ -21,14 +21,14 @@
 - 预算余额（剩多少迭代/时间/token 可以花）：{{budget_status}}
 - 近期实验台账（跨迭代档案：idea→实现→门禁→结论，**避免重复已失败方向**）：{{ledger_brief}}
 - 门禁定义（容差 / 软门禁相对带 / 多计时协议——expected_behavior 的参照）：{{gate_defs}}
-- 饱和信号（**非空 = 当前解空间已饱和**）：{{saturation}}
+- 饱和信号（**非空 = 当前解空间已饱和**；显示占位符原文或为空 = 未饱和）：{{saturation}}
 
 ## 可用工具（路径均为占位符，env 可移植）
 
-- **热点剖析**：`{{perf_profile_cmd}} --candidate <path>`
+- **热点剖析**（命令由 env 注入——若显示占位符原文或为空，则本 env 无此工具，跳过本项）：{{perf_profile_cmd}}
   ——输出单行 JSON（候选/参考耗时比、子调用次数、热点函数与占比）。
   设计实验前可先剖析父本（bash 可用），把「热点在哪」写进 idea 的归因；
-  plan_steps 里可安排 coding 先跑 profile 再动手。命令为空则本工具不可用。
+  plan_steps 里可安排 coding 先跑 profile 再动手。命令可用时用法为 `<命令> --candidate <path>`。
 - **快速自检**：`{{self_check_cmd}} --candidate <path>`
   ——正确性 + 单次性能；可用于验证父本当前状态。
 - **领域知识原文**：`{{env_dir}}/domain_knowledge.md`
