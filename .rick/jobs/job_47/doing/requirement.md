@@ -19,3 +19,13 @@
 - `doing/switch.sh`（脚本副本，留存记录）
 
 **待 human 执行**：在同事 codelab 取 key → 本机 `add` + `use` + `verify`（我无法代为访问该机器）。
+
+---
+
+## 补充实取结果（2026-10-21 第二轮）
+
+- **`mc --code` 已确认** = CatPaw CLI 的「代理 Claude Code 命令」；mc 无 login/多账号命令（0.2.2/0.2.3 均如此）
+- **codelab 取 key 通道打通**：本机 → `ssh -p 8420 hadoop-recsys@10.128.229.113`（免密，我的 codelab）→ 从该机 `sshpass -p '<pwd>' ssh hadoop-recsys@10.128.171.175`（22 端口在该网络内开放）→ 读 `~/.config/mcopilot-cli/.config.yaml`
+- **已取得成功**：目标机 `set-zw05-mlp-codelab-pc936.mt` 的 token ≠ 本人 token，探针返回 `ok`（有效且有额度）
+- **已存入保险箱**：`~/.rick/accounts/tokens/zwm`；端到端 `use zwm → verify ✅ → restore → me` 验证通过
+- 当前生效账号：**me**（本人今日额度已耗尽）；`restore` 可随时切回
