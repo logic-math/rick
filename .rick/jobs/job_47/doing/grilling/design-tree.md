@@ -502,3 +502,13 @@ def main() -> None   # argparse: --workdir --max-iterations --adjust-interval --
 4. 门先证红：启动时 `CascadeGate.preverify_red()` 须 true（exploit 拒识 100%）
 5. realpi 冒烟：`go test -tags realpi ./... -run RealPi`（RICK_REAL_PI_ARGS 门控，≥3 真迭代）
 
+
+---
+
+## 迭代 3 裁决回流（2026-10-20，对话式 grilling：采样/自改进架构）
+- J-i3-1：采样=纯加权随机（概率∝权重；分殖优先保留；UCB 退役——决策权集中 adjust）
+- J-i3-2：探索=adjust 加格（expand_cell 提案走裁决链 + feature_space 迭代边界热重载）；利用=adjust 权重；淘汰=灭绝
+- J-i3-3：builder 保留（计划/执行分离业界共识）；模型分配引导 builder=贵档 coding=可配轻档（agent_models 现成）
+- J-i3-4：四角色 prompt（adjust/builder/coding/debug）均为 env 级可进化资产（env/prompts/ 延迟具体化 + _history/ + PROMPTS_LOG.md 版本管理；渲染链 env 覆盖已存在）
+- J-i3-5：《自改进的进化搜索算法》外层循环：轨迹分析→诊断→prompt 进化→下轮验证（gen_env skill 增流程；super-loop 增 SOP；仓级 loop/skill 经 rick learning 循环进化）
+- J-i3-6：matmul 格手术 225→6（BLAS 族为中心）；budget 补 token 上限；adjust 决策快照按迭代归档 + adjust_decision 事件 + adjust_trace.py 对照工具
