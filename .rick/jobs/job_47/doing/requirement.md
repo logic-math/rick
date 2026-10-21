@@ -29,3 +29,19 @@
 - **已取得成功**：目标机 `set-zw05-mlp-codelab-pc936.mt` 的 token ≠ 本人 token，探针返回 `ok`（有效且有额度）
 - **已存入保险箱**：`~/.rick/accounts/tokens/zwm`；端到端 `use zwm → verify ✅ → restore → me` 验证通过
 - 当前生效账号：**me**（本人今日额度已耗尽）；`restore` 可随时切回
+
+---
+
+## 知识沉淀去向（2026-10-21 human 裁决）
+
+**本 job 的知识归属 MT_INFER 工作区**（不属于 rick RSI 知识库），已沉淀：
+
+| 产出 | 位置（MT_INFER） |
+|---|---|
+| skill（切换脚本 + 取 key 助手） | `.rick/skills/mcopilot-account-switch_skill/{skill.md,switch.sh,fetch-token-from-codelab.sh}` |
+| domain 事实（凭据模型/mc CLI/额度/pi 鉴权链/取 key 通道/付费全表/风险） | `.rick/domain/mcopilot-account.md` |
+| 全局环境事实（凭据 + codelab→codelab 通道） | `.rick/domain/env.md` §4 两行 |
+
+校验：skill 可被 rick 加载器识别（`_skill` 目录 + `skill.md` + `# skill:` H1 + `## 触发场景`），174 个 skill 全量模拟加载无跳过、无重名；`fetch-token-from-codelab.sh` 实测取回 zwm token。
+
+**未在 rick 侧新增 skills/loops**（按 human 裁决，避免污染 rick RSI 知识库）。
