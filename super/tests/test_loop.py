@@ -921,6 +921,238 @@ class TestAdjustParallel(LoopTestBase):
         self.assertIn("model", ae["payload"])
 
 
+class TestExpandCellChain(LoopTestBase):
+    """task19：expand_cell 全链——提案 → decision 文件 → 应用（写回
+    feature_space.json）→ 热重载 → 新格被分殖采样。
+
+    语义链（迭代3 J-i3-2）：探索的唯一入口 = adjust 加格（走裁决链）；
+    apply 不直改内存空间——写文件，下一迭代边界 mtime 热重载生效。
+    """
+
+    def test_expand_cell_add_axis_value_full_chain(self):
+        # ---- 阶段 1：adjust 产出 expand_cell 提案 ----
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "expand_cell",
+             "action": "add_axis_value", "axis": "mem", "value": "zcurve",
+             "rationale": "全部存活格 visit>=4 且无新纪录",
+             "rule_id": "saturated_expand"},
+        ])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        # 提案落队列文件（含结构化扩张参数）
+        props = self.events_of("proposal")
+        self.assertEqual(len(props), 1)
+        pp = props[0]["payload"]
+        self.assertEqual(pp["type"], "expand_cell")
+        self.assertEqual(pp["axis"], "mem")
+        self.assertEqual(pp["value"], "zcurve")
+        prop_files = [n for n in os.listdir(os.path.join(self.ws, "proposals"))
+                      if n.endswith(".json")
+                      and not n.endswith(".decision.json")]
+        self.assertEqual(len(prop_files), 1)
+        pid = prop_files[0][:-5]
+        with open(os.path.join(self.ws, "proposals", prop_files[0]),
+                  encoding="utf-8") as f:
+            pf = json.load(f)
+        self.assertEqual(pf["axis"], "mem")
+        self.assertEqual(pf["value"], "zcurve")
+        self.assertEqual(pf["rationale"][:5], "全部存活格")
+
+        # ---- 阶段 2：放置 approve decision（模拟 adjudicator 进程）----
+        dec_path = os.path.join(self.ws, "proposals", pid + ".decision.json")
+        with open(dec_path, "w", encoding="utf-8") as f:
+            json.dump({"proposal_id": pid, "decision": "approve",
+                       "reason": "扩张合法", "conditions": [],
+                       "adjudicated_at": "2026-10-20T12:00:00+08:00",
+                       "adjudicator": "auto"}, f)
+
+        # ---- 阶段 3：第二轮运行——drain decision → 应用 → 热重载 → 新格被采 ----
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        client2.queue("adjust", [_adjust_result([])])
+        for _ in range(8):
+            self.gate.queue(_gate_pass())
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 8,
+                                                "adjust_interval": 0},
+                                 client=client2)
+        rc = s2.run()
+        self.assertEqual(rc, 0)
+
+        # adjudicated 事件 ×2：decision=approve + decision=applied（应用留痕）
+        adjs = self.events_of("adjudicated")
+        decisions = {a["payload"]["proposal_id"]: a["payload"]["decision"]
+                     for a in adjs}
+        self.assertEqual(decisions.get(pid), "applied")
+        applied_ev = [a for a in adjs
+                      if a["payload"].get("decision") == "applied"][0]
+        self.assertEqual(applied_ev["payload"]["applied"]["axis"], "mem")
+        self.assertEqual(applied_ev["payload"]["applied"]["value"], "zcurve")
+
+        # feature_space.json 已更新（文件是空间真相）
+        with open(os.path.join(self.ws, "env", "feature_space.json"),
+                  encoding="utf-8") as f:
+            fs_data = json.load(f)
+        mem_axis = [a for a in fs_data["axes"] if a["name"] == "mem"][0]
+        self.assertIn("zcurve", mem_axis["values"])
+
+        # 新格（mem=zcurve × 3 个 impl 值）被分殖优先采样（确定性首访）
+        sampled = self.events_of("cell_sampled")
+        new_cells = [s2 for s2 in sampled
+                     if "mem=zcurve" in s2["payload"]["cell_id"]]
+        self.assertGreaterEqual(len(new_cells), 1,
+                                "热重载后新格应被分殖优先采样")
+        for s2 in new_cells:
+            self.assertTrue(s2["payload"]["cold_start"])
+
+    def test_expand_cell_reject_decision_not_applied(self):
+        """reject 的 expand_cell：decision 被消费但 feature_space 不变。"""
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "expand_cell",
+             "action": "add_axis_value", "axis": "impl", "value": "weird",
+             "rationale": "x", "rule_id": "R"}])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        prop_files = [n for n in os.listdir(os.path.join(self.ws, "proposals"))
+                      if n.endswith(".json")
+                      and not n.endswith(".decision.json")]
+        pid = prop_files[0][:-5]
+        dec_path = os.path.join(self.ws, "proposals", pid + ".decision.json")
+        with open(dec_path, "w", encoding="utf-8") as f:
+            json.dump({"proposal_id": pid, "decision": "reject",
+                       "reason": "轴已饱和", "conditions": []}, f)
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                "adjust_interval": 0},
+                                 client=client2)
+        s2.run()
+        with open(os.path.join(self.ws, "env", "feature_space.json"),
+                  encoding="utf-8") as f:
+            fs_data = json.load(f)
+        impl_axis = [a for a in fs_data["axes"] if a["name"] == "impl"][0]
+        self.assertNotIn("weird", impl_axis["values"])
+        # 只有一条 adjudicated（decision=reject），无 applied
+        applied = [a for a in self.events_of("adjudicated")
+                   if a["payload"].get("decision") == "applied"]
+        self.assertEqual(len(applied), 0)
+
+    def test_external_feature_space_edit_hot_reload(self):
+        """外部修改 feature_space（gen_env 升级/human 手改）→ 热重载生效。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        # 外部加值（模拟 env 升级：直接改文件）
+        fs_path = os.path.join(self.ws, "env", "feature_space.json")
+        with open(fs_path, encoding="utf-8") as f:
+            fs_data = json.load(f)
+        for a in fs_data["axes"]:
+            if a["name"] == "impl":
+                a["values"].append("extern_new")
+        with open(fs_path, "w", encoding="utf-8") as f:
+            json.dump(fs_data, f, ensure_ascii=False, indent=2)
+        # 第二轮运行：热重载 + 新格被分殖采样
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        for _ in range(4):
+            self.gate.queue(_gate_pass())
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 6,
+                                                "adjust_interval": 0},
+                                 client=client2)
+        s2.run()
+        sampled = self.events_of("cell_sampled")
+        new_cells = [s2 for s2 in sampled
+                     if "impl=extern_new" in s2["payload"]["cell_id"]]
+        self.assertGreaterEqual(len(new_cells), 1,
+                                "外部修改后热重载：新格应被分殖采样")
+
+
+class TestAdjustObservability(LoopTestBase):
+    """task19：adjust 决策轨迹可观测——快照按迭代归档 + adjust_decision 事件
+    + cell_sampled.weight_share 字段。"""
+
+    def test_adjust_snapshot_archived_per_iteration(self):
+        """codes/adjust/iter_{N}/ 下 prompt_adjust.md + agent_adjust.json。"""
+        self.client.queue("adjust", [_adjust_result([])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                   "adjust_interval": 1})
+        sched.run()
+        adjust_root = os.path.join(self.ws, "codes", "adjust")
+        iter_dirs = sorted(d for d in os.listdir(adjust_root)
+                           if d.startswith("iter_"))
+        # 迭代 1、2 边界各触发一次 adjust（interval=1）
+        self.assertGreaterEqual(len(iter_dirs), 2)
+        for d in iter_dirs:
+            files = os.listdir(os.path.join(adjust_root, d))
+            self.assertIn("prompt_adjust.md", files)
+            self.assertIn("agent_adjust.json", files)
+        # agent_adjust.json 可解析且带 iteration_id
+        with open(os.path.join(adjust_root, iter_dirs[0],
+                               "agent_adjust.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        self.assertIn("iteration_id", rec)
+
+    def test_adjust_decision_event_written(self):
+        """adjust_decision 事件：iteration + proposals 摘要 + cells_status 摘要。"""
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "soft_weight", "target_cell": "impl=naive|mem=tiled",
+             "action": "weight 0.5", "evidence": "e", "rule_id": "R"}])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        ads = self.events_of("adjust_decision")
+        self.assertGreaterEqual(len(ads), 1)
+        p = ads[0]["payload"]
+        self.assertIn("iteration", p)
+        self.assertIsInstance(p["proposals"], list)
+        self.assertGreaterEqual(len(p["proposals"]), 1)
+        self.assertEqual(p["proposals"][0]["type"], "soft_weight")
+        # cells_status 摘要：每格 cell_id/visit/weight/elite_perf
+        css = p["cells_status_summary"]
+        self.assertIsInstance(css, list)
+        self.assertGreaterEqual(len(css), 1)
+        for c in css:
+            for k in ("cell_id", "visit", "weight", "elite_perf"):
+                self.assertIn(k, c)
+
+    def test_cell_sampled_has_weight_share(self):
+        """cell_sampled.weight_share：0 < share <= 1 的概率快照（ucb_score 退役）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        for s2 in self.events_of("cell_sampled"):
+            self.assertNotIn("ucb_score", s2["payload"])
+            share = s2["payload"]["weight_share"]
+            self.assertIsInstance(share, float)
+            self.assertGreater(share, 0.0)
+            self.assertLessEqual(share, 1.0)
+
+    def test_session_ended_budget_exhausted_on_token_limit(self):
+        """token 预算耗尽 → session_ended.budget_exhausted=True（task16 接线）。
+
+        FakeAgentClient 每次 agent 运行记 usage.total=160（_agent_result 固定）
+        ——设极小上限（如 200）→ 第一个 agent 结账后 within_budget False。
+        """
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 5,
+                                                   "max_total_tokens": 200})
+        sched.run()
+        ended = self.events_of("session_ended")
+        self.assertEqual(len(ended), 1)
+        self.assertTrue(ended[0]["payload"].get("budget_exhausted"))
+        # 未到 max_iterations：预算墙先停（迭代数 < 5）
+        started = self.events_of("iteration_started")
+        self.assertLess(len(started), 5)
+
+    def test_session_ended_no_budget_flag_by_default(self):
+        """默认（无 token 上限）：budget_exhausted=False（正常 max_iter 收尾）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        ended = self.events_of("session_ended")
+        self.assertFalse(ended[0]["payload"].get("budget_exhausted"))
+
+
 class TestScorePlumbing(LoopTestBase):
     """改动④：gate metrics.perf.score → 入档精英 score 的传递回归
     （首跑实测复现：链路本身完好——本测试固化防未来真断链）。"""

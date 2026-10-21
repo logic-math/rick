@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-20T16:30:00+08:00",
+  "updated_at": "2026-10-21T06:26:29.590Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -192,46 +192,46 @@
     {
       "task_id": "task15",
       "task_name": "sampler 纯加权随机重构（删 UCB；概率∝权重；分殖优先保留；ucb_score→weight_share）+ test_sampler 重写",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
       "dependencies": [],
       "task_file": "plan/task15.md",
-      "commit_hash": ""
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
     },
     {
       "task_id": "task16",
       "task_name": "budget token 上限（max_total_tokens 优雅停 + session_ended 原因）+ config DEFAULTS 键 + test_budget",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
       "dependencies": [],
       "task_file": "plan/task16.md",
-      "commit_hash": ""
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
     },
     {
       "task_id": "task17",
       "task_name": "matmul 模板格手术：feature_space 225→6（BLAS 族为中心 2 轴×3 值）+ domain_knowledge/自检对齐",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
       "dependencies": [],
       "task_file": "plan/task17.md",
-      "commit_hash": ""
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
     },
     {
       "task_id": "task18",
       "task_name": "adjust.md 重写：权重=相对采样份额语义（>1 允许/证据纪律/防震荡）+ expand_cell 提案 schema",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-20T16:30:00+08:00",
-      "updated_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
       "dependencies": [],
       "task_file": "plan/task18.md",
-      "commit_hash": ""
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
     },
     {
       "task_id": "task19",

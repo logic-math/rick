@@ -8,7 +8,7 @@ events.jsonl 一行一事件（紧凑 JSON），py 调度器进程是唯一写�
     ts   RFC3339 带时区（domain/bugs.md 坑位：无时区会被 Go time.Parse 拒绝；
          项目惯例固定 +08:00，与 archive/config 一致）
     seq  单调递增，从 1 起；重开（模拟重启）从「既有最大 seq+1」续号不回退
-    type ∈ EVENT_TYPES（设计树 §2.2 定稿 19 类）
+    type ∈ EVENT_TYPES（设计树 §2.2 定稿 19 类 + task19 adjust_decision）
     source ∈ {scheduler, gate, human, adjudicator, agent:<adjust|builder|coding|debug>}
     payload dict，必填字段见 EVENT_SCHEMAS
   - 每次 append 后 flush + fsync（崩溃安全：返回即已落盘）
@@ -43,7 +43,7 @@ __all__ = [
 # 东八区（项目惯例，见 domain/bugs.md：时间戳必须带时区；与 archive.py 一致）
 _TZ = timezone(timedelta(hours=8))
 
-# ---- 事件类型常量集（设计树 §2.2 定稿，19 类） ----
+# ---- 事件类型常量集（设计树 §2.2 定稿 19 类 + task19 adjust_decision） ----
 EVENT_TYPES = frozenset({
     "session_started",            # env/游标
     "session_ended",              # 游标
@@ -59,6 +59,7 @@ EVENT_TYPES = frozenset({
     "weight_changed",             # cell_id/old_weight/new_weight/reason（adjust 软动作）
     "proposal",                   # proposal_id/type/证据引用（硬动作提案）
     "adjudicated",                # proposal_id/decision（外置裁决结果）
+    "adjust_decision",            # iteration/proposals 摘要（task19：adjust 决策轨迹事件）
     "invalidation",               # cell_id/code_path/reason（出档）
     "resurrection",               # cell_id/code_path/reason（复活）
     "intervention",               # human 输入原文+分类（摄取自干预队列）
@@ -84,6 +85,7 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "weight_changed": ("cell_id", "old_weight", "new_weight", "reason"),
     "proposal": ("proposal_id", "type"),
     "adjudicated": ("proposal_id", "decision"),
+    "adjust_decision": ("iteration", "proposals"),
     "invalidation": ("cell_id", "reason"),
     "resurrection": ("cell_id", "reason"),
     "intervention": ("text", "category"),

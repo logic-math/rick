@@ -6,6 +6,11 @@
 （文件驱动天然支持 human-in-loop）。
 
 裁决规则（内置，硬动作保守）：
+  - expand_cell（task19）：扩张性动作（加格）——风险低于收窄/修改类，规则
+    宽松：add_axis_value 需 axis 存在于 feature_space 且 value 不重复 →
+    approve；add_cell 需 descriptor 为非空 dict 且所有键都是既有轴 →
+    approve（descriptor 的值可以是轴取值域外的新值——这正是扩张）。
+    feature_space.json 不可读/畸形 → reject（无法校验轴存在性）。
   - hard_delete_cell：weight==0 **且** 连续 ≥20 迭代未被采样 → approve；
     否则 reject「先降权观察」。目标格的精英若是金样例（golden_examples
     引用）→ reject（金样例格不可删）。未知格 → reject（无证据不裁）。
@@ -51,6 +56,7 @@ DORMANT_ITERATIONS_REQUIRED = 20
 
 # 硬动作提案类型（裁决对象；soft_weight 不在其列）
 _HARD_TYPES = frozenset({
+    "expand_cell",       # task19：加格（扩张性硬动作——规则宽松，见 docstring）
     "hard_delete_cell",
     "hard_modify_cell",
     "hard_modify_gate",
@@ -301,6 +307,85 @@ def _adjudicate_modify(proposal: dict, ws: str) -> Dict[str, Any]:
                     conditions=conditions)
 
 
+def _read_feature_axes(ws: str) -> Optional[List[Dict[str, Any]]]:
+    """读 <ws>/env/feature_space.json 的 axes（只读；缺失/损坏 → None）。
+
+    标准工作区布局（web super / CLI start）env 都在 <ws>/env/ 下——
+    expand_cell 裁决的轴存在性/值不重复校验依据。
+    """
+    path = os.path.join(ws, "env", "feature_space.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    axes = data.get("axes")
+    return axes if isinstance(axes, list) else None
+
+
+def _adjudicate_expand(proposal: dict, ws: str) -> Dict[str, Any]:
+    """expand_cell：扩张性动作（加格）——宽松规则（风险低于收窄/修改）。
+
+    - add_axis_value：axis 存在 + value 非空且不与既有值重复 → approve
+    - add_cell：descriptor 非空 dict + 所有键是既有轴 → approve
+      （descriptor 值可在取值域外——新值即扩张点，应用侧补进轴取值域）
+    - feature_space 不可读 → reject（无法校验轴存在性——保守）
+    """
+    axes = _read_feature_axes(ws)
+    if axes is None:
+        return _reject("expand_cell 需要校验轴存在性，但 feature_space.json "
+                       "不可读或畸形（%s/env/feature_space.json）——保守拒绝"
+                       % ws)
+    axis_names = set()
+    axis_values = {}  # type: Dict[str, List[str]]
+    for ax in axes:
+        if isinstance(ax, dict) and isinstance(ax.get("name"), str):
+            axis_names.add(ax["name"])
+            vals = ax.get("values")
+            if isinstance(vals, list):
+                axis_values[ax["name"]] = [str(v) for v in vals]
+
+    action = proposal.get("action")
+    if action == "add_axis_value":
+        axis = proposal.get("axis")
+        value = proposal.get("value")
+        if not isinstance(axis, str) or not axis:
+            return _reject("add_axis_value 缺 axis（非空字符串）")
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return _reject("add_axis_value 缺 value（非空）")
+        if axis not in axis_names:
+            return _reject("轴 %r 不存在于 feature_space（既有轴：%s）——"
+                           "加新轴请走 hard_modify_cell 并附正交性论证"
+                           % (axis, sorted(axis_names)))
+        if str(value) in axis_values.get(axis, []):
+            return _reject("轴 %s 的值 %r 已存在——无增量（重复扩张）"
+                           % (axis, value))
+        return _approve("扩张合法：向轴 %s 追加值 %r（扩张性动作，风险低）"
+                        % (axis, value),
+                        conditions=["应用后新格 visit=0 → 分殖优先确定性首访",
+                                    "新格默认 weight=1.0（参与加权随机）"])
+    if action == "add_cell":
+        descriptor = proposal.get("descriptor")
+        if not isinstance(descriptor, dict) or not descriptor:
+            return _reject("add_cell 缺 descriptor（非空 dict，如 "
+                           "{\"axis1\": \"v1\"}）")
+        unknown = [k for k in descriptor if not (isinstance(k, str) and k in axis_names)]
+        if unknown:
+            return _reject("descriptor 含未知轴 %s（既有轴：%s）——加新轴请走 "
+                           "hard_modify_cell" % (unknown, sorted(axis_names)))
+        for k, v in descriptor.items():
+            if v is None or (isinstance(v, str) and not str(v).strip()):
+                return _reject("descriptor[%r] 的值为空" % k)
+        return _approve("扩张合法：格 %s（新值将补进对应轴取值域）"
+                        % json.dumps(descriptor, ensure_ascii=False),
+                        conditions=["应用后新格 visit=0 → 分殖优先确定性首访",
+                                    "新格默认 weight=1.0（参与加权随机）"])
+    return _reject("expand_cell 的 action 必须是 add_axis_value 或 add_cell，"
+                   "收到 %r" % (action,))
+
+
 def adjudicate(proposal: dict, ws: str) -> Dict[str, Any]:
     """裁决一条硬动作提案（只读 ws 证据，无任何写副作用）。
 
@@ -324,6 +409,8 @@ def adjudicate(proposal: dict, ws: str) -> Dict[str, Any]:
         return _reject("未知提案类型 %r（合法硬动作：%s）" % (ptype, sorted(_HARD_TYPES)))
     if ptype == "hard_delete_cell":
         return _adjudicate_delete(proposal, ws)
+    if ptype == "expand_cell":
+        return _adjudicate_expand(proposal, ws)
     return _adjudicate_modify(proposal, ws)
 
 

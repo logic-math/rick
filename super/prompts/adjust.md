@@ -70,7 +70,7 @@
       "type": "expand_cell",
       "action": "add_axis_value",
       "axis": "impl_strategy",
-      "value": "strassen_like",
+      "value": "hybrid_dispatch",
       "rationale": "全部 6 格 visit≥5 且连续 8 迭代无新纪录；domain_knowledge 提示 Strassen 族未覆盖",
       "rule_id": "saturated_expand"
     }

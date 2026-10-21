@@ -50,6 +50,7 @@ class TestConstants(unittest.TestCase):
             "weight_changed", "proposal", "adjudicated",
             "invalidation", "resurrection", "intervention",
             "heartbeat", "env_failure_concluded",
+            "adjust_decision",   # task19：adjust 决策轨迹事件
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))

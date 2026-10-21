@@ -121,6 +121,18 @@ class Sampler:
             return 0.0
         return self._weight(cell_id, snap) / total
 
+    def set_feature_space(self, feature_space: Any) -> None:
+        """热重载入口（task19）：替换特征空间引用（采样语义不变）。
+
+        feature_space.json 被 expand_cell 裁决应用或外部修改后，loop 在迭代
+        边界重建 FeatureSpace 并经本方法注入——新格（visit=0）自然进入
+        分殖优先。仅做鸭子类型校验（与构造一致），不改任何采样行为。
+        """
+        if not callable(getattr(feature_space, "all_cells", None)):
+            raise ValueError("feature_space 需提供 all_cells() 方法（鸭子类型接口），"
+                             "收到 %r" % (feature_space,))
+        self._fs = feature_space
+
     def increment_visit(self, cell_id: str) -> None:
         """唯一 visit 递增入口（v5 断链防御保留；写 archive 经 on_visit 回调）。
 

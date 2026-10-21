@@ -77,6 +77,14 @@ class AdjudicatorTestCase(unittest.TestCase):
         _write_archive(self.ws, cells)
         return self.ws
 
+    def write_feature_space(self, axes) -> None:
+        """expand_cell 裁决证据：标准布局 <ws>/env/feature_space.json。"""
+        env_dir = os.path.join(self.ws, "env")
+        os.makedirs(env_dir, exist_ok=True)
+        with open(os.path.join(env_dir, "feature_space.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"axes": axes}, f, ensure_ascii=False, indent=2)
+
 
 class TestDeleteCellRules(AdjudicatorTestCase):
     def _events(self, last_sampled_iter, cursor):
@@ -205,6 +213,121 @@ class TestModifyRules(AdjudicatorTestCase):
         p = _proposal("hard_modify_gate", regression={"elite_replay": {"passed": True}})
         out = adjudicator.adjudicate(p, self.ws)
         self.assertEqual(out["decision"], "reject")
+
+
+_EXPAND_AXES = [
+    {"name": "impl", "type": "enum", "values": ["naive", "blocked"],
+     "desc": "实现策略"},
+    {"name": "mem", "type": "enum", "values": ["row", "tiled"], "desc": "布局"},
+]
+
+
+class TestExpandCellRules(AdjudicatorTestCase):
+    """task19：expand_cell（扩张性硬动作）——宽松规则。
+
+    对比参照：hard_delete 需 weight=0+20 迭代休眠；hard_modify 需双回归
+    证据。expand_cell 只做结构校验（轴存在/值不重复）——加格是扩张性
+    动作，风险低（裁决语义按 task19 规格）。
+    """
+
+    def test_add_axis_value_valid_approved(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_axis_value",
+                      axis="mem", value="zcurve")
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "approve")
+
+    def test_add_axis_value_duplicate_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_axis_value",
+                      axis="mem", value="row")   # 已有值
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "reject")
+        self.assertIn("已存在", out["reason"])
+
+    def test_add_axis_value_unknown_axis_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_axis_value",
+                      axis="nonexistent_axis", value="v")
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "reject")
+        self.assertIn("不存在", out["reason"])
+
+    def test_add_axis_value_missing_fields_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        # 缺 value
+        p1 = _proposal("expand_cell", target="", action="add_axis_value",
+                       axis="mem")
+        self.assertEqual(adjudicator.adjudicate(p1, self.ws)["decision"], "reject")
+        # 缺 axis
+        p2 = _proposal("expand_cell", target="", action="add_axis_value",
+                       value="v")
+        self.assertEqual(adjudicator.adjudicate(p2, self.ws)["decision"], "reject")
+
+    def test_add_cell_new_values_approved(self):
+        """add_cell 的 descriptor 值可在取值域外——新值即扩张点。"""
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_cell",
+                      descriptor={"impl": "fused", "mem": "swizzled"})
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "approve")
+
+    def test_add_cell_unknown_axis_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_cell",
+                      descriptor={"impl": "x", "bad_axis": "y"})
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "reject")
+        self.assertIn("未知轴", out["reason"])
+
+    def test_add_cell_empty_descriptor_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_cell",
+                      descriptor={})
+        self.assertEqual(adjudicator.adjudicate(p, self.ws)["decision"], "reject")
+
+    def test_feature_space_missing_rejected(self):
+        """feature_space 不可读 → 无法校验轴存在性 → 保守拒绝。"""
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_axis_value",
+                      axis="mem", value="v")
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "reject")
+        self.assertIn("不可读", out["reason"])
+
+    def test_unknown_expand_action_rejected(self):
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="replace_axis",
+                      axis="mem", value="v")
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertEqual(out["decision"], "reject")
+
+    def test_expand_in_hard_types_no_longer_unknown(self):
+        """expand_cell 进入 _HARD_TYPES：不再落「未知提案类型」分支。"""
+        self.write_feature_space(_EXPAND_AXES)
+        _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
+        _write_archive(self.ws, {})
+        p = _proposal("expand_cell", target="", action="add_axis_value",
+                      axis="mem", value="zcurve")
+        out = adjudicator.adjudicate(p, self.ws)
+        self.assertNotIn("未知提案类型", out["reason"])
 
 
 class TestDefensiveRules(AdjudicatorTestCase):

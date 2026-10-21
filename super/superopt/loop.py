@@ -5,8 +5,10 @@
     LOOP（每迭代）:
       drain 干预队列 → intervention 事件（stop 类 → 优雅停止）
       drain 裁决决策 → adjudicated 事件（approve 的 hard_delete 应用为灭绝）
-      每 N 迭代 → adjust agent（软动作直接应用 / 硬动作提案走外置裁决）
-      [UCB 采样] increment_visit（唯一递增点，修复 v5 db.py:201 断链）
+      每 N 迭代 → adjust agent（软动作直接应用 / 硬动作提案走外置裁决；
+                    expand_cell 裁决通过后写回 feature_space.json，热重载生效）
+      [加权随机采样] increment_visit（唯一递增点，修复 v5 db.py:201 断链；
+                    概率 ∝ weight——决策权在 adjust，迭代3 J-i3-1）
       [builder]  选父格 → experiment_plan
       [coding]   codes/{uuid}/ 隔离快照 → 自检 env skills 脚本（仅参考）
         └ 自检不符 → [debug] 同 worktree 修复（≤M 次，每次一条 fix_report
@@ -208,14 +210,14 @@ class Scheduler:
                 self._visit_shadow = {}  # type: Dict[str, int]
                 on_visit = self._shadow_bump
             self.sampler = sampler or Sampler(
-                self.archive, self.fs, on_visit=on_visit,
-                c=float(conf.get("ucb_c", 0.7)))
+                self.archive, self.fs, on_visit=on_visit)
             self.client = agent_client or PiAgentClient(
                 pi_path=str(conf.get("pi_path") or ""))
             self.gate = gate or CascadeGate(self.env_dir, self.gates_dir,
                                             k=int(conf.get("soft_gate_k", 3)))
             self.ledger = ledger or CostLedger(
-                max_wall_time_h=float(conf.get("max_wall_time_h", 0) or 0))
+                max_wall_time_h=float(conf.get("max_wall_time_h", 0) or 0),
+                max_total_tokens=float(conf.get("max_total_tokens", 0) or 0))
             self.queue = queue or InterventionQueue(self.ws)
         except (OSError, ValueError) as exc:
             # env 缺失/损坏（如 feature_space.json 不存在）——不炸构造，
@@ -234,6 +236,17 @@ class Scheduler:
         self._adjust_lock = threading.Lock()
         self._pending_adjust = None  # type: Optional[Dict[str, Any]]
         self._adjust_iteration = 0
+        self._adjust_dir = ""  # type: str  # 本轮在飞 adjust 的快照目录（iter_N）
+        # feature_space 热重载基线（task19：expand_cell 裁决应用/外部修改后
+        # 迭代边界重建 self.fs 并重接 sampler）
+        self._fs_mtime = None  # type: Optional[int]
+        try:
+            self._fs_mtime = os.stat(
+                os.path.join(self.env_dir, "feature_space.json")).st_mtime_ns
+        except OSError:
+            self._fs_mtime = None
+        # 预算耗尽标注（session_ended.budget_exhausted：task16 接线）
+        self._budget_exhausted = False
 
     # ------------------------------------------------------------------ #
     # 主入口
@@ -276,7 +289,8 @@ class Scheduler:
             self._join_adjust()   # 在飞 adjust 收尾（事件先于 session_ended）
             self._restore_signal_handlers()
         self.events.append("session_ended",
-                           {"iteration_cursor": self.iteration_cursor},
+                           {"iteration_cursor": self.iteration_cursor,
+                            "budget_exhausted": bool(self._budget_exhausted)},
                            "scheduler")
         self._set_super_state("stopped")
         self._write_heartbeat(force=True, state="stopped")
@@ -290,7 +304,13 @@ class Scheduler:
             # 主线程在此消费结果——保证权重对本次采样生效）
             self._collect_adjust()
             if not self.ledger.within_budget():
+                # 预算耗尽（墙钟/token 任一）——session_ended 标注可观测（task19）
+                self._budget_exhausted = True
                 break
+            # ⓪′ feature_space 热重载（task19）：expand_cell 裁决应用或外部修改
+            # （gen_env 升级/human 手改）后，在本迭代边界重建空间并重接 sampler——
+            # 新格 visit=0 自然进入分殖优先，获得确定性首访
+            self._maybe_reload_feature_space()
             if max_iter > 0 and self.iteration_cursor >= max_iter:
                 break
             # ① 干预摄取（human 经队列；单写者纪律：代写入事件）
@@ -388,7 +408,7 @@ class Scheduler:
         self.events.append("iteration_started",
                            {"iteration_id": cursor}, "scheduler")
 
-        # ---- 状态 1：UCB 采样（visit 唯一递增点） ----
+        # ---- 状态 1：采样（纯加权随机，决策权在 adjust；visit 唯一递增点） ----
         cell_id = self.sampler.sample_cell()
         visit_before = int(self._cell_entry(cell_id).get("visit") or 0)
         cold_start = visit_before == 0
@@ -398,12 +418,12 @@ class Scheduler:
         snap = _cells_snapshot(self.archive)
         total_visit = sum(int((snap.get(c) or {}).get("visit") or 0)
                           for c in self.fs.all_cells())
-        ucb = self.sampler.ucb_score(cell_id, total_visit)
-        # JSON 无 Infinity：cap 成有限值（ucb>=1e18 视为 +inf 上界）
-        ucb_safe = ucb if (ucb == ucb and abs(ucb) < 1e18) else 1e18
+        # weight_share：采样时刻的实际概率分布快照（task19：ucb_score 字段退役，
+        # 与 task15 的 sampler.weight_share() 对齐）
+        share = self.sampler.weight_share(cell_id)
         self.events.append("cell_sampled", {
             "iteration_id": cursor, "cell_id": cell_id, "visit": visit_now,
-            "ucb_score": round(ucb_safe, 6), "cold_start": cold_start,
+            "weight_share": round(share, 6), "cold_start": cold_start,
             "total_visit": total_visit,
         }, "scheduler")
 
@@ -827,10 +847,13 @@ class Scheduler:
             "recent_events": self._recent_events_summary(12),
         }
         prompt = render("adjust", self.ws, ctx)
-        adjust_dir = os.path.join(self.codes_dir, "adjust")
+        # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
+        # 轨迹可回溯是自改进的地基；agent 工作目录与快照同目录）
+        iteration_id = self.iteration_cursor
+        adjust_dir = os.path.join(self.codes_dir, "adjust",
+                                  "iter_%d" % iteration_id)
         os.makedirs(adjust_dir, exist_ok=True)
         prompt_path = write_prompt(adjust_dir, "adjust", prompt)
-        iteration_id = self.iteration_cursor
         # agent_started 在主线程（事件序确定性：started 先于下一迭代的任何事件）
         self.events.append("agent_started", {
             "role": "adjust", "iteration_id": iteration_id,
@@ -852,6 +875,7 @@ class Scheduler:
 
         with self._adjust_lock:
             self._adjust_iteration = iteration_id
+            self._adjust_dir = adjust_dir
             self._adjust_thread = threading.Thread(
                 target=_worker, name="superopt-adjust", daemon=True)
             self._adjust_thread.start()
@@ -878,6 +902,8 @@ class Scheduler:
             self._adjust_thread = None
             self._pending_adjust = None
             iteration_id = self._adjust_iteration
+            adjust_dir = self._adjust_dir or os.path.join(
+                self.codes_dir, "adjust", "iter_%d" % iteration_id)
         # ---- 以下与 _dispatch_agent 的收尾同构（主线程执行） ----
         self.ledger.record_agent("adjust", int(pending.wall_ms),
                                  len(pending.tool_calls or []),
@@ -893,20 +919,29 @@ class Scheduler:
             + float(_u.get("cost_usd", 0) or 0)
         payload = pending.to_payload()
         payload["iteration_id"] = iteration_id
-        # prompt 物证：adjust 的工作目录里找最新 prompt_adjust.md
-        payload["prompt_path"] = os.path.join(self.codes_dir, "adjust",
-                                              "prompt_adjust.md")
+        # prompt 物证：本轮快照目录（iter_N）下的 prompt_adjust.md
+        payload["prompt_path"] = os.path.join(adjust_dir, "prompt_adjust.md")
         self.events.append("agent_ended", payload, "scheduler")
+        # 决策快照按迭代归档（task19）：agent_adjust.json 落 iter_N 目录
+        # （不覆盖写——历史轨迹完整保留，自改进分析的物证）
         try:
-            with open(os.path.join(self.codes_dir, "adjust",
-                                   "agent_adjust.json"), "w",
+            with open(os.path.join(adjust_dir, "agent_adjust.json"), "w",
                       encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
         proposals = pending.data.get("proposals")
         if not isinstance(proposals, list):
-            return
+            proposals = []
+        # adjust_decision 事件（task19）：结构化决策日志——输入（cells_status
+        # 摘要）+ 输出（proposals 摘要）同帧落事件流；自改进分析（adjust_trace）
+        # 与崩溃恢复均可消费
+        self.events.append("adjust_decision", {
+            "iteration": iteration_id,
+            "agent_valid": bool(pending.valid),
+            "proposals": self._proposal_digest(proposals),
+            "cells_status_summary": self._cells_status_digest(),
+        }, "scheduler")
         for i, p in enumerate(proposals):
             if not isinstance(p, dict):
                 continue
@@ -949,15 +984,28 @@ class Scheduler:
                   "evidence": reason, "rule_id": p.get("rule_id"),
                   "proposed_at": _now(),
                   "iteration": self.iteration_cursor}
+        # expand_cell 提案（task19）：携带结构化扩张参数——裁决与应用侧
+        # （adjudicator 校验 axis 存在/值不重复；approve 后 loop 写回
+        # feature_space.json）依赖这些字段，缺字段裁决按保守拒绝
+        if ptype == "expand_cell":
+            record["axis"] = p.get("axis")
+            record["value"] = p.get("value")
+            record["descriptor"] = p.get("descriptor")
+            record["rationale"] = str(p.get("rationale") or "")[:400]
         os.makedirs(self.proposals_dir, exist_ok=True)
         with open(os.path.join(self.proposals_dir, pid + ".json"), "w",
                   encoding="utf-8") as f:
             json.dump(record, f, ensure_ascii=False, indent=2)
-        self.events.append("proposal", {
+        prop_payload = {
             "proposal_id": pid, "type": record["type"],
             "target_cell": target, "action": p.get("action"),
             "evidence": reason, "rule_id": p.get("rule_id"),
-        }, "agent:adjust")
+        }
+        if ptype == "expand_cell":
+            prop_payload["axis"] = p.get("axis")
+            prop_payload["value"] = p.get("value")
+            prop_payload["descriptor"] = p.get("descriptor")
+        self.events.append("proposal", prop_payload, "agent:adjust")
 
     def _cells_status(self) -> List[Dict[str, Any]]:
         out = []
@@ -977,6 +1025,161 @@ class Scheduler:
                  "seq": e.get("seq"),
                  "payload_keys": sorted((e.get("payload") or {}).keys())[:6]}
                 for e in self.events.read_all()[-n:]]
+
+    def _proposal_digest(self, proposals: List[Any]) -> List[Dict[str, Any]]:
+        """proposals 的紧凑摘要（adjust_decision 事件载荷）。
+
+        只保留归因分析需要的字段：type / target_cell / action / rule_id /
+        evidence（截断）/ expand_cell 的 axis/value/descriptor。
+        """
+        out = []
+        for p in proposals:
+            if not isinstance(p, dict):
+                continue
+            item = {"type": p.get("type"),
+                    "target_cell": p.get("target_cell") or p.get("cell_id"),
+                    "action": p.get("action"),
+                    "rule_id": p.get("rule_id"),
+                    "evidence": str(p.get("evidence") or p.get("reason")
+                                    or "")[:200]}
+            if p.get("type") == "expand_cell":
+                item["axis"] = p.get("axis")
+                item["value"] = p.get("value")
+                item["descriptor"] = p.get("descriptor")
+            out.append(item)
+        return out
+
+    def _cells_status_digest(self) -> List[Dict[str, Any]]:
+        """cells_status 的紧凑摘要（adjust_decision 事件载荷：决策输入快照）。
+
+        cell_id / visit / weight / 精英 perf——自改进分析（决策→效果对照）
+        需要的最小字段，不含 descriptor 全文与代码路径。
+        """
+        out = []
+        for cid in self.fs.all_cells():
+            e = self._cell_entry(cid)
+            elite = e.get("elite") or {}
+            out.append({"cell_id": cid,
+                        "visit": e.get("visit", 0),
+                        "weight": e.get("weight", 1.0),
+                        "elite_perf": elite.get("perf_value")})
+        return out
+
+    # ---- expand_cell 应用 + feature_space 热重载（task19） ----
+
+    def _apply_expand_cell(self, proposal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """approve 的 expand_cell → 写回 ws/env/feature_space.json。
+
+        - add_axis_value：向既有 axes[].values 追加值（去重；轴缺失/值已在
+          → 不改文件，返回 None——裁决侧本已校验，这里是应用侧防御）
+        - add_cell：descriptor 每个值补进对应轴（新值追加，已存在的跳过）
+        原子写（tmp+rename）；返回 applied 摘要（{action, axis, value} 或
+        {action, added_values}），失败/无变化返回 None。
+        """
+        path = os.path.join(self.env_dir, "feature_space.json")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return None
+        axes = data.get("axes") if isinstance(data, dict) else None
+        if not isinstance(axes, list):
+            return None
+        action = str(proposal.get("action") or "")
+        changed = False
+        applied = None  # type: Optional[Dict[str, Any]]
+
+        def _axis_by_name(name):
+            for ax in axes:
+                if isinstance(ax, dict) and ax.get("name") == name:
+                    return ax
+            return None
+
+        if action == "add_axis_value":
+            axis_name = proposal.get("axis")
+            value = proposal.get("value")
+            if not isinstance(axis_name, str) or not axis_name:
+                return None
+            if value is None or (isinstance(value, str) and not value.strip()):
+                return None
+            ax = _axis_by_name(axis_name)
+            if ax is None:
+                return None
+            values = ax.get("values")
+            if not isinstance(values, list):
+                return None
+            norm = str(value)
+            if norm in [str(v) for v in values]:
+                return None  # 已存在：无变化
+            values.append(value)
+            changed = True
+            applied = {"action": "add_axis_value", "axis": axis_name,
+                       "value": norm}
+        elif action == "add_cell":
+            descriptor = proposal.get("descriptor")
+            if not isinstance(descriptor, dict) or not descriptor:
+                return None
+            added = {}  # type: Dict[str, str]
+            for axis_name, value in descriptor.items():
+                if not isinstance(axis_name, str) or value is None:
+                    return None
+                ax = _axis_by_name(axis_name)
+                if ax is None:
+                    return None  # 未知轴：整体不改（裁决侧已校验）
+                values = ax.get("values")
+                if not isinstance(values, list):
+                    return None
+                norm = str(value)
+                if norm not in [str(v) for v in values]:
+                    values.append(value)
+                    added[axis_name] = norm
+                    changed = True
+            if not changed:
+                return None
+            applied = {"action": "add_cell", "added_values": added}
+        else:
+            return None
+
+        if changed:
+            try:
+                self._atomic_json(path, data)
+            except OSError:
+                return None
+        return applied
+
+    def _maybe_reload_feature_space(self) -> None:
+        """迭代边界热重载：feature_space.json mtime 变化 → 重建 fs + 重接 sampler。
+
+        变更来源：expand_cell 裁决应用（本调度器写回）或外部修改（gen_env
+        升级 / human 手改）。重建失败（半写/坏 JSON/正交性破坏）→ 保留旧空间
+        打 stderr，下一边界重试（文件是真相，加载防御性跳过不炸主循环）。
+        """
+        path = os.path.join(self.env_dir, "feature_space.json")
+        try:
+            mtime = os.stat(path).st_mtime_ns
+        except OSError:
+            return
+        if self._fs_mtime is None or mtime == self._fs_mtime:
+            if self._fs_mtime is None:
+                self._fs_mtime = mtime
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            axes = data.get("axes") if isinstance(data, dict) else None
+            if not isinstance(axes, list):
+                raise ValueError("feature_space.json 缺 axes")
+            new_fs = FeatureSpace(axes)
+            new_fs.validate_orthogonal()
+        except (OSError, ValueError) as exc:
+            print("[superopt] feature_space 热重载失败（保留旧空间，下边界重试）: %s"
+                  % exc, file=sys.stderr, flush=True)
+            return
+        self.fs = new_fs
+        self._fs_mtime = mtime
+        # 重接 sampler 的空间引用（set_feature_space 仅换引用，采样语义不变）
+        self.sampler.set_feature_space(new_fs)
+        # 新格进分殖优先（visit=0）——无需显式处理：sampler 的分殖规则天然覆盖
 
     # ------------------------------------------------------------------ #
     # 决策消费 / 干预摄取 / pending 重评估
@@ -1004,7 +1207,9 @@ class Scheduler:
                 "reason": rec.get("reason"),
                 "conditions": rec.get("conditions"),
             }, "adjudicator")
-            # 应用：approve 的 hard_delete_cell = 功能性灭绝（不删格）
+            # 应用：approve 的 hard_delete_cell = 功能性灭绝（不删格）；
+            #         approve 的 expand_cell = 写回 feature_space.json（task19：
+            #         热重载在下一迭代边界生效——新格进分殖优先）
             if decision == "approve":
                 proposal = self._load_proposal(pid)
                 if proposal and proposal.get("type") == "hard_delete_cell":
@@ -1019,6 +1224,19 @@ class Scheduler:
                         "rule_id": pid,
                     }, "scheduler")
                     self.archive.save()
+                elif proposal and proposal.get("type") == "expand_cell":
+                    # 应用 = 写回 feature_space.json（append-only 事件流纪律：
+                    # 文件是空间真相，热重载在下一迭代边界生效——新格 visit=0
+                    # 自然进分殖优先）；应用结果以追加事件留痕（不改写历史）
+                    applied = self._apply_expand_cell(proposal)
+                    if applied:
+                        self.events.append("adjudicated", {
+                            "proposal_id": pid, "decision": "applied",
+                            "reason": "expand_cell 应用完成（feature_space "
+                                      "已更新，下一迭代边界热重载生效）",
+                            "conditions": [],
+                            "applied": applied,
+                        }, "scheduler")
             try:
                 os.unlink(path)
             except OSError:
