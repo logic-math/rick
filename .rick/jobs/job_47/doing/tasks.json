@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-21T17:25:59.717Z",
+  "updated_at": "2026-10-23T01:00:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -335,6 +335,68 @@
       "dependencies": [],
       "task_file": "plan/task26.md",
       "commit_hash": "dde493d07f4bf38b6ace1998511ea677660e16e6"
+    },
+    {
+      "task_id": "task27",
+      "task_name": "gates.py 三要素门禁（gate_check 优先+legacy 回退+stage1 四件检查）+ test_gates",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task27.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task30",
+      "task_name": "gen_env skill 三要素追问（human 亲自描述目标/约束/现状，判据=可转脚本）+ gate_check 契约 + super-loop 轨迹读取",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task30.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task28",
+      "task_name": "loop.py 三要素命令注入 b/c/d + profile 历史采集/注入 + builder 决策落盘 designs/ + test_loop",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T01:00:00+08:00",
+      "dependencies": [
+        "task27",
+        "task30"
+      ],
+      "task_file": "plan/task28.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task29",
+      "task_name": "四模板：三要素使用纪律 + builder（profile 历史+arXiv 检索+决策落盘）+ coding/debug 三要素",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T01:00:00+08:00",
+      "dependencies": [
+        "task30"
+      ],
+      "task_file": "plan/task29.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task31",
+      "task_name": "matmul env 模板三要素化（skills/{profile,benchmark,verify,gate_check} + 删 self_check + data 薄转发）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T01:00:00+08:00",
+      "dependencies": [
+        "task27"
+      ],
+      "task_file": "plan/task31.md",
+      "commit_hash": ""
     }
   ]
 }
