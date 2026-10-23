@@ -17,13 +17,104 @@
       "visit": 1,
       "sample_count": 0,
       "last_sampled_at": null
+    },
+    "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+        "perf_value": 430.8255829999998,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 1.0113984642365124,
+        "lineage": [
+          "env/code/naive_start.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-23T17:13:18+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 2.5,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-23T17:07:05+08:00"
+    },
+    "dispatch_target=np_dot|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 1.5,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=einsum_path|impl_strategy=full_blas_dispatch": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 1.0,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=np_dot|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.1,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=np_matmul|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.1,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=einsum_path|impl_strategy=rowwise_vectorized": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.1,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=einsum_path|impl_strategy=m_halves": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.7,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
+    },
+    "dispatch_target=einsum_path|impl_strategy=m_quarters": {
+      "descriptor": {},
+      "elite": null,
+      "history": [],
+      "weight": 0.7,
+      "visit": 0,
+      "sample_count": 0,
+      "last_sampled_at": null
     }
   },
-  "pending": [],
+  "pending": [
+    {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-23T17:13:18+08:00"
+    }
+  ],
   "meta": {
     "env": "",
     "feature_axes": [],
     "perf_desc": "low",
-    "updated_at": "2026-10-23T17:07:05+08:00"
+    "updated_at": "2026-10-23T17:13:18+08:00"
   }
 }

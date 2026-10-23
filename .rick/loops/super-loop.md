@@ -28,7 +28,7 @@ scope: "super 会话（全局）"
 
 | # | 达成条件 | 判据 |
 |---|---|---|
-| G1 | env 合格（建设或确认既有） | **三要素齐备**（`skills/{profile,verify,benchmark,gate_check}.py` 四件各自独立可跑 + gate_check 对参考实现融合 pass） + 门先证红种子拒识 100% |
+| G1 | env 合格（建设或确认既有） | **三要素 + 检索五件齐备**（`skills/{profile,verify,benchmark,gate_check,research}.py`：四件三要素各自独立可跑 + gate_check 对参考实现融合 pass + `research.py` 四角色输出三元组非空） + 门先证红种子拒识 100% |
 | G2 | 后台进化按预期运行 | `rick super status` → state=running、心跳新鲜、iteration_cursor 递增、北极星（入格数/各格最优 perf/token 成本）可读 |
 | G3 | 干预正确投递且不破坏单写者 | 干预只经 `rick super event` → 队列文件出现在 `interventions/` → 后续事件流出现 intervention 事件（source=human） |
 | G4 | 停止干净 | `rick super stop` 后 state=stopped、session_ended 事件落盘、无孤儿进程（supervisor 整树收割） |
@@ -62,12 +62,14 @@ scope: "super 会话（全局）"
 
 **Step 1 env 建设（缺失时；已有 → 跳 Step 2）**
 - **三要素追问（强制前置，先于任何生成动作）**：按 gen_env skill 第 0 节逐项追问 human——**目标**（要优化什么、到什么程度算赢、怎么测）、**约束**（什么绝对不能破坏、失败怎么判）、**现状**（当前基线/热点/环境事实）。三者必须由 **human 亲自描述**，AI 只做追问与复述确认，**不得代填**；判据是**每个要素都能转成一个 skill 脚本**（目标→`skills/benchmark.py`、约束→`skills/verify.py`、现状→`skills/profile.py`）。三者不清不进入生成。
+- **检索三问（第四类资产，与三要素同级）**：按 gen_env skill 第 0.5 节追问 human——**搜索方法**（web_search 关键词 / 官方文档站内 / GitHub 代码搜索 / arXiv 站内与 API）、**搜索信源**（按角色分：coding/debug=使用手册与代码样例，builder/adjust=论文站）、**关注点**（**必须与特征格绑定**）。判据 = 能写成 `skills/research.py` 的 `ROLE_PROFILES`（四角色三元组非空）；human 亲自描述，AI 只追问确认。**定位**：检索是语义空间进化的「**认知注入**」通道——agent 在同一格以小角度反复微调（局部最优征兆）时，检索能引入外部新原理；关注点绑定到格才能收敛探索、避免泛读无关资料。
 - 加载 **gen_env skill** 走访谈式流程：任务定义 → 评分方向 → **门禁系统设计引导**（把三要素落成四件 skill：`profile/verify/benchmark/gate_check`；exploit 注册表 / 金样例——门禁阈值属 env 设计范畴，由 human 决策，本 loop 不代答）→ 初始特征空间（2-4 轴，轴间正交）→ 初始解。
 - matmul 类任务可从 `super/env_templates/matmul/` 模板起步，在模板上做门禁定制。
-- 验收自检（gen_env 的收尾清单）：三要素四件 skill 各自独立可跑 ✓ gate_check 对参考实现融合 pass ✓ exploit 样本被拒识 ✓（这是 Step 2 门先证红的地基）。
+- 验收自检（gen_env 的收尾清单）：五件 skill 各自独立可跑 ✓（三要素四件 + `research.py` 四角色三元组非空）gate_check 对参考实现融合 pass ✓ exploit 样本被拒识 ✓（这是 Step 2 门先证红的地基）。
 - **完成后立即推进 Step 2 启动——不得停在 env 生成后**（env_9 实测教训：gen_env 完成后未 start，工作区零轨迹 `events.jsonl`=0 行，等于白做）。若 human 明确要求先停，在会话记录里写明原因与计划启动时间。
 
 **Step 2 启动**
+- 启动前确认 env 建设含**检索三问**成果：`skills/research.py` 对四角色（coding/debug/builder/adjust）均能输出非空三元组（缺失 = 回 Step 1 补，别让 agent 无检索能力空跑）。
 - `rick super start --name <n> --env <path> --daemon`：启动即跑**门先证红**（全部 exploit 样本拒识 100% + 全部金样例通过）——不绿即中止启动，把泄漏/误杀清单给 human 看，回 Step 1 修 env 门禁。
 - 启动成功后用 `rick super status` 确认 state=running、心跳新鲜、iteration_cursor 开始递增。
 
@@ -115,6 +117,11 @@ scope: "super 会话（全局）"
   debug agent 修复 **1 次**（attempt 从 100 起编号，与自检失败的 1..M 区分）；debug 修完重跑门禁，
   仍失败则本迭代记失败（不循环）。复盘时若发现「门禁失败后 debug 修复率低」，属 debug 模板诊断 SOP
   待进化（走第 7 节流程），而不是让 human 手工改候选代码。
+- **检索质量复盘（第四类资产专项）**：读 `designs/*.papers` 核对三件事——
+  ① **数量与质量**（是否真检索、是否引用可落地机制，还是只抄摘要凑数）；
+  ② **是否落到计划**（`applicability` 是否出现在 `plan_steps`/`reasoning`——「只检索不落地」是常见坏模式）；
+  ③ **同质 idea 检测**（某格连续多轮 idea 都在同一小角度微调 = 语义空间局部最优征兆）→ 处方优先改 `skills/research.py` 的 `ROLE_PROFILES`
+  （放宽关注点 / 换信源 / 换检索方法；属 env 级升级，需 human 确认），而不是只调权重。
 - **两级接通**：本步进化的是 env 级资产（该 run 的搜索 DNA：四角色模板/特征空间/门禁）；
   若轨迹分析发现的坏模式是**系统性**的（跨 env 都会出现，如「adjust 普遍不引用事件证据」），
   升级为 rick 既有 **learning/dream 循环**（learning job 沉淀 → 更新 super-loop/gen_env skill 等仓级知识）——

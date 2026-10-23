@@ -1,0 +1,29 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "将父本逐行 np.dot+listcomp 内核替换为单次 np.matmul 整阵 BLAS gemm 派发，预期从 10104ms 坍缩到 434-488ms BLAS 平价带（score ~1.0，max_abs_diff=0.0）",
+  "usage": {
+    "input_tokens": 63198,
+    "output_tokens": 12064,
+    "cache_read": 103808,
+    "cache_write": 0,
+    "total_tokens": 179070,
+    "cost_usd": 0.16854888
+  },
+  "wall_ms": 204403,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 3,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/prompt_builder.md"
+}

@@ -11,6 +11,7 @@ debug 连烧三轮）：
 3. **多规模必须读 `correctness.sizes`（数组）**，`--size` 仅作覆盖；不得只读单数键。
 4. **stdout 单行 JSON**；失败也要输出 JSON（`{"passed": false, "error": ...}`），非 JSON = 契约破坏。
 5. `gate_check.py` 必须支持 `--baseline <perf>`（软门禁相对带比较）并从 `env.json` 读 `tolerance.soft_gate.relative_band`。
+6. **`research.py`（第四类资产）契约独立于上面三条**：`--role <adjust|builder|coding|debug>` 为必需参数（`--cell`/`--env-dir` 可选），同样 stdout 单行 JSON（检索指引）；**不执行网络请求**——检索动作由 agent 的 `web_search` 完成，脚本只约束「怎么搜/去哪搜/关注什么」（见第 0.5 节）。
 
 ## 触发场景
 
@@ -33,11 +34,12 @@ env/
 ├── env.json                 # 任务定义：任务名 / perf_desc（评分方向）/ perf_type（单位）/ 容差声明
 ├── feature_space.json       # 初始特征空间：2-4 轴（name/type/取值域），轴间正交
 ├── code/                    # 参考实现（正确性锚点）+ naive 起点（进化起点）
-├── skills/                  # 三要素（进化算法基石；框架与 agent 共用同一份资产）：
+├── skills/                  # 三要素 + 检索（进化算法基石；框架与 agent 共用同一份资产；**五件**）：
 │   ├── profile.py           #   现状：事实获取（热点/环境事实/父本结构）→ 事实 JSON
 │   ├── benchmark.py         #   目标：评估方法（K 次计时中位 + score 语义）→ {perf_type, score, timings, k}
 │   ├── verify.py            #   约束：合法性判定（正确性容差/接口/规模）→ {passed, max_error, stage}
-│   └── gate_check.py        #   门禁封装：verify→benchmark→软门禁；框架门禁与 agent 共用的唯一入口
+│   ├── gate_check.py        #   门禁封装：verify→benchmark→软门禁；框架门禁与 agent 共用的唯一入口
+│   └── research.py          #   第四类资产：检索三要素（方法/信源/关注点）按四角色输出检索指引（见第 0.5 节）
 ├── data/                    # legacy 兼容（旧 env 的 test_correctness.py + bench.py；新 env 不再新增）
 ├── domain_knowledge.md      # 领域知识 + 「## 性能分析 SOP」「## 性能调优 SOP」两节
 ├── requirements.txt         # 非标准库依赖声明（如 numpy）
@@ -84,6 +86,42 @@ gates/                       # 工作区级（非 env 内）：
 - 约束 → `verify.py`：输出格式合法性（JSON 可解析/字段齐全/长度上限）→ `{passed, max_error(格式违规数), stage}`；追问「什么算非法输出？长度/格式硬限制？」
 - 现状 → `profile.py`：当前 prompt 的事实画像（长度/结构/指令条数）+ 失败样本分类统计；追问「当前 prompt 长什么样？失败样本集中在哪里？」
 
+### 0.5 检索三问（第四类资产——「认知注入」，突破局部最优）
+
+**为什么需要它（human 洞察，不可省略）**：进化搜索在**语义空间**里做组内变异，容易陷局部最优——agent 在某个特征格里会以很小的角度反复微调同一种写法（如只调分块大小），长期出不来；这种状态很难说实现了有价值的搜索。**组内变异无法自己跳出，必须从外部注入新认知**。检索就是这条通道：复用前人的经验（使用手册/代码样例/论文），把搜索从「自己猜」变成「站在已有知识上改」——这是我们能越来越强、突破局部最优的核心方法。
+
+第四类资产 `skills/research.py` 承载检索的**三要素（三元组）**，按 agent 角色分别固化：
+
+| 参数 | 含义 | 决策要点 |
+|---|---|---|
+| **搜索方法** | 用什么方式检索 | `web_search` 关键词组合 / 官方文档站内搜索 / GitHub 代码搜索 / arXiv 站内与 API |
+| **搜索信源** | 去哪检索（按角色分） | coding/debug：官方文档、代码仓库优秀实现、技术问答；builder/adjust：arXiv、OpenReview、PapersWithCode |
+| **关注点** | 检索什么（**必须与特征格绑定**） | 见下方角色分工——同一域里不同角色关心的完全不同 |
+
+**角色分工（默认口径，human 可按域调整）**：
+
+| 角色 | 检索类型 | 关注点 |
+|---|---|---|
+| `coding` / `debug` | **使用手册类**（事实/API 用法） | 该格实现细节：API 用法与限制（参数约束/dtype 行为/已知坑）、可参考的代码样例 |
+| `builder` | **idea 类**（实验设计） | 实验细节、数据与方法：benchmark 配置、规模影响、硬件差异对比、可复现做法 |
+| `adjust` | **idea 类**（创新点） | 创新点与研究趋势：尚未覆盖的方法族、近期新方向（expand_cell 的判断依据） |
+
+**纪律（不可协商）**：
+
+1. **必须由 human 亲自描述三问**——AI 只做追问与复述确认（「我理解 coding/debug 查官方文档与代码样例、builder/adjust 查论文，对吗？」），**不得代填**（检索信源与关注点是领域判断，代填会让 agent 查错方向、把回合烧在无关资料上）。
+2. **关注点必须与特征格绑定**：不能只写「查矩阵乘优化」，要写「分块策略族的格关注 cache 分块大小与数据布局的实验数据」——**绑定到格，检索才能真正收敛探索空间**（这是三元组里最重要的一项）。
+3. **判据 = 能写成 `skills/research.py` 的 `ROLE_PROFILES`**：四角色各一组 `{method, sources, focus, suggested_queries}`，脚本按 `--role`（+`--cell`）输出单行 JSON 指引；缺任一角色、或任一参数为空 = 未达标。
+4. **research.py 只产出检索指引，不执行网络请求**：检索动作由 agent 自己的 `web_search` 完成；脚本负责约束「怎么搜/去哪搜/关注什么」，避免 agent 广泛乱搜。
+
+**追问样例**：
+
+- 「你的域里，开发者查什么文档最有效？有没有权威手册/源码仓库值得让 coding agent 直接查？」
+- 「论文该关注创新点还是实验细节？builder 设计实验时需要哪些数据（配置/规模/硬件）？」
+- 「这个域的主要解法有哪几个流派？哪些流派当前 env 没覆盖（adjust 需要知道去查什么新方向）？」
+- 「哪些信源不可靠或过时，要明确排除？」
+
+**非 matmul 泛化示例（prompt 优化任务）**：coding/debug 查「该框架的 prompt 最佳实践文档与官方示例」；builder 查「A/B 实验设计与评测方法论文」；adjust 查「prompt 优化新范式（self-refine / reflexion 等）」。
+
 ### 1. 任务定义
 
 - 确定任务名、输入输出（例：两个 512×512 float32 矩阵 → 乘积矩阵）。
@@ -116,6 +154,7 @@ gates/                       # 工作区级（非 env 内）：
   依次 verify（约束）→ benchmark（目标，K 次中位）→ 软门禁（与 `--baseline` 比较，`relative_band` 读 env.json）→ 输出 `{passed, failure_stage, metrics, details}` 单行 JSON。
   框架 stage2/stage3 调它一次完成级联判定；**agent（builder/coding/debug）也调它**——门禁口径从框架到 agent 完全统一（消除「自检过、框架拒」的语义漂移）。
   **不再生成 `self_check.py`**：AI 按需自行调用 profile / benchmark / verify / gate_check 四件，不做混合自检。
+  另加 `skills/research.py`（第 0.5 节的检索三要素）——**五件齐备**。
 - **exploit 注册表**（`<ws>/gates/exploit_registry.json`）：**引导 human 想「这个域里 agent 会怎么作弊」**，构造 3-5 个已知坏解样本（每条 {id, name, pattern, sample_path}）。常见模式参考：
   - 预存结果（返回缓存/硬编码答案）
   - 篡改计时（计时期间偷工/异步返回）
@@ -153,6 +192,11 @@ $PY env/skills/gate_check.py --candidate <每个 exploit 样本>
 # ④ naive 起点过约束（慢但必须对——它是进化起点）
 $PY env/skills/verify.py --candidate env/code/naive_start.py
 # → {"passed": true, ...}
+# ⑤ 检索指引四角色合法（三元组非空——第四类资产）
+for role in coding debug builder adjust; do
+  $PY env/skills/research.py --role $role
+  # → {"role": ..., "method": ..., "sources": [...], "focus": ..., "suggested_queries": [...]}
+done
 ```
 
 以上全过 → env 合格，回 super-loop Step 2 启动（start 会再跑全量门先证红：exploit 拒识 100% + 金样例零误杀）。
@@ -166,10 +210,13 @@ $PY env/skills/verify.py --candidate env/code/naive_start.py
 
 ### 7. 轨迹分析 → 提示词进化（《自改进的进化搜索算法》外层循环）
 
-搜索的「智能」住在 env 层的可进化资产里（特征空间 + 门禁 + **四角色提示词模板**）。
+搜索的「智能」住在 env 层的可进化资产里（特征空间 + 门禁 + **四角色提示词模板** + **`research.py` 检索三元组**）。
+
+> **检索的定位（第四类资产为何值得进化）**：进化搜索在语义空间做组合变异，**容易陷局部最优**——agent 在某一特征格内以小角度反复微调同一写法，此时搜索的「价值」已枯竭，但组内变异无法自救。**检索是外部认知注入通道**：当轨迹显示某格 idea 同质多轮，正确的处方往往不是再调权重，而是**改 research 三元组**（放宽关注点/换信源/换检索方法）——让 agent 先看看这个领域里别人怎么做的。三元组的「关注点」与特征格绑定，是让检索真正收敛探索空间（而不是泛读废文献）的关键。
 本环节用上一轮 run 的**执行轨迹证据**迭代这些资产——跑一轮，不仅解在进化，搜索算法本身也在进化。
 
 适用对象：**四角色提示词均适用**（`adjust.md` / `builder.md` / `coding.md` / `debug.md`），
+以及 **`skills/research.py` 的 `ROLE_PROFILES`（检索三元组：方法/信源/关注点）**——当轨迹显示某格 idea 同质多轮（局部最优征兆）时，改三元组比改模板更治本；
 其中 adjust 是首要对象（它是 run 内唯一采样决策者：权重=采样份额、加格=探索、灭绝=淘汰），
 builder 是第二优先级（成本大户，计划质量直接决定后续迭代的成功率）。
 
@@ -187,7 +234,7 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
    `events.jsonl` 里的 `adjust_decision` / `weight_changed` / `proposal` / `expand_cell` 事件、
    **`<ws>/designs/`**（builder 每迭代的决策落盘：profile 事实 / 参考论文（arxiv_id+insight+applicability）/ 灵感来源 / 推理 / 实验计划——进化「意图层」的完整档案，评估实验设计质量的主证据）、
    **`<ws>/profile_history/<cell_id>/iter{N}.json`**（每格 profile 时间序列——现状如何演化：热点迁移、耗时结构变化、环境事实漂移）、
-   **`env/skills/`** 四件（三要素的实际实现——口径是否被 candidate 特定 hack、容差与评估是否匹配目标）。
+   **`env/skills/`** 五件（三要素四件 + `research.py` 检索三元组的实际实现——口径是否被 candidate 特定 hack、容差与评估是否匹配目标、检索关注的与格是否对得上）。
 2. **诊断坏模式**（对照表 + 快照逐条核对）：
    - **震荡**：同一格反复升降权（A↑B↓ 来回摆）
    - **过激**：单次事件证据就大改权重（如 0.5→0）
@@ -199,6 +246,10 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
    - **三要素未被使用**（新布局专项）：`designs/` 里 `papers` 全空或泛泛引用（未真正检索 arXiv 或检索了不落到可实现机制）、
      `profile_facts` 与 `profile_history` 对不上（builder 没真看现状变化）、coding/debug 的 prompt 快照里无
      `verify`/`benchmark`/`gate_check` 调用痕迹（四件 skill 白给了）——处方是改对应角色模板的三要素使用纪律。
+   - **检索类坏模式**（第四类资产专项）：
+     - **只检索不落地**：`designs/*.papers` 有论文，但 `plan_steps`/`reasoning` 里没有任何来自论文的可实现机制（典型：抄 arXiv 摘要凑数）→ 处方 = 改 builder 模板的「落地纪律」（每篇必须给出 applicability 并落到某一步）。
+     - **完全不检索**：`papers` 长期为空且无说明（未用 `research_brief`）→ 查注入链（research.py 是否存在/命令是否注入）。
+     - **检索过窄 / idea 同质**（局部最优征兆）：某格连续多轮 idea 都在同一小角度微调（如反复只调分块大小）、没有任何外来思路——**这正是语义空间进化的局部最优陷阱**，说明 research 三元组的 **focus 太窄或信源太单一**；处方 = 改 `skills/research.py` 的 `ROLE_PROFILES`（放宽关注点/换信源，属 env 级升级，需 human 确认）。
 3. **处方：改写 `env/prompts/<role>.md`**——针对诊断出的模式加/改**决策纪律与判断启发**
    （如 adjust：每次权重变动须引用 ≥1 条事件 seq 号 / 同类连续降权须间隔防震荡 /
    何时机值得 expand_cell；如 builder：计划的 plan_steps 必须可被 coding 直接执行）。

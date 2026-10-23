@@ -1,0 +1,24 @@
+{
+  "role": "adjust",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "预算只剩最后 1 轮采样：将权重从均匀分布集中到唯一能触顶的 full_blas_dispatch 冠军族（尤其 np_matmul 直调），同时按 A 级实测证据压制已知 0.045 死区的 rowwise 族，M 分解系维持原权观察本轮 m_halves 结果。",
+  "usage": {
+    "input_tokens": 5871,
+    "output_tokens": 3089,
+    "cache_read": 9216,
+    "cache_write": 0,
+    "total_tokens": 18176,
+    "cost_usd": 0.024207160000000002
+  },
+  "wall_ms": 53333,
+  "exit_code": 0,
+  "tool_calls": [],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 2,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/adjust/iter_2/prompt_adjust.md"
+}

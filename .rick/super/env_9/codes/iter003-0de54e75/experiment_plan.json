@@ -1,0 +1,15 @@
+{
+  "idea": "瓶颈在父本 Python 层逐行循环 + B 全量重读（listcomp 99.9%，10104ms）：将 matmul(a,b) 内核替换为单次 np.matmul(a32, b32) 整阵 BLAS gemm 派发（本格定义形态），K 求和序不动，预期落入 434-488ms 平价带、score ~1.0",
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+  "parents": [
+    "env/code/naive_start.py"
+  ],
+  "plan_steps": [
+    "读父本 env/code/naive_start.py：确认 matmul(a,b) 契约（asarray 转 f32、返回 (n,m) ndarray）与 main 的预热/计时/自检 JSON 输出协议、np.seterr 设置——全部保持不动",
+    "重写 matmul 内核：删除逐行 listcomp + np.stack，改为 return np.matmul(a32, b32)——单次整阵 gemm 派发；不预转置 B、不用 out=、不引入 reshape/中间拷贝/额外 dtype 转换",
+    "用 env 的 .venv python 跑 env/skills/verify.py --candidate <候选文件>：预期 max_abs_diff = 0.0（与 np.matmul 锚同一调用，逐位一致，远低于 1e-3 容差）",
+    "用 env 的 .venv python 跑 env/skills/benchmark.py --candidate <候选文件>：预期 k=3 中位 runtime 落 434-488ms 平价带、score ≈ 1.0（0.95-1.05 软带内，略高于 1.0 视为噪声）",
+    "用 env 的 .venv python 跑 env/skills/gate_check.py --candidate <候选文件> 终判：确认 score_max 2.0 / runtime_ms_min 0.01 / ref 带 [380,700]ms 全部满足后交付候选"
+  ],
+  "expected_behavior": "k=3 中位 runtime 从 ~10104ms 降至 434-488ms BLAS 平价带（约 21-23× 提速）；score 从 ~0.045 升至 ~1.00（软门禁相对带 ±5% 即 0.95-1.05 内，中心 1.0，略高于 1.0 属计时噪声非真实增益）；正确性 max_abs_diff = 0.0（同一 BLAS 调用逐位一致，双 seed 双进程均应为 0）。可证伪判据：中位 >520ms、score <0.93，或出现任何非零误差（如误改求和序），则『单次整阵 np.matmul 派发达 BLAS 平价』假设被证伪。"
+}

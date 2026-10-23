@@ -98,6 +98,42 @@ $PY skills/gate_check.py --candidate <path> [--baseline <perf>]   # 融合门禁
 （score≤0.063）、线程池（0.81-0.94）、fp64 累加（3.4× 慢）——env_7 实测数据，
 死格族已从特征空间裁除。
 
+## 检索要点（信源与关键词——突破局部最优的认知通道）
+
+> 纯组内变异会困在同一格以小角度微调——**检索是本域唯一能从外部注入新原理的通道**。
+> 按角色分工检索（三元组由 `skills/research.py --role <role> --cell <cell>` 给出）：
+> coding/debug 查使用手册与代码样例；builder 查实验细节/数据/方法；adjust 查创新点/趋势。
+
+### 有效信源（本域实测）
+
+- **numpy 官方文档**：`np.dot` / `np.matmul` 的 `out=` 参数约束（必须 C 连续、形状精确匹配）、
+  dtype 提升规则——实现崩在「行切片传给 out=」这类错上时，这里是最快答案
+- **BLAS/Accelerate 文档**：sgemm 派发条件、线程数行为（macOS 走 Accelerate/vecLib，
+  观察到的 T/C 序性能漂移与 SME 路径相关）
+- **arXiv（CPU GEMM 方向）**：Level-3 BLAS roofline、cache blocking / tiling 实验数据、
+  SGEMM 微内核工程经验——builder 优先找「有 benchmark 表、有硬件配置」的论文
+- **paperswithcode**：同一 benchmark 的方法横向对比（快速判断某方向天花板）
+- **GitHub 优秀实现**：ctypes 直调 cblas_sgemm 的完整样例、tiling 微基准
+
+### 关键词踩坑（避免检索噪声）
+
+- 直接搜 `matmul optimization` 会涌入大量 **GPU / CUDA / Triton / TPU** 内容——与本任务
+  （CPU + CPython + numpy + 8192/512 规模）不匹配。**必加限定词**：`CPU`、`numpy`、
+  `OpenBLAS`/`Accelerate`、`SGEMM`、`cache blocking`
+- 搜 `strassen` 会引入递归分解实现——**本机实测劣化（1.6× 慢）**，属已裁死格族，不要重复探索
+- 搜 `multiprocessing matmul` 多为「进程池切块」——本任务单调用内优化，多进程族实测 score≤0.063
+  （死格），检索时直接跳过这类方向
+- 「矩阵乘法加速」中文结果多为教学/面试内容，缺乏 benchmark 数据——优先英文源
+
+### 检索纪律（agent 侧）
+
+- **≤3 个来源/篇数**；每条结论必须落到**具体可实现动作**（API 约束 / 参数取值 / 算法机制），
+  不写泛泛综述
+- builder 的检索结论落到 `designs/iter{N}_{cell}.json` 的 `papers`（arxiv_id/title/insight/
+  applicability）——appliability 必须写明「在目标格怎么用」
+- coding/debug 的检索结论落到实现注释或 notes（来源 + 要点），不改变实现计划的意图
+- 检索不到（工具不可用/无结果）→ 如实记录 `papers: []` 并说明原因，**不要编造引用**
+
 ## 已知陷阱
 
 - **作弊模式（门会拒）**：返回预存固定矩阵（不依赖输入）/ 篡改计时（线程内偷跑）/
