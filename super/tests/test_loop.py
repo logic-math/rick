@@ -1440,3 +1440,177 @@ class TestLedgerAndSaturation(LoopTestBase):
         cells = self.read_archive()["cells"]
         self.assertTrue(all(float(c.get("weight", 1.0)) == 1.0
                             for c in cells.values()))
+
+
+# --------------------------------------------------------------------------- #
+# ⑫ 三要素（profile/benchmark/verify/gate_check）+ profile 历史 + builder 决策落盘
+#      （迭代6/task28）
+# --------------------------------------------------------------------------- #
+
+_PROFILE_SCRIPT = '''#!/usr/bin/env python3
+import json, sys
+print(json.dumps({"hotspots": [{"func": "np.dot", "pct": 62.5},
+                               {"func": "concat", "pct": 21.0}],
+                  "env_facts": {"numpy": "2.0.2", "blas": "accelerate"}}))
+'''
+
+
+class TestElementsAndDesigns(LoopTestBase):
+    """迭代6：三要素命令注入 / profile 时间序列 / builder 决策落盘。"""
+
+    def _install_element_skills(self) -> None:
+        """fixture env 造 skills/{profile,benchmark,verify,gate_check}.py。"""
+        sk = os.path.join(self.ws, "env", "skills")
+        os.makedirs(sk, exist_ok=True)
+        with open(os.path.join(sk, "profile.py"), "w", encoding="utf-8") as f:
+            f.write(_PROFILE_SCRIPT)
+        for name, payload in (
+                ("benchmark", '{"runtime_ms": 1.0, "score": 0.9, "timings": [1, 1, 1], "k": 3}'),
+                ("verify", '{"passed": true, "max_error": 0.0, "stage": "stage2_correctness"}')):
+            with open(os.path.join(sk, name + ".py"), "w", encoding="utf-8") as f:
+                f.write("#!/usr/bin/env python3\nimport sys\nprint(%r)\n" % payload)
+        with open(os.path.join(sk, "gate_check.py"), "w", encoding="utf-8") as f:
+            f.write("#!/usr/bin/env python3\nimport sys\nprint("
+                    "'{\"passed\": true, \"failure_stage\": null, "
+                    "\"metrics\": {}, \"details\": \"ok\"}')\n")
+
+    @staticmethod
+    def _iter_dirs(ws: str):
+        return sorted(d for d in os.listdir(os.path.join(ws, "codes"))
+                      if d.startswith("iter"))
+
+    def test_element_cmds_injected_to_role_prompts(self):
+        """① 三要素命令注入 builder/coding/debug prompt。"""
+        self._install_element_skills()
+        sk = os.path.join(self.ws, "env", "skills")
+        # coding 自检失败 → 触发 debug（第三角色也要看到三要素）
+        self.client.queue("coding", [_coding_result(passed=False,
+                                                    diff_path=self.cand_file)])
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        elems = sched._element_cmds()
+        for key in ("profile_cmd", "benchmark_cmd", "verify_cmd", "gate_check_cmd"):
+            self.assertTrue(elems[key], "%s 缺（skills 四件应齐备）" % key)
+        self.assertIn("--baseline", elems["gate_check_cmd"])
+        d = self._iter_dirs(self.ws)[0]
+        for role in ("builder", "coding", "debug"):
+            p = os.path.join(self.ws, "codes", d, "prompt_%s.md" % role)
+            text = open(p, encoding="utf-8").read()
+            self.assertIn(os.path.join(sk, "profile.py"), text,
+                          "%s prompt 缺 profile 命令" % role)
+            self.assertIn(os.path.join(sk, "gate_check.py"), text,
+                          "%s prompt 缺 gate_check 命令" % role)
+
+    def test_legacy_env_has_empty_element_cmds(self):
+        """② legacy env（无 skills 四件）→ 命令空串且模板不炸。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()  # 不抛异常
+        elems = sched._element_cmds()
+        self.assertEqual(elems["profile_cmd"], "")
+        self.assertEqual(elems["benchmark_cmd"], "")
+        self.assertEqual(elems["verify_cmd"], "")
+        self.assertEqual(elems["gate_check_cmd"], "")
+
+    def test_profile_collected_and_archived(self):
+        """③ 每迭代自动采集 profile → profile_history/<cell>/iter1.json。"""
+        self._install_element_skills()
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        root = os.path.join(self.ws, "profile_history")
+        self.assertTrue(os.path.isdir(root))
+        cells = os.listdir(root)
+        self.assertEqual(len(cells), 1)
+        files = os.listdir(os.path.join(root, cells[0]))
+        self.assertIn("iter1.json", files)
+        rec = json.load(open(os.path.join(root, cells[0], "iter1.json"),
+                             encoding="utf-8"))
+        for k in ("ts", "iteration_id", "cell_id", "candidate", "profile"):
+            self.assertIn(k, rec)
+        self.assertEqual(rec["iteration_id"], 1)
+        self.assertEqual(rec["profile"]["env_facts"]["numpy"], "2.0.2")
+
+    def test_profile_history_injected_into_builder(self):
+        """④ profile 历史（目标格 + 灵感格）注入 builder prompt。"""
+        self._install_element_skills()
+        from superopt.feature_space import FeatureSpace
+        cells = FeatureSpace(AXES).all_cells()
+        root = os.path.join(self.ws, "profile_history")
+        # 目标格：所有格都种上历史（采样结果不确定，但标记必现）
+        for cid in cells:
+            d = os.path.join(root, cid)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "iter900.json"), "w", encoding="utf-8") as f:
+                json.dump({"ts": "2026-10-23T00:00:00+08:00",
+                           "iteration_id": 900, "cell_id": cid,
+                           "candidate": "x", "profile":
+                           {"hotspots": [{"func": "PROF_MARK", "pct": 1}]}},
+                          f)
+        # 灵感格：造一个有精英的邻格（archive.json 预写）
+        nb = cells[0]
+        arch = {"meta": {}, "pending": [], "cells": {nb: {
+            "descriptor": {}, "elite": {"code_path": self.cand_file,
+                                        "perf_value": 100.0},
+            "history": [], "weight": 1.0, "visit": 1}}}
+        with open(self.archive_path, "w", encoding="utf-8") as f:
+            json.dump(arch, f)
+        d = os.path.join(root, nb)
+        with open(os.path.join(d, "iter901.json"), "w", encoding="utf-8") as f:
+            json.dump({"ts": "2026-10-23T00:00:00+08:00", "iteration_id": 901,
+                       "cell_id": nb, "candidate": "x",
+                       "profile": {"hotspots": [{"func": "INSP_MARK", "pct": 2}]}},
+                      f)
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        d0 = self._iter_dirs(self.ws)[0]
+        text = open(os.path.join(self.ws, "codes", d0, "prompt_builder.md"),
+                    encoding="utf-8").read()
+        self.assertIn("PROF_MARK", text)      # 目标格历史轨迹
+        self.assertIn("INSP_MARK", text)      # 灵感格历史轨迹
+
+    def test_builder_design_persisted(self):
+        """⑤ builder 决策落盘 designs/iter{N}_{cell}.json（papers/inspirations/reasoning）。"""
+        self._install_element_skills()
+        self.client.queue("builder", [_agent_result("builder", {
+            "experiment_plan": {"idea": "分块+转置", "parents": [],
+                                "plan_steps": ["s1"], "expected_behavior": "faster"},
+            "papers": [{"arxiv_id": "2501.00001", "title": "GEMM tiling",
+                        "insight": "块尺寸与 L2 匹配", "applicability": "本格 tiled"}],
+            "inspirations": [{"source_cell": "impl=vectorized|mem=tiled",
+                              "what": "zip 转置降低装配税"}],
+            "reasoning": "热点在 np.dot，装配次之；先换派发入口。",
+        })])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        ddir = os.path.join(self.ws, "designs")
+        files = [n for n in os.listdir(ddir) if n.endswith(".json")]
+        self.assertEqual(len(files), 1)
+        self.assertTrue(files[0].startswith("iter1_"))
+        rec = json.load(open(os.path.join(ddir, files[0]), encoding="utf-8"))
+        self.assertEqual(rec["iteration_id"], 1)
+        self.assertTrue(rec["cell_id"])
+        self.assertEqual(rec["papers"][0]["arxiv_id"], "2501.00001")
+        self.assertEqual(rec["inspirations"][0]["source_cell"],
+                         "impl=vectorized|mem=tiled")
+        self.assertIn("热点在 np.dot", rec["reasoning"])
+        self.assertEqual(rec["experiment_plan"]["idea"], "分块+转置")
+        # profile_facts：自动采集的现状事实（np.dot=62.5）
+        self.assertTrue(any("np.dot" in f for f in rec["profile_facts"]))
+
+    def test_recent_designs_injected(self):
+        """⑥ recent_designs 注入后续迭代的 builder prompt。"""
+        self._install_element_skills()
+        ddir = os.path.join(self.ws, "designs")
+        os.makedirs(ddir, exist_ok=True)
+        with open(os.path.join(ddir, "iter1_x.json"), "w", encoding="utf-8") as f:
+            json.dump({"iteration_id": 1, "cell_id": "impl=naive|mem=row",
+                       "experiment_plan": {"idea": "PREV_IDEA_MARK"},
+                       "papers": [{"arxiv_id": "2502.00002"}],
+                       "reasoning": "PREV_REASON_MARK"}, f)
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        d1 = self._iter_dirs(self.ws)[1]
+        text = open(os.path.join(self.ws, "codes", d1, "prompt_builder.md"),
+                    encoding="utf-8").read()
+        self.assertIn("PREV_IDEA_MARK", text)
+        self.assertIn("2502.00002", text)

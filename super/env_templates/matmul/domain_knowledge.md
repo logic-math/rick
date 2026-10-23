@@ -10,6 +10,32 @@
 - 评分方向：`runtime_ms` 越小越好（`perf_desc: "low"`）；基准 = `np.matmul` 同机计时，
   `score = ref_median / candidate_median`（加速比）
 
+## 三要素（env 基石契约，agent 与框架共用同一份资产）
+
+| 要素 | 语义（泛化） | 脚本 | agent 怎么用 | 框架怎么用 |
+|---|---|---|---|---|
+| **现状** | 事实信息获取 | `skills/profile.py` | 设计实验前剖析父本：热点在哪、环境事实、代码结构 | 不做门禁判定（事实非裁决） |
+| **目标** | 目标优化的评估方法 | `skills/benchmark.py` | 拿 K 次中位耗时与 score，判断「变好了没有」 | stage3（经 gate_check） |
+| **约束** | 优化过程中的约束 | `skills/verify.py` | 判断候选是否合法（正确性容差） | stage2 + stage1 参考实现锚定 |
+
+**融合门禁**：`skills/gate_check.py` = verify → benchmark(K 次中位) → 软门禁（与
+`--baseline` 按 `env.json` 的 `tolerance.soft_gate.relative_band` 比较）→ 一次给出
+`{passed, failure_stage, metrics, details}`。**框架与 agent 共用它**——你在 coding/debug
+里自行调用得到的结论与框架终验完全同源（不会出现「自检过、框架拒」）。
+
+常用命令（venv 解释器）：
+
+```bash
+PY=.venv/bin/python
+$PY skills/profile.py    --candidate <path>            # 现状：hotspots/env_facts/parent_facts
+$PY skills/verify.py     --candidate <path>            # 约束：{passed, max_error}
+$PY skills/benchmark.py  --candidate <path>            # 目标：{runtime_ms, score, timings}
+$PY skills/gate_check.py --candidate <path> [--baseline <perf>]   # 融合门禁（权威）
+```
+
+（`data/bench.py`、`data/test_correctness.py` 保留为**薄转发**，仅兼容旧调用方；
+三要素唯一实现位于 `skills/`。`self_check.py` 已退役——按需调用上表三个脚本即可。）
+
 ## 特征格实验指引（6 格精选空间，3 策略 × 2 布局）
 
 > 格手术依据（env_7 实测 score 阶梯）：naive 三重循环 2.1e-5 → 逐行 np.dot **0.153**
@@ -50,10 +76,10 @@
 
 **先测量，后动手——没有 profile 的优化是猜测。**
 
-1. **基线测量**：`data/bench.py --candidate <你的实现>`——看 `timings` 三次的抖动
+1. **基线测量**：`skills/benchmark.py --candidate <你的实现>`——看 `timings` 三次的抖动
    （抖动大 = 环境噪声或首次缓存效应，先排除）
 2. **阶段拆解**：纯 Python 实现里，三重循环的内层（`t` 维）占 >95% 时间——
-   `python3 -m cProfile -s cumtime your_impl.py` 确认热点就在内层循环
+   或用 `skills/profile.py --candidate <你的实现>` 直接拿 hotspots 表确认热点在内层循环
 3. **微基准**：改一处，只测一处——`python3 -m timeit -s "from your_impl import matmul; ..."` 单变量对比
 4. **形态检查**：确认 `matmul(a, b)` 返回的是紧凑结构（嵌套 list / ndarray 皆可，
    但 ndarray 才能吃到后续向量化收益）

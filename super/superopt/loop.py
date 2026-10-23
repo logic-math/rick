@@ -49,6 +49,7 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -98,6 +99,75 @@ def _fmt_num(v: float) -> str:
 
 def _now() -> str:
     return datetime.now(_TZ).isoformat(timespec="seconds")
+
+
+def _safe_fs_name(cell_id: str) -> str:
+    """cell_id → 文件系统安全的目录/文件名片段。
+
+    cell_id 形如 `impl_strategy=blocked|memory_layout=tiled`（含 `|`/`=`），
+    在 macOS/Linux 下可直接做目录名；仅替换路径分隔符与残余控制字符，
+    保持可读（profile_history/<cell>/ 与 designs/iter{N}_<cell>.json）。
+    """
+    return re.sub(r"[/\\\x00-\x1f]", "_", str(cell_id))
+
+
+def _parse_last_json_line(text: str) -> Optional[Dict[str, Any]]:
+    """从子进程 stdout 提取最后一行合法 JSON（三要素脚本的标准输出协议）。
+
+    宽松匹配：取最后一个能 json.loads 成 dict 的非空行（脚本可能有 print
+    前言或 stderr 混入 stdout）。解析不出 → None。
+    """
+    if not isinstance(text, str):
+        return None
+    for line in reversed(text.strip().splitlines()):
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            val = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(val, dict):
+            return val
+    return None
+
+
+def _coerce_text(v: Any) -> str:
+    """subprocess 输出可能是 bytes/None → str（text=True 下正常是 str）。"""
+    if v is None:
+        return ""
+    if isinstance(v, bytes):
+        return v.decode("utf-8", "replace")
+    return str(v)
+
+
+def _profile_facts(profile: Optional[Dict[str, Any]]) -> List[str]:
+    """profile 输出 → 可读事实摘要（designs 落盘的 profile_facts）。
+
+    兼容热点列表（hotspots: [{func/name, pct/percent/ratio}]）与环境事实
+    （env_facts: {k: v}）两种常见形状；未知形状不编造（返回空列表）。
+    """
+    if not isinstance(profile, dict):
+        return []
+    facts = []  # type: List[str]
+    hs = profile.get("hotspots")
+    if isinstance(hs, list):
+        for h in hs[:3]:
+            if isinstance(h, dict):
+                name = h.get("func") or h.get("name") or "?"
+                val = h.get("pct")
+                if val is None:
+                    val = h.get("percent")
+                if val is None:
+                    val = h.get("ratio")
+                facts.append("%s=%s" % (name, val if val is not None else ""))
+            else:
+                facts.append(str(h)[:80])
+    ef = profile.get("env_facts")
+    if isinstance(ef, dict):
+        for k in list(ef.keys())[:4]:
+            facts.append("%s=%s" % (k, ef.get(k)))
+    return facts
 
 
 class _RuntimeArchive(Archive):
@@ -184,6 +254,10 @@ class Scheduler:
         self.codes_dir = os.path.join(self.ws, "codes")
         self.proposals_dir = os.path.join(self.ws, "proposals")
         self.heartbeat_path = os.path.join(self.ws, "heartbeat.json")
+        # 三要素之「现状」的时间序列（迭代6：每迭代自动采集 profile）与
+        # builder 决策落盘（designs/iter{N}_{cell}.json）——懒建目录
+        self.profile_history_dir = os.path.join(self.ws, "profile_history")
+        self.designs_dir = os.path.join(self.ws, "designs")
         os.makedirs(self.codes_dir, exist_ok=True)
         os.makedirs(self.proposals_dir, exist_ok=True)
         os.makedirs(self.gates_dir, exist_ok=True)
@@ -524,6 +598,10 @@ class Scheduler:
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite") or {}
         cmds = self._self_check_and_profile_cmds()
+        elems = self._element_cmds()
+        # 三要素之「现状」（迭代6）：每迭代 builder 前自动采集 profile 归档——
+        # 形成 profile_history 时间序列（失败静默不阻断）
+        profile = self._collect_profile(cell_id, cursor)
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -550,6 +628,21 @@ class Scheduler:
             "ledger_brief": self._ledger_brief(8),
             "gate_defs": self._gate_defs(),
             "interventions": self._recent_interventions(3),
+            # ---- 迭代6：三要素命令 + profile 历史轨迹 + 决策落盘 ----
+            "profile_cmd": elems["profile_cmd"],
+            "benchmark_cmd": elems["benchmark_cmd"],
+            "verify_cmd": elems["verify_cmd"],
+            "gate_check_cmd": elems["gate_check_cmd"],
+            "target_profile_history": self._or_default(
+                self._profile_history(cell_id, 3), "（本格暂无 profile 历史）"),
+            "parent_profile_history": self._or_default(
+                self._parent_profile_history(cell_id), "（无跨格父本）"),
+            "inspiration_profile_history": self._or_default(
+                self._inspiration_profile_history(cell_id),
+                "（无邻格灵感数据）"),
+            "designs_dir": self.designs_dir,
+            "recent_designs": self._or_default(
+                self._recent_designs(3), "（暂无历史决策）"),
         }
         prompt = render("builder", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "builder", prompt)
@@ -565,6 +658,10 @@ class Scheduler:
         with open(os.path.join(iter_dir, "experiment_plan.json"), "w",
                   encoding="utf-8") as f:
             json.dump(plan, f, ensure_ascii=False, indent=2)
+        # 迭代6：builder 决策落盘（designs/iter{N}_{cell}.json）——
+        # 论文/灵感/推理/计划/现状事实的完整决策档案，供 gen_env 与中控
+        # 会话读进化轨迹（super-loop Step 3/7）。写失败不影响主循环。
+        self._write_design(cell_id, cursor, result, plan, profile)
         return plan
 
     def _axis_perf_summary(self) -> str:
@@ -658,6 +755,7 @@ class Scheduler:
         self._seed_parent_code(plan, cell_id, iter_dir)
         cmds = self._self_check_and_profile_cmds()
         self_check_cmd = cmds["self_check_cmd"]
+        elems = self._element_cmds()
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -672,6 +770,11 @@ class Scheduler:
             "workdir_files": self._workdir_files(iter_dir),
             "ledger_brief": self._ledger_brief(8),
             "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
+            # ---- 迭代6：三要素命令（与框架同一套资产；自行按需调用） ----
+            "profile_cmd": elems["profile_cmd"],
+            "benchmark_cmd": elems["benchmark_cmd"],
+            "verify_cmd": elems["verify_cmd"],
+            "gate_check_cmd": elems["gate_check_cmd"],
         }
         prompt = render("coding", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "coding", prompt)
@@ -717,6 +820,7 @@ class Scheduler:
                    self_check: Dict[str, Any], last_err: str,
                    gate_failure: Optional[Dict[str, Any]] = None) -> Any:
         cmds = self._self_check_and_profile_cmds()
+        elems = self._element_cmds()
         ctx = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -735,6 +839,11 @@ class Scheduler:
             "gate_defs": self._gate_defs(),
             "ledger_brief": self._ledger_brief(8),
             "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
+            # ---- 迭代6：三要素命令（debug 用三者分段定位失败） ----
+            "profile_cmd": elems["profile_cmd"],
+            "benchmark_cmd": elems["benchmark_cmd"],
+            "verify_cmd": elems["verify_cmd"],
+            "gate_check_cmd": elems["gate_check_cmd"],
         }
         prompt = render("debug", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "debug", prompt)
@@ -1036,6 +1145,8 @@ class Scheduler:
             "ledger_brief": self._ledger_brief(8),
             "own_decisions": self._or_default(self._own_decisions("adjust", 5), "（暂无历史决策）"),
             "interventions": self._recent_interventions(3),
+            # 迭代6：三要素门禁命令（可选——判断某方向是否还有潜力时可实证）
+            "gate_check_cmd": self._element_cmds()["gate_check_cmd"],
         }
         prompt = render("adjust", self.ws, ctx)
         # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
@@ -1420,6 +1531,196 @@ class Scheduler:
                        if os.path.exists(prof) else "")
         return {"self_check_cmd": self_check_cmd,
                 "perf_profile_cmd": profile_cmd}
+
+    # ------------------------------------------------------------------ #
+    # 三要素（迭代6）：profile / benchmark / verify / gate_check
+    # ------------------------------------------------------------------ #
+
+    def _element_cmds(self) -> Dict[str, str]:
+        """三要素命令（迭代6 契约）。
+
+        profile=事实获取 / benchmark=评估方法 / verify=约束 / gate_check=三者封装
+        （框架与 agent 共用同一套资产）。每项 = `<python> <env>/skills/<n>.py`
+        （文件存在才给）；缺失 → 空串（legacy env 无 skills 四件，模板侧
+        「未提供则跳过」兜底）。gate_check 附 --baseline 用法（agent 可自判
+        软门禁时需要该格精英 perf）。
+        """
+        py = self._python_cmd()
+        skills = os.path.join(self.env_dir, "skills")
+        out = {}  # type: Dict[str, str]
+        for name in ("profile", "benchmark", "verify"):
+            script = os.path.join(skills, name + ".py")
+            out[name + "_cmd"] = ("%s %s --candidate <path>" % (py, script)
+                                  if os.path.exists(script) else "")
+        gc = os.path.join(skills, "gate_check.py")
+        out["gate_check_cmd"] = (
+            "%s %s --candidate <path> [--baseline <该格精英 perf，可选>]"
+            % (py, gc) if os.path.exists(gc) else "")
+        return out
+
+    def _profile_candidate(self, cell_id: str) -> Optional[str]:
+        """profile 采集对象：该格精英代码 → naive_start.py → reference.py。"""
+        elite = self._cell_entry(cell_id).get("elite") or {}
+        cp = elite.get("code_path")
+        if isinstance(cp, str) and cp and os.path.isfile(cp):
+            return cp
+        for name in ("naive_start.py", "reference.py"):
+            p = os.path.join(self.env_dir, "code", name)
+            if os.path.isfile(p):
+                return p
+        return None
+
+    def _collect_profile(self, cell_id: str, cursor: int) -> Optional[Dict[str, Any]]:
+        """每迭代自动采集 profile（三要素之「现状」）→ 时间序列归档。
+
+        对父本候选（该格精英 / naive_start / reference）跑 profile 脚本，
+        存 `<ws>/profile_history/<cell>/iter{N}.json`：
+            {ts, iteration_id, cell_id, candidate, profile}
+        失败静默（profile 是辅助事实，不阻断迭代）。
+        """
+        script = os.path.join(self.env_dir, "skills", "profile.py")
+        if not os.path.isfile(script):
+            return None
+        candidate = self._profile_candidate(cell_id)
+        if not candidate:
+            return None
+        try:
+            r = subprocess.run(
+                [self._python_cmd(), script, "--candidate", candidate],
+                capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        parsed = _parse_last_json_line(_coerce_text(r.stdout))
+        if parsed is None:
+            return None
+        payload = {"ts": _now(), "iteration_id": cursor, "cell_id": cell_id,
+                   "candidate": candidate, "profile": parsed}
+        d = os.path.join(self.profile_history_dir, _safe_fs_name(cell_id))
+        try:
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "iter%d.json" % cursor), "w",
+                      encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass  # 归档失败不影响迭代（事实已进 ctx 供本次使用）
+        return parsed
+
+    def _profile_history(self, cell_id: str, n: int = 3) -> List[Dict[str, Any]]:
+        """某格最近 n 条 profile 历史（iter 编号降序）。"""
+        d = os.path.join(self.profile_history_dir, _safe_fs_name(cell_id))
+        try:
+            names = [x for x in os.listdir(d)
+                     if x.startswith("iter") and x.endswith(".json")]
+        except OSError:
+            return []
+
+        def _key(name: str) -> int:
+            m = re.search(r"iter(\d+)\.json$", name)
+            return int(m.group(1)) if m else -1
+
+        out = []  # type: List[Dict[str, Any]]
+        for name in sorted(names, key=_key, reverse=True)[:max(1, n)]:
+            try:
+                with open(os.path.join(d, name), "r", encoding="utf-8") as f:
+                    out.append(json.load(f))
+            except (OSError, ValueError):
+                continue
+        return out
+
+    def _cell_of_code_path(self, code_path: Optional[str]) -> Optional[str]:
+        """code_path 属于哪个格（扫 archive 快照的精英引用）。"""
+        if not isinstance(code_path, str) or not code_path:
+            return None
+        for cid, cell in _cells_snapshot(self.archive).items():
+            elite = (cell or {}).get("elite") or {}
+            if elite.get("code_path") == code_path:
+                return cid
+        return None
+
+    def _parent_profile_history(self, cell_id: str) -> List[Dict[str, Any]]:
+        """父格 profile 历史（父本跨格时；父本即本格 → 空）。"""
+        elite = self._cell_entry(cell_id).get("elite") or {}
+        owner = self._cell_of_code_path(elite.get("code_path"))
+        if not owner or owner == cell_id:
+            return []
+        return [{"cell_id": owner, "entries": self._profile_history(owner, 2)}]
+
+    def _inspiration_profile_history(self, cell_id: str,
+                                     n_cells: int = 3,
+                                     per: int = 2) -> List[Dict[str, Any]]:
+        """灵感格（近邻）各自最近 per 条 profile 历史。"""
+        out = []  # type: List[Dict[str, Any]]
+        for nb in self._neighbor_elites(cell_id, limit=n_cells):
+            cid = nb.get("cell_id")
+            if not isinstance(cid, str):
+                continue
+            entries = self._profile_history(cid, per)
+            if entries:
+                out.append({"cell_id": cid, "entries": entries})
+        return out
+
+    def _write_design(self, cell_id: str, cursor: int, result: Any,
+                      plan: Dict[str, Any],
+                      profile: Optional[Dict[str, Any]]) -> None:
+        """builder 决策落盘（designs/iter{N}_{cell}.json）。写失败不影响循环。"""
+        data = getattr(result, "data", None)
+        data = data if isinstance(data, dict) else {}
+        papers = data.get("papers")
+        inspirations = data.get("inspirations")
+        reasoning = data.get("reasoning")
+        design = {
+            "iteration_id": cursor,
+            "cell_id": cell_id,
+            "ts": _now(),
+            "profile_facts": _profile_facts(profile),
+            "papers": papers if isinstance(papers, list) else [],
+            "inspirations": inspirations if isinstance(inspirations, list) else [],
+            "reasoning": (reasoning if isinstance(reasoning, str)
+                          else (getattr(result, "summary", "") or "")),
+            "experiment_plan": plan,
+        }
+        try:
+            os.makedirs(self.designs_dir, exist_ok=True)
+            path = os.path.join(
+                self.designs_dir,
+                "iter%d_%s.json" % (cursor, _safe_fs_name(cell_id)))
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(design, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass  # 决策档案是分析副产品；失败不回滚迭代
+
+    def _recent_designs(self, n: int = 3) -> List[Dict[str, Any]]:
+        """近期 builder 决策摘要（避免重复方向；gen_env 轨迹分析也读 designs/）。"""
+        try:
+            names = [x for x in os.listdir(self.designs_dir)
+                     if x.endswith(".json")]
+        except OSError:
+            return []
+
+        def _key(name: str) -> int:
+            m = re.match(r"iter(\d+)_", name)
+            return int(m.group(1)) if m else -1
+
+        out = []  # type: List[Dict[str, Any]]
+        for name in sorted(names, key=_key, reverse=True)[:max(1, n)]:
+            try:
+                with open(os.path.join(self.designs_dir, name), "r",
+                          encoding="utf-8") as f:
+                    d = json.load(f)
+            except (OSError, ValueError):
+                continue
+            plan = d.get("experiment_plan") if isinstance(
+                d.get("experiment_plan"), dict) else {}
+            out.append({
+                "iteration_id": d.get("iteration_id"),
+                "cell_id": d.get("cell_id"),
+                "idea": plan.get("idea"),
+                "papers": [p.get("arxiv_id") or p.get("title")
+                           for p in (d.get("papers") or [])
+                           if isinstance(p, dict)],
+                "reasoning": str(d.get("reasoning") or "")[:200],
+            })
+        return out
 
     def _workdir_files(self, iter_dir: str) -> List[str]:
         """迭代工作区文件清单（父本/solution——coding 不用先 ls 一遍）。"""
