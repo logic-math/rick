@@ -8,6 +8,7 @@ coverage.out
 coverage.html
 coverage_git.out
 debug.md
+!super/prompts/debug.md
 
 # pi config (contains auth tokens — never commit)
 .pi/

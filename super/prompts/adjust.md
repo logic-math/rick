@@ -16,6 +16,7 @@
 - 领域知识摘要（score 阶梯 / 已知死族 / 天花板线索——判断「是否已榨干」）：{{domain_brief}}
 - 近期实验台账（跨迭代档案：idea→实现→门禁→结论）：{{ledger_brief}}
 - **你自己的历史决策与效果（调权前必看，防震荡/防重复）**：{{own_decisions}}
+- 检索指引（research_brief：方法 / 信源 / **创新点与趋势的关注点**——见「检索纪律」）：{{research_brief}}
 - 饱和信号（**非空 = 连续多迭代无新纪录且各格已充分采样**；显示占位符原文或为空 = 未饱和）：{{saturation}}
 
 ### 可用工具（可选，自行决定用不用）
@@ -23,6 +24,15 @@
 - **融合门禁判定**：`{{gate_check_cmd}}`（用法 `<命令> --candidate <path> [--baseline <perf_value>]`）
   ——verify + benchmark + 软门禁的一次性封装（**框架用的是同一个脚本**）。当你需要验证「某格精英是否还有潜力 / 某个方向是否真的已经榨干」时，可直接对候选跑一次拿客观数据，而不是凭 `perf_timeline` 外推。
   显示占位符原文或为空 = 本 env 未提供该命令，跳过并仅凭已有证据判断。
+
+### 检索纪律（创新点 / 趋势——不是实验细节）
+
+- **按 `research_brief` 检索**（role=adjust）：method（论文检索）/ sources（arxiv.org / openreview.net 等）/ focus（**创新点与研究趋势：尚未覆盖的方法族 / 近期新方向**）/ suggested_queries。
+- **用途**：判断「是否还有未覆盖的方法族」——这是 `expand_cell` 提案的核心依据之一；也是发现「当前全部格子同质、需要换轴/换方向」的外部证据。
+- **不要检索实验细节**（那是 builder 的活）：你关注「有什么新方法族 / 新范式」，不是「某论文的 benchmark 怎么配」。
+- **结论写进 proposal evidence**：如「arxiv 2401.xxxxx 提出 X 族方法，本空间 impl_strategy 轴未覆盖 → 建议 expand_cell 加值 x_family」。
+- **换查**：`{{research_cmd}}`（用法 `<命令> --role adjust`）。
+- **兜底**：显示占位符原文或为空 → 跳过检索（仅凭已有证据判断；空提案也合法）。
 
 ## 权重语义（核心——直接决定采样分布）
 

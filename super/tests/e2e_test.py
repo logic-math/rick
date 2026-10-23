@@ -313,9 +313,16 @@ def make_env_dir(ws: str) -> str:
     with open(env_json_path, encoding="utf-8") as f:
         env_json = json.load(f)
     env_json.setdefault("bench", {})["size"] = E2E_BENCH_SIZE
+    # 三要素契约（迭代6+）：verify.py 读 correctness.sizes（复数数组，多规模校验）；
+    # legacy 键 size 保留兼容（旧脚本/旧 env）
+    env_json.setdefault("correctness", {})["sizes"] = [E2E_CORRECTNESS_SIZE, E2E_BENCH_SIZE]
     env_json.setdefault("correctness", {})["size"] = E2E_CORRECTNESS_SIZE
     env_json.setdefault("gates", {})["bench_timeout_s"] = 60
     env_json.setdefault("gates", {})["correctness_timeout_s"] = 30
+    # e2e 小规模（96×96 ~0.003ms）与加固门物理下界（0.01ms）/ref 合理带（模板 8192 域的
+    # [380,700]ms）不兼容——按 e2e 规模显式覆写（门禁逻辑不变，只调 env 参数）
+    env_json.setdefault("gates", {})["runtime_ms_min"] = 0.0
+    env_json.setdefault("gates", {})["ref_runtime_band_ms"] = [0.0, 60.0]
     with open(env_json_path, "w", encoding="utf-8") as f:
         json.dump(env_json, f, ensure_ascii=False, indent=2)
     # numpy venv：软链 master（gates 侧 env/.venv/bin/python 生效即可）

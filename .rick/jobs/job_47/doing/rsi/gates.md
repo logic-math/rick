@@ -54,3 +54,12 @@ GATE gate9 pass=true (迭代5 L2: task23 loop 九段 + task24 四模板——336
 GATE gate10 pass=true (迭代5 L3: task25 文档 + 模板渲染兜底——run_all 全量绿)
 迭代5 全 5 task success（dde493d0/a0e11450/HEAD）
 迭代4 遗留（saturation/env_dir/terminate/回合预算）已在迭代5 内合并完成
+
+GATE gate13 pass=true (迭代7 L1: task32 research.py 四角色三元组 + task35 gen_env 检索三问/super-loop)
+GATE gate14 pass=true (迭代7 L2: task33 loop 注入 research_cmd/brief 四角色；gate14 收窄为 loop+全量+五件)
+GATE gate15 pass=true (迭代7 L3: task34 四模板检索纪律 + run_all 全量)
+迭代7 全 4 task success（3a9e6699/7c7bed7b/HEAD）
+真缺陷修复（本轮 gate 抓到）：
+①debug.md 从未进 git（.gitignore 通用规则 debug.md 命中）→ 加 !super/prompts/debug.md 例外 + 强制 add
+②e2e fixture 覆写旧键 correctness.size（加固 verify 读 sizes）→ 继承模板 8192 规模致超时误杀 → 覆写 sizes
+③e2e 小规模(96) 与加固门物理下界 runtime_ms_min=0.01ms / ref 带 [380,700]ms 冲突 → e2e 覆写为 0.0 / [0,60]
