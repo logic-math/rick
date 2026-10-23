@@ -1,5 +1,17 @@
 # skill:gen-env（super 进化 env 生成器）
 
+### 三要素脚本统一契约（硬性，缺一条 agent 与框架就会漂移）
+
+三个脚本必须满足同一 CLI/IO 契约，框架与 agent 才能共用（env_9 实测：模板版 verify 只读
+`correctness.size`（单数）而 env.json 声明 `sizes: [64, 8192]` → 自检只测 64 规模，判断失真、
+debug 连烧三轮）：
+
+1. **`--candidate <path>` 是唯一必需参数**；其余全部从 `env.json` 读（不写死规模/容差/超时）。
+2. **必须支持 `--env-dir <dir>`**（缺省=脚本上两级）；gate_check 与其他 agent 调用时统一传入。
+3. **多规模必须读 `correctness.sizes`（数组）**，`--size` 仅作覆盖；不得只读单数键。
+4. **stdout 单行 JSON**；失败也要输出 JSON（`{"passed": false, "error": ...}`），非 JSON = 契约破坏。
+5. `gate_check.py` 必须支持 `--baseline <perf>`（软门禁相对带比较）并从 `env.json` 读 `tolerance.soft_gate.relative_band`。
+
 ## 触发场景
 
 super 会话（super-loop）中出现以下情形时加载本 skill：

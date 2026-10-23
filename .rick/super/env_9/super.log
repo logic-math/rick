@@ -1,0 +1,2 @@
+[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: signal: killed (last_seq=60)
+[rick super] worker died (exited: signal: killed), restarting 1/3

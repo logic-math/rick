@@ -1,0 +1,29 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "把 rowwise 逐行 gemv（内存墙，9.9s/score 0.056）重构为 M 四分 + 2-D np.dot 整块派发（out= 直写行切片，保持 BLAS K 求和序），预期落入 434-490ms BLAS 平价带、score ~0.93-1.05",
+  "usage": {
+    "input_tokens": 48563,
+    "output_tokens": 30451,
+    "cache_read": 134144,
+    "cache_write": 0,
+    "total_tokens": 213158,
+    "cost_usd": 0.23685003999999998
+  },
+  "wall_ms": 508283,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 1,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter001-7debb919/prompt_builder.md"
+}

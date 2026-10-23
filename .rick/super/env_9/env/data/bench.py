@@ -35,6 +35,7 @@ np.seterr(divide="ignore", over="ignore", invalid="ignore")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV_JSON = os.path.join(HERE, "..", "env.json")
+_ENV_DIR_OVERRIDE = None  # --env-dir 覆盖（三要素统一契约）
 
 DEFAULT_SIZE = 512
 DEFAULT_K = 3
@@ -128,11 +129,19 @@ def _emit(payload, exit_code=0):
 def main():
     parser = argparse.ArgumentParser(description="matmul 性能门（加固版：引用快照+三界拒收+ref带+子进程清点）")
     parser.add_argument("--candidate", required=True, help="候选实现路径（暴露 matmul(a,b)）")
+    parser.add_argument("--env-dir", default=None,
+                        help="env 目录（缺省=脚本上两级；三要素统一契约）")
+    parser.add_argument("--env-dir", default=None,
+                        help="env 目录（缺省=脚本上两级；三要素统一契约）")
     parser.add_argument("--size", type=int, default=None)
     parser.add_argument("--k", type=int, default=None)
     parser.add_argument("--timeout", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42, help="随机 seed（固定=可复现）")
     args = parser.parse_args()
+    global _ENV_DIR_OVERRIDE, ENV_JSON
+    if getattr(args, "env_dir", None):
+        _ENV_DIR_OVERRIDE = args.env_dir
+        ENV_JSON = os.path.join(args.env_dir, "env.json")
 
     n, k, env_timeout, score_max, rt_min, ref_band = _load_env_config()
     n = args.size if args.size is not None else n

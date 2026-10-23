@@ -36,6 +36,7 @@ np.seterr(divide="ignore", over="ignore", invalid="ignore")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV_JSON = os.path.join(HERE, "..", "env.json")
+_ENV_DIR_OVERRIDE = None  # --env-dir 覆盖（三要素统一契约）
 
 DEFAULT_TOLERANCE = 1e-3
 DEFAULT_SIZES = [64, 512]
@@ -118,11 +119,19 @@ def _emit(payload, exit_code):
 def main():
     parser = argparse.ArgumentParser(description="matmul 正确性门（加固版：双规模+多seed+两遍一致+静态检查）")
     parser.add_argument("--candidate", required=True, help="候选实现路径（暴露 matmul(a,b)）")
+    parser.add_argument("--env-dir", default=None,
+                        help="env 目录（缺省=脚本上两级；三要素统一契约）")
+    parser.add_argument("--env-dir", default=None,
+                        help="env 目录（缺省=脚本上两级；三要素统一契约）")
     parser.add_argument("--size", type=int, default=None, help="单规模覆盖（兼容旧用法；覆盖双规模）")
     parser.add_argument("--max-error", type=float, default=None, help="容差覆盖（默认读 env.json）")
     parser.add_argument("--timeout", type=int, default=None, help="候选单次执行超时秒")
     parser.add_argument("--seed", type=int, default=42, help="固定 seed（默认 42）")
     args = parser.parse_args()
+    global _ENV_DIR_OVERRIDE, ENV_JSON
+    if getattr(args, "env_dir", None):
+        _ENV_DIR_OVERRIDE = args.env_dir
+        ENV_JSON = os.path.join(args.env_dir, "env.json")
 
     tol, sizes, env_timeout, extra_seeds, double_run, static_check = _load_env_config()
     if args.size is not None:

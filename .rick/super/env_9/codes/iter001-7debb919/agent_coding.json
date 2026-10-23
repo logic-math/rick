@@ -1,0 +1,28 @@
+{
+  "role": "coding",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "第二次 benchmark 运行：中位数 **483.5ms**，得分 **0.947**（参考值 458.1）。三次测量会话证实了典型区间（中位数 467.7 / 483.5 / 497.6ms，得分 0.88–0.95）—— 与文档记载的 ±2–5% 跨进程噪声一致，均低于 520ms 的证伪线。\n\n所有检查已完成。测量总结：\n\n| 检查项 | 结果 |\n|---|---|\n| 配置 @819",
+  "usage": {
+    "input_tokens": 21833,
+    "output_tokens": 9205,
+    "cache_read": 294400,
+    "cache_write": 0,
+    "total_tokens": 325438,
+    "cost_usd": 0.1476122
+  },
+  "wall_ms": 204233,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 1,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter001-7debb919/prompt_coding.md"
+}

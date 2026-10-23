@@ -154,7 +154,9 @@ def _profile_facts(profile: Optional[Dict[str, Any]]) -> List[str]:
     if isinstance(hs, list):
         for h in hs[:3]:
             if isinstance(h, dict):
-                name = h.get("func") or h.get("name") or "?"
+                # profile.py（三要素版）用 function 键；兼容 func/name（旧版/他域）
+                name = (h.get("function") or h.get("func") or h.get("name")
+                        or "?")
                 val = h.get("pct")
                 if val is None:
                     val = h.get("percent")

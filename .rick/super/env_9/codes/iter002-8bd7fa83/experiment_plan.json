@@ -1,0 +1,7 @@
+{
+  "idea": "原型确立了事实：m_halves @8192 中位数 469.4ms，**与 np.matmul 按位一致**（max_abs_diff=0.0），与 m_quarters 在同一范围内（469.2ms）。现在是针对 arXiv 的强制性网络搜索（新查询，m_halves 的可执行洞察）： [exit 143]",
+  "target_cell": "dispatch_target=np_dot|impl_strategy=m_halves",
+  "parents": [],
+  "plan_steps": [],
+  "expected_behavior": null
+}

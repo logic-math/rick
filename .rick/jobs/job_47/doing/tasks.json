@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-23T08:39:14.118Z",
+  "updated_at": "2026-10-23T08:44:27.526Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -361,42 +361,42 @@
     {
       "task_id": "task28",
       "task_name": "loop.py 三要素命令注入 b/c/d + profile 历史采集/注入 + builder 决策落盘 designs/ + test_loop",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-23T01:00:00+08:00",
-      "updated_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
       "dependencies": [
         "task27",
         "task30"
       ],
       "task_file": "plan/task28.md",
-      "commit_hash": ""
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
     },
     {
       "task_id": "task29",
       "task_name": "四模板：三要素使用纪律 + builder（profile 历史+arXiv 检索+决策落盘）+ coding/debug 三要素",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-23T01:00:00+08:00",
-      "updated_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
       "dependencies": [
         "task30"
       ],
       "task_file": "plan/task29.md",
-      "commit_hash": ""
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
     },
     {
       "task_id": "task31",
       "task_name": "matmul env 模板三要素化（skills/{profile,benchmark,verify,gate_check} + 删 self_check + data 薄转发）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-23T01:00:00+08:00",
-      "updated_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
       "dependencies": [
         "task27"
       ],
       "task_file": "plan/task31.md",
-      "commit_hash": ""
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
     }
   ]
 }

@@ -111,10 +111,30 @@ def _classify_soft(value, baseline, band, perf_desc):
 
 
 def _run_json(py, script_path, args, timeout_s):
+    """跑子脚本并取单行 JSON。
+
+    协议容错：三要素脚本应支持 `--env-dir`（统一契约），但历史 env 的
+    verify/benchmark（从 data/ 迁移而来）可能不认该参数——argparse 报
+    「unrecognized arguments: --env-dir ...」时剥离该参数重试一次
+    （env_9 端到端实测：旧脚本 + 新 gate_check 直接失败）。
+    """
     """跑一个 env 脚本并解析最后一行 JSON。返回 (parsed|None, error|None)。"""
-    cmd = [py, script_path] + args
+    def _spawn(a):
+        return subprocess.run([py, script_path] + a, timeout=timeout_s,
+                              capture_output=True, text=True)
     try:
-        r = subprocess.run(cmd, timeout=timeout_s, capture_output=True, text=True)
+        r = _spawn(args)
+        # 协议容错：旧脚本不认 --env-dir → 剥离重试一次
+        if r.returncode != 0 and "--env-dir" in (r.stderr or ""):
+            stripped = []
+            i = 0
+            while i < len(args):
+                if args[i] == "--env-dir":
+                    i += 2
+                    continue
+                stripped.append(args[i])
+                i += 1
+            r = _spawn(stripped)
     except subprocess.TimeoutExpired:
         return None, "timeout after %ss: %s" % (timeout_s, script_path)
     except OSError as e:
