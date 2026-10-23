@@ -645,6 +645,11 @@ class Scheduler:
             "designs_dir": self.designs_dir,
             "recent_designs": self._or_default(
                 self._recent_designs(3), "（暂无历史决策）"),
+            # ---- 迭代7：检索（第四类资产）——命令 + 预生成 brief ----
+            "research_cmd": self._research_cmd("builder", cell_id),
+            "research_brief": self._or_default(
+                self._research_brief("builder", cell_id),
+                "（未提供检索指引——跳过检索）"),
         }
         prompt = render("builder", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "builder", prompt)
@@ -777,6 +782,11 @@ class Scheduler:
             "benchmark_cmd": elems["benchmark_cmd"],
             "verify_cmd": elems["verify_cmd"],
             "gate_check_cmd": elems["gate_check_cmd"],
+            # ---- 迭代7：检索（role=coding：使用手册/代码样例） ----
+            "research_cmd": self._research_cmd("coding", cell_id),
+            "research_brief": self._or_default(
+                self._research_brief("coding", cell_id),
+                "（未提供检索指引——跳过检索）"),
         }
         prompt = render("coding", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "coding", prompt)
@@ -846,6 +856,11 @@ class Scheduler:
             "benchmark_cmd": elems["benchmark_cmd"],
             "verify_cmd": elems["verify_cmd"],
             "gate_check_cmd": elems["gate_check_cmd"],
+            # ---- 迭代7：检索（role=debug：错误语义/正确用法/已知坑） ----
+            "research_cmd": self._research_cmd("debug", cell_id),
+            "research_brief": self._or_default(
+                self._research_brief("debug", cell_id),
+                "（未提供检索指引——跳过检索）"),
         }
         prompt = render("debug", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "debug", prompt)
@@ -1149,6 +1164,11 @@ class Scheduler:
             "interventions": self._recent_interventions(3),
             # 迭代6：三要素门禁命令（可选——判断某方向是否还有潜力时可实证）
             "gate_check_cmd": self._element_cmds()["gate_check_cmd"],
+            # 迭代7：检索（role=adjust：创新点/研究趋势；cell 空=全局视野）
+            "research_cmd": self._research_cmd("adjust"),
+            "research_brief": self._or_default(
+                self._research_brief("adjust"),
+                "（未提供检索指引——跳过检索）"),
         }
         prompt = render("adjust", self.ws, ctx)
         # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
@@ -1559,6 +1579,49 @@ class Scheduler:
             "%s %s --candidate <path> [--baseline <该格精英 perf，可选>]"
             % (py, gc) if os.path.exists(gc) else "")
         return out
+
+    # ------------------------------------------------------------------ #
+    # 检索（迭代7）：research skill —— 三要素（方法/信源/关注点）注入
+    # ------------------------------------------------------------------ #
+
+    def _research_cmd(self, role: str,
+                      cell_id: Optional[str] = None) -> str:
+        """research 命令（第四类 env 资产）：供 agent 换角色/换格再查。
+
+        文件缺失（legacy env 无 skills/research.py）→ 空串，模板侧
+        「未提供则跳过检索」兜底。
+        """
+        script = os.path.join(self.env_dir, "skills", "research.py")
+        if not os.path.exists(script):
+            return ""
+        cmd = "%s %s --role %s" % (self._python_cmd(), script, role)
+        if cell_id:
+            cmd += ' --cell "%s"' % cell_id
+        return cmd
+
+    def _research_brief(self, role: str,
+                        cell_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """预生成检索指引（框架代调 research.py，省 agent 回合）。
+
+        返回 {role, cell, method, sources, focus, suggested_queries,
+        discipline}；脚本缺失/超时/非 JSON/带 error → None（静默，不阻断
+        迭代——检索是认知辅助，不是门禁）。
+        """
+        script = os.path.join(self.env_dir, "skills", "research.py")
+        if not os.path.isfile(script):
+            return None
+        argv = [self._python_cmd(), script, "--role", role]
+        if cell_id:
+            argv += ["--cell", cell_id]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True,
+                               timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        parsed = _parse_last_json_line(_coerce_text(r.stdout))
+        if not isinstance(parsed, dict) or parsed.get("error"):
+            return None
+        return parsed
 
     def _profile_candidate(self, cell_id: str) -> Optional[str]:
         """profile 采集对象：该格精英代码 → naive_start.py → reference.py。"""

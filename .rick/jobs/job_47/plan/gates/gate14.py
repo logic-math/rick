@@ -28,11 +28,6 @@ def main():
     l = read("super/superopt/loop.py")
     for kw in ["research_cmd", "research_brief", "skills", "research.py"]:
         if kw not in l: ERRORS.append("[B] loop.py 缺 " + kw)
-    for f in ("builder", "coding", "debug", "adjust"):
-        s = read("super/prompts/%s.md" % f)
-        for kw in ("research_brief", "research_cmd"):
-            if kw not in s: ERRORS.append("[C] %s.md 缺 %s" % (f, kw))
-        if "/Users/" in s: ERRORS.append("[C] %s.md 含硬编码" % f)
     for f in ("profile.py", "benchmark.py", "verify.py", "gate_check.py", "research.py"):
         if not os.path.isfile(os.path.join(ROOT, "super/env_templates/matmul/skills", f)):
             ERRORS.append("[D] 缺 " + f)

@@ -1614,3 +1614,118 @@ class TestElementsAndDesigns(LoopTestBase):
                     encoding="utf-8").read()
         self.assertIn("PREV_IDEA_MARK", text)
         self.assertIn("2502.00002", text)
+
+
+_RESEARCH_SCRIPT = '''#!/usr/bin/env python3
+import json
+import sys
+
+argv = sys.argv[1:]
+role = None
+cell = None
+for i, a in enumerate(argv):
+    if a == "--role" and i + 1 < len(argv):
+        role = argv[i + 1]
+    if a == "--cell" and i + 1 < len(argv):
+        cell = argv[i + 1]
+print(json.dumps({
+    "role": role, "cell": cell,
+    "method": "METHOD_MARK_%s" % role,
+    "sources": ["SRC_A_%s" % role, "SRC_B_%s" % role],
+    "focus": "FOCUS_MARK_%s_%s" % (role, cell or "global"),
+    "suggested_queries": ["Q1_%s" % role, "Q2_%s" % role],
+    "discipline": "<=3 篇；落到可实现动作",
+}))
+'''
+
+
+class TestResearchInjection(LoopTestBase):
+    """迭代7：research skill（检索三要素）注入四角色 + legacy 兜底。"""
+
+    def _install_research_skill(self) -> str:
+        """fixture env 造 skills/research.py（回显 role/cell 的 JSON）。"""
+        sk = os.path.join(self.ws, "env", "skills")
+        os.makedirs(sk, exist_ok=True)
+        path = os.path.join(sk, "research.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_RESEARCH_SCRIPT)
+        return path
+
+    def _capture_ctx(self):
+        """patch superopt.loop.render，捕获每次渲染的 (role, ctx)。"""
+        import superopt.loop as loopmod
+        captured = []  # type: List[Any]
+        orig = loopmod.render
+
+        def _fake_render(role, ws, ctx):
+            captured.append((role, dict(ctx)))
+            return orig(role, ws, ctx)
+
+        loopmod.render = _fake_render
+        self.addCleanup(lambda: setattr(loopmod, "render", orig))
+        return captured
+
+    def test_research_helpers_with_skill(self):
+        """① helpers：cmd 含 --role/--cell；brief 含三元组与查询建议。"""
+        self._install_research_skill()
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        cell = "impl_strategy=naive_loops|memory_layout=row_major"
+        cmd = sched._research_cmd("builder", cell)
+        self.assertIn("research.py", cmd)
+        self.assertIn("--role builder", cmd)
+        self.assertIn(cell, cmd)
+        brief = sched._research_brief("builder", cell)
+        self.assertIsInstance(brief, dict)
+        for key in ("method", "sources", "focus", "suggested_queries"):
+            self.assertTrue(brief.get(key), "brief 缺 %s" % key)
+        self.assertEqual(brief.get("role"), "builder")
+        self.assertEqual(brief.get("cell"), cell)
+        # adjust：cell 空 = 全局视野（cmd 不带 --cell）
+        acmd = sched._research_cmd("adjust")
+        self.assertIn("--role adjust", acmd)
+        self.assertNotIn("--cell", acmd)
+
+    def test_research_injected_to_four_role_ctx(self):
+        """② 四角色 ctx 注入 research_cmd/research_brief（含 debug/adjust）。"""
+        self._install_research_skill()
+        self.client.queue("coding", [_coding_result(
+            passed=False, diff_path=self.cand_file)])
+        self.client.queue("debug", [_debug_result(passed=True)])
+        self.client.queue("adjust", [_adjust_result([])])
+        captured = self._capture_ctx()
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1})
+        sched.run()
+
+        by_role = {r: ctx for r, ctx in captured}
+        for role in ("builder", "coding", "debug", "adjust"):
+            self.assertIn(role, by_role, "%s 未被渲染（注入缺失）" % role)
+            ctx = by_role[role]
+            self.assertTrue(ctx.get("research_cmd"),
+                            "%s ctx 缺 research_cmd" % role)
+            self.assertIn("research.py", ctx["research_cmd"])
+            self.assertIn("--role %s" % role, ctx["research_cmd"])
+            brief = ctx.get("research_brief")
+            self.assertIsInstance(brief, dict,
+                                  "%s ctx 的 research_brief 应为 dict" % role)
+            self.assertIn("METHOD_MARK_%s" % role, brief.get("method", ""))
+            self.assertTrue(brief.get("sources"))
+            self.assertTrue(brief.get("focus"))
+            self.assertTrue(brief.get("suggested_queries"))
+        # builder/coding/debug 的 brief 绑定目标格（focus 含格 id）；adjust 为全局
+        self.assertIn("FOCUS_MARK_builder_impl=",
+                      by_role["builder"]["research_brief"]["focus"])
+        self.assertIn("FOCUS_MARK_adjust_global",
+                      by_role["adjust"]["research_brief"]["focus"])
+
+    def test_legacy_env_research_empty(self):
+        """③ legacy env（无 research.py）→ 命令空串 / brief None，迭代不炸。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        self.assertEqual(sched._research_cmd("builder", "x"), "")
+        self.assertIsNone(sched._research_brief("builder", "x"))
+        captured = self._capture_ctx()
+        sched.run()  # 不抛异常
+        by_role = {r: ctx for r, ctx in captured}
+        self.assertEqual(by_role["builder"].get("research_cmd"), "")
+        self.assertIn("未提供检索指引",
+                      str(by_role["builder"].get("research_brief")))
