@@ -21,22 +21,56 @@ env/
 ├── env.json                 # 任务定义：任务名 / perf_desc（评分方向）/ perf_type（单位）/ 容差声明
 ├── feature_space.json       # 初始特征空间：2-4 轴（name/type/取值域），轴间正交
 ├── code/                    # 参考实现（正确性锚点）+ naive 起点（进化起点）
-├── skills/                  # agent 自检脚本（快速反馈，非终验）
-├── data/                    # 框架终验脚本：test_correctness.py + bench.py（stdout 单行 JSON 协议）
+├── skills/                  # 三要素（进化算法基石；框架与 agent 共用同一份资产）：
+│   ├── profile.py           #   现状：事实获取（热点/环境事实/父本结构）→ 事实 JSON
+│   ├── benchmark.py         #   目标：评估方法（K 次计时中位 + score 语义）→ {perf_type, score, timings, k}
+│   ├── verify.py            #   约束：合法性判定（正确性容差/接口/规模）→ {passed, max_error, stage}
+│   └── gate_check.py        #   门禁封装：verify→benchmark→软门禁；框架门禁与 agent 共用的唯一入口
+├── data/                    # legacy 兼容（旧 env 的 test_correctness.py + bench.py；新 env 不再新增）
 ├── domain_knowledge.md      # 领域知识 + 「## 性能分析 SOP」「## 性能调优 SOP」两节
 ├── requirements.txt         # 非标准库依赖声明（如 numpy）
 ├── .venv/                   # 可选：依赖隔离（python3 -m venv；门禁优先用 .venv/bin/python）
-└── prompts/                # 可选：四角色提示词模板的 env 级定制/进化产物（见第 8 节，延迟具体化）
+└── prompts/                # 可选：四角色提示词模板的 env 级定制/进化产物（见第 7 节，延迟具体化）
 gates/                       # 工作区级（非 env 内）：
 ├── exploit_registry.json    # 已知作弊/坏解样本（门先证红的种子）
 └── golden_examples/         # 金样例（参考实现即首个金样例）
 ```
 
-- 关键纪律：**门禁的容差/评分函数/阈值属于 env 设计范畴（human 决策），本 skill 只引导设计，不代答、不写死**；rick 框架（superopt gates.py）只提供级联门结构（环境健康→正确性→性能 + 软门禁多计时中位数）并读 env 的定义执行。
+- 关键纪律：**门禁的容差/评分函数/阈值属于 env 设计范畴（human 决策），本 skill 只引导设计，不代答、不写死**；rick 框架（superopt gates.py）只提供级联门结构（环境健康→正确性→性能 + 软门禁多计时中位数）并读 env 的定义执行——**新布局下框架门禁只调 `skills/gate_check.py`（三要素封装），agent 侧同一份资产随时可调**（口径统一，禁止两套实现）。
 
 ## 核心内容
 
 访谈式流程——**逐环节引导 human 决策**，每环节产出物落盘后再进下一环节：
+
+### 0. 三要素追问（强制前置——先于任何生成动作）
+
+**设计原则（human 裁决）**：一个 env 必须具备**三要素**——它们是进化算法的基石，缺一不可：
+
+| 要素 | 泛化语义 | 落成的 skill | 输出协议 |
+|---|---|---|---|
+| **目标** | 要优化的目标与评估方法（怎么算「变好了」） | `skills/benchmark.py` | `{"<perf_type>": num, "score": num, "timings": [...], "k": 3}` |
+| **约束** | 优化过程中绝对不能破坏的东西（合法性边界） | `skills/verify.py` | `{"passed": bool, "max_error": num, "stage": str}` |
+| **现状** | 事实信息的获取（当前长什么样、热点在哪、环境如何） | `skills/profile.py` | 事实 JSON（热点/环境事实/父本结构） |
+
+三者由 `skills/gate_check.py` 封装（verify → benchmark → 软门禁）——**框架门禁只调它，agent（builder/coding/debug）也调它**。
+
+**纪律（不可协商）**：
+
+1. **必须由 human 亲自描述三者**——AI 只做追问与复述确认（「我理解你的目标是……对吗？」），**不得代填**（代填的三要素会把 human 的领域判断偷换成 AI 的猜测，进化方向随之偏航）。
+2. **判据 = 能写成脚本**：每个要素都必须收敛到「可以写成对应 skill 脚本、输出协议合法」的程度，否则继续追问。
+3. 三者都清晰后才进入后续生成（任务定义/门禁设计/特征空间/初始解）。
+
+**逐要素追问样例**：
+
+- **目标**：「你说的『快』具体是哪个指标——墙钟时间还是吞吐？」「怎么测：单次还是多次取中位？」「到什么程度算赢：比参考快 2× 还是绝对 5ms 以下？」「score 怎么定义——加速比还是绝对分？」
+- **约束**：「什么绝对不能破坏——数值精度容差多少？输入输出形状/接口有硬要求吗？」「允许多大的误差：1e-3 还是 1e-6？」「哪些行为算作弊（预存结果/篡改计时/降精度换速度）？」
+- **现状**：「当前基线多少 ms？怎么测出来的？」「热点在哪个函数、占比多少？」「环境事实：BLAS 后端/numpy 版本/CPU 核数/内存带宽？」「父本是什么写法、结构有什么特点？」
+
+**非 matmul 泛化示例（prompt 优化任务）**：
+
+- 目标 → `benchmark.py`：在固定评测集上跑 N 条样本，输出 `{score: 通过率/平均分, timings, k}`；追问「评测集是什么？分数怎么算？多少次取平均？」
+- 约束 → `verify.py`：输出格式合法性（JSON 可解析/字段齐全/长度上限）→ `{passed, max_error(格式违规数), stage}`；追问「什么算非法输出？长度/格式硬限制？」
+- 现状 → `profile.py`：当前 prompt 的事实画像（长度/结构/指令条数）+ 失败样本分类统计；追问「当前 prompt 长什么样？失败样本集中在哪里？」
 
 ### 1. 任务定义
 
@@ -54,15 +88,22 @@ gates/                       # 工作区级（非 env 内）：
 
 引导 human 逐项设计门禁（每项给出该域的具体选项，不代答）：
 
-- **正确性门**（`env/data/test_correctness.py`）：输出 stdout 单行 JSON `{"passed": bool, "max_error": float}`。引导决策：
+- **约束 → `env/skills/verify.py`**（三要素之「true」）：输出 stdout 单行 JSON `{"passed": bool, "max_error": float, "stage": "..."}`。引导决策：
   - 校验规模（小矩阵快速校验，例 64×64）与固定 seed（可复现）
   - **容差 ε**：该域可接受的最大数值误差（1e-3？1e-5？按任务精度要求定）
   - 候选异常/超时如何判（框架把非 JSON/超时按该 stage 失败处理）
-- **性能门**（`env/data/bench.py`）：输出 `{"runtime_ms": float, "score": float, "timings": [...]}`。引导决策：
-  - bench 规模（例 512×512）、预热次数、计时次数（多计时 K=3 取中位数由框架机制保证，脚本内落 K 次或单次由框架调 K 次均可——**取脚本内 K=3 中位数**）
-  - score 语义（相对参考实现的加速比？绝对吞吐？）
+  - 框架与 agent **共用同一份脚本**（agent 实现后自行调用；框架 stage2 调它）——口径唯一
+- **目标 → `env/skills/benchmark.py`**（三要素之「benchmark」）：输出 `{"<perf_type>": float, "score": float, "timings": [...], "k": 3}`。引导决策：
+  - bench 规模（例 512×512）、预热次数、计时次数（**取脚本内 K=3 中位数**）
+  - score 语义（相对参考实现的加速比？绝对吞吐？——它就是「到什么程度算赢」的量化定义）
   - 超时上限（坏候选不能拖死门禁）
-- **环境健康自检**（`env/skills/self_check.py`）：agent 自检脚本（coding agent 快速反馈用）：跑一遍正确性 + 单次 bench，输出 JSON 摘要。**自检仅供参考，入格以框架终验为准**。
+- **现状 → `env/skills/profile.py`**（三要素之「profile」）：输出事实 JSON（热点函数与占比 / 环境事实：BLAS 后端、numpy 版本、CPU 核数、内存带宽估算 / 父本结构摘要）。引导决策：
+  - 该域「看清现状」最需要哪些事实（性能剖析口径、环境常量、父本形态）
+  - 它同时提供**现状变化的时间维度**：调度器每迭代采一次并归档 `profile_history/<cell_id>/iter{N}.json`，进化轨迹即现状演化史
+- **门禁封装 → `env/skills/gate_check.py`**（三者融合，框架门禁的**唯一入口**）：
+  依次 verify（约束）→ benchmark（目标，K 次中位）→ 软门禁（与 `--baseline` 比较，`relative_band` 读 env.json）→ 输出 `{passed, failure_stage, metrics, details}` 单行 JSON。
+  框架 stage2/stage3 调它一次完成级联判定；**agent（builder/coding/debug）也调它**——门禁口径从框架到 agent 完全统一（消除「自检过、框架拒」的语义漂移）。
+  **不再生成 `self_check.py`**：AI 按需自行调用 profile / benchmark / verify / gate_check 四件，不做混合自检。
 - **exploit 注册表**（`<ws>/gates/exploit_registry.json`）：**引导 human 想「这个域里 agent 会怎么作弊」**，构造 3-5 个已知坏解样本（每条 {id, name, pattern, sample_path}）。常见模式参考：
   - 预存结果（返回缓存/硬编码答案）
   - 篡改计时（计时期间偷工/异步返回）
@@ -87,21 +128,22 @@ gates/                       # 工作区级（非 env 内）：
 
 ```bash
 PY=env/.venv/bin/python   # 或系统 python3（无 .venv 时）
-# ① 参考实现过正确性门
-$PY env/data/test_correctness.py --candidate env/code/reference.py
-# → {"passed": true, "max_error": ...}
-# ② bench 出分
-$PY env/data/bench.py --candidate env/code/reference.py
-# → {"runtime_ms": >0, "score": ..., "timings": [3 个]}
-# ③ exploit 样本被正确性门拒识（门先证红地基）
-$PY env/data/test_correctness.py --candidate <每个 exploit 样本>
+# ① 三要素各自独立可跑（跑参考实现各出合法 JSON）
+$PY env/skills/profile.py   --candidate env/code/reference.py   # → 事实 JSON（热点/环境/父本）
+$PY env/skills/verify.py    --candidate env/code/reference.py   # → {"passed": true, "max_error": ...}
+$PY env/skills/benchmark.py --candidate env/code/reference.py   # → {"<perf_type>": >0, "score": ..., "timings": [3 个]}
+# ② 门禁封装融合 pass（框架同一入口）
+$PY env/skills/gate_check.py --candidate env/code/reference.py
+# → {"passed": true, "failure_stage": null, "metrics": {...}}
+# ③ exploit 样本被拒识（门先证红地基）
+$PY env/skills/gate_check.py --candidate <每个 exploit 样本>
 # → 全部 {"passed": false, ...}
-# ④ naive 起点过正确性门（慢但必须对——它是进化起点）
-$PY env/data/test_correctness.py --candidate env/code/naive_start.py
+# ④ naive 起点过约束（慢但必须对——它是进化起点）
+$PY env/skills/verify.py --candidate env/code/naive_start.py
 # → {"passed": true, ...}
 ```
 
-四项全过 → env 合格，回 super-loop Step 2 启动（start 会再跑全量门先证红：exploit 拒识 100% + 金样例零误杀）。
+以上全过 → env 合格，回 super-loop Step 2 启动（start 会再跑全量门先证红：exploit 拒识 100% + 金样例零误杀）。
 任一不过 → 修对应环节（容差/样本/脚本），不带着病门禁启动进化。
 
 ### env 升级路径（触发场景之二）
@@ -130,7 +172,10 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
 1. **取证**：跑 `python3 super/tools/adjust_trace.py --workdir <ws> [--window 5]`
    → 决策-效果对照表（每次 adjust 决策 → 之后 K 迭代受影响格的表现变化，markdown 表输出）。
    证据补充源：`codes/adjust/iter_{N}/`（每次 adjust 的输入 prompt 与输出 proposals 快照）、
-   `events.jsonl` 里的 `adjust_decision` / `weight_changed` / `proposal` / `expand_cell` 事件。
+   `events.jsonl` 里的 `adjust_decision` / `weight_changed` / `proposal` / `expand_cell` 事件、
+   **`<ws>/designs/`**（builder 每迭代的决策落盘：profile 事实 / 参考论文（arxiv_id+insight+applicability）/ 灵感来源 / 推理 / 实验计划——进化「意图层」的完整档案，评估实验设计质量的主证据）、
+   **`<ws>/profile_history/<cell_id>/iter{N}.json`**（每格 profile 时间序列——现状如何演化：热点迁移、耗时结构变化、环境事实漂移）、
+   **`env/skills/`** 四件（三要素的实际实现——口径是否被 candidate 特定 hack、容差与评估是否匹配目标）。
 2. **诊断坏模式**（对照表 + 快照逐条核对）：
    - **震荡**：同一格反复升降权（A↑B↓ 来回摆）
    - **过激**：单次事件证据就大改权重（如 0.5→0）
@@ -138,7 +183,10 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
    - **漏杀**：垃圾格（持续差 perf 且无改善信号）长期占采样预算
    - **探索不足**：全程 expand_cell 从未发生（数据饱和后仍不加格）
    - **builder/coding/debug 各自的坏模式**：计划与结果脱节（builder 计划从不被执行）、
-     自检通过但框架门拒（coding 自检与门禁口径不一）、debug 修不动同类根因（缺诊断 SOP）
+     自检结论与框架门拒（coding 未调 `gate_check`——口径应是同一份脚本，出现即模板/注入链问题）、debug 修不动同类根因（缺诊断 SOP）
+   - **三要素未被使用**（新布局专项）：`designs/` 里 `papers` 全空或泛泛引用（未真正检索 arXiv 或检索了不落到可实现机制）、
+     `profile_facts` 与 `profile_history` 对不上（builder 没真看现状变化）、coding/debug 的 prompt 快照里无
+     `verify`/`benchmark`/`gate_check` 调用痕迹（四件 skill 白给了）——处方是改对应角色模板的三要素使用纪律。
 3. **处方：改写 `env/prompts/<role>.md`**——针对诊断出的模式加/改**决策纪律与判断启发**
    （如 adjust：每次权重变动须引用 ≥1 条事件 seq 号 / 同类连续降权须间隔防震荡 /
    何时机值得 expand_cell；如 builder：计划的 plan_steps 必须可被 coding 直接执行）。
@@ -155,7 +203,7 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
    一次只改一个角色的模板（否则改善/恶化都不可归因）。
 
 **可移植性纪律（硬性）**：`env/prompts/*.md` 里的一切路径必须用渲染注入的占位符——
-`{{env_dir}}`、`{{perf_profile_cmd}}`、`{{self_check_cmd}}`（每迭代由调度器渲染填入），
+`{{env_dir}}`、`{{profile_cmd}}`、`{{benchmark_cmd}}`、`{{verify_cmd}}`、`{{gate_check_cmd}}`（每迭代由调度器渲染填入），
 **禁止硬编码绝对路径**。理由（env_8 实测教训）：写死 `<ws>/.rick/super/env_8/...` 的模板
 在 env 复制、改名（env_9）、跨机迁移后全部失效，且把该轮进化锁死在单机上。
 占位符为空或原样残留时，模板文案应写成「显示占位符原文或为空 = 该能力不可用/未饱和」——
@@ -165,10 +213,10 @@ builder 是第二优先级（成本大户，计划质量直接决定后续迭代
 
 | 角色 | 已注入的上下文键 |
 |---|---|
-| builder | `env_dir` `perf_profile_cmd` `self_check_cmd` `saturation` `domain_brief` `perf_timeline` `budget_status` `ledger_brief` `gate_defs` `neighbor_elites` `history_failures` `axis_perf` `feature_axes` |
-| coding | `gate_defs` `perf_baseline` `workdir_files` `ledger_brief` `saturation` `experiment_plan` `self_check_cmd` `env_dir` `workdir` |
-| debug | `gate_failure` `gate_defs` `ledger_brief` `perf_profile_cmd` `saturation` `failure_stage` `stderr_tail` `self_check_result` `attempt` `experiment_plan` |
-| adjust | `saturation` `perf_timeline` `budget_status` `domain_brief` `ledger_brief` `own_decisions` `cells_status` `feature_axes` `recent_events` |
+| builder | `env_dir` `profile_cmd` `benchmark_cmd` `verify_cmd` `gate_check_cmd` `target_profile_history` `parent_profile_history` `inspiration_profile_history` `designs_dir` `recent_designs` `saturation` `domain_brief` `perf_timeline` `budget_status` `ledger_brief` `gate_defs` `neighbor_elites` `history_failures` `axis_perf` `feature_axes` |
+| coding | `profile_cmd` `verify_cmd` `benchmark_cmd` `gate_check_cmd` `gate_defs` `perf_baseline` `workdir_files` `ledger_brief` `saturation` `experiment_plan` `env_dir` `workdir` |
+| debug | `profile_cmd` `verify_cmd` `benchmark_cmd` `gate_check_cmd` `gate_failure` `gate_defs` `ledger_brief` `saturation` `failure_stage` `stderr_tail` `self_check_result` `attempt` `experiment_plan` |
+| adjust | `gate_check_cmd` `saturation` `perf_timeline` `budget_status` `domain_brief` `ledger_brief` `own_decisions` `cells_status` `feature_axes` `recent_events` |
 
 设计原则：能进 ctx 的结构化信息就不该让 agent 自己去 read（每读一次约消耗 1 回合上下文）；
 模板里引用这些键即可。若发现某角色反复读同一文件，优先考虑把它抽进 ctx（改框架 = 升仓级知识，

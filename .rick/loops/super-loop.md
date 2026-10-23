@@ -28,7 +28,7 @@ scope: "super 会话（全局）"
 
 | # | 达成条件 | 判据 |
 |---|---|---|
-| G1 | env 合格（建设或确认既有） | 参考实现过正确性门 + bench 出分 + 门先证红种子拒识 100% |
+| G1 | env 合格（建设或确认既有） | **三要素齐备**（`skills/{profile,verify,benchmark,gate_check}.py` 四件各自独立可跑 + gate_check 对参考实现融合 pass） + 门先证红种子拒识 100% |
 | G2 | 后台进化按预期运行 | `rick super status` → state=running、心跳新鲜、iteration_cursor 递增、北极星（入格数/各格最优 perf/token 成本）可读 |
 | G3 | 干预正确投递且不破坏单写者 | 干预只经 `rick super event` → 队列文件出现在 `interventions/` → 后续事件流出现 intervention 事件（source=human） |
 | G4 | 停止干净 | `rick super stop` 后 state=stopped、session_ended 事件落盘、无孤儿进程（supervisor 整树收割） |
@@ -61,9 +61,11 @@ scope: "super 会话（全局）"
 - 确认依赖准备四项（命令组 / pi_path / env / .venv）。
 
 **Step 1 env 建设（缺失时；已有 → 跳 Step 2）**
-- 加载 **gen_env skill** 走访谈式流程：任务定义 → 评分方向 → **门禁系统设计引导**（正确性门容差 / 性能门 / exploit 注册表 / 金样例——门禁阈值属 env 设计范畴，由 human 决策，本 loop 不代答）→ 初始特征空间（2-4 轴，轴间正交）→ 初始解。
-- matmul 类任务可从 `super/env_templates/matmul/` 模板起步（numpy 512×512、2 轴特征空间），在模板上做门禁定制。
-- 验收自检（gen_env 的收尾清单）：参考实现过正确性门 ✓ bench 出分 ✓ exploit 样本被正确性门拒识 ✓（这是 Step 2 门先证红的地基）。
+- **三要素追问（强制前置，先于任何生成动作）**：按 gen_env skill 第 0 节逐项追问 human——**目标**（要优化什么、到什么程度算赢、怎么测）、**约束**（什么绝对不能破坏、失败怎么判）、**现状**（当前基线/热点/环境事实）。三者必须由 **human 亲自描述**，AI 只做追问与复述确认，**不得代填**；判据是**每个要素都能转成一个 skill 脚本**（目标→`skills/benchmark.py`、约束→`skills/verify.py`、现状→`skills/profile.py`）。三者不清不进入生成。
+- 加载 **gen_env skill** 走访谈式流程：任务定义 → 评分方向 → **门禁系统设计引导**（把三要素落成四件 skill：`profile/verify/benchmark/gate_check`；exploit 注册表 / 金样例——门禁阈值属 env 设计范畴，由 human 决策，本 loop 不代答）→ 初始特征空间（2-4 轴，轴间正交）→ 初始解。
+- matmul 类任务可从 `super/env_templates/matmul/` 模板起步，在模板上做门禁定制。
+- 验收自检（gen_env 的收尾清单）：三要素四件 skill 各自独立可跑 ✓ gate_check 对参考实现融合 pass ✓ exploit 样本被拒识 ✓（这是 Step 2 门先证红的地基）。
+- **完成后立即推进 Step 2 启动——不得停在 env 生成后**（env_9 实测教训：gen_env 完成后未 start，工作区零轨迹 `events.jsonl`=0 行，等于白做）。若 human 明确要求先停，在会话记录里写明原因与计划启动时间。
 
 **Step 2 启动**
 - `rick super start --name <n> --env <path> --daemon`：启动即跑**门先证红**（全部 exploit 样本拒识 100% + 全部金样例通过）——不绿即中止启动，把泄漏/误杀清单给 human 看，回 Step 1 修 env 门禁。
@@ -72,6 +74,7 @@ scope: "super 会话（全局）"
 **Step 3 监控**
 - `rick super status --name <n>`（或 `--json` 给机器可读）：心跳/迭代游标/预算墙（--max-wall-time）/北极星（入格数、各格最优 perf、token 分 role 成本）+ 事件尾摘要（最近迭代的 gate_result / elite_admitted / env_failure_concluded）。
 - 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
+- **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素命令是否被真调用）。
 
 **Step 4 干预**
 - `rick super event --name <n> --type <t> --payload '<json>'`——类型如 pause / weight（降采样权，0=功能性灭绝不删格）/ resurrect（复活误杀格）/ env_change / stop。
@@ -94,7 +97,9 @@ scope: "super 会话（全局）"
 
 - **轨迹复盘**：加载 **gen_env skill 第 7 节（轨迹分析 → 提示词进化）** 走五步流程——
   ① 取证：跑 `python3 super/tools/adjust_trace.py --workdir <ws>` 得决策-效果对照表；
-     并读工作区 `ledger.jsonl`（跨迭代实验台账：idea→实现→门禁→结论，密度最高的证据源——解读见 gen_env 第 7 节）；
+     并读工作区 `ledger.jsonl`（跨迭代实验台账：idea→实现→门禁→结论）、`designs/`（builder 决策档案：
+     引用了哪些 arXiv 论文/灵感来源/推理/实验计划——评估「实验设计方案」质量的主证据）、
+     `profile_history/`（每格 profile 时间序列——现状演化与热点迁移轨迹）；
   ② 诊断坏模式（震荡/过激/迟钝/漏杀/探索不足，及 builder/coding/debug 各自的模式）；
   ③ 处方：改写 `env/prompts/<role>.md`（四角色均适用；一次只改一个角色）；
   ④ 版本管理：延迟具体化 + `_history/` 存旧版 + PROMPTS_LOG.md 记录；

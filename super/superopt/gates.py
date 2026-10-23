@@ -20,8 +20,26 @@ L3-Q2 架构红线（本模块的唯一设计约束）：**框架零阈值假设
     gates.bench_timeout_s             stage3 单次 bench 子进程超时秒（缺省 600；
                                       注意与 bench 脚本内部的逐次计时超时区分——后者由
                                       env 自管，本超时是整进程兜底）
+    gates.gate_check_timeout_s        新布局 gate_check 子进程超时秒（缺省 600）
 
-  data 脚本协议：`<python> data/<script> --candidate <path>`，stdout 输出单行 JSON
+  **env 布局（task27，迭代6）**：
+    - **新布局（三要素契约）**：`<env>/skills/gate_check.py` 存在 → 走新布局。
+      stage1 检查 `skills/{profile,benchmark,verify,gate_check}.py` 四件齐备 +
+      reference 过 verify；stage2+stage3 合并为「调 gate_check 一次」：
+        `<python> skills/gate_check.py --candidate <path> [--baseline <perf>] --env-dir <env>`
+      stdout 单行 JSON：
+        {"passed": bool, "failure_stage": "stage2_correctness"|"stage3_perf"|"soft_gate"|null,
+         "metrics": {"correctness": {...}, "perf": {"value", "score", "k", "timings", ...},
+                     "soft": {...}},
+         "details": "..."}
+      基线（--baseline）由框架按同一顺序解析后传入（elite → 同格历史中位 → env.json
+      baseline → 无基线=首解豁免，不传参）；软门禁比较在 gate_check 内部（band 读
+      env.json tolerance.soft_gate.relative_band）——框架与 agent 共用同一评估逻辑，
+      消灭「自检过、框架拒」的语义漂移（env_8 it19 实证）。
+      超时：`gates.gate_check_timeout_s`（缺省 600）。
+    - **legacy 布局**：无 skills/gate_check.py → 走原 data 两件脚本（env_7/8/9 不改仍可跑）。
+
+  data 脚本协议（legacy）：`<python> data/<script> --candidate <path>`，stdout 输出单行 JSON
   （框架从后往前找最后一行可解析的 JSON object，容忍前置噪声输出）：
     data/test_correctness.py → {"passed": bool, "max_error": num, ...}
         缺 "passed" / 非 JSON / 超时 → stage2 失败
@@ -67,6 +85,9 @@ __all__ = [
     "STAGE3_PERF",
     "SOFT_GATE",
     "FAILURE_STAGES",
+    "GATE_CHECK_REL",
+    "NEW_LAYOUT_REQUIRED",
+    "DEFAULT_GATE_CHECK_TIMEOUT_S",
 ]
 
 # 失败阶段名（failure_stage 取值域；gate_result 事件 payload 消费同名约定）
@@ -81,6 +102,16 @@ DEFAULT_K = 3                       # 软门禁计时次数（构造参数 k，c
 DEFAULT_RELATIVE_BAND = 0.05        # tolerance.soft_gate.relative_band 缺省
 DEFAULT_CORRECTNESS_TIMEOUT_S = 120.0   # gates.correctness_timeout_s 缺省
 DEFAULT_BENCH_TIMEOUT_S = 600.0         # gates.bench_timeout_s 缺省
+DEFAULT_GATE_CHECK_TIMEOUT_S = 600.0    # gates.gate_check_timeout_s 缺省（新布局）
+
+# 新布局（三要素契约）要求 env 侧提供的四个脚本（相对 env_dir）
+GATE_CHECK_REL = os.path.join("skills", "gate_check.py")
+NEW_LAYOUT_REQUIRED = (
+    os.path.join("skills", "profile.py"),
+    os.path.join("skills", "benchmark.py"),
+    os.path.join("skills", "verify.py"),
+    GATE_CHECK_REL,
+)
 DEFAULT_PERF_TYPE = "runtime_ms"    # perf_type 缺省
 DEFAULT_PERF_DESC = "low"           # perf_desc 缺省
 
@@ -230,6 +261,12 @@ class CascadeGate:
             return venv
         return sys.executable
 
+    # ---- 布局探测（task27：新布局＝三要素契约，legacy＝data 两件） ----
+
+    def _is_new_layout(self) -> bool:
+        """`<env>/skills/gate_check.py` 存在 → 新布局（三要素封装门）；否则 legacy。"""
+        return os.path.isfile(os.path.join(self.env_dir, GATE_CHECK_REL))
+
     # ---- env.json 读取 ----
 
     def _load_env_json(self) -> Tuple[Optional[dict], Optional[str]]:
@@ -265,6 +302,11 @@ class CascadeGate:
         return (c if c is not None and c > 0 else DEFAULT_CORRECTNESS_TIMEOUT_S,
                 b if b is not None and b > 0 else DEFAULT_BENCH_TIMEOUT_S)
 
+    def _gate_check_timeout(self, cfg: dict) -> float:
+        """新布局 gate_check 子进程超时：gates.gate_check_timeout_s（缺省 600）。"""
+        v = _num_or_none(self._gates_cfg(cfg).get("gate_check_timeout_s"))
+        return v if v is not None and v > 0 else DEFAULT_GATE_CHECK_TIMEOUT_S
+
     def _band_value(self, cfg: dict) -> float:
         v = _num_or_none(self._soft_cfg(cfg).get("relative_band"))
         return v if v is not None else DEFAULT_RELATIVE_BAND
@@ -289,7 +331,7 @@ class CascadeGate:
         if baseline is not None and _num_or_none(baseline) is None:
             errors.append("tolerance.soft_gate.baseline must be a number, got %r" % (baseline,))
         g = self._gates_cfg(cfg)
-        for key in ("correctness_timeout_s", "bench_timeout_s"):
+        for key in ("correctness_timeout_s", "bench_timeout_s", "gate_check_timeout_s"):
             v = g.get(key)
             if v is not None:
                 n = _num_or_none(v)
@@ -314,14 +356,20 @@ class CascadeGate:
         return True, ""
 
     def _run_script(self, py: str, script_rel: str, candidate: str,
-                    timeout_s: float) -> Tuple[Optional[dict], Optional[str]]:
-        """跑一个 data 脚本：成功 → (parsed_json, None)；失败 → (None, 诊断串)。
+                    timeout_s: float,
+                    extra_args: Optional[List[str]] = None
+                    ) -> Tuple[Optional[dict], Optional[str]]:
+        """跑一个 env 脚本：成功 → (parsed_json, None)；失败 → (None, 诊断串)。
 
+        legacy：`data/<script> --candidate <path>`；新布局 gate_check 通过
+        extra_args 追加 `--baseline/--env-dir`（契约见模块 docstring）。
         失败含：子进程超时（TimeoutExpired）/ 无法 spawn / stdout 无可解析 JSON。
         诊断串带 stderr 尾 200 字（环境失败结论化素材）。
         """
         script = os.path.join(self.env_dir, script_rel)
         cmd = [py, script, "--candidate", str(candidate)]
+        if extra_args:
+            cmd.extend(extra_args)
         try:
             r = subprocess.run(cmd, timeout=timeout_s, capture_output=True, text=True)
         except subprocess.TimeoutExpired as e:
@@ -347,19 +395,25 @@ class CascadeGate:
                history: Optional[List[float]] = None) -> GateResult:
         """级联终验一个候选。前级失败短路（后级不跑）。
 
-        candidate_dir：候选路径（文件或目录，透传给 data 脚本的 --candidate；
+        布局路由（task27）：`<env>/skills/gate_check.py` 存在 → 新布局
+        （三要素封装门，一次子进程出最终结论）；否则 legacy（data 两件脚本，
+        env_7/8/9 不改仍可跑）。
+
+        candidate_dir：候选路径（文件或目录，透传给脚本的 --candidate；
         env 的脚本决定如何消费）。
         elite_perf / history：软门禁比较锚点（当前格精英 perf / 同格历史 perf 列表），
         由调度器从 archive 取（依赖注入——框架不读档案）。
         """
-        metrics: Dict[str, Any] = {}
-
-        # ---- stage1 环境健康 ----
         cfg, err = self._load_env_json()
         if err is not None:
-            return GateResult(False, STAGE1_ENV, metrics,
+            return GateResult(False, STAGE1_ENV, {},
                               "stage1 env unhealthy: %s" % err)
         py = self._python()
+        if self._is_new_layout():
+            return self._verify_gate_check(cfg, py, candidate_dir,
+                                           elite_perf, history)
+        # ---- legacy 布局：原三级级联（不变） ----
+        metrics: Dict[str, Any] = {}
         c_timeout, b_timeout = self._timeouts(cfg)
 
         problems = self._validate_cfg(cfg)
@@ -473,31 +527,134 @@ class CascadeGate:
             "soft(%s)" % (c_metrics.get("max_error"), perf_type, value, self.k,
                           score, soft_metrics.get("verdict")))
 
+    # ---- 新布局：gate_check 封装门（三要素） ----
+
+    def _verify_gate_check(self, cfg: dict, py: str, candidate_dir: str,
+                           elite_perf: Optional[float],
+                           history: Optional[List[float]]) -> GateResult:
+        """新布局终验：stage1（四件+reference 过 verify）→ 调 gate_check 一次。
+
+        gate_check 内部级联（verify → benchmark K 次 → 软门禁），框架只负责：
+        环境健康前置、基线解析与传参、结果归一（failure_stage 合法性 / perf.value 必须有）。
+        """
+        metrics: Dict[str, Any] = {}
+        c_timeout, _ = self._timeouts(cfg)
+        gc_timeout = self._gate_check_timeout(cfg)
+
+        # ---- stage1 环境健康（三要素四件 + reference） ----
+        problems = self._validate_cfg(cfg)
+        for rel in NEW_LAYOUT_REQUIRED:
+            if not os.path.isfile(os.path.join(self.env_dir, rel)):
+                problems.append("missing env/%s" % rel)
+        ref_path = os.path.join(self.env_dir, "code", "reference.py")
+        if not os.path.isfile(ref_path):
+            problems.append("missing env/code/reference.py")
+        if not candidate_dir or not os.path.exists(candidate_dir):
+            problems.append("candidate not found: %r" % (candidate_dir,))
+        if not problems:
+            ok, msg = self._probe_interpreter(py, c_timeout)
+            if not ok:
+                problems.append(msg)
+        if not problems:
+            # 参考实现必须过约束门（verify）：参考挂=环境坏
+            parsed, rerr = self._run_script(py, os.path.join("skills", "verify.py"),
+                                            ref_path, c_timeout)
+            if rerr is not None:
+                problems.append("reference failed verify gate: %s" % rerr)
+            elif not parsed.get("passed"):
+                problems.append("reference failed verify gate: %s"
+                                % json.dumps(parsed, ensure_ascii=False))
+        if problems:
+            return GateResult(False, STAGE1_ENV, metrics,
+                              "stage1 env unhealthy: " + "; ".join(problems))
+
+        # ---- 基线解析（与 legacy 同序）→ 传给 gate_check ----
+        baseline, source = self._resolve_baseline(cfg, elite_perf, history)
+        extra = ["--env-dir", self.env_dir]
+        if baseline is not None:
+            extra.extend(["--baseline", repr(float(baseline))])
+
+        parsed, gerr = self._run_script(py, GATE_CHECK_REL, candidate_dir,
+                                        gc_timeout, extra_args=extra)
+        if gerr is not None:
+            metrics["correctness"] = {"passed": False, "error": gerr}
+            return GateResult(False, STAGE3_PERF, metrics,
+                              "gate_check failed (protocol/timeout): %s" % gerr)
+        if "passed" not in parsed:
+            msg = "gate_check output missing 'passed': %r" % (parsed,)
+            return GateResult(False, STAGE3_PERF, metrics,
+                              "gate_check failed (protocol): %s" % msg)
+
+        raw_metrics = parsed.get("metrics")
+        metrics = dict(raw_metrics) if isinstance(raw_metrics, dict) else {}
+        for key in ("correctness", "perf", "soft"):
+            if key in metrics and not isinstance(metrics[key], dict):
+                metrics[key] = {}
+        # 归一：框架侧元信息补全（gate_check 漏报 soft 时仍给 loop 可用结构）。
+        # baseline/baseline_source 由框架权威写入（基线是框架解析后传入的，
+        # gate_check 只负责比较；env 侧无法知道来源是 elite/history/env）。
+        soft = metrics.get("soft")
+        if not isinstance(soft, dict):
+            soft = {}
+        soft["baseline"] = baseline
+        soft["baseline_source"] = source
+        soft.setdefault("tolerance_band", False)
+        soft.setdefault("exempt", baseline is None)
+        metrics["soft"] = soft
+
+        details = str(parsed.get("details") or "")
+        passed = bool(parsed["passed"])
+        stage = parsed.get("failure_stage")
+
+        if passed:
+            perf = metrics.get("perf") or {}
+            val = _num_or_none(perf.get("value"))
+            if val is None:
+                msg = ("gate_check reported passed but metrics.perf.value "
+                       "missing/invalid: %r" % (perf,))
+                return GateResult(False, STAGE3_PERF, metrics,
+                                  "gate_check failed (protocol): " + msg)
+            return GateResult(True, None, metrics,
+                              details or "passed via gate_check")
+
+        if stage not in (STAGE2_CORRECTNESS, STAGE3_PERF, SOFT_GATE):
+            note = "(gate_check failure_stage missing/invalid: %r)" % (stage,)
+            details = (details + " " + note).strip()
+            stage = STAGE3_PERF
+        return GateResult(False, stage, metrics,
+                          details or "gate_check failed")
+
     # ---- 软门禁 ----
+
+    def _resolve_baseline(self, cfg: dict, elite_perf: Optional[float],
+                          history: Optional[List[float]]) -> Tuple[Optional[float], str]:
+        """软门禁基线解析（legacy 与新布局共用）：
+
+        elite → 同格历史中位 → env.json tolerance.soft_gate.baseline → None（首解豁免）。
+        返回 (baseline, source)；source ∈ {elite, history, env, none}。
+        """
+        ep = _num_or_none(elite_perf)
+        if ep is not None:
+            return ep, "elite"
+        nums: List[float] = []
+        if history:
+            for h in history:
+                hn = _num_or_none(h)
+                if hn is not None:
+                    nums.append(hn)
+        if nums:
+            return _median(nums), "history"
+        eb = _num_or_none(self._soft_cfg(cfg).get("baseline"))
+        if eb is not None:
+            return eb, "env"
+        return None, "none"
 
     def _soft_gate(self, value: float, perf_desc: str, cfg: dict,
                    elite_perf: Optional[float],
                    history: Optional[List[float]]) -> Tuple[bool, dict, str]:
         """与基线比较：带内 → 通过+tolerance_band；带外劣化 → soft_gate 拒；带外更优 → 通过。"""
         band = self._band_value(cfg)
-        baseline: Optional[float] = None
-        source = "none"
-        ep = _num_or_none(elite_perf)
-        if ep is not None:
-            baseline, source = ep, "elite"
-        else:
-            nums: List[float] = []
-            if history:
-                for h in history:
-                    hn = _num_or_none(h)
-                    if hn is not None:
-                        nums.append(hn)
-            if nums:
-                baseline, source = _median(nums), "history"
-            else:
-                eb = _num_or_none(self._soft_cfg(cfg).get("baseline"))
-                if eb is not None:
-                    baseline, source = eb, "env"
+        baseline, source = self._resolve_baseline(cfg, elite_perf, history)
         soft: Dict[str, Any] = {
             "relative_band": band,
             "baseline": baseline,

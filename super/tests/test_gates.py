@@ -637,3 +637,413 @@ class TestGateResultShape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ============================================================================
+# 新布局（三要素契约，task27）：skills/{profile,benchmark,verify,gate_check}.py
+# ============================================================================
+
+PROFILE_SRC = '''#!/usr/bin/env python3
+"""fixture profile：输出事实 JSON（热点/环境事实）。"""
+import json
+import sys
+
+candidate = None
+args = sys.argv[1:]
+for i in range(len(args) - 1):
+    if args[i] == "--candidate":
+        candidate = args[i + 1]
+print(json.dumps({"candidate": candidate,
+                  "hotspots": [{"name": "kernel", "share": 0.9}],
+                  "env_facts": {"python": sys.version.split()[0]}}))
+'''
+
+SKILL_VERIFY_WRAPPER = '''#!/usr/bin/env python3
+"""fixture skills/verify.py：薄转发到 data/test_correctness.py（同一份约束资产）。"""
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(HERE, "..", "data", "test_correctness.py")
+r = subprocess.run([sys.executable, DATA] + sys.argv[1:], capture_output=True, text=True)
+sys.stdout.write(r.stdout)
+sys.stderr.write(r.stderr)
+sys.exit(r.returncode)
+'''
+
+SKILL_BENCHMARK_WRAPPER = '''#!/usr/bin/env python3
+"""fixture skills/benchmark.py：薄转发到 data/bench.py（同一份评估资产）。"""
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(HERE, "..", "data", "bench.py")
+r = subprocess.run([sys.executable, DATA] + sys.argv[1:], capture_output=True, text=True)
+sys.stdout.write(r.stdout)
+sys.stderr.write(r.stderr)
+sys.exit(r.returncode)
+'''
+
+GATE_CHECK_SRC = '''#!/usr/bin/env python3
+"""fixture skills/gate_check.py — verify → benchmark(K 次中位) → 软门禁 → 契约 JSON。"""
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_ENV_DIR = os.path.dirname(HERE)
+
+
+def _emit(payload, rc):
+    print(json.dumps(payload))
+    sys.exit(rc)
+
+
+def _run(py, script, candidate):
+    r = subprocess.run([py, script, "--candidate", candidate],
+                       capture_output=True, text=True)
+    for raw in reversed([x for x in (r.stdout or "").split("\\n") if x.strip()]):
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            return obj, None
+    return None, (r.stderr or "")[-200:]
+
+
+def _median(vals):
+    vs = sorted(vals)
+    m = len(vs)
+    if m == 0:
+        return None
+    if m % 2 == 1:
+        return vs[m // 2]
+    return (vs[m // 2 - 1] + vs[m // 2]) / 2.0
+
+
+def main():
+    args = sys.argv[1:]
+    candidate = None
+    baseline = None
+    env_dir = DEFAULT_ENV_DIR
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--candidate" and i + 1 < len(args):
+            candidate = args[i + 1]
+            i += 2
+            continue
+        if a == "--baseline" and i + 1 < len(args):
+            try:
+                baseline = float(args[i + 1])
+            except ValueError:
+                baseline = None
+            i += 2
+            continue
+        if a == "--env-dir" and i + 1 < len(args):
+            env_dir = args[i + 1]
+            i += 2
+            continue
+        i += 1
+    if not candidate:
+        _emit({"passed": False, "failure_stage": "stage2_correctness",
+               "metrics": {}, "details": "missing --candidate"}, 1)
+    py = sys.executable
+    venv_py = os.path.join(env_dir, ".venv", "bin", "python")
+    if os.path.exists(venv_py):
+        py = venv_py
+    cfg = {}
+    try:
+        with open(os.path.join(env_dir, "env.json"), "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    bench_cfg = cfg.get("bench") or {}
+    k = int(bench_cfg.get("k") or 3)
+    perf_type = cfg.get("perf_type", "runtime_ms")
+    perf_desc = cfg.get("perf_desc", "low")
+    soft_cfg = ((cfg.get("tolerance") or {}).get("soft_gate") or {})
+    band_raw = soft_cfg.get("relative_band", 0.05)
+    band = float(band_raw) if isinstance(band_raw, (int, float)) and not isinstance(band_raw, bool) else 0.05
+    metrics = {}
+
+    v, verr = _run(py, os.path.join(HERE, "verify.py"), candidate)
+    if verr is not None or v is None:
+        _emit({"passed": False, "failure_stage": "stage2_correctness",
+               "metrics": metrics, "details": "verify failed: %s" % (verr,)}, 1)
+    metrics["correctness"] = v
+    if not v.get("passed"):
+        _emit({"passed": False, "failure_stage": "stage2_correctness",
+               "metrics": metrics, "details": "verify rejected candidate"}, 1)
+
+    values = []
+    scores = []
+    for _ in range(k):
+        b, berr = _run(py, os.path.join(HERE, "benchmark.py"), candidate)
+        if berr is not None or b is None:
+            _emit({"passed": False, "failure_stage": "stage3_perf",
+                   "metrics": metrics, "details": "benchmark failed: %s" % (berr,)}, 1)
+        if b.get("passed") is False:
+            _emit({"passed": False, "failure_stage": "stage3_perf",
+                   "metrics": metrics, "details": "benchmark reported failure"}, 1)
+        val = b.get(perf_type)
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            _emit({"passed": False, "failure_stage": "stage3_perf",
+                   "metrics": metrics, "details": "benchmark missing %s" % perf_type}, 1)
+        values.append(float(val))
+        s = b.get("score")
+        if isinstance(s, (int, float)) and not isinstance(s, bool):
+            scores.append(float(s))
+    value = _median(values)
+    score = _median(scores) if len(scores) == k else (-value if perf_desc == "low" else value)
+    metrics["perf"] = {"perf_type": perf_type, "perf_desc": perf_desc, "value": value,
+                       "timings": values, "score": score, "k": k}
+
+    soft = {"relative_band": band, "baseline": baseline,
+            "baseline_source": "elite" if baseline is not None else "none",
+            "tolerance_band": False, "exempt": baseline is None}
+    if baseline is None:
+        soft["verdict"] = "exempt"
+        metrics["soft"] = soft
+        _emit({"passed": True, "failure_stage": None, "metrics": metrics,
+               "details": "passed (exempt)"}, 0)
+    if baseline > 0:
+        ratio = value / baseline
+        soft["ratio"] = ratio
+        if perf_desc == "high":
+            verdict = "worse" if ratio < 1.0 - band else ("better" if ratio > 1.0 + band else "band")
+        else:
+            verdict = "worse" if ratio > 1.0 + band else ("better" if ratio < 1.0 - band else "band")
+    else:
+        verdict = "worse" if value > baseline else "better"
+    soft["verdict"] = verdict
+    metrics["soft"] = soft
+    if verdict == "worse":
+        _emit({"passed": False, "failure_stage": "soft_gate", "metrics": metrics,
+               "details": "soft gate: worse beyond band"}, 1)
+    if verdict == "band":
+        soft["tolerance_band"] = True
+    _emit({"passed": True, "failure_stage": None, "metrics": metrics,
+           "details": "passed via gate_check"}, 0)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+HANGING_GATE_CHECK_SRC = "import time\n\ntime.sleep(5.0)\n"
+GARBAGE_GATE_CHECK_SRC = "print('garbage not json')\n"
+NOPERF_GATE_CHECK_SRC = (
+    "import json\n"
+    "print(json.dumps({'passed': True, 'failure_stage': None, "
+    "'metrics': {'correctness': {'passed': True}, 'perf': {}, 'soft': {}}, "
+    "'details': 'ok'}))\n"
+)
+BADSTAGE_GATE_CHECK_SRC = (
+    "import json\n"
+    "print(json.dumps({'passed': False, 'failure_stage': 'weird_stage', "
+    "'metrics': {'correctness': {'passed': False}}, 'details': 'boom'}))\n"
+)
+
+
+class NewLayoutFixture(FixtureEnv):
+    """legacy fixture + skills/ 四件（三要素契约布局）。"""
+
+    def __init__(self, root):
+        FixtureEnv.__init__(self, root)
+        _write_file(os.path.join(self.env_dir, "skills", "profile.py"), PROFILE_SRC)
+        _write_file(os.path.join(self.env_dir, "skills", "verify.py"), SKILL_VERIFY_WRAPPER)
+        _write_file(os.path.join(self.env_dir, "skills", "benchmark.py"),
+                    SKILL_BENCHMARK_WRAPPER)
+        _write_file(os.path.join(self.env_dir, "skills", "gate_check.py"), GATE_CHECK_SRC)
+
+    def write_skill(self, name, src):
+        _write_file(os.path.join(self.env_dir, "skills", name), src)
+
+
+class NewLayoutGatesTestCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fx = NewLayoutFixture(self.tmp.name)
+        self.gate = CascadeGate(self.fx.env_dir, self.fx.gates_dir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+
+class TestNewLayoutCascade(NewLayoutGatesTestCase):
+
+    def test_good_solution_passes_through_gate_check_exempt(self):
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+        self.assertIsNone(r.failure_stage)
+        self.assertTrue(r.metrics["correctness"]["passed"])
+        self.assertEqual(r.metrics["perf"]["value"], 100.0)
+        self.assertEqual(r.metrics["perf"]["k"], 3)
+        self.assertTrue(r.metrics["soft"]["exempt"])
+        self.assertEqual(self.fx.bench_calls(), 3, "gate_check 内应跑 K=3 次 benchmark")
+
+    def test_bad_solution_fails_stage2_and_skips_benchmark(self):
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_bad)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, STAGE2_CORRECTNESS)
+        self.assertEqual(self.fx.bench_calls(), 0, "verify 拒后不应再跑 benchmark")
+
+    def test_bench_failure_maps_to_stage3(self):
+        self.fx.write_bench(FAILURE_BENCH_SRC)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, STAGE3_PERF)
+        self.assertIn("benchmark", r.details)
+
+    def test_soft_gate_worse_beyond_band(self):
+        self.fx.set_schedule([120.0, 120.0, 120.0])
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good, elite_perf=100.0)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, SOFT_GATE)
+        self.assertEqual(r.metrics["soft"]["baseline"], 100.0)
+        self.assertEqual(r.metrics["soft"]["baseline_source"], "elite")
+        self.assertEqual(r.metrics["soft"]["verdict"], "worse")
+        self.assertEqual(r.metrics["perf"]["value"], 120.0)
+
+    def test_soft_gate_in_band_marks_tolerance_band(self):
+        self.fx.set_schedule([102.0, 102.0, 102.0])
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good, elite_perf=100.0)
+        self.assertTrue(r.passed, r.details)
+        self.assertTrue(r.tolerance_band)
+        self.assertEqual(r.metrics["soft"]["verdict"], "band")
+
+    def test_baseline_from_history_passed_to_gate_check(self):
+        self.fx.set_schedule([102.0, 102.0, 102.0])
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good, history=[100.0, 100.0])
+        self.assertTrue(r.passed, r.details)
+        self.assertEqual(r.metrics["soft"]["baseline"], 100.0)
+        self.assertEqual(r.metrics["soft"]["baseline_source"], "history")
+
+    def test_baseline_from_env_json_when_no_elite_no_history(self):
+        cfg = default_env_json()
+        cfg["tolerance"]["soft_gate"]["baseline"] = 100.0
+        self.fx.write_env(cfg)
+        self.fx.set_schedule([102.0, 102.0, 102.0])
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+        self.assertTrue(r.tolerance_band)
+        self.assertEqual(r.metrics["soft"]["baseline_source"], "env")
+
+    def test_relative_band_is_env_driven(self):
+        # 框架零硬编码：同一劣化解（ratio=1.2），band 0.05 拒、0.5 带内通过
+        self.fx.set_schedule([120.0, 120.0, 120.0])
+        self.fx.reset_bench()
+        r1 = self.gate.verify(self.fx.cand_good, elite_perf=100.0)
+        self.assertEqual(r1.failure_stage, SOFT_GATE)
+
+        cfg = default_env_json()
+        cfg["tolerance"]["soft_gate"]["relative_band"] = 0.5
+        self.fx.write_env(cfg)
+        self.fx.reset_bench()
+        r2 = self.gate.verify(self.fx.cand_good, elite_perf=100.0)
+        self.assertTrue(r2.passed, r2.details)
+        self.assertTrue(r2.tolerance_band)
+
+
+class TestNewLayoutStage1(NewLayoutGatesTestCase):
+
+    def _assert_stage1(self, r, needle):
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, STAGE1_ENV)
+        self.assertIn(needle, r.details)
+
+    def test_missing_profile_skill_fails_stage1(self):
+        os.remove(os.path.join(self.fx.env_dir, "skills", "profile.py"))
+        self._assert_stage1(self.gate.verify(self.fx.cand_good), "skills/profile.py")
+
+    def test_missing_benchmark_skill_fails_stage1(self):
+        os.remove(os.path.join(self.fx.env_dir, "skills", "benchmark.py"))
+        self._assert_stage1(self.gate.verify(self.fx.cand_good), "skills/benchmark.py")
+
+    def test_missing_verify_skill_fails_stage1(self):
+        os.remove(os.path.join(self.fx.env_dir, "skills", "verify.py"))
+        self._assert_stage1(self.gate.verify(self.fx.cand_good), "skills/verify.py")
+
+    def test_reference_must_pass_verify(self):
+        _write_file(os.path.join(self.fx.env_dir, "code", "reference.py"),
+                    "def compute():\n    return 999.0\n")
+        self._assert_stage1(self.gate.verify(self.fx.cand_good), "reference")
+
+    def test_missing_gate_check_falls_back_to_legacy_layout(self):
+        # 旧 env（无 gate_check）→ legacy 回退仍可跑（env_7/8/9 不迁移）
+        os.remove(os.path.join(self.fx.env_dir, "skills", "gate_check.py"))
+        self.fx.reset_bench()
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+        self.assertEqual(r.metrics["perf"]["value"], 100.0)
+        self.assertEqual(r.metrics["soft"]["exempt"], True)
+
+    def test_invalid_gate_check_timeout_config_fails_stage1(self):
+        cfg = default_env_json()
+        cfg["gates"]["gate_check_timeout_s"] = 0
+        self.fx.write_env(cfg)
+        self._assert_stage1(self.gate.verify(self.fx.cand_good), "gate_check_timeout_s")
+
+
+class TestNewLayoutProtocol(NewLayoutGatesTestCase):
+
+    def test_gate_check_timeout_diagnosed(self):
+        self.fx.write_skill("gate_check.py", HANGING_GATE_CHECK_SRC)
+        cfg = default_env_json(
+            gates={"correctness_timeout_s": 10, "bench_timeout_s": 10,
+                   "gate_check_timeout_s": 1})
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, STAGE3_PERF)
+        self.assertIn("timeout", r.details)
+
+    def test_gate_check_non_json_diagnosed(self):
+        self.fx.write_skill("gate_check.py", GARBAGE_GATE_CHECK_SRC)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("non-JSON", r.details)
+
+    def test_passed_without_perf_value_rejected(self):
+        self.fx.write_skill("gate_check.py", NOPERF_GATE_CHECK_SRC)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("perf.value", r.details)
+
+    def test_invalid_failure_stage_normalized(self):
+        self.fx.write_skill("gate_check.py", BADSTAGE_GATE_CHECK_SRC)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn(r.failure_stage, (STAGE2_CORRECTNESS, STAGE3_PERF, SOFT_GATE))
+        self.assertIn("invalid", r.details)
+
+
+class TestNewLayoutPreverify(NewLayoutGatesTestCase):
+
+    def test_preverify_red_works_through_gate_check(self):
+        out = self.gate.preverify_red()
+        self.assertTrue(out["ok"], out)
+        self.assertEqual(out["leaked"], [])
+        self.assertEqual(out["false_killed"], [])
+        self.assertGreaterEqual(out["exploits_checked"], 1)
+        self.assertGreaterEqual(out["goldens_checked"], 1)
+
+    def test_preverify_detects_leak_in_new_layout(self):
+        self.fx.write_registry([
+            {"id": "cached_result",
+             "sample_path": os.path.join(self.fx.gates_dir, "exploits", "cached_result.py")},
+        ])
+        out = self.gate.preverify_red()
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["leaked"], ["cached_result"])
