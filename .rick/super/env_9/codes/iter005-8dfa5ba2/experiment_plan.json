@@ -1,0 +1,15 @@
+{
+  "idea": "瓶颈在父系 Python 层逐行循环 + B 全量重读（listcomp 99.9%，11507ms）：采用本格定义形态——M 维四分（8192→4×2048 行块，余数并入末块），每块单次 np.matmul(a_blk, b, out=C_blk) 整阵 BLAS gemm 派发、C 预分配行切片直写；K 求和序不动（不切 K/N、不转置 B），预期塌缩到 434-488ms 平价带上沿（原型实测 ~472ms、score ~0.93）",
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=m_quarters",
+  "parents": [
+    "codes/iter004-e77e66ca/solution.py"
+  ],
+  "plan_steps": [
+    "读父本 codes/iter004-e77e66ca/solution.py（m_halves 精英）：确认 matmul(a,b) 契约（asarray→f32、返回 (M,N) ndarray、np.seterr 抑制、__main__ 形状鲁棒自检）——骨架整体保留，本次唯一改动是分块数 2→4",
+    "改内核为 M 四分：q = m // 4（奇数行余数并入末块），C = np.empty((m,n), f32) 预分配，四个行切片各一次 np.matmul(a32[块行切片], b32, out=c[同行切片])（行切片 C 连续，out= 合法无拷贝）；禁止任何 K/N 切分、B 转置、额外 dtype 转换",
+    "用 env 的 .venv python 跑 env/skills/verify.py --candidate <候选>：预期 passed 且 max_error=0.0（[64,8192]×2seed 逐位一致；原型已实测）",
+    "用 env 的 .venv python 跑 env/skills/benchmark.py --candidate <候选>：预期 k=3 中位 465-510ms、score 0.88-0.95；若 ref_runtime_ms 落 [380,700] 带外（本 session 曾见 702ms 负载尖峰）→ 等待负载回落重跑再判，不把尖峰时段数值当结论",
+    "用 env 的 .venv python 跑 env/skills/gate_check.py --candidate <候选> 终判：score_max 2.0 / runtime_ms_min 0.01 / ref 带 [380,700] 全部满足后，候选落盘为 solution.py 交付（docstring 注明本格形态、A/B 实测依据与 admit 先例）"
+  ],
+  "expected_behavior": "k=3 中位 runtime 从父系起点 11507ms 塌缩 ~24× 至 465-510ms（平价带 434-488ms 上沿；本 session 两轮交错 A/B 实测中位 492/473ms、稳态 466-473ms）；score ≈ 0.88-0.95（m_halves 精英 484.4ms/≈0.90 admit 为同量级先例；形态代价相对 full 435-440ms 约 +8-13%）；正确性 max_error=0.0 双 seed 双进程逐位一致（原型 verify.py 已实测 passed）。可证伪判据：中位 >510ms、出现任何非零误差、或 ref 持续带外致不可测——任一出现则『M 四分形态合法落带上沿』假设被证伪。"
+}

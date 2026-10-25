@@ -1,0 +1,60 @@
+{
+  "iteration_id": 5,
+  "cell_id": "dispatch_target=np_matmul|impl_strategy=m_quarters",
+  "ts": "2026-10-24T01:48:32+08:00",
+  "profile_facts": [
+    "<listcomp>=99.9",
+    "stack=0.1",
+    "matmul=0.0",
+    "python=3.9.6",
+    "numpy=2.0.2",
+    "cpu_count=18",
+    "dtype=float32"
+  ],
+  "papers": [
+    {
+      "arxiv_id": "1609.00076",
+      "title": "BLISlab: A Sandbox for Optimizing GEMM (FLAME Working Note #80)",
+      "insight": "Goto/BLIS 五重循环以 microkernel 为核心：M 维以 MC 行面板在库内最外层分块、microkernel 内完成全 K 累加——外部行块切分不改变每个输出元素的 K 归约序",
+      "applicability": "第 2 步合法性依据：Python 层 M 四分位于库内 MC 分块之上，每块 gemm 与整阵调用对相应行完全同构 → 逐位一致；本实验唯一变量是分块数 2→4"
+    },
+    {
+      "arxiv_id": "1511.03742",
+      "title": "GEMMbench: a framework for reproducible and collaborative benchmarking of matrix multiplication",
+      "insight": "可复现 GEMM 评测需跨平台/多规模/多数据类型的统计化方法：多次重复取稳定统计量 + 受控基准对照，而非单次计时",
+      "applicability": "第 4 步判读依据：本 env k=3 中位 + ref 合理性带 [380,700] 即该方法学实例；负载尖峰可使 ref 超带（本 session 实测 702ms），判读以中位 + ref 带内为准，带外时等回落重跑"
+    },
+    {
+      "arxiv_id": "2302.08417",
+      "title": "GEMMFIP: Unifying GEMM in BLIS",
+      "insight": "Goto 循环嵌套下 B 的重读由库内 MC/NC 分块决定而非外部调用粒度；外部多拆一个 M 块只增加 gemm 调用次数与边际 B 重流",
+      "applicability": "expected_behavior 量级依据：外部 4 次 vs 1 次派发仅多 3 次 dispatch（µs 级）与边际 B 流量，实测形态代价 +8-13%（472 vs 435-440ms），仍在平价带内——score ~0.93 而非 >1"
+    }
+  ],
+  "inspirations": [
+    {
+      "source_cell": "dispatch_target=np_matmul|impl_strategy=m_halves",
+      "what": "iter004 精英（484.4ms admit）的 M 分块骨架：asarray→f32 归一、C 预分配 + 行切片 out= 直写（行切片 C 连续无拷贝）、奇数行安全的整除切分——二分改四分即得本格形态"
+    },
+    {
+      "source_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+      "what": "iter003 精英 430.8ms record 证明整阵单次派发是平价带地板（434-488ms）；m_halves 484.4 admit 证明带上沿形态可被接受——本实验目标是完成本格形态覆盖而非破纪录"
+    }
+  ],
+  "reasoning": "事实：本格首访无精英，父系起点 99.9% 耗时在 Python 逐行 listcomp（11507ms）；本 session 两轮同进程交错 A/B 实测 m_quarters 稳态 466-473ms、verify.py max_error=0.0 逐位一致，序 full(435-440) < halves(446-454) < quarters(471-492) 稳定复现。假设：把 m_halves 骨架二分改四分（q=m//4、每行块单次 np.matmul(a_blk,b,out=C_blk)），K 求和序不动，可塌缩到平价带上沿 ~465-510ms、score ~0.88-0.95。机制：BLIS 五重循环中 M 面板切分位于库内分块之上，每块 gemm 对应行的 K 归约序与整阵调用同构（逐位一致必过 1e-3 门）；外部 4 拆仅多 3 次 dispatch 与边际 B 重流，形态代价 +8-13% 仍在带内。可证伪判据：k=3 中位 >510ms、任何非零 max_error、或 ref 持续带外不可测——任一出现即假设被证伪。",
+  "experiment_plan": {
+    "idea": "瓶颈在父系 Python 层逐行循环 + B 全量重读（listcomp 99.9%，11507ms）：采用本格定义形态——M 维四分（8192→4×2048 行块，余数并入末块），每块单次 np.matmul(a_blk, b, out=C_blk) 整阵 BLAS gemm 派发、C 预分配行切片直写；K 求和序不动（不切 K/N、不转置 B），预期塌缩到 434-488ms 平价带上沿（原型实测 ~472ms、score ~0.93）",
+    "target_cell": "dispatch_target=np_matmul|impl_strategy=m_quarters",
+    "parents": [
+      "codes/iter004-e77e66ca/solution.py"
+    ],
+    "plan_steps": [
+      "读父本 codes/iter004-e77e66ca/solution.py（m_halves 精英）：确认 matmul(a,b) 契约（asarray→f32、返回 (M,N) ndarray、np.seterr 抑制、__main__ 形状鲁棒自检）——骨架整体保留，本次唯一改动是分块数 2→4",
+      "改内核为 M 四分：q = m // 4（奇数行余数并入末块），C = np.empty((m,n), f32) 预分配，四个行切片各一次 np.matmul(a32[块行切片], b32, out=c[同行切片])（行切片 C 连续，out= 合法无拷贝）；禁止任何 K/N 切分、B 转置、额外 dtype 转换",
+      "用 env 的 .venv python 跑 env/skills/verify.py --candidate <候选>：预期 passed 且 max_error=0.0（[64,8192]×2seed 逐位一致；原型已实测）",
+      "用 env 的 .venv python 跑 env/skills/benchmark.py --candidate <候选>：预期 k=3 中位 465-510ms、score 0.88-0.95；若 ref_runtime_ms 落 [380,700] 带外（本 session 曾见 702ms 负载尖峰）→ 等待负载回落重跑再判，不把尖峰时段数值当结论",
+      "用 env 的 .venv python 跑 env/skills/gate_check.py --candidate <候选> 终判：score_max 2.0 / runtime_ms_min 0.01 / ref 带 [380,700] 全部满足后，候选落盘为 solution.py 交付（docstring 注明本格形态、A/B 实测依据与 admit 先例）"
+    ],
+    "expected_behavior": "k=3 中位 runtime 从父系起点 11507ms 塌缩 ~24× 至 465-510ms（平价带 434-488ms 上沿；本 session 两轮交错 A/B 实测中位 492/473ms、稳态 466-473ms）；score ≈ 0.88-0.95（m_halves 精英 484.4ms/≈0.90 admit 为同量级先例；形态代价相对 full 435-440ms 约 +8-13%）；正确性 max_error=0.0 双 seed 双进程逐位一致（原型 verify.py 已实测 passed）。可证伪判据：中位 >510ms、出现任何非零误差、或 ref 持续带外致不可测——任一出现则『M 四分形态合法落带上沿』假设被证伪。"
+  }
+}

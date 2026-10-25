@@ -1,0 +1,7 @@
+{
+  "idea": "[turn-budget-exceeded: 12] 内部风格已确认。让我快速对 `m_halves` 形状进行一次鲁棒性检查（非方阵/奇数行），以确保该形式能够通用，然后检查原始起始契约：",
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=m_halves",
+  "parents": [],
+  "plan_steps": [],
+  "expected_behavior": null
+}

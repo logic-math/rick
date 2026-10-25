@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-23T17:18:27.054Z",
+  "updated_at": "2026-10-24T01:00:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -444,6 +444,90 @@
         "task33"
       ],
       "task_file": "plan/task34.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task36",
+      "task_name": "仓级 super_* skill 五件（实验分析/SENSE/格管理/实验设计/debug 协议，引用 rick canon）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task36.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task37",
+      "task_name": "gen_env skill 流程修复（重排/职责/前置输入/键一致性/preverify 自动化）+ 优化幅度阈值追问",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task37.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task38",
+      "task_name": "特征格四要素模型（description）+ experiment_record 模块 + 相邻格随机抽样",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task38.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task40",
+      "task_name": "四模板重写（实验驱动 loop + skill 声明路径与触发条件）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task40.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task39",
+      "task_name": "loop 接线：adjust 四步 ctx/决策记录/new_cell/modify_cell + builder 相邻格与调研 + coding TDD ctx + debug 三类触发 + 实验记录注入",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [
+        "task38"
+      ],
+      "task_file": "plan/task39.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task41",
+      "task_name": "super-loop 更新（四 agent loop/skill 加载规范/实验记录与决策记录）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [
+        "task39",
+        "task40"
+      ],
+      "task_file": "plan/task41.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task42",
+      "task_name": "测试与 e2e 适配（新 ctx/实验记录/TDD 痕迹/三类 debug 触发）+ mock 场景扩展",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-24T01:00:00+08:00",
+      "dependencies": [
+        "task39"
+      ],
+      "task_file": "plan/task42.md",
       "commit_hash": ""
     }
   ]

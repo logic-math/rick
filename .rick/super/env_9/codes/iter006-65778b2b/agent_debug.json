@@ -1,0 +1,27 @@
+{
+  "role": "debug",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 10] 非常有趣！这是一个真正的发现：\n\n- `matmul`：中位数 456.2ms（相当稳定，第 3 次运行有 563 的尖峰）\n- `einsum_path`（预计算路径）：中位数 529.5ms —— **始终较慢**，有多个 500-600ms 的运行结果\n- `einsum_true` (optimize=True)：中位数 453.4ms",
+  "usage": {
+    "input_tokens": 30899,
+    "output_tokens": 15370,
+    "cache_read": 212224,
+    "cache_write": 0,
+    "total_tokens": 258493,
+    "cost_usd": 0.16606484
+  },
+  "wall_ms": 265836,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 6,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter006-65778b2b/prompt_debug.md"
+}

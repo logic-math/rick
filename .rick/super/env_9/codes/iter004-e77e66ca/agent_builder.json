@@ -1,0 +1,29 @@
+{
+  "role": "builder",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 12] 内部风格已确认。让我快速对 `m_halves` 形状进行一次鲁棒性检查（非方阵/奇数行），以确保该形式能够通用，然后检查原始起始契约：",
+  "usage": {
+    "input_tokens": 112939,
+    "output_tokens": 23344,
+    "cache_read": 314240,
+    "cache_write": 0,
+    "total_tokens": 450523,
+    "cost_usd": 0.34253059999999996
+  },
+  "wall_ms": 394989,
+  "exit_code": 143,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "web_search"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 4,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter004-e77e66ca/prompt_builder.md"
+}

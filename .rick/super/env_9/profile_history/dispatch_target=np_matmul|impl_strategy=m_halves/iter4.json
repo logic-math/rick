@@ -1,0 +1,82 @@
+{
+  "ts": "2026-10-24T01:32:17+08:00",
+  "iteration_id": 4,
+  "cell_id": "dispatch_target=np_matmul|impl_strategy=m_halves",
+  "candidate": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env/code/naive_start.py",
+  "profile": {
+    "ok": true,
+    "n": 8192,
+    "hotspots": [
+      {
+        "function": "<listcomp>",
+        "self_ms": 11447.034336,
+        "cum_ms": 11447.89775,
+        "pct": 99.9
+      },
+      {
+        "function": "stack",
+        "self_ms": 10.767958000000002,
+        "cum_ms": 11.959875,
+        "pct": 0.1
+      },
+      {
+        "function": "matmul",
+        "self_ms": 3.8236250000000003,
+        "cum_ms": 11463.706833000002,
+        "pct": 0.0
+      },
+      {
+        "function": "dot",
+        "self_ms": 0.863414,
+        "cum_ms": 0.863414,
+        "pct": 0.0
+      },
+      {
+        "function": "<listcomp>",
+        "self_ms": 0.500792,
+        "cum_ms": 0.500792,
+        "pct": 0.0
+      },
+      {
+        "function": "<setcomp>",
+        "self_ms": 0.319709,
+        "cum_ms": 0.319709,
+        "pct": 0.0
+      },
+      {
+        "function": "<listcomp>",
+        "self_ms": 0.21913300000000002,
+        "cum_ms": 0.370458,
+        "pct": 0.0
+      },
+      {
+        "function": "<built-in method numpy.asanyarray>",
+        "self_ms": 0.15132500000000002,
+        "cum_ms": 0.15132500000000002,
+        "pct": 0.0
+      }
+    ],
+    "env_facts": {
+      "python": "3.9.6",
+      "numpy": "2.0.2",
+      "cpu_count": 18,
+      "dtype": "float32",
+      "blas": "accelerate",
+      "memcpy_gbps": 30.8
+    },
+    "parent_facts": {
+      "candidate": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env/code/naive_start.py",
+      "loc": 62,
+      "imports": [
+        "json",
+        "numpy",
+        "time"
+      ],
+      "functions": [
+        "matmul",
+        "main"
+      ],
+      "runtime_ms": 11573.6
+    }
+  }
+}

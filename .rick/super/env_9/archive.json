@@ -4,7 +4,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 1.0,
+      "weight": 0.5,
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-23T16:47:19+08:00"
@@ -13,7 +13,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 1.0,
+      "weight": 0.7,
       "visit": 1,
       "sample_count": 0,
       "last_sampled_at": null
@@ -34,7 +34,7 @@
         "gen": 1
       },
       "history": [],
-      "weight": 2.5,
+      "weight": 3.0,
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-23T17:07:05+08:00"
@@ -43,7 +43,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 1.5,
+      "weight": 2.0,
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null
@@ -53,15 +53,15 @@
       "elite": null,
       "history": [],
       "weight": 1.0,
-      "visit": 0,
-      "sample_count": 0,
-      "last_sampled_at": null
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-24T01:53:00+08:00"
     },
     "dispatch_target=np_dot|impl_strategy=rowwise_vectorized": {
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 0.1,
+      "weight": 0.0,
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null
@@ -70,7 +70,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 0.1,
+      "weight": 0.0,
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null
@@ -79,7 +79,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 0.1,
+      "weight": 0.0,
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null
@@ -101,6 +101,46 @@
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null
+    },
+    "dispatch_target=np_matmul|impl_strategy=m_halves": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter004-e77e66ca/solution.py",
+        "perf_value": 484.42954199999997,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.8948545070358245,
+        "lineage": [],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-24T01:41:49+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 0.5,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-24T01:31:54+08:00"
+    },
+    "dispatch_target=np_matmul|impl_strategy=m_quarters": {
+      "descriptor": {},
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter005-8dfa5ba2/solution.py",
+        "perf_value": 481.76149999999996,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9274869411524166,
+        "lineage": [
+          "codes/iter004-e77e66ca/solution.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-24T01:53:00+08:00",
+        "gen": 1
+      },
+      "history": [],
+      "weight": 0.5,
+      "visit": 1,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-24T01:41:49+08:00"
     }
   },
   "pending": [
@@ -108,13 +148,25 @@
       "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
       "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
       "reason": "new_cell",
-      "added_at": "2026-10-23T17:13:18+08:00"
+      "added_at": "2026-10-24T01:31:54+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_halves",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter004-e77e66ca/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-24T01:41:49+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_quarters",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter005-8dfa5ba2/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-24T01:53:00+08:00"
     }
   ],
   "meta": {
     "env": "",
     "feature_axes": [],
     "perf_desc": "low",
-    "updated_at": "2026-10-23T17:13:18+08:00"
+    "updated_at": "2026-10-24T02:10:52+08:00"
   }
 }
