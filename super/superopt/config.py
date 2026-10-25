@@ -50,10 +50,10 @@ DEFAULTS: Dict[str, Any] = {
     # message_end，达上限走 kill 梯优雅终止（truncated 标记，已产出内容保留）。
     # 默认值依据：env_8 实测中位 3-7 回合、极值 23 → 截尾部；
     # coding 实现回合略多，debug 修复窗口短，adjust 只需审视一次。
-    "builder_max_turns": 12,
-    "coding_max_turns": 16,
-    "debug_max_turns": 10,
-    "adjust_max_turns": 8,
+    "builder_max_turns": 20,
+    "coding_max_turns": 24,
+    "debug_max_turns": 16,
+    "adjust_max_turns": 12,
     # debug 触发扩展（迭代8/KR6）：门禁通过后仍可能因「异常收益」或「容差带内
     # 无明显收益」被复验——防止错误的性能结论进入精英地图。
     # env.json 的 `debug_policy: {gain_threshold_pct, recheck_tolerance_band}`

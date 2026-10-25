@@ -1,0 +1,29 @@
+{
+  "role": "builder",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 12] 本格首访：把父本 rowwise np.dot（11688ms，listcomp 99.8%）kernel 替换为单次整阵 np.dot(a32,b32) 2-D BLAS gemm 直派，预检已证与 np.matmul 逐位一致（maxdiff 0.0）且同带计时（中位 437.4 vs 433.1ms），预期塌缩到 434-488ms 平价",
+  "usage": {
+    "input_tokens": 95194,
+    "output_tokens": 13632,
+    "cache_read": 225408,
+    "cache_write": 0,
+    "total_tokens": 334234,
+    "cost_usd": 0.25185848
+  },
+  "wall_ms": 214460,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 7,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter007-be5b45a7/prompt_builder.md"
+}

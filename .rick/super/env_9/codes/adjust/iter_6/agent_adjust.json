@@ -1,0 +1,27 @@
+{
+  "role": "adjust",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 8] There are also sessions for adjust-iter_2 and adjust-iter_4 — previous adjust runs, and even an iter007 session stub. Let me examine the iter006 session (the failed attempts)",
+  "usage": {
+    "input_tokens": 102992,
+    "output_tokens": 4000,
+    "cache_read": 98048,
+    "cache_write": 0,
+    "total_tokens": 205040,
+    "cost_usd": 0.18728128000000002
+  },
+  "wall_ms": 75099,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 6,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/adjust/iter_6/prompt_adjust.md"
+}

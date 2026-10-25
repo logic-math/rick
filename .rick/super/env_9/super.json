@@ -1,9 +1,9 @@
 {
-  "state": "completed",
-  "iteration_cursor": 6,
+  "state": "running",
+  "iteration_cursor": 8,
   "env_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env",
-  "pid": 85701,
-  "worker_pid": 85701,
+  "pid": 75128,
+  "worker_pid": 75128,
   "daemon": true,
   "preverify_red": true,
   "heartbeat_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/heartbeat.json",
@@ -18,12 +18,16 @@
     "debug_max_attempts": 3,
     "heartbeat_interval_s": 30,
     "heartbeat_timeout_s": 90,
-    "max_iterations": 6,
+    "max_iterations": 12,
     "max_wall_time_h": 8,
     "pi_path": "/Users/logic/workdir/rick-dev-home/.rick/pi/agent/runtime/node_modules/.bin/pi",
     "python_path": "python3",
     "soft_gate_k": 3,
-    "term_grace_s": 5
+    "term_grace_s": 5,
+    "builder_max_turns": 20,
+    "coding_max_turns": 24,
+    "debug_max_turns": 16,
+    "adjust_max_turns": 12
   },
-  "updated_at": "2026-10-24T02:10:52+08:00"
+  "updated_at": "2026-10-26T02:47:53+08:00"
 }

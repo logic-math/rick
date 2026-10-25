@@ -1,0 +1,27 @@
+{
+  "role": "debug",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 10]",
+  "usage": {
+    "input_tokens": 43109,
+    "output_tokens": 3977,
+    "cache_read": 212928,
+    "cache_write": 0,
+    "total_tokens": 260014,
+    "cost_usd": 0.13321268
+  },
+  "wall_ms": 107543,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 7,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter007-be5b45a7/prompt_debug.md"
+}
