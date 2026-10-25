@@ -6,12 +6,90 @@ scope: "super 会话（全局）"
 
 # Loop: super 中控（env 建设 + 后台进化监督）
 
-`rick super`（默认 `session` 子命令）打开一个**中控中心会话**：本会话负责 env 的建设与升级（gen_env skill）、后台进化引擎的启停与监控、以及 human 干预的投递。进化本身由后台三层架构执行（Go PySupervisor 监督 → py 调度器四状态循环 → pi agent 池），**中控会话不执行进化逻辑**。
+`rick super`（默认 `session` 子命令）打开一个**中控中心会话**：本会话负责 env 的建设与升级（gen_env skill）、后台进化引擎的启停与监控、以及 human 干预的投递。进化本身由后台三层架构执行（Go PySupervisor 监督 → py 调度器四 agent loop 调度 → pi agent 池），**中控会话不执行进化逻辑**。
 
 - 本 loop 是普通的 rick loop：super 会话的提示词注入「可用的项目 Loops」目录，当任务属于 super 模式操作时**先完整读取本文件**再动手。
-- 架构分工（三层）：中控会话（本 loop）= 人机接口；`rick super start` 起的 Go PySupervisor = 进程监督（心跳/kill 梯/游标重启）；py 调度器 = 唯一真相源写者（events.jsonl）与进化循环（adjust 决策 → 加权采样 → builder 计划 → coding 执行 → debug 修复 → 级联门 → MAP-Elites 入格）。
+- 架构分工（三层）：中控会话（本 loop）= 人机接口；`rick super start` 起的 Go PySupervisor = 进程监督（心跳/kill 梯/游标重启）；py 调度器 = 唯一真相源写者（events.jsonl）与进化循环——循环由**四个 agent loop** 组成（见「四 Agent Loop」节）。
 - 自改进分层（Step 7）：内层迭代进化「解」，中层 adjust 进化「搜索策略」（权重/加格/灭绝），外层（本 loop 的 Step 7 + gen_env skill 第 7 节）用轨迹证据进化「搜索者本身」（四角色 prompt 模板等 env 级资产）。
 - **单写者纪律（不可协商）**：events.jsonl 只有 py 调度器一个写者。human 的任何干预（暂停/降权/复活/停机）一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取入事件——中控会话与 human **永远不直写 events.jsonl / archive.json**。
+
+## 四 Agent Loop（实验驱动的调度架构）
+
+调度器每迭代按固定时序触发四类 agent，**各自有独立的 loop 与 skill 组合**——即「**四 agent loop**」（adjust 四步 / builder 调研+设计 / coding TDD / debug 复验）；四个 loop 共享同一份「**实验记录**」作为恒常上下文（见后节）。
+
+```
+每迭代：
+  ① [每 adjust_interval 迭代] adjust —— 后台线程（与下一迭代并行，不阻塞）
+       loop 四步：全局实验分析 → SENSE(定主要矛盾) → research(找启发式 idea) → 特征格管理
+       产物：decisions/iter{N}.md（决策记录）+ proposals/
+             + weight_changed / cell_created / cell_modified / proposal 事件
+  ② 加权随机采样目标格（概率 ∝ weight；分殖优先覆盖未访问格）
+  ③ builder —— 前台串行
+       loop：读目标格描述/精英代码/精英实验记录 + 两个随机相邻格（描述/精英代码/实验记录）
+             → research（关注点=实验细节/数据/方法）→ research_report.md
+             → super_experiment_design → experiment_record.md（六段，含假设与验证逻辑）
+  ④ coding —— 前台串行
+       loop：读调研报告 + 实验记录 → 细化 research（落地细节/风险卡点）→ coding_plan.md
+             → 严格 TDD（先写 test_solution.py → 看到红 → 实现 → 绿 → 重构 → 保绿）
+             → 追加实验记录「执行过程与结论」段；过程中卡点按 super_debug_protocol 自查
+  ⑤ 框架门禁 gate_check（正确性 → 性能 → 软门禁）——外部权威判定
+       失败 / 收益异常(≥ gain_threshold_pct) / 软门禁容差带内 → ⑥
+  ⑥ debug —— 独立派发（每候选至多 1 次，attempt 从 100 起编号，与自检失败 1..M 区分）
+       loop：复现 → research（关键组件用户手册）→ 三个最可能失败原因逐一验证
+             → 修复 或 keep_original（维持原解照常入格）→ 追加实验记录「卡点/根因/解决」段
+  ⑦ 入格（MAP-Elites）/ 拒绝 → iteration_ended
+```
+
+**触发时机与 IO 表**：
+
+| Agent | 何时触发 | 读取（ctx 注入） | 产出 |
+|---|---|---|---|
+| **adjust** | 每 `adjust_interval` 迭代边界（后台线程，与下一迭代并行） | 区间内**全部实验记录**（上次 adjust→本次）+ 区间内 agent session 路径（按需 read 补全细节）+ 决策历史（近 3 份）+ 各格描述/权重/得分/visit + perf 时间线 + 领域摘要 + 检索指引(adjust) | `decisions/iter{N}.md`、`proposals/`、`weight_changed`/`cell_created`/`cell_modified` 事件 |
+| **builder** | 采样后（前台串行） | 目标格描述/精英/visit/weight + **精英实验记录** + **两个随机相邻格**（共享 ≥1 轴值；各自描述/精英代码/实验记录）+ 历史失败 + 轴级性能对照 + profile 时间序列 + 检索指引(builder) | `research_report.md`、`experiment_record.md`（建）、`experiment_plan.json`、`designs/iter{N}_{cell}.json` |
+| **coding** | builder 完成（前台串行） | 实验计划 + **builder 调研报告** + **实验记录** + 三要素命令 + 门禁定义 + 格基线 perf + 检索指引(coding) | `coding_plan.md`、`test_solution.py`、`solution.py`、实验记录追加段 |
+| **debug** | ① coding 自检失败（同 agent 内循环 1..M）② **框架门禁失败**（stage2/stage3/soft_gate）③ **收益 ≥ `debug_gain_threshold_pct`**（默认 20，防作弊/误测的异常收益进地图）④ **软门禁容差带内**（`debug_recheck_tolerance_band=true` 时，防无收益噪声解入格） | 失败阶段/metrics/stderr + 实验记录 + 门禁定义 + 检索指引(debug，关注点=用户手册/正确用法) + 复验原因 | `fix_report`（含**三个最可能原因**与逐一验证结论）、`keep_original` 判决、实验记录追加段 |
+
+## skill 加载规范（四 agent 共用）
+
+**加载方式（不可协商）**：agent 的系统提示词（`super/prompts/<role>.md`）**声明**「skill 名称 + 路径 + 触发条件」；agent 执行到对应步骤时用 `read` 读取全文——**不内联全文、不自动全量加载**。
+理由：①省 token（每件 skill 百行级，四角色全内联会撑爆 prompt）②skill 可独立进化（env 级 / 仓级覆盖机制现成，见 Step 7）③符合 rick skill 规范（三段式 + 触发场景 → 由触发条件决定何时读）。
+
+| skill | 服务 agent | 触发条件 | 文件 |
+|---|---|---|---|
+| `super_experiment_analysis` | adjust | 四步第一步（读区间实验记录 → 归纳主要矛盾候选） | `.rick/skills/super_experiment_analysis/skill.md` |
+| `super_sense` | adjust | 四步第二步（定主要矛盾 + 辩证逆转；方法论 canon = rick `sense`） | `.rick/skills/super_sense/skill.md` |
+| `super_cell_management` | adjust | 四步第四步之前（新建/改进/调权手续与正交性判据） | `.rick/skills/super_cell_management/skill.md` |
+| `super_experiment_design` | builder | 调研报告完成后、写实验记录之前 | `.rick/skills/super_experiment_design/skill.md` |
+| `super_debug_protocol` | debug（coding 卡点自查亦用） | 进入 debug 后、开始复现之前（方法论 canon = rick `debug-skill`） | `.rick/skills/super_debug_protocol/skill.md` |
+| `test-driven-development` | coding | 动手写代码之前（仓内 canon = `internal/prompt/templates/skills/tdd-zh.md`） | 仓级 skill 或上述 canon |
+| `sense` / `debug-skill` | adjust / debug | 方法论 canon（由 `super_*` skill **引用路径**，不复制全文） | rick skill canon |
+
+- **skill 不可用时的降级**：声明的 skill 文件不存在 → agent 按该 skill 的核心纪律自行执行（prompt 里写明要点），不中断迭代；缺 skill 属资产缺口，记入 Step 7 复盘。
+
+## 实验记录与决策记录（恒常上下文）
+
+### 实验记录 `codes/iter{N}-{uuid}/experiment_record.md`
+
+**定义**：一次「在某个特征格上的一次迭代」= 一个**实验**；实验记录是该实验的完整上下文文件，**跨 agent 传递**（四个 loop 共享记忆的载体）。
+
+| 阶段 | 谁写 | 写什么 |
+|---|---|---|
+| 建（六段） | **builder** | 1.背景与价值 2.实验假设（可证伪） 3.验证逻辑（什么结果支持/否定） 4.具体实验步骤（可复现） 5.观测现象（预期指标变化） 6.执行过程与结论（占位） |
+| 补 | **coding** | 追加「执行过程与结论」：实现要点、TDD 红绿记录、自检/门禁结果 |
+| 补 | **debug** | 追加「卡点/根因/解决」：复现方式、三个候选根因与验证结论、修复或 keep_original |
+
+- **读取方**：coding/debug 每次派发前在 ctx 收到全文；builder 收到目标格精英实验记录 + 两个相邻格的实验记录摘要；**adjust 在全局实验分析时读「上次 adjust 至今」区间内的全部实验记录**（并按需 read 对应 agent 的 pi session 补全细节）。
+- **质量信号**：迭代结束时调度器校验实验记录是否被更新（mtime），未更新 → 事件标注 `record_updated: false`——这是「agent 未按 loop 执行」的客观信号，Step 7 复盘要看。
+
+### 决策记录 `decisions/iter{N}.md`
+
+- **谁写**：adjust 每轮决策后写（agent 自写；若 agent 未写，框架按 proposals+evidence 合成最小记录并标注 `framework_synthesized: true`）。
+- **内容**：区间实验全景摘要 → **主要矛盾判定** → research 检索到并采用的 idea（论文/文档引用）→ 四类格动作（`new_cell` / `modify_cell` / `weight` / `terminate_recommend`）及依据 → 正交性论证（新建格时）。
+- **谁读**：adjust 自己（`decision_history` 近 3 份，防震荡/防重复）；**中控会话 Step 7 轨迹复盘必读**（决策可解释性的主证据）。
+
+### 特征格四要素
+
+`{name, description(方法描述，可引用论文/调研文档地址), weight, score}`——`description.method` 由 adjust 的 `modify_cell` 改进；`new_cell` 新建时必须给 name/method/source_refs 与**正交性论证**（新维度未被现有格覆盖）。权重 0 = 功能性删除（格与谱系保留，可复活）。
 
 ## 依赖准备（硬约束，缺失则报错停止）
 
@@ -36,7 +114,7 @@ scope: "super 会话（全局）"
 
 ## 上下文管理（Context Management）
 
-- **保留**：env 的任务定义与门禁设计决策（env.json/feature_space.json 内容摘要）、当前迭代游标与北极星快照、human 干预历史、门先证红结论、**prompt 进化状态（PROMPTS_LOG 版本史与最近一次迭代的证据链接）**。
+- **保留**：env 的任务定义与门禁设计决策（env.json/feature_space.json 内容摘要）、当前迭代游标与北极星快照、human 干预历史、门先证红结论、**prompt 进化状态（PROMPTS_LOG 版本史与最近一次迭代的证据链接）**、**决策记录要点（decisions/ 最近几轮的矛盾判定与格动作）**、**实验记录的关键结论（哪些假设被证伪/证实）**。
 - **压缩**：长跑期间的例行心跳/迭代事件（读 status 聚合摘要即可，不逐条复述事件流）；agent 产出的代码细节（在 codes/{uuid}/ 有快照）。
 - **遗忘**：已出档精英的历史版本代码内容（archive 里只有引用与谱系）；被拒绝提案的中间稿。
 - 落盘位置：工作区 `~/.rick/super/<name>/`（super.json / events.jsonl / archive.json / interventions/ / codes/ / gates/ / prompts/）——速查表见 `super/README.md`。
@@ -76,7 +154,7 @@ scope: "super 会话（全局）"
 **Step 3 监控**
 - `rick super status --name <n>`（或 `--json` 给机器可读）：心跳/迭代游标/预算墙（--max-wall-time）/北极星（入格数、各格最优 perf、token 分 role 成本）+ 事件尾摘要（最近迭代的 gate_result / elite_admitted / env_failure_concluded）。
 - 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
-- **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素命令是否被真调用）。
+- **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`decisions/`（**adjust 每轮决策记录**：区间实验摘要 → 主要矛盾判定 → research 引用 → 格动作与依据，决策可解释性的主证据）、`codes/iter{N}-{uuid}/experiment_record.md`（**实验记录全文**：假设/验证逻辑/步骤/执行与结论——四 agent 共享的恒常上下文）、`codes/iter{N}-{uuid}/research_report.md`（builder 调研报告）与 `coding_plan.md`/`test_solution.py`（coding 的编码计划与 TDD 痕迹）、`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素/检索命令是否被真调用）。
 
 **Step 4 干预**
 - `rick super event --name <n> --type <t> --payload '<json>'`——类型如 pause / weight（降采样权，0=功能性灭绝不删格）/ resurrect（复活误杀格）/ env_change / stop。
@@ -99,8 +177,12 @@ scope: "super 会话（全局）"
 
 - **轨迹复盘**：加载 **gen_env skill 第 7 节（轨迹分析 → 提示词进化）** 走五步流程——
   ① 取证：跑 `python3 super/tools/adjust_trace.py --workdir <ws>` 得决策-效果对照表；
-     并读工作区 `ledger.jsonl`（跨迭代实验台账：idea→实现→门禁→结论）、`designs/`（builder 决策档案：
-     引用了哪些 arXiv 论文/灵感来源/推理/实验计划——评估「实验设计方案」质量的主证据）、
+     并读工作区 `decisions/`（**adjust 决策记录全文**：每轮的主要矛盾判定/research 引用/格动作与
+     正交性论证——评估「决策质量」的主证据）、`ledger.jsonl`（跨迭代实验台账：idea→实现→门禁→结论）、
+     `designs/`（builder 决策档案：引用了哪些 arXiv 论文/灵感来源/推理/实验计划——评估「实验设计方案」质量的主证据）、
+     `codes/iter{N}-{uuid}/experiment_record.md`（**实验记录全文**：假设/验证逻辑/执行与结论，看
+     builder 的假设是否可证伪、coding 的 TDD 是否真跑、debug 的三假设是否落到根因）、
+     `codes/iter{N}-{uuid}/research_report.md`（builder 调研是否落到可实现动作）、
      `profile_history/`（每格 profile 时间序列——现状演化与热点迁移轨迹）；
   ② 诊断坏模式（震荡/过激/迟钝/漏杀/探索不足，及 builder/coding/debug 各自的模式）；
   ③ 处方：改写 `env/prompts/<role>.md`（四角色均适用；一次只改一个角色）；
@@ -135,7 +217,8 @@ scope: "super 会话（全局）"
   - [ ] `rick super status --json`：state=running（或按预期 stopped）+ iteration_cursor 递增 + 北极星键齐全
   - [ ] 干预经 `rick super event` 投递且事件流可见 intervention（source=human）；全程无任何对 events.jsonl/archive.json 的直接写入
   - [ ] 停止后 state=stopped + session_ended 事件 + 进程树干净
-  - [ ] 长跑后 Step 7 走完：诊断结论 + prompt 迭代决策落 PROMPTS_LOG（或注明不评估的理由）
+  - [ ] 长跑后 Step 7 走完：诊断结论 + prompt 迭代决策落 PROMPTS_LOG（或注明不评估的理由）；
+  - [ ] **实验记录链路完整**：抽样 2-3 个 `codes/iter{N}-{uuid}/experiment_record.md`，六段齐全且 coding/debug 的追加段存在（`record_updated: false` 事件为零或已解释）；`decisions/` 每轮 adjust 有决策记录（或标注 `framework_synthesized`）
 
 ## 停止标准（Termination Condition）
 

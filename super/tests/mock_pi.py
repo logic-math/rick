@@ -21,6 +21,12 @@
     timeout_sleep  无输出长眠 → 客户端超时 kill（TERM→grace→KILL）
     many_turns     连续 N 个 assistant 回合（默认 20；MOCK_TURNS 可调）+ 回合
                    间隔短睡 → 回合预算达上限 kill（truncated=True，部分产出保留）
+    ok_debug       debug 修复场景：写 fix_report + three_hypotheses，追加实验记录
+
+产物落盘（迭代8/KR1/KR5）：ok_builder 写 experiment_record.md（六段）+
+research_report.md；ok_coding 写 test_solution.py + coding_plan.md 并追加实验
+记录第 6 段；ok_debug 追加实验记录（卡点/根因/解决）。落盘一律 try/except
+兜底（mock 的 NDJSON 协议不能被文件错误打断；工作目录由调用方 cwd 决定）。
 
 自测：python3 mock_pi.py --self-test（不依赖客户端，直接校验各场景输出可解析）
 """
@@ -84,6 +90,93 @@ def _tool_exec(name, ok=True):
     }
 
 
+# --------------------------------------------------------------------------- #
+# 产物落盘（迭代8：实验记录 / 调研报告 / TDD 测试 / 编码计划）
+# --------------------------------------------------------------------------- #
+
+EXPERIMENT_RECORD_TEMPLATE = """# 实验记录 iter={iteration_id} · {cell_id}
+
+## 1. 背景与价值
+{mock}目标格需要一次可复现的改进实验。
+
+## 2. 实验假设
+假设：用库级整阵乘替换逐元素循环可显著降低 runtime_ms。
+
+## 3. 验证逻辑
+若成立：gate_check 的 perf 值下降且 verify 通过；若否：perf 持平或正确性失败。
+
+## 4. 具体实验步骤
+1) 读父本；2) 实现整阵乘；3) 跑 verify/benchmark；4) 交框架终验。
+
+## 5. 观测现象
+预期 runtime_ms 下降、max_error=0。
+
+## 6. 执行过程与结论
+（待 coding/debug 追加）
+"""
+
+RESEARCH_REPORT_TEMPLATE = """# 调研报告 iter={iteration_id} · {cell_id}
+
+（{mock}）
+- 现有代码：父本为逐元素实现，热点在內层循环。
+- 业界落地：numpy.matmul / BLAS sgemm 直派发是标准做法。
+- 论文实验细节：单次整阵乘在小规模下受调用开销主导，需多次计时取中位。
+"""
+
+CODING_PLAN_TEMPLATE = """# 编码执行计划 iter={iteration_id} · {cell_id}
+
+（{mock}）
+1) 写单元测试 test_solution.py（正确性 + 形状）；
+2) 先看到红（未实现）；
+3) 实现 matmul（np.matmul 直派发）；
+4) 绿 → 重构 → 保绿。
+"""
+
+TEST_SOLUTION_SRC = """import numpy as np
+
+
+def test_matmul_matches_numpy():
+    a = np.arange(64, dtype=np.float32).reshape(8, 8)
+    b = np.arange(64, dtype=np.float32).reshape(8, 8)
+    from solution import matmul
+    out = matmul(a, b)
+    assert np.allclose(out, np.matmul(a, b), atol=1e-3)
+"""
+
+
+def _write_text(name, text):
+    """尽力落盘（cwd=调用方工作目录）；失败不打断 NDJSON 协议。"""
+    try:
+        with open(name, "w", encoding="utf-8") as f:
+            f.write(text)
+        return True
+    except OSError:
+        return False
+
+
+def _append_record(title, body):
+    """幂等追加实验记录段落（已存在同名段则跳过）。"""
+    path = "experiment_record.md"
+    try:
+        existing = ""
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                existing = f.read()
+        if title in existing:
+            return True
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n### %s\n%s\n" % (title, body))
+        return True
+    except OSError:
+        return False
+
+
+def _record_meta():
+    """从 cwd/父目录名推断 iteration/cell（mock 尽力而为，失败用占位）。"""
+    cwd = os.path.basename(os.getcwd())
+    return {"iteration_id": cwd or "?", "cell_id": "mock-cell", "mock": "mock"}
+
+
 SIX_FIELDS_BUILDER = {
     "valid": True,
     "score": 0.85,
@@ -91,6 +184,24 @@ SIX_FIELDS_BUILDER = {
     "perf_type": "runtime_ms",
     "perf_desc": "low",
     "summary": "建议在 blocked 格尝试转置缓存友好布局",
+    # 迭代8/KR4：实验计划与实验记录对齐（假设 + 验证逻辑）
+    "experiment_plan": {
+        "idea": "整阵乘替换逐元素循环",
+        "target_cell": "mock-cell",
+        "parents": [],
+        "plan_steps": ["读父本", "实现整阵乘", "跑 verify/benchmark"],
+        "expected_behavior": "runtime_ms 下降、max_error=0",
+        "hypothesis": "库级整阵乘显著快于逐元素循环",
+        "validation_logic": "perf 下降且 verify 通过 → 支持；否则否定",
+    },
+    "papers": [
+        {"arxiv_id": "1609.00076", "title": "BLISlab: A Sandbox for Optimizing GEMM",
+         "insight": "microkernel 为核心的分块组织", "applicability": "单次整阵 BLAS 派发"}
+    ],
+    "inspirations": [{"source_cell": "mock-neighbor", "what": "库级直派发"}],
+    "reasoning": "mock：父本热点在內层循环，库级整阵乘可消除。",
+    # 兼容既有 fixture 契约（test_agents.TestOkBuilder 断言角色增量键在 payload 中；
+    # builder 实际不用 proposals，但 mock 载荷同时充当通用样例）
     "proposals": [
         {"type": "soft_weight", "target_cell": "impl=blocked|mem=tiled",
          "action": "weight 0.5", "evidence": "visit 12 零入格", "rule_id": "R1"}
@@ -110,6 +221,12 @@ SIX_FIELDS_CODING = {
 
 
 def scenario_ok_builder():
+    # 迭代8：实验记录（六段）+ 调研报告落盘（cwd=迭代工作目录）
+    meta = _record_meta()
+    _write_text("experiment_record.md",
+                EXPERIMENT_RECORD_TEMPLATE.format(**meta))
+    _write_text("research_report.md",
+                RESEARCH_REPORT_TEMPLATE.format(**meta))
     # 1) user echo（bugs.md：pi 对 user 轮也发 message_end——带伪造 usage，
     #    客户端必须按 role 过滤、不计数）
     _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
@@ -126,6 +243,13 @@ def scenario_ok_builder():
 
 
 def scenario_ok_coding():
+    # 迭代8/KR5：TDD 痕迹 + 编码计划 + 实验记录追加（cwd=迭代工作目录）
+    meta = _record_meta()
+    _write_text("test_solution.py", TEST_SOLUTION_SRC)
+    _write_text("coding_plan.md", CODING_PLAN_TEMPLATE.format(**meta))
+    _append_record("coding：执行过程与结论",
+                   "先写 test_solution.py 看到红 → 实现 np.matmul → 绿 → 重构保绿；"
+                   "自检 passed，max_error≈0。")
     _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
     _emit(_tool_exec("read"))
     _emit(_tool_exec("bash"))
@@ -197,8 +321,40 @@ def scenario_many_turns():
     _emit({"type": "agent_settled", "reason": "end_turn"})
 
 
+def scenario_ok_debug():
+    """debug 修复场景（迭代8/KR6）：fix_report + three_hypotheses + 追加实验记录。"""
+    meta = _record_meta()
+    _append_record("debug：卡点/根因/解决",
+                   "卡点：门禁 perf 未达预期；三假设逐一验证后根因=未走库级派发；"
+                   "解决：改用 np.matmul。")
+    payload = {
+        "valid": True,
+        "score": None, "perf_value": None, "perf_type": None, "perf_desc": None,
+        "summary": "已修复：改用 np.matmul",
+        "fix_report": {"attempts": 1, "root_cause": "未走库级派发",
+                       "changes": ["改用 np.matmul"]},
+        "three_hypotheses": [
+            {"hypothesis": "未使用库级派发", "if_true": "切到 matmul 后 perf 显著下降",
+             "verified": True},
+            {"hypothesis": "dtype 转换开销", "if_true": "预转 dtype 后无改善 → 否定",
+             "verified": False},
+            {"hypothesis": "计时噪声", "if_true": "重复计时方差大 → 否定",
+             "verified": False},
+        ],
+        "verdict": "fixed",
+        "final_self_check": {"passed": True, "stage": "self_check",
+                             "metrics": {"max_error": 0.0}},
+    }
+    fenced = "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
+    _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
+    _emit(_message_end("assistant", "修复完成：\n" + fenced,
+                       _usage(120, 40, cost_total=0.006)))
+    _emit({"type": "agent_settled", "reason": "end_turn"})
+
+
 SCENARIOS = {
     "ok_builder": scenario_ok_builder,
+    "ok_debug": scenario_ok_debug,
     "ok_coding": scenario_ok_coding,
     "zero_usage": scenario_zero_usage,
     "all_zero": scenario_all_zero,
@@ -211,7 +367,13 @@ SCENARIOS = {
 def self_test():
     """不依赖客户端的自测：各场景（除 timeout_sleep）输出逐行可 JSON 解析。"""
     import io
+    import tempfile
     ok = True
+    # 产物落盘型场景（ok_builder/ok_coding/ok_debug）会往 cwd 写文件——
+    # self-test 统一切到临时目录，避免污染仓库根
+    prev_cwd = os.getcwd()
+    tmpdir = tempfile.mkdtemp(prefix="mock-pi-selftest-")
+    os.chdir(tmpdir)
     for name, fn in SCENARIOS.items():
         if name == "timeout_sleep":
             print("  %-14s skip（长眠场景）" % name)
@@ -231,6 +393,9 @@ def self_test():
         except ValueError as e:
             ok = False
             print("  %-14s 解析失败：%s" % (name, e))
+    os.chdir(prev_cwd)
+    import shutil
+    shutil.rmtree(tmpdir, ignore_errors=True)
     print("SELF_TEST %s" % ("OK" if ok else "FAIL"))
     return 0 if ok else 1
 

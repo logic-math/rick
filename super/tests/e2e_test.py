@@ -144,6 +144,76 @@ GOOD_SOLUTION = "import numpy as np\\n\\n\\ndef matmul(a, b):\\n    return np.ma
 BAD_SOLUTION = ("import numpy as np\\n\\n\\n"
                 "def matmul(a, b):\\n    return np.zeros_like(a)\\n")
 
+# 迭代8（task42）：慢但正确的解（纯 Python 三重循环）——配合 MOCK_CODING_MODE=slow_first
+# 构造「后续迭代相对首解收益 ≥ 阈值」的确定性 suspicious_gain 场景。
+SLOW_SOLUTION = ("import numpy as np\\n\\n\\n"
+                 "def matmul(a, b):\\n"
+                 "    a = np.asarray(a, dtype=np.float32)\\n"
+                 "    b = np.asarray(b, dtype=np.float32)\\n"
+                 "    n, k = a.shape\\n"
+                 "    m = b.shape[1]\\n"
+                 "    c = np.zeros((n, m), dtype=np.float32)\\n"
+                 "    for i in range(n):\\n"
+                 "        for j in range(m):\\n"
+                 "            s = 0.0\\n"
+                 "            for kk in range(k):\\n"
+                 "                s += float(a[i, kk]) * float(b[kk, j])\\n"
+                 "            c[i, j] = s\\n"
+                 "    return c\\n")
+
+RECORD_LINES = [
+    "# 实验记录（mock）", "",
+    "## 1. 背景与价值", "目标格需要一次可复现的改进实验。", "",
+    "## 2. 实验假设", "库级整阵乘显著快于逐元素循环。", "",
+    "## 3. 验证逻辑", "成立：verify 通过且 perf 下降；否则否定。", "",
+    "## 4. 具体实验步骤", "1) 读父本 2) 实现整阵乘 3) 跑 verify/benchmark 4) 交框架终验", "",
+    "## 5. 观测现象", "runtime_ms 下降、max_error=0。", "",
+    "## 6. 执行过程与结论", "（待 coding/debug 追加）", "",
+]
+
+RESEARCH_LINES = [
+    "# 调研报告（mock）", "",
+    "- 现有代码：父本为逐元素实现，热点在內层循环。",
+    "- 业界落地：numpy.matmul / BLAS sgemm 直派发是标准做法。",
+    "- 论文实验细节：小规模下调用开销主导，需多次计时取中位。", "",
+]
+
+CODING_PLAN_LINES = [
+    "# 编码执行计划（mock）", "",
+    "1) 写 test_solution.py（正确性）2) 看到红 3) 实现 matmul 4) 绿→重构→保绿", "",
+]
+
+TEST_SRC = (
+    "import numpy as np\\n\\n\\n"
+    "def test_matmul_matches_numpy():\\n"
+    "    a = np.arange(64, dtype=np.float32).reshape(8, 8)\\n"
+    "    b = np.arange(64, dtype=np.float32).reshape(8, 8)\\n"
+    "    from solution import matmul\\n"
+    "    out = matmul(a, b)\\n"
+    "    assert np.allclose(out, np.matmul(a, b), atol=1e-3)\\n")
+
+
+def _write(name, text):
+    try:
+        with open(name, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError:
+        pass
+
+
+def _append_record(title, body):
+    try:
+        existing = ""
+        if os.path.exists("experiment_record.md"):
+            with open("experiment_record.md", encoding="utf-8") as f:
+                existing = f.read()
+        if title in existing:
+            return
+        with open("experiment_record.md", "a", encoding="utf-8") as f:
+            f.write("\\n### " + title + "\\n" + body + "\\n")
+    except OSError:
+        pass
+
 
 def emit(obj):
     sys.stdout.write(json.dumps(obj, separators=(",", ":")) + "\\n")
@@ -205,18 +275,53 @@ def main():
     n = next_count(role)
 
     if role == "builder":
+        # 迭代8/KR1/KR4：实验记录（六段）+ 调研报告落盘（cwd=迭代工作目录）
+        _write("experiment_record.md", "\\n".join(RECORD_LINES))
+        _write("research_report.md", "\\n".join(RESEARCH_LINES))
         final({"valid": True, "score": 0.8, "perf_value": None,
                "summary": "尝试向量化布局", "experiment_plan": {
                    "idea": "向量化 + 行主序",
                    "parents": [], "plan_steps": ["np.matmul 化"],
-                   "expected_behavior": None}})
+                   "expected_behavior": None,
+                   "hypothesis": "库级整阵乘快于逐元素循环",
+                   "validation_logic": "verify 通过且 perf 下降 → 支持"},
+               "papers": [{"arxiv_id": "1609.00076",
+                           "title": "BLISlab: A Sandbox for Optimizing GEMM",
+                           "insight": "microkernel 为核心的分块组织",
+                           "applicability": "单次整阵 BLAS 派发"}],
+               "inspirations": [{"source_cell": "mock-neighbor",
+                                 "what": "库级直派发"}],
+               "reasoning": "mock：热点在內层循环，库级整阵乘可消除。"})
     elif role == "adjust":
         emit(message_end("user", "按系统提示词完成任务"))
         emit(message_end("assistant", "维持现状，无提案。",
                          usage(50, 20, cost=0.005)))
         emit({"type": "agent_settled", "reason": "end_turn"})
     elif role == "coding":
-        if n == 1:
+        # 迭代8/KR5：TDD 痕迹 + 编码计划 + 实验记录追加（所有分支都写）
+        _write("test_solution.py", TEST_SRC)
+        _write("coding_plan.md", "\\n".join(CODING_PLAN_LINES))
+        _append_record("coding：执行过程与结论",
+                       "先写测试看到红 → 实现 → 绿 → 重构保绿；self_check passed。")
+        slow_first = os.environ.get("MOCK_CODING_MODE") == "slow_first"
+        if slow_first and n == 1:
+            # 慢但正确的首解（构造后续 suspicious_gain 的基线）
+            with open("solution.py", "w") as f:
+                f.write(SLOW_SOLUTION)
+            final({"valid": True, "score": 0.2, "perf_value": None,
+                   "summary": "首解：逐元素实现（慢）",
+                   "diff_path": "solution.py",
+                   "self_check": {"passed": True, "stage": "self_check",
+                                  "metrics": {"max_error": 1e-09}}})
+        elif slow_first:
+            with open("solution.py", "w") as f:
+                f.write(GOOD_SOLUTION)
+            final({"valid": True, "score": 0.9, "perf_value": None,
+                   "summary": "整阵乘实现（快）",
+                   "diff_path": "solution.py",
+                   "self_check": {"passed": True, "stage": "self_check",
+                                  "metrics": {"max_error": 1e-09}}})
+        elif n == 1:
             with open("solution.py", "w") as f:
                 f.write(GOOD_SOLUTION)
             final({"valid": True, "score": 0.9, "perf_value": None,
@@ -248,15 +353,29 @@ def main():
                    "self_check": {"passed": True, "stage": "self_check",
                                   "metrics": {"max_error": 1e-09}}})
     elif role == "debug":
+        # 迭代8/KR6：卡点/根因/解决追加进实验记录 + 三假设
+        _append_record("debug：卡点/根因/解决",
+                       "复现 → 用户手册调研 → 三假设逐一验证；根因=未走库级派发。")
         with open("solution.py", "w") as f:
             f.write(GOOD_SOLUTION)
-        final({"valid": True, "score": 0.85, "perf_value": None,
-               "summary": "已修复：改用 np.matmul",
-               "diff_path": "solution.py",
-               "fix_report": {"attempts": 1, "root_cause": "手写循环下标错",
-                              "changes": ["重写为 np.matmul"]},
-               "final_self_check": {"passed": True, "stage": "self_check",
-                                    "metrics": {"max_error": 1e-09}}})
+        payload = {"valid": True, "score": 0.85, "perf_value": None,
+                   "summary": "已修复：改用 np.matmul",
+                   "diff_path": "solution.py",
+                   "fix_report": {"attempts": 1, "root_cause": "手写循环下标错",
+                                  "changes": ["重写为 np.matmul"]},
+                   "three_hypotheses": [
+                       {"hypothesis": "未使用库级派发",
+                        "if_true": "切到 matmul 后 perf 下降", "verified": True},
+                       {"hypothesis": "dtype 开销",
+                        "if_true": "预转 dtype 无改善 → 否定", "verified": False},
+                       {"hypothesis": "计时噪声",
+                        "if_true": "方差大 → 否定", "verified": False}],
+                   "final_self_check": {"passed": True, "stage": "self_check",
+                                        "metrics": {"max_error": 1e-09}}}
+        verdict = os.environ.get("MOCK_DEBUG_VERDICT")
+        if verdict:
+            payload["verdict"] = verdict
+        final(payload)
     else:
         emit(message_end("user", "按系统提示词完成任务"))
         emit(message_end("assistant", "unknown role: %s" % role,
@@ -304,8 +423,14 @@ def _bad_solution(name: str) -> str:
             "    return a * b.sum(axis=1, keepdims=True)\n")
 
 
-def make_env_dir(ws: str) -> str:
-    """拷贝 matmul 模板 → <ws>/env（小规模覆写 + master venv 软链）。"""
+def make_env_dir(ws: str, relative_band: Optional[float] = None,
+                 single_cell: bool = False) -> str:
+    """拷贝 matmul 模板 → <ws>/env（小规模覆写 + master venv 软链）。
+
+    relative_band: 覆写 env.json tolerance.soft_gate.relative_band（复验用例造
+    容差带场景）；single_cell: 特征空间裁到 1 轴 1 值（同格二次迭代——复验要
+    与已有精英比较，必须命中同一格）。
+    """
     env_dir = os.path.join(ws, "env")
     shutil.copytree(TEMPLATE_DIR, env_dir)
     # 小规模覆写（e2e 提速；模板侧不改——spec 的「MATMUL_SIZE 缩小」经由 env.json）
@@ -323,8 +448,22 @@ def make_env_dir(ws: str) -> str:
     # [380,700]ms）不兼容——按 e2e 规模显式覆写（门禁逻辑不变，只调 env 参数）
     env_json.setdefault("gates", {})["runtime_ms_min"] = 0.0
     env_json.setdefault("gates", {})["ref_runtime_band_ms"] = [0.0, 60.0]
+    if relative_band is not None:
+        env_json.setdefault("tolerance", {}).setdefault(
+            "soft_gate", {})["relative_band"] = float(relative_band)
     with open(env_json_path, "w", encoding="utf-8") as f:
         json.dump(env_json, f, ensure_ascii=False, indent=2)
+    if single_cell:
+        fs_path = os.path.join(env_dir, "feature_space.json")
+        with open(fs_path, encoding="utf-8") as f:
+            fs = json.load(f)
+        axes = fs.get("axes") or [{"name": "impl_strategy", "type": "enum",
+                                   "values": ["baseline"], "desc": "单一策略"}]
+        first = axes[0]
+        first["values"] = [first["values"][0]]
+        fs["axes"] = [first]
+        with open(fs_path, "w", encoding="utf-8") as f:
+            json.dump(fs, f, ensure_ascii=False, indent=2)
     # numpy venv：软链 master（gates 侧 env/.venv/bin/python 生效即可）
     venv_link = os.path.join(env_dir, ".venv")
     if not os.path.exists(venv_link):
@@ -366,7 +505,9 @@ def make_gates_dir(ws: str) -> Dict[str, str]:
 
 
 def write_super_json(ws: str, env_dir: str, pi_path: str,
-                     max_iterations: int = 0) -> None:
+                     max_iterations: int = 0,
+                     config_overrides: Optional[Dict[str, Any]] = None,
+                     ) -> None:
     """预写 super.json：Go start 幂等保留（Config 非 nil 不覆盖），
     py 调度器由此取 pi_path / 心跳节奏 / 迭代上限。"""
     os.makedirs(ws, exist_ok=True)
@@ -394,6 +535,8 @@ def write_super_json(ws: str, env_dir: str, pi_path: str,
         },
         "updated_at": "1970-01-01T00:00:00+00:00",
     }
+    if config_overrides:
+        data["config"].update(config_overrides)
     with open(os.path.join(ws, "super.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -631,6 +774,35 @@ class TestSuperFullChain(unittest.TestCase):
                          lambda e: e["payload"].get("role") == "debug"),
             1, "无 debug 修复事件")
 
+        # ---- 迭代8：实验记录 / 调研报告 / TDD 痕迹（跨 agent 恒常上下文） ----
+        ended = [e["payload"] for e in read_events(ws)
+                 if e["type"] == "iteration_ended"]
+        self.assertTrue(
+            ended and any((p.get("builder_outputs") or {}).get("research_report")
+                          for p in ended),
+            "builder 应落盘 research_report.md（builder_outputs.research_report）")
+        self.assertTrue(any(p.get("record_updated") for p in ended),
+                        "coding/debug 应更新 experiment_record.md（record_updated）")
+        self.assertTrue(any(p.get("tdd_trace") for p in ended),
+                        "coding 应落盘 test_solution.py（tdd_trace）")
+        codes_dir = os.path.join(ws, "codes")
+        rec_paths = []
+        for dn in sorted(os.listdir(codes_dir)):
+            cand = os.path.join(codes_dir, dn, "experiment_record.md")
+            if os.path.isfile(cand):
+                rec_paths.append(cand)
+        self.assertTrue(rec_paths, "codes/*/experiment_record.md 应存在")
+        with open(rec_paths[0], encoding="utf-8") as f:
+            rec_body = f.read()
+        for kw in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6."):
+            self.assertIn(kw, rec_body, "实验记录缺段 %s" % kw)
+        # 框架门禁失败 → debug（attempt=100）通道
+        self.assertTrue(
+            any(e["payload"].get("role") == "debug"
+                and e["payload"].get("attempt") == 100
+                for e in read_events(ws) if e["type"] == "candidate_produced"),
+            "框架门禁失败应触发 debug（attempt=100）")
+
         # ---- stop 优雅 ----
         # CLI stop 全链练习（写干预队列同型：读 super.json → 信号 → state=stopped）。
         # 注：super.json 的 pid 键会被 py 心跳覆写为 worker pid（遗留风险①），
@@ -756,6 +928,117 @@ class TestSuperFullChain(unittest.TestCase):
         self.assertTrue(rep["passed"])
         self.assertEqual(rep["leaked"], [])
         self.assertGreaterEqual(rep["checked"], 1)
+
+
+# --------------------------------------------------------------------------- #
+# 用例 ①b：门禁通过后的两类复验 + 决策记录（迭代8/KR6/KR3）
+# --------------------------------------------------------------------------- #
+
+class TestRecheckTriggers(unittest.TestCase):
+    """三类 debug 触发中的两类（suspicious_gain / tolerance_band_recheck）——
+    门禁失败→debug（attempt=100）的主链已在全链用例断言。
+
+    mock 编排：
+    - MOCK_CODING_MODE=slow_first：首解慢（纯 Python）、次解快（matmul）→ 收益
+      远超阈值 → suspicious_gain
+    - 单格 env（feature_space 裁到 1 轴 1 值）：同格二次迭代 → 与已有精英比较
+      → 容差带判定可达；gain 阈值调到极大 + relative_band 放宽 → tolerance_band_recheck
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if _ensure_master_venv() is None:
+            raise unittest.SkipTest("numpy venv 不可用：%s"
+                                    % _MASTER.get("reason", ""))
+        cls.mock_pi = _write_mock_pi(
+            os.path.join(_master_root(), "mock-state-recheck"))
+
+    def _make(self, tag: str, *, gain_threshold=None, relative_band=None,
+              max_iterations: int = 2, adjust_interval: int = 0):
+        ws = os.path.join(_master_root(), "ws-recheck-%s" % tag)
+        if os.path.exists(ws):
+            shutil.rmtree(ws)
+        state = os.path.join(_master_root(), "mock-state-" + tag)
+        os.makedirs(state, exist_ok=True)
+        for role in ("builder", "coding", "debug", "adjust"):
+            p = os.path.join(state, role + ".count")
+            if os.path.exists(p):
+                os.unlink(p)
+        env_dir = make_env_dir(ws, relative_band=relative_band,
+                               single_cell=True)
+        make_gates_dir(ws)
+        overrides = {"adjust_interval": adjust_interval}
+        if gain_threshold is not None:
+            overrides["debug_gain_threshold_pct"] = gain_threshold
+        write_super_json(ws, env_dir, self.mock_pi,
+                         max_iterations=max_iterations,
+                         config_overrides=overrides)
+        return ws, state
+
+    def _run(self, ws: str, state: str, *, max_iterations: int = 2,
+             coding_mode: str = "") -> None:
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _SUPER
+        env["MOCK_STATE_DIR"] = state
+        env.pop("MOCK_DEBUG_VERDICT", None)
+        if coding_mode:
+            env["MOCK_CODING_MODE"] = coding_mode
+        else:
+            env.pop("MOCK_CODING_MODE", None)
+        r = subprocess.run(
+            [sys.executable, "-m", "superopt", "--workdir", ws,
+             "--max-iterations", str(max_iterations)],
+            capture_output=True, text=True, timeout=900, env=env)
+        self.assertEqual(r.returncode, 0, "调度器应自然完成（exit 0）: %s%s"
+                         % (r.stdout[-600:], r.stderr[-1200:]))
+
+    def _reasons(self, ws: str) -> List[str]:
+        return [e["payload"].get("recheck_reason")
+                for e in read_events(ws) if e["type"] == "candidate_produced"
+                and e["payload"].get("role") == "debug"]
+
+    def test_suspicious_gain_triggers_recheck(self):
+        """首解慢、次解快 → 收益 ≥ 阈值 → suspicious_gain 复验。"""
+        ws, state = self._make("gain", gain_threshold=20, max_iterations=2)
+        self._run(ws, state, max_iterations=2, coding_mode="slow_first")
+        self.assertIn("suspicious_gain", self._reasons(ws),
+                      "收益超阈值应触发复验（attempt=200）")
+
+    def test_tolerance_band_triggers_recheck(self):
+        """收益不异常但落在软门禁容差带内 → tolerance_band_recheck 复验。"""
+        ws, state = self._make("band", gain_threshold=100000,
+                               relative_band=0.5, max_iterations=2)
+        self._run(ws, state, max_iterations=2)
+        self.assertIn("tolerance_band_recheck", self._reasons(ws),
+                      "容差带内应触发复验")
+
+    def test_gate_failure_debug_and_keep_original(self):
+        """门禁失败 → debug（attempt=100）；复验 keep_original 不误杀原候选。"""
+        ws, state = self._make("gatefix", max_iterations=3)
+        self._run(ws, state, max_iterations=3)
+        prods = [e["payload"] for e in read_events(ws)
+                 if e["type"] == "candidate_produced"]
+        self.assertTrue(any(p.get("role") == "debug" and p.get("attempt") == 100
+                            for p in prods),
+                        "门禁失败应触发 debug（attempt=100）")
+        # 复验默认 keep_original → 原候选仍入格（不因复验被丢弃）
+        self.assertGreaterEqual(count_events(ws, "elite_admitted"), 1,
+                                "复验 keep_original 时原候选应照常入格")
+
+    def test_adjust_writes_decision_record(self):
+        """adjust 决策记录：decisions/iter{N}.md（agent 未写 → 框架合成回退）。"""
+        ws, state = self._make("decisions", max_iterations=2,
+                               adjust_interval=1)
+        self._run(ws, state, max_iterations=2)
+        dec_dir = os.path.join(ws, "decisions")
+        self.assertTrue(os.path.isdir(dec_dir), "decisions/ 目录应存在")
+        files = [f for f in os.listdir(dec_dir) if f.endswith(".md")]
+        self.assertTrue(files, "decisions/iter{N}.md 应落盘（合成回退亦可）")
+        dec_events = [e["payload"] for e in read_events(ws)
+                      if e["type"] == "adjust_decision"]
+        self.assertTrue(dec_events, "应有 adjust_decision 事件")
+        self.assertTrue(any(p.get("decision_path") for p in dec_events),
+                        "adjust_decision 应携带 decision_path")
 
 
 # --------------------------------------------------------------------------- #

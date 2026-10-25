@@ -63,3 +63,8 @@ GATE gate15 pass=true (迭代7 L3: task34 四模板检索纪律 + run_all 全量
 ①debug.md 从未进 git（.gitignore 通用规则 debug.md 命中）→ 加 !super/prompts/debug.md 例外 + 强制 add
 ②e2e fixture 覆写旧键 correctness.size（加固 verify 读 sizes）→ 继承模板 8192 规模致超时误杀 → 覆写 sizes
 ③e2e 小规模(96) 与加固门物理下界 runtime_ms_min=0.01ms / ref 带 [380,700]ms 冲突 → e2e 覆写为 0.0 / [0,60]
+
+GATE gate16 pass=true (迭代8 L1: task36 五件 super_* skill + task37 gen_env 重构 + task38 四要素/experiment_record + task40 四模板；386 单测)
+GATE gate17 pass=true (迭代8 L2: task39 loop 八段接线；401 单测)
+GATE gate18 pass=true (迭代8 L3: task41 super-loop + task42 mock/e2e 适配；run_all 全量)
+迭代8 全 7 task success（44e8bdb1/9884a6df/HEAD）
