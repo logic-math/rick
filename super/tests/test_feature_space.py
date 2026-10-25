@@ -220,3 +220,55 @@ class TestConstructionValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNeighborSampling(unittest.TestCase):
+    """相邻格抽样（迭代8 / K-i8-3）：共享 ≥1 轴值的邻格池 + 随机 k 补足。"""
+
+    def setUp(self):
+        # 3×2 = 6 格：impl_strategy × memory_layout
+        self.fs = FeatureSpace(make_axes())
+        self.cid = "impl_strategy=blocked|memory_layout=tiled"
+
+    def test_neighbor_pool_shares_axis_value(self):
+        pool = self.fs.neighbor_pool(self.cid)
+        # 共享 impl_strategy=blocked 的另 1 格 + 共享 memory_layout=tiled 的另 2 格
+        self.assertIn("impl_strategy=blocked|memory_layout=row_major", pool)
+        self.assertIn("impl_strategy=naive_loops|memory_layout=tiled", pool)
+        self.assertIn("impl_strategy=vectorized|memory_layout=tiled", pool)
+        # 两轴都不同者不是邻格
+        self.assertNotIn("impl_strategy=naive_loops|memory_layout=row_major", pool)
+        # 排除自身；总数 = 6 - 1(自身) - 2(两轴全异) = 3
+        self.assertNotIn(self.cid, pool)
+        self.assertEqual(len(pool), 3)
+
+    def test_neighbor_pool_unknown_cell(self):
+        self.assertEqual(self.fs.neighbor_pool("bogus"), [])
+        self.assertEqual(self.fs.neighbor_pool(""), [])
+
+    def test_sample_neighbors_returns_k_distinct_from_pool(self):
+        import random as _random
+        picked = self.fs.sample_neighbors(self.cid, 2, rng=_random.Random(2026))
+        self.assertEqual(len(picked), 2)
+        self.assertEqual(len(set(picked)), 2, "抽样不得重复")
+        pool = set(self.fs.neighbor_pool(self.cid))
+        self.assertTrue(set(picked) <= pool, "优先来自邻格池")
+
+    def test_sample_neighbors_pads_from_full_space(self):
+        # 单轴单值的极小空间：目标格无邻格 → 从全库补足
+        fs = FeatureSpace([{"name": "a", "type": "enum", "values": ["x", "y", "z"]}])
+        picked = fs.sample_neighbors("a=x", 2)
+        self.assertEqual(len(picked), 2)
+        self.assertIn("a=y", picked + ["a=y"])
+        self.assertNotIn("a=x", picked)
+
+    def test_sample_neighbors_zero_and_empty(self):
+        self.assertEqual(self.fs.sample_neighbors(self.cid, 0), [])
+        single = FeatureSpace([{"name": "a", "type": "enum", "values": ["x"]}])
+        self.assertEqual(single.sample_neighbors("a=x", 2), [])
+
+    def test_sample_neighbors_deterministic_with_seed(self):
+        import random as _random
+        a = self.fs.sample_neighbors(self.cid, 2, rng=_random.Random(7))
+        b = self.fs.sample_neighbors(self.cid, 2, rng=_random.Random(7))
+        self.assertEqual(a, b, "同种子同结果（可复现）")

@@ -344,3 +344,66 @@ class TestCellsAccessor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCellDescription(unittest.TestCase):
+    """特征格四要素之「方法描述」（迭代8 / KR2）：description 落盘与兼容。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="archive-desc-")
+        self.path = os.path.join(self.tmp, "archive.json")
+
+    def test_new_cell_skeleton_has_empty_description(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(1.0))
+        self.assertEqual(a.cells["c1"]["description"], {})
+        a.set_weight("c2", 0.5)
+        self.assertEqual(a.cells["c2"]["description"], {})
+        a.set_visit("c3", 1)
+        self.assertEqual(a.cells["c3"]["description"], {})
+
+    def test_set_description_roundtrip(self):
+        a = Archive(self.path, perf_desc="low")
+        a.set_description("c1", {
+            "name": "M 维四分 + 2-D np.dot",
+            "method": "把 B 的全量重读降到 4 次；见 arxiv:2108.02025",
+            "source_refs": ["arxiv:2108.02025", "  ", "docs/perf.md"],
+        })
+        d = a.cells["c1"]["description"]
+        self.assertEqual(d["name"], "M 维四分 + 2-D np.dot")
+        self.assertIn("2108.02025", d["method"])
+        # source_refs 规范化：去空白项、全 str
+        self.assertEqual(d["source_refs"], ["arxiv:2108.02025", "docs/perf.md"])
+        # 落盘往返
+        a.save()
+        b = Archive(self.path, perf_desc="low")
+        b.load()
+        self.assertEqual(b.cells["c1"]["description"]["name"], d["name"])
+
+    def test_set_description_unknown_keys_dropped_and_scalar_refs(self):
+        a = Archive(self.path, perf_desc="low")
+        a.set_description("c1", {"name": "x", "method": "y",
+                                 "source_refs": "arxiv:1", "extra": "nope"})
+        d = a.cells["c1"]["description"]
+        self.assertNotIn("extra", d)
+        self.assertEqual(d["source_refs"], ["arxiv:1"])
+
+    def test_set_description_rejects_non_dict(self):
+        a = Archive(self.path, perf_desc="low")
+        with self.assertRaises(ValueError):
+            a.set_description("c1", "not-a-dict")
+
+    def test_old_archive_without_description_is_backfilled(self):
+        """旧档（迭代8 之前）格无 description → load 后补 {}。"""
+        os.makedirs(self.tmp, exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({
+                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
+                         "updated_at": "2026-10-01T00:00:00+08:00"},
+                "cells": {"c1": {"descriptor": {"a": "x"}, "elite": None,
+                                 "history": [], "weight": 1.0, "visit": 0}},
+                "pending": [],
+            }, f)
+        a = Archive(self.path, perf_desc="low")
+        a.load()
+        self.assertEqual(a.cells["c1"]["description"], {})

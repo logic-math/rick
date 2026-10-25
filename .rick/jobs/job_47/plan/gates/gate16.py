@@ -34,6 +34,32 @@ def main():
         s = read(p)
         for kw in kws:
             if kw not in s: ERRORS.append("[A] %s 缺 %s" % (name, kw))
+    # ---- B. task38：特征格四要素 + experiment_record 模块 + 相邻格抽样 ----
+    if not os.path.isfile(os.path.join(ROOT, "super/superopt/experiment_record.py")):
+        ERRORS.append("[B] 缺 experiment_record.py")
+    else:
+        s2 = read("super/superopt/experiment_record.py")
+        for kw in ["def create", "def append_section", "def read", "def digest", "def recent"]:
+            if kw not in s2: ERRORS.append("[B] experiment_record 缺 " + kw)
+    if "set_description" not in read("super/superopt/archive.py"):
+        ERRORS.append("[B] archive 缺 set_description（特征格四要素之 description）")
+    fs = read("super/superopt/feature_space.py")
+    for kw in ["neighbor_pool", "sample_neighbors"]:
+        if kw not in fs: ERRORS.append("[B] feature_space 缺 " + kw)
+
+    # ---- C. task40：四模板新 ctx 键 + skill 声明 ----
+    need = {"adjust": ["experiment_records", "super_experiment_analysis", "super_sense",
+                       "super_cell_management", "new_cell", "modify_cell"],
+            "builder": ["neighbor_samples", "target_record", "research_report",
+                        "super_experiment_design"],
+            "coding": ["research_report", "coding_plan", "test_solution", "TDD"],
+            "debug": ["perf_gain_pct", "super_debug_protocol", "三个最可能"]}
+    for f, kws in need.items():
+        s3 = read("super/prompts/%s.md" % f)
+        for kw in kws:
+            if kw not in s3: ERRORS.append("[C] %s.md 缺 %s" % (f, kw))
+        if "/Users/" in s3: ERRORS.append("[C] %s.md 含硬编码" % f)
+
     g = read(".rick/skills/gen_env_skill/skill.md")
     for kw in ["0.5", "优化幅度", "debug_policy", "键一致性", "前置输入"]:
         if kw not in g: ERRORS.append("[B] gen_env 缺 " + kw)

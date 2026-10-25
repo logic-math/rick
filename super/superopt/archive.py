@@ -42,6 +42,11 @@ _ELITE_FIELDS = (
 
 HISTORY_LIMIT = 20
 
+# 特征格四要素之「方法描述」（KR2 / 迭代8）：{name, method, source_refs}
+# name=短名；method=方法描述（自由文本，可引用论文/调研文档地址）；
+# source_refs=引用清单（arxiv id / 文档路径，供 builder 深度检索）。
+DESCRIPTION_FIELDS = ("name", "method", "source_refs")
+
 
 def _now() -> str:
     """RFC3339 带时区时间戳（+08:00）。"""
@@ -123,6 +128,8 @@ class Archive:
         data.setdefault("cells", {})
         data.setdefault("pending", [])
         for cell in data["cells"].values():
+            # 迭代8 向后兼容：旧档无 description（四要素之方法描述）→ 补空 dict
+            cell.setdefault("description", {})
             cell.setdefault("history", [])
             cell.setdefault("weight", 1.0)
             cell.setdefault("visit", 0)
@@ -187,6 +194,7 @@ class Archive:
         if cell is None:
             self._data["cells"][cell_id] = {
                 "descriptor": self._descriptor_from_entry(entry),
+                "description": {},
                 "elite": _elite_from_entry(entry),
                 "history": [],
                 "weight": 1.0,
@@ -221,6 +229,7 @@ class Archive:
         if cell is None:
             cell = {
                 "descriptor": {},
+                "description": {},
                 "elite": None,
                 "history": [],
                 "weight": 1.0,
@@ -249,6 +258,7 @@ class Archive:
         if cell is None:
             cell = {
                 "descriptor": {},
+                "description": {},
                 "elite": None,
                 "history": [],
                 "weight": 1.0,
@@ -258,6 +268,48 @@ class Archive:
             }
             self._data["cells"][cell_id] = cell
         cell["weight"] = weight
+
+    def set_description(self, cell_id: str, description: "dict") -> None:
+        """特征格四要素之「方法描述」落点（KR2）：{name, method, source_refs}。
+
+        - name：短名（如「M 维四分 + 2-D np.dot」）
+        - method：方法描述（自由文本；可引用论文/调研文档地址，供 builder 深度检索）
+        - source_refs：引用清单（arxiv id / 文档路径），规范化为 list[str]
+
+        语义：adjust 的 modify_cell 动作（改进格描述）/ new_cell 动作（新建格带描述）。
+        未知格：创建格骨架（同 set_weight 语义——adjust 可为未入档格预设描述）。
+        非法输入：非 dict → ValueError（脏数据早失败）；未知键丢弃（schema 收敛）。
+        """
+        if not isinstance(description, dict):
+            raise ValueError("description 必须是 dict，收到 %r" % (description,))
+        normalized = {}
+        for k in DESCRIPTION_FIELDS:
+            if k not in description:
+                continue
+            if k == "source_refs":
+                refs = description.get(k)
+                if refs is None:
+                    normalized[k] = []
+                elif isinstance(refs, (list, tuple)):
+                    normalized[k] = [str(r) for r in refs if str(r).strip()]
+                else:
+                    normalized[k] = [str(refs)]
+                continue
+            normalized[k] = str(description.get(k) or "")
+        cell = self._data["cells"].get(cell_id)
+        if cell is None:
+            cell = {
+                "descriptor": {},
+                "description": {},
+                "elite": None,
+                "history": [],
+                "weight": 1.0,
+                "visit": 0,
+                "sample_count": 0,
+                "last_sampled_at": None,
+            }
+            self._data["cells"][cell_id] = cell
+        cell["description"] = normalized
 
     # ---- pending（延迟入库队列） ----
 

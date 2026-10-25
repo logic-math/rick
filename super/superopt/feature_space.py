@@ -9,6 +9,7 @@ cell_id 规范：轴名排序后 `name=value` 以 `|` 连接（值一律 str 规
 stdlib-only，Python >= 3.9（禁 PEP604 联合类型注解）。
 """
 from itertools import product
+import random
 from typing import Any, Dict, List, Optional
 
 # 全格数上限：防御特征空间组合爆炸（MAP-Elites 特征空间应为小规模，几十~几百格）
@@ -160,6 +161,49 @@ class FeatureSpace:
                 for combo in product(*value_lists)
             ]
         return list(self._all_cells)  # 副本：调用方不得改缓存
+
+    # ---- 相邻格抽样（builder 跨格灵感源，K-i8-3 裁决） ----
+
+    def neighbor_pool(self, cell_id: str) -> List[str]:
+        """相邻格池：与目标格**共享 ≥1 个轴值**的其它格（排除自身）。
+
+        语义（迭代8）：相邻 = 至少一个维度取值相同——这些格在某个优化维度上
+        可比（「换一个策略但保持数据布局」），是跨格重组灵感的自然来源。
+        未知/非法 cell_id → []（优雅降级）。
+        """
+        desc = self.describe_cell(cell_id)
+        if desc is None:
+            return []
+        out = []
+        for cid in self.all_cells():
+            if cid == cell_id:
+                continue
+            other = self.describe_cell(cid)
+            if other is None:
+                continue
+            if any(other.get(name) == value for name, value in desc.items()):
+                out.append(cid)
+        return out
+
+    def sample_neighbors(self, cell_id: str, k: int = 2,
+                         rng: Optional[Any] = None) -> List[str]:
+        """从相邻格池随机抽 k 个（不足时从全库随机补足；全库也空 → []）。
+
+        :param k: 抽样个数（<=0 → []）
+        :param rng: 随机源（提供 shuffle 的对象；默认 random 模块——测试注入固定种子）
+        """
+        if k <= 0:
+            return []
+        r = rng if rng is not None else random
+        pool = list(self.neighbor_pool(cell_id))
+        r.shuffle(pool)
+        picked = pool[:k]
+        if len(picked) < k:
+            others = [c for c in self.all_cells()
+                      if c != cell_id and c not in picked]
+            r.shuffle(others)
+            picked = picked + others[: k - len(picked)]
+        return picked
 
     # ---- 访问器 ----
 
