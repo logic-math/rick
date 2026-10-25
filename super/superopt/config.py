@@ -53,7 +53,7 @@ DEFAULTS: Dict[str, Any] = {
     "builder_max_turns": 20,
     "coding_max_turns": 24,
     "debug_max_turns": 16,
-    "adjust_max_turns": 12,
+    "adjust_max_turns": 16,
     # debug 触发扩展（迭代8/KR6）：门禁通过后仍可能因「异常收益」或「容差带内
     # 无明显收益」被复验——防止错误的性能结论进入精英地图。
     # env.json 的 `debug_policy: {gain_threshold_pct, recheck_tolerance_band}`

@@ -1,9 +1,9 @@
 {
-  "state": "running",
-  "iteration_cursor": 8,
+  "state": "stopped",
+  "iteration_cursor": 9,
   "env_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env",
-  "pid": 75128,
-  "worker_pid": 75128,
+  "pid": 80630,
+  "worker_pid": 80630,
   "daemon": true,
   "preverify_red": true,
   "heartbeat_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/heartbeat.json",
@@ -13,21 +13,21 @@
   },
   "config": {
     "adjust_interval": 2,
+    "adjust_max_turns": 16,
     "agent_models": {},
     "agent_timeout_s": 900,
+    "builder_max_turns": 20,
+    "coding_max_turns": 24,
     "debug_max_attempts": 3,
+    "debug_max_turns": 16,
     "heartbeat_interval_s": 30,
     "heartbeat_timeout_s": 90,
-    "max_iterations": 12,
+    "max_iterations": 15,
     "max_wall_time_h": 8,
     "pi_path": "/Users/logic/workdir/rick-dev-home/.rick/pi/agent/runtime/node_modules/.bin/pi",
     "python_path": "python3",
     "soft_gate_k": 3,
-    "term_grace_s": 5,
-    "builder_max_turns": 20,
-    "coding_max_turns": 24,
-    "debug_max_turns": 16,
-    "adjust_max_turns": 12
+    "term_grace_s": 5
   },
-  "updated_at": "2026-10-26T02:47:53+08:00"
+  "updated_at": "2026-10-26T03:17:49+08:00"
 }

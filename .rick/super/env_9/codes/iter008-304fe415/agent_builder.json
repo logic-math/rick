@@ -1,0 +1,27 @@
+{
+  "role": "builder",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "Iteration 6 的 `einsum` 尝试因 `gate noise` 失败，且存在一个有趣的经验发现：**`einsum` 配合预计算路径比配合 `optimize=True` 更慢**。让我检查一下 `iter007` 的失败原因，并理解 gate/benchmark 工具。 [exit 143]",
+  "usage": {
+    "input_tokens": 35601,
+    "output_tokens": 7260,
+    "cache_read": 73088,
+    "cache_write": 0,
+    "total_tokens": 115949,
+    "cost_usd": 0.10078828000000001
+  },
+  "wall_ms": 136360,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 8,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter008-304fe415/prompt_builder.md"
+}

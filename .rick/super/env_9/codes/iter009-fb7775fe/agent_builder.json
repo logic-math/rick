@@ -1,0 +1,26 @@
+{
+  "role": "builder",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "现在我理解了基准测试协议：在同一个进程中先运行 candidate（预热 + k=3），然后运行 ref np.matmul，score = ref_median/cand_median。iter006 的 einsum candidate 在 gate_check 中的测量值为 531-647ms，而参考值为 453ms——这要么是负载噪声，要么是实际的 einsum 开销。我的单元是 eins",
+  "usage": {
+    "input_tokens": 21180,
+    "output_tokens": 4081,
+    "cache_read": 112384,
+    "cache_write": 0,
+    "total_tokens": 137645,
+    "cost_usd": 0.07682823999999999
+  },
+  "wall_ms": 125484,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 9,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter009-fb7775fe/prompt_builder.md"
+}

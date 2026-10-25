@@ -1,0 +1,7 @@
+{
+  "idea": "Iteration 6 的 `einsum` 尝试因 `gate noise` 失败，且存在一个有趣的经验发现：**`einsum` 配合预计算路径比配合 `optimize=True` 更慢**。让我检查一下 `iter007` 的失败原因，并理解 gate/benchmark 工具。 [exit 143]",
+  "target_cell": "dispatch_target=einsum_path|impl_strategy=m_halves",
+  "parents": [],
+  "plan_steps": [],
+  "expected_behavior": null
+}
