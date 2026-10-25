@@ -51,6 +51,8 @@ class TestConstants(unittest.TestCase):
             "invalidation", "resurrection", "intervention",
             "heartbeat", "env_failure_concluded",
             "adjust_decision",   # task19：adjust 决策轨迹事件
+            "cell_created",      # 迭代8：adjust new_cell（特征格新建）
+            "cell_modified",     # 迭代8：adjust modify_cell（特征格描述改进）
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))

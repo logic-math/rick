@@ -60,6 +60,8 @@ EVENT_TYPES = frozenset({
     "proposal",                   # proposal_id/type/证据引用（硬动作提案）
     "adjudicated",                # proposal_id/decision（外置裁决结果）
     "adjust_decision",            # iteration/proposals 摘要（task19：adjust 决策轨迹事件）
+    "cell_created",               # cell_id/descriptor/name/method（迭代8：adjust new_cell）
+    "cell_modified",              # cell_id/method/source_refs/rationale（迭代8：modify_cell）
     "invalidation",               # cell_id/code_path/reason（出档）
     "resurrection",               # cell_id/code_path/reason（复活）
     "intervention",               # human 输入原文+分类（摄取自干预队列）
@@ -86,6 +88,8 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "proposal": ("proposal_id", "type"),
     "adjudicated": ("proposal_id", "decision"),
     "adjust_decision": ("iteration", "proposals"),
+    "cell_created": ("cell_id", "descriptor"),
+    "cell_modified": ("cell_id", "method"),
     "invalidation": ("cell_id", "reason"),
     "resurrection": ("cell_id", "reason"),
     "intervention": ("text", "category"),

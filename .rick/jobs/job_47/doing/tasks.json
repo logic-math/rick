@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-25T18:09:28.451Z",
+  "updated_at": "2026-10-25T18:15:45.404Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -449,46 +449,46 @@
     {
       "task_id": "task36",
       "task_name": "仓级 super_* skill 五件（实验分析/SENSE/格管理/实验设计/debug 协议，引用 rick canon）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-24T01:00:00+08:00",
-      "updated_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
       "dependencies": [],
       "task_file": "plan/task36.md",
-      "commit_hash": ""
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
     },
     {
       "task_id": "task37",
       "task_name": "gen_env skill 流程修复（重排/职责/前置输入/键一致性/preverify 自动化）+ 优化幅度阈值追问",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-24T01:00:00+08:00",
-      "updated_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
       "dependencies": [],
       "task_file": "plan/task37.md",
-      "commit_hash": ""
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
     },
     {
       "task_id": "task38",
       "task_name": "特征格四要素模型（description）+ experiment_record 模块 + 相邻格随机抽样",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-24T01:00:00+08:00",
-      "updated_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
       "dependencies": [],
       "task_file": "plan/task38.md",
-      "commit_hash": ""
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
     },
     {
       "task_id": "task40",
       "task_name": "四模板重写（实验驱动 loop + skill 声明路径与触发条件）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-24T01:00:00+08:00",
-      "updated_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
       "dependencies": [],
       "task_file": "plan/task40.md",
-      "commit_hash": ""
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
     },
     {
       "task_id": "task39",

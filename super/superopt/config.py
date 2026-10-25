@@ -10,7 +10,9 @@
   max_wall_time_h=24.0 / max_iterations=0（0=无迭代上限）/ python_path="python3" /
   pi_path=""（空=必须由 super.json 显式给出；消费方（agents/loop）对空值报错）/
   builder_max_turns=12 / coding_max_turns=16 / debug_max_turns=10 /
-  adjust_max_turns=8（assistant 回合预算；0=不限）。
+  adjust_max_turns=8（assistant 回合预算；0=不限）/
+  debug_gain_threshold_pct=20 / debug_recheck_tolerance_band=True
+  （门禁通过后的异常收益/容差带复验；env.json debug_policy 可覆盖）。
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 联合类型注解）。
 """
@@ -52,6 +54,12 @@ DEFAULTS: Dict[str, Any] = {
     "coding_max_turns": 16,
     "debug_max_turns": 10,
     "adjust_max_turns": 8,
+    # debug 触发扩展（迭代8/KR6）：门禁通过后仍可能因「异常收益」或「容差带内
+    # 无明显收益」被复验——防止错误的性能结论进入精英地图。
+    # env.json 的 `debug_policy: {gain_threshold_pct, recheck_tolerance_band}`
+    # 可逐 env 覆盖（gen_env 追问 human 确认）。
+    "debug_gain_threshold_pct": 20,      # 收益 ≥ 该百分比 → debug 复验
+    "debug_recheck_tolerance_band": True,  # 软门禁容差带内 → debug 复验
 }
 
 # merge_cli 允许从 CLI 覆盖的键（与 __main__.py 的 flags 对齐）。

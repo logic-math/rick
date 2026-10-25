@@ -1729,3 +1729,344 @@ class TestResearchInjection(LoopTestBase):
         self.assertEqual(by_role["builder"].get("research_cmd"), "")
         self.assertIn("未提供检索指引",
                       str(by_role["builder"].get("research_brief")))
+
+# --------------------------------------------------------------------------- #
+# 迭代8：实验驱动的四 Agent Loop（实验记录 / adjust 四步 / debug 三触发）
+# --------------------------------------------------------------------------- #
+
+class _FileWritingClient(FakeAgentClient):
+    """在 agent「运行」时落盘副作用文件的 fake client（模拟真实 agent 写文件）。"""
+
+    def __init__(self):
+        FakeAgentClient.__init__(self)
+        self.writers = {}  # type: Dict[str, Any]
+
+    def on(self, role: str, fn) -> None:
+        self.writers[role] = fn
+
+    def run(self, role: str, prompt_path: str, workdir: str,
+            timeout_s: int = 1800, model: Optional[str] = None,
+            max_turns: Optional[int] = None) -> AgentResult:
+        fn = self.writers.get(role)
+        if fn is not None:
+            fn(workdir)
+        return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                   timeout_s, model, max_turns)
+
+
+class TestExperimentRecordPipeline(LoopTestBase):
+    """迭代8 KR1/KR4/KR5：实验记录建/补、builder 相邻格、coding TDD 痕迹。"""
+
+    def _seed_prior_iteration(self, iteration_id: int = 1) -> str:
+        """造一个历史迭代目录 + 实验记录（模拟上一轮 builder/coding 产物）。"""
+        from superopt import experiment_record
+        iter_dir = os.path.join(self.ws, "codes",
+                                "iter%03d-%s" % (iteration_id, "a1b2c3d4"))
+        os.makedirs(iter_dir, exist_ok=True)
+        experiment_record.create(iter_dir, {
+            "iteration_id": iteration_id,
+            "cell_id": "impl=naive|mem=row",
+            "idea": "历史实验：分块转置",
+            "parents": [],
+        })
+        return iter_dir
+
+    def test_builder_prompt_has_neighbor_samples_and_record_paths(self):
+        """builder ctx：相邻格样本（2 个）+ 落盘路径。"""
+        self._seed_prior_iteration()
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        iter_dir = [d for d in os.listdir(os.path.join(self.ws, "codes"))
+                    if d.startswith("iter001-")
+                    and d != "iter001-a1b2c3d4"][0]
+        text = open(os.path.join(self.ws, "codes", iter_dir,
+                                 "prompt_builder.md"), encoding="utf-8").read()
+        self.assertIn("相邻格样本", text)
+        # 邻格样本至少 1 项（AXES 有 6 格，必有邻格）
+        self.assertIn("cell_id", text)
+        self.assertIn(os.path.join(self.ws, "codes", iter_dir,
+                                   "research_report.md"), text)
+        self.assertIn(os.path.join(self.ws, "codes", iter_dir,
+                                   "experiment_record.md"), text)
+
+    def test_builder_outputs_flags_when_files_missing(self):
+        """builder 未落盘两文件 → iteration_ended.builder_outputs 全 False。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        self.assertFalse(ev["builder_outputs"]["research_report"])
+        self.assertFalse(ev["builder_outputs"]["record_updated"])
+
+    def test_builder_outputs_flags_when_files_written(self):
+        """builder 落盘两文件 → 标记 True（自改进分析的质量信号）。"""
+        client = _FileWritingClient()
+
+        def _write(workdir):
+            with open(os.path.join(workdir, "research_report.md"), "w",
+                      encoding="utf-8") as f:
+                f.write("# 调研报告\n业界做法 A/B\n")
+            with open(os.path.join(workdir, "experiment_record.md"), "w",
+                      encoding="utf-8") as f:
+                f.write("# 实验记录\n## 1. 背景与价值\n假设……\n")
+
+        client.on("builder", _write)
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        self.assertTrue(ev["builder_outputs"]["research_report"])
+        self.assertTrue(ev["builder_outputs"]["record_updated"])
+
+    def test_coding_tdd_trace_and_record_updated(self):
+        """coding 写 test_solution.py 并追加实验记录 → tdd_trace/record_updated。"""
+        client = _FileWritingClient()
+
+        def _builder_write(workdir):
+            with open(os.path.join(workdir, "experiment_record.md"), "w",
+                      encoding="utf-8") as f:
+                f.write("# 实验记录\n## 1. 背景与价值\n假设……\n")
+
+        def _coding_write(workdir):
+            with open(os.path.join(workdir, "test_solution.py"), "w",
+                      encoding="utf-8") as f:
+                f.write("# TDD 测试\n")
+            with open(os.path.join(workdir, "experiment_record.md"), "a",
+                      encoding="utf-8") as f:
+                f.write("\n## 6. 执行过程与结论\n测试红→绿\n")
+
+        client.on("builder", _builder_write)
+        client.on("coding", _coding_write)
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        self.assertTrue(ev["tdd_trace"], "test_solution.py 落盘应标记 TDD 痕迹")
+        self.assertTrue(ev["record_updated"], "实验记录应被 coding 追加")
+
+    def test_experiment_record_injected_to_coding_and_debug(self):
+        """实验记录是跨 agent 恒常上下文：coding/debug prompt 都能读到。"""
+        client = _FileWritingClient()
+
+        def _builder_write(workdir):
+            with open(os.path.join(workdir, "experiment_record.md"), "w",
+                      encoding="utf-8") as f:
+                f.write("# 实验记录 UNIQUE-MARKER-42\n## 2. 实验假设\n可证伪\n")
+
+        client.on("builder", _builder_write)
+        client.queue("builder", [_builder_result()])
+        # coding 自检失败 → 进 debug（两个角色都要看到记录）
+        client.queue("coding", [_coding_result(passed=False,
+                                              diff_path=self.cand_file)])
+        client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        d = [x for x in os.listdir(os.path.join(self.ws, "codes"))
+             if x.startswith("iter001")][0]
+        for role in ("coding", "debug"):
+            text = open(os.path.join(self.ws, "codes", d,
+                                     "prompt_%s.md" % role),
+                        encoding="utf-8").read()
+            self.assertIn("UNIQUE-MARKER-42", text,
+                          "%s prompt 缺实验记录内容" % role)
+
+
+class TestAdjustFourStep(LoopTestBase):
+    """迭代8 KR3：adjust 四步上下文 / 决策记录 / new_cell / modify_cell。"""
+
+    def _seed_decision_and_record(self) -> None:
+        from superopt import experiment_record
+        iter_dir = os.path.join(self.ws, "codes", "iter001-deadbeef")
+        os.makedirs(iter_dir, exist_ok=True)
+        experiment_record.create(iter_dir, {
+            "iteration_id": 1, "cell_id": "impl=naive|mem=row",
+            "idea": "RECORD-MARKER-7：分块转置", "parents": []})
+        dec = os.path.join(self.ws, "decisions")
+        os.makedirs(dec, exist_ok=True)
+        with open(os.path.join(dec, "iter1.md"), "w", encoding="utf-8") as f:
+            f.write("# adjust 决策记录 · 迭代 1\nDECISION-MARKER-9\n")
+
+    def test_adjust_prompt_has_experiment_records_and_decision_history(self):
+        """① adjust ctx 含区间实验记录 / 决策史 / 格描述 / 决策落盘路径。"""
+        self._seed_decision_and_record()
+        self.client.queue("adjust", [_adjust_result([])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        # 给采样格预设 description（cell_descriptions 的来源）
+        sched.run()
+        p = os.path.join(self.ws, "codes", "adjust", "iter_1",
+                         "prompt_adjust.md")
+        text = open(p, encoding="utf-8").read()
+        self.assertIn("RECORD-MARKER-7", text)      # 区间实验记录摘要
+        self.assertIn("DECISION-MARKER-9", text)    # 决策史
+        self.assertIn(os.path.join(self.ws, "decisions", "iter1.md"), text)
+        self.assertGreaterEqual(sched._last_adjust_iter, 1)
+
+    def test_cell_descriptions_injected(self):
+        """① cell_descriptions：archive 的格描述进 adjust prompt。"""
+        self._seed_decision_and_record()
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        cid = "impl=naive|mem=row"
+        sched.archive.set_description(cid, {"name": "朴素实现",
+                                            "method": "DESC-MARKER-3 三重循环"})
+        sched.archive.save()
+        self.client.queue("adjust", [_adjust_result([])])
+        sched.run()
+        text = open(os.path.join(self.ws, "codes", "adjust", "iter_1",
+                                 "prompt_adjust.md"),
+                    encoding="utf-8").read()
+        self.assertIn("DESC-MARKER-3", text)
+
+    def test_decision_file_synthesized_when_agent_skips(self):
+        """② agent 未写决策记录 → 框架合成（framework_synthesized）+ 事件路径。"""
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "soft_weight", "target_cell": "impl=naive|mem=row",
+             "action": "weight=0.5", "evidence": "seq 9 零入格"}])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        path = os.path.join(self.ws, "decisions", "iter1.md")
+        self.assertTrue(os.path.isfile(path), "决策记录应被合成落盘")
+        text = open(path, encoding="utf-8").read()
+        self.assertIn("framework_synthesized", text)
+        self.assertIn("soft_weight", text)
+        adj = self.events_of("adjust_decision")
+        self.assertTrue(adj)
+        self.assertEqual(adj[-1]["payload"]["decision_path"], path)
+
+    def test_new_cell_creates_cell_with_description(self):
+        """③ new_cell：feature_space 加值 + archive description + cell_created。"""
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "new_cell", "action": "create",
+             "descriptor": {"impl": "vectorized", "mem": "chunked"},
+             "name": "分块向量化", "method": "NEWCELL-MARKER 分块+SIMD",
+             "source_refs": ["arxiv:2401.00001"],
+             "orthogonality_rationale": "chunked 布局未被覆盖",
+             "evidence": "iter 3-6 无新纪录"}])])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        sched.run()
+        created = self.events_of("cell_created")
+        self.assertTrue(created, "应发出 cell_created 事件")
+        cid = created[-1]["payload"]["cell_id"]
+        self.assertEqual(cid, "impl=vectorized|mem=chunked")
+        # feature_space.json 已加值
+        fs = json.load(open(os.path.join(self.ws, "env",
+                                         "feature_space.json"),
+                            encoding="utf-8"))
+        mem_vals = [a["values"] for a in fs["axes"] if a["name"] == "mem"][0]
+        self.assertIn("chunked", mem_vals)
+        # archive description 落档
+        arch = self.read_archive()
+        desc = (arch["cells"].get(cid) or {}).get("description") or {}
+        self.assertEqual(desc.get("name"), "分块向量化")
+        self.assertIn("NEWCELL-MARKER", desc.get("method") or "")
+        self.assertEqual(desc.get("source_refs"), ["arxiv:2401.00001"])
+
+    def test_modify_cell_updates_description_merged(self):
+        """④ modify_cell：改 method 且保留既有 name（合并语义）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "adjust_interval": 1})
+        # 探测确定性格 id
+        probe = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        probe.run()
+        cid = self.events_of("cell_sampled")[0]["payload"]["cell_id"]
+        sched.archive.set_description(cid, {"name": "原名称",
+                                            "method": "旧方法描述"})
+        sched.archive.save()
+        self.client.queue("adjust", [_adjust_result([
+            {"type": "modify_cell", "action": "improve_description",
+             "target_cell": cid, "method": "MODIFY-MARKER 新方法（更可执行）",
+             "source_refs": ["arxiv:2402.00002"],
+             "rationale": "原描述含糊"}])])
+        sched.run()
+        mod = self.events_of("cell_modified")
+        self.assertTrue(mod)
+        self.assertEqual(mod[-1]["payload"]["cell_id"], cid)
+        arch = self.read_archive()
+        desc = (arch["cells"].get(cid) or {}).get("description") or {}
+        self.assertEqual(desc.get("name"), "原名称")   # 保留
+        self.assertIn("MODIFY-MARKER", desc.get("method") or "")
+
+
+class TestDebugThreeTriggers(LoopTestBase):
+    """迭代8 KR6：debug 三类触发 + keep_original 仍入格。"""
+
+    def test_suspicious_gain_triggers_recheck_and_keeps_original(self):
+        """② 异常收益（≥阈值）→ attempt=200 复验；keep_original 仍入格。"""
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
+                                                   "debug_gain_threshold_pct": 20})
+        self.gate.queue(_gate_pass(100.0))   # iter1：建立精英基线 100ms
+        self.gate.queue(_gate_pass(1.0))     # iter2：99% 收益 → 可疑
+        sched.run()
+        rechecks = [e for e in self.events_of("candidate_produced")
+                    if e["payload"].get("attempt") == 200]
+        self.assertTrue(rechecks, "异常收益应触发复验 debug")
+        self.assertEqual(rechecks[-1]["payload"]["recheck_reason"],
+                         "suspicious_gain")
+        self.assertEqual(rechecks[-1]["payload"]["verdict"], "keep_original")
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        self.assertEqual(ev["recheck_verdict"], "keep_original")
+        # keep_original → 原候选照常入格（两个迭代各有一次入格事件）
+        admits = [e for e in self.self_admit_events()]
+        self.assertGreaterEqual(len(admits), 2)
+
+    def self_admit_events(self):
+        return [e for e in self.read_events()
+                if e["type"] in ("elite_admitted", "elite_replaced")]
+
+    def test_tolerance_band_triggers_recheck(self):
+        """③ 软门禁容差带内 → 复验（tolerance_band_recheck）。"""
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        self.gate.queue(_gate_pass(100.0, band=True))
+        sched.run()
+        rechecks = [e for e in self.events_of("candidate_produced")
+                    if e["payload"].get("attempt") == 200]
+        self.assertTrue(rechecks)
+        self.assertEqual(rechecks[-1]["payload"]["recheck_reason"],
+                         "tolerance_band_recheck")
+
+    def test_tolerance_band_recheck_can_be_disabled(self):
+        """③ 关闭开关 → 容差带内不复验。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "debug_recheck_tolerance_band": False})
+        self.gate.queue(_gate_pass(100.0, band=True))
+        sched.run()
+        rechecks = [e for e in self.events_of("candidate_produced")
+                    if e["payload"].get("attempt") == 200]
+        self.assertEqual(rechecks, [])
+
+    def test_gate_failure_still_triggers_debug(self):
+        """① 门禁失败 → 既有 debug 通道（attempt=100）仍生效。"""
+        self.client.queue("debug", [_debug_result(passed=True)])
+        self.client.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        # 第一次门禁失败（stage2），debug 修复后重验通过
+        self.gate.queue(_gate_fail("stage2_correctness"))
+        self.gate.queue(_gate_pass())
+        sched.run()
+        gd = [e for e in self.events_of("candidate_produced")
+              if e["payload"].get("attempt") == 100]
+        self.assertTrue(gd, "门禁失败应触发 debug 修复")
+        self.assertTrue(self.events_of("elite_admitted"),
+                        "修复后重验通过应入格")
+
+    def test_env_debug_policy_overrides_conf(self):
+        """env.json debug_policy 可覆盖 conf（gen_env 追问 human 的结果）。"""
+        env_json = os.path.join(self.ws, "env", "env.json")
+        data = json.load(open(env_json, encoding="utf-8"))
+        data["debug_policy"] = {"gain_threshold_pct": 5,
+                                "recheck_tolerance_band": False}
+        with open(env_json, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        policy = sched._debug_policy()
+        self.assertEqual(policy["gain_threshold_pct"], 5.0)
+        self.assertFalse(policy["recheck_tolerance_band"])

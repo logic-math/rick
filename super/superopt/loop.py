@@ -64,6 +64,7 @@ from superopt.budget import CostLedger
 from superopt.config import DEFAULTS
 from superopt.events import EventWriter
 from superopt.feature_space import FeatureSpace
+from superopt import experiment_record
 from superopt.gates import CascadeGate
 from superopt.intervention import InterventionQueue
 from superopt.ledger import Ledger as ExperimentLedger
@@ -260,9 +261,13 @@ class Scheduler:
         # builder 决策落盘（designs/iter{N}_{cell}.json）——懒建目录
         self.profile_history_dir = os.path.join(self.ws, "profile_history")
         self.designs_dir = os.path.join(self.ws, "designs")
+        # adjust 决策记录（迭代8/KR3）：<ws>/decisions/iter{N}.md——
+        # 可解释性 + builder 执行参考（J-i8-4 裁决）
+        self.decisions_dir = os.path.join(self.ws, "decisions")
         os.makedirs(self.codes_dir, exist_ok=True)
         os.makedirs(self.proposals_dir, exist_ok=True)
         os.makedirs(self.gates_dir, exist_ok=True)
+        os.makedirs(self.decisions_dir, exist_ok=True)
 
         # ---- env 装配（坏 env 不炸构造：run() 先检 env_error 给可诊断退出码） ----
         self.env_error = None  # type: Optional[str]
@@ -346,6 +351,17 @@ class Scheduler:
         # 本迭代入格结果（ledger.verdict：admit|replace|reject|no_candidate）
         self._last_admit_verdict = ""
         self._last_reject_reason = ""
+        # ---- 迭代8：adjust 四步 / 实验记录 / debug 三触发 ----
+        # 上一次 adjust 的迭代号：全局实验分析的区间起点（since_iter）
+        self._last_adjust_iter = 0
+        # 本迭代 builder 产物校验（research_report / record_updated）
+        self._builder_outputs = {}  # type: Dict[str, Any]
+        # 本迭代 coding 的 TDD 痕迹（test_solution.py 存在）与实验记录更新
+        self._tdd_trace = None  # type: Optional[bool]
+        self._record_updated = None  # type: Optional[bool]
+        # 本迭代是否已做异常收益/容差带复验（每迭代至多 1 次）
+        self._recheck_done_this_iter = False
+        self._recheck_verdict = None  # type: Optional[str]
         self._recover_saturation_state()
 
     # ------------------------------------------------------------------ #
@@ -511,6 +527,12 @@ class Scheduler:
         self._last_admit_verdict = ""
         self._last_reject_reason = ""
         self._record_this_iter = False
+        # 迭代8：每迭代状态重置（builder 产物校验 / TDD 痕迹 / 复验）
+        self._builder_outputs = {}
+        self._tdd_trace = None
+        self._record_updated = None
+        self._recheck_done_this_iter = False
+        self._recheck_verdict = None
         self.events.append("iteration_started",
                            {"iteration_id": cursor}, "scheduler")
 
@@ -585,6 +607,12 @@ class Scheduler:
             "tokens": int(self._iter_cost.get("tokens", 0.0)),
             "cost_usd": round(float(self._iter_cost.get("cost_usd", 0.0)), 6),
             "had_candidate": candidate is not None,
+            # 迭代8：builder 产物校验 / coding TDD 痕迹 / debug 复验结论
+            # （事件标注，缺失即质量缺口——trajectory 分析与自改进读这些）
+            "builder_outputs": dict(self._builder_outputs),
+            "tdd_trace": self._tdd_trace,
+            "record_updated": self._record_updated,
+            "recheck_verdict": self._recheck_verdict,
         }, "scheduler")
         # 每迭代落盘档案：bump_visit 只改内存，若本迭代无 admit/epoch 则到收尾都
         # 不 save——kill -9 后重启虽能从事件恢复，但「正常收尾的档案」会缺新采样
@@ -650,6 +678,16 @@ class Scheduler:
             "research_brief": self._or_default(
                 self._research_brief("builder", cell_id),
                 "（未提供检索指引——跳过检索）"),
+            # ---- 迭代8：实验记录（跨 agent 恒常上下文）+ 相邻格样本 + 落盘路径 ----
+            "target_record": self._or_default(
+                self._record_for_code_path((elite or {}).get("code_path")),
+                "（本格首访——无历史实验记录）"),
+            "neighbor_samples": self._or_default(
+                self._neighbor_samples(cell_id, 2),
+                "（无相邻格样本——全库仅本格）"),
+            "research_report_path": os.path.join(iter_dir,
+                                                 "research_report.md"),
+            "experiment_record_path": experiment_record.path_for(iter_dir),
         }
         prompt = render("builder", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "builder", prompt)
@@ -669,6 +707,16 @@ class Scheduler:
         # 论文/灵感/推理/计划/现状事实的完整决策档案，供 gen_env 与中控
         # 会话读进化轨迹（super-loop Step 3/7）。写失败不影响主循环。
         self._write_design(cell_id, cursor, result, plan, profile)
+        # 迭代8：builder 产物校验（调研报告 / 实验记录）——缺失即质量缺口，
+        # 记进 iteration_ended.builder_outputs（轨迹分析与自改进读它）
+        rr_path = os.path.join(iter_dir, "research_report.md")
+        rec_path = experiment_record.path_for(iter_dir)
+        self._builder_outputs = {
+            "research_report": os.path.isfile(rr_path),
+            "record_updated": os.path.isfile(rec_path),
+            "experiment_record_path": rec_path,
+            "research_report_path": rr_path,
+        }
         return plan
 
     def _axis_perf_summary(self) -> str:
@@ -787,10 +835,33 @@ class Scheduler:
             "research_brief": self._or_default(
                 self._research_brief("coding", cell_id),
                 "（未提供检索指引——跳过检索）"),
+            # ---- 迭代8：实验记录（恒常上下文）+ builder 调研报告 + 落盘路径 ----
+            "experiment_record": self._or_default(
+                experiment_record.read(iter_dir),
+                "（experiment_record.md 缺失——builder 未落盘）"),
+            "research_report": self._or_default(
+                self._read_text(os.path.join(iter_dir, "research_report.md"),
+                                3000),
+                "（research_report.md 缺失——builder 未落盘调研报告）"),
+            "coding_plan_path": os.path.join(iter_dir, "coding_plan.md"),
+            "test_path": os.path.join(iter_dir, "test_solution.py"),
         }
         prompt = render("coding", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "coding", prompt)
+        # 迭代8：实验记录 mtime 基线（coding 是否把执行过程追加进记录）
+        rec_path = experiment_record.path_for(iter_dir)
+        rec_mtime_before = self._mtime_ns(rec_path)
         result = self._dispatch_agent("coding", prompt_path, iter_dir, cursor)
+        # TDD 痕迹：测试文件是否落盘（模板要求先写测试再实现）
+        self._tdd_trace = os.path.isfile(os.path.join(iter_dir,
+                                                      "test_solution.py"))
+        rec_mtime_after = self._mtime_ns(rec_path)
+        if rec_mtime_before is not None and rec_mtime_after is not None:
+            self._record_updated = rec_mtime_after > rec_mtime_before
+        elif rec_mtime_after is not None:
+            self._record_updated = True
+        else:
+            self._record_updated = False
 
         candidate = self._candidate_path(result, iter_dir)
         self_check = self._self_check_of(result)
@@ -830,7 +901,9 @@ class Scheduler:
     def _run_debug(self, plan: Dict[str, Any], cell_id: str, cursor: int,
                    iter_dir: str, attempt: int, max_attempts: int,
                    self_check: Dict[str, Any], last_err: str,
-                   gate_failure: Optional[Dict[str, Any]] = None) -> Any:
+                   gate_failure: Optional[Dict[str, Any]] = None,
+                   perf_gain_pct: Optional[float] = None,
+                   recheck_reason: Optional[str] = None) -> Any:
         cmds = self._self_check_and_profile_cmds()
         elems = self._element_cmds()
         ctx = {
@@ -861,6 +934,14 @@ class Scheduler:
             "research_brief": self._or_default(
                 self._research_brief("debug", cell_id),
                 "（未提供检索指引——跳过检索）"),
+            # ---- 迭代8：实验记录（先读它再判断）+ 复验上下文 ----
+            "experiment_record": self._or_default(
+                experiment_record.read(iter_dir),
+                "（experiment_record.md 缺失——builder 未落盘）"),
+            "perf_gain_pct": self._or_default(
+                perf_gain_pct, "（不适用——非异常收益复验）"),
+            "recheck_reason": self._or_default(
+                recheck_reason, "（无——本次为自检/门禁失败触发）"),
         }
         prompt = render("debug", self.ws, ctx)
         prompt_path = write_prompt(iter_dir, "debug", prompt)
@@ -939,16 +1020,27 @@ class Scheduler:
         gr = self.gate.verify(candidate,
                               elite_perf=(elite or {}).get("perf_value"),
                               history=history)
-        self.events.append("gate_result", {
-            "iteration_id": cursor, "cell_id": cell_id,
-            "stage": gr.failure_stage or "passed",
-            "failure_stage": gr.failure_stage,
-            "passed": bool(gr.passed),
-            "metrics": gr.metrics,
-            "details": (gr.details or "")[-400:],
-        }, "gate")
+        self._emit_gate_result(gr, cursor, cell_id)
 
         if gr.passed:
+            # 迭代8/KR6：门禁通过后仍可能复验——①异常收益（超 human 确认阈值，
+            # 防作弊/误测的性能结论进精英地图）②软门禁容差带内（无明显收益）。
+            # 每迭代至多 1 次；debug 结论 keep_original → 原候选照常入格。
+            reason = self._recheck_reason(gr, cell_id)
+            if reason is not None and not self._recheck_done_this_iter:
+                self._recheck_done_this_iter = True
+                iter_dir = os.path.dirname(os.path.abspath(candidate))
+                fixed, verdict = self._run_recheck_debug(
+                    plan, cell_id, cursor, iter_dir, gr, reason)
+                self._recheck_verdict = verdict
+                if fixed is not None:
+                    gr2 = self.gate.verify(
+                        fixed, elite_perf=(elite or {}).get("perf_value"),
+                        history=history)
+                    self._emit_gate_result(gr2, cursor, cell_id,
+                                           recheck=True)
+                    if gr2.passed:
+                        candidate, gr = fixed, gr2
             self._admit(candidate, cell_id, cursor, plan, gr, had_elite=bool(elite))
             self.env_fail_streak = 0
             return gr
@@ -1169,6 +1261,20 @@ class Scheduler:
             "research_brief": self._or_default(
                 self._research_brief("adjust"),
                 "（未提供检索指引——跳过检索）"),
+            # ---- 迭代8：四步 loop 的输入（全局实验分析 → SENSE → research → 格管理） ----
+            # 区间：上次 adjust（含）→ 本次（全局实验分析的范围，规格 a）
+            "experiment_records": self._or_default(
+                self._experiment_records(self._last_adjust_iter,
+                                         self.iteration_cursor),
+                "（区间内尚无实验记录——首轮或 builder 未落盘）"),
+            "experiment_sessions": self._or_default(
+                self._experiment_sessions(self._last_adjust_iter,
+                                          self.iteration_cursor),
+                "（未定位到区间 session 目录——按记录分析即可）"),
+            "decision_history": self._or_default(
+                self._decision_history(3), "（暂无历史决策记录）"),
+            "cell_descriptions": self._cell_descriptions(),
+            "decisions_path": self._decisions_path(self.iteration_cursor),
         }
         prompt = render("adjust", self.ws, ctx)
         # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
@@ -1204,6 +1310,8 @@ class Scheduler:
             self._adjust_thread = threading.Thread(
                 target=_worker, name="superopt-adjust", daemon=True)
             self._adjust_thread.start()
+        # 区间起点推进（下一次 adjust 的全局实验分析从本次起算）
+        self._last_adjust_iter = iteration_id
 
     def _collect_adjust(self) -> None:
         """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。
@@ -1264,6 +1372,11 @@ class Scheduler:
         proposals = pending.data.get("proposals")
         if not isinstance(proposals, list):
             proposals = []
+        # 决策记录（迭代8/KR3）：agent 应写 decisions/iter{N}.md；未写 →
+        # 框架按提案合成最小记录（标注 framework_synthesized），保证
+        # 「每次决策都有可解释档案」不被 agent 的疏漏破坏
+        decision_path = self._ensure_decision_file(
+            iteration_id, proposals, bool(pending.valid))
         # adjust_decision 事件（task19）：结构化决策日志——输入（cells_status
         # 摘要）+ 输出（proposals 摘要）同帧落事件流；自改进分析（adjust_trace）
         # 与崩溃恢复均可消费
@@ -1272,6 +1385,7 @@ class Scheduler:
             "agent_valid": bool(pending.valid),
             "proposals": self._proposal_digest(proposals),
             "cells_status_summary": self._cells_status_digest(),
+            "decision_path": decision_path,
         }, "scheduler")
         for i, p in enumerate(proposals):
             if not isinstance(p, dict):
@@ -1314,6 +1428,71 @@ class Scheduler:
                 "evidence": reason, "rule_id": p.get("rule_id"),
                 "needs_human": True,
             }, "agent:adjust")
+            return
+        if ptype == "new_cell":
+            # 新格（迭代8/KR2+KR3）：descriptor → feature_space 热重载加值
+            # （复用 expand_cell 的 add_cell 链）+ 格描述落档 + cell_created 事件
+            descriptor = p.get("descriptor")
+            if not isinstance(descriptor, dict) or not descriptor:
+                return
+            applied = self._apply_expand_cell(
+                {"action": "add_cell", "descriptor": descriptor})
+            if applied:
+                # 立即热重载：让新轴值进入 fs 取值域，cell_id 才能解析
+                self._maybe_reload_feature_space()
+            try:
+                cell_id = self.fs.cell_id(descriptor)
+            except ValueError:
+                return  # 脏描述子（未知轴/缺轴）——不落半成品
+            description = {}
+            for key in ("name", "method"):
+                val = p.get(key)
+                if isinstance(val, str) and val.strip():
+                    description[key] = val.strip()
+            refs = p.get("source_refs")
+            if isinstance(refs, (list, tuple)) and refs:
+                description["source_refs"] = [str(r) for r in refs]
+            if description:
+                self.archive.set_description(cell_id, description)
+            self.events.append("cell_created", {
+                "cell_id": cell_id, "descriptor": descriptor,
+                "name": (description or {}).get("name"),
+                "method": str((description or {}).get("method") or "")[:400],
+                "source_refs": (description or {}).get("source_refs") or [],
+                "orthogonality_rationale": str(
+                    p.get("orthogonality_rationale") or "")[:400],
+                "applied": bool(applied),
+                "rule_id": p.get("rule_id"),
+            }, "agent:adjust")
+            self.archive.save()
+            return
+        if ptype == "modify_cell":
+            # 改进格描述（迭代8/KR2）：只改 description（method/source_refs），
+            # 不改格定义本身（改定义仍是 hard_modify_cell 提案制）
+            if not target:
+                return
+            current = self._cell_entry(target).get("description")
+            merged = dict(current) if isinstance(current, dict) else {}
+            method = p.get("method")
+            if isinstance(method, str) and method.strip():
+                merged["method"] = method.strip()
+            refs = p.get("source_refs")
+            if isinstance(refs, (list, tuple)) and refs:
+                merged["source_refs"] = [str(r) for r in refs]
+            name = p.get("name")
+            if isinstance(name, str) and name.strip():
+                merged["name"] = name.strip()
+            if not merged:
+                return
+            self.archive.set_description(target, merged)
+            self.events.append("cell_modified", {
+                "cell_id": target,
+                "method": str(merged.get("method") or "")[:400],
+                "source_refs": merged.get("source_refs") or [],
+                "rationale": str(p.get("rationale") or "")[:300],
+                "rule_id": p.get("rule_id"),
+            }, "agent:adjust")
+            self.archive.save()
             return
         if ptype == "soft_weight":
             # 软动作：直接应用（weight_changed 事件 + archive）
@@ -1823,6 +2002,274 @@ class Scheduler:
                 "elite_perf": pv if isinstance(pv, (int, float)) else None,
                 "perf_type": self.perf_type,
                 "perf_desc": self.perf_desc}
+
+    # ------------------------------------------------------------------ #
+    # 迭代8：实验记录 / adjust 四步 / debug 三触发 辅助
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _mtime_ns(path: str) -> Optional[int]:
+        try:
+            return os.stat(path).st_mtime_ns
+        except OSError:
+            return None
+
+    @staticmethod
+    def _read_text(path: str, limit: int = 0) -> str:
+        """读文本文件（缺文件 → ""；limit>0 时截断）。"""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return ""
+        if limit and limit > 0 and len(text) > limit:
+            return text[:limit]
+        return text
+
+    def _record_for_code_path(self, code_path: Any) -> str:
+        """精英解所在迭代目录的实验记录摘要（builder/coding 的「必读上下文」）。"""
+        if not isinstance(code_path, str) or not code_path:
+            return ""
+        iter_dir = os.path.dirname(os.path.abspath(code_path))
+        return experiment_record.digest(iter_dir)
+
+    def _neighbor_samples(self, cell_id: str, k: int = 2) -> List[Dict[str, Any]]:
+        """两个随机相邻格样本（J-i8-3）：description/精英代码/实验记录摘要。"""
+        out = []  # type: List[Dict[str, Any]]
+        for cid in self.fs.sample_neighbors(cell_id, k):
+            entry = self._cell_entry(cid)
+            elite = entry.get("elite") or {}
+            desc = entry.get("description")
+            if not isinstance(desc, dict):
+                desc = {}
+            out.append({
+                "cell_id": cid,
+                "description": desc,
+                "elite_code_path": elite.get("code_path"),
+                "elite_perf": elite.get("perf_value"),
+                "record_digest": self._or_default(
+                    self._record_for_code_path(elite.get("code_path")),
+                    "（该格无精英或记录缺失）"),
+            })
+        return out
+
+    # ---- adjust 四步上下文（KR3） ----
+
+    def _experiment_records(self, since_iter: int,
+                            until_iter: int) -> List[Dict[str, Any]]:
+        """区间内全部实验记录摘要（上次 adjust → 本次）。"""
+        since = max(0, int(since_iter or 0))
+        until = max(since, int(until_iter or 0))
+        return experiment_record.recent(self.ws, since, until)
+
+    def _experiment_sessions(self, since_iter: int,
+                             until_iter: int) -> List[str]:
+        """区间内 agent 的 pi session 目录（best-effort：按编码后的 cwd 名匹配）。
+
+        记录不足时 adjust 可按需 read 这些目录下的 jsonl 补细节（规格 a）。
+        找不到（路径不同/未启用 session）→ []，不阻断。
+        """
+        roots = []  # type: List[str]
+        agent_dir = os.environ.get("RICK_PI_AGENT_DIR")
+        if agent_dir:
+            roots.append(os.path.join(agent_dir, "sessions"))
+        roots.append(os.path.join(os.path.expanduser("~"), ".rick", "pi",
+                                  "agent", "sessions"))
+        found = []  # type: List[str]
+        seen = set()
+        for root in roots:
+            try:
+                names = os.listdir(root)
+            except OSError:
+                continue
+            for name in names:
+                m = re.search(r"codes-iter(\d+)-", name)
+                if not m:
+                    continue
+                n = int(m.group(1))
+                if n < since_iter or n > until_iter:
+                    continue
+                path = os.path.join(root, name)
+                if path in seen:
+                    continue
+                seen.add(path)
+                found.append(path)
+        return sorted(found)
+
+    def _decisions_path(self, iteration_id: int) -> str:
+        return os.path.join(self.decisions_dir, "iter%d.md" % iteration_id)
+
+    def _decision_history(self, n: int = 3) -> List[Dict[str, Any]]:
+        """近期 adjust 决策记录摘要（防震荡/防重复处方）。"""
+        try:
+            names = [x for x in os.listdir(self.decisions_dir)
+                     if x.endswith(".md")]
+        except OSError:
+            return []
+
+        def _key(name: str) -> int:
+            m = re.match(r"iter(\d+)\.md$", name)
+            return int(m.group(1)) if m else -1
+
+        out = []  # type: List[Dict[str, Any]]
+        for name in sorted(names, key=_key, reverse=True)[:max(1, n)]:
+            path = os.path.join(self.decisions_dir, name)
+            text = self._read_text(path, 800)
+            out.append({"path": path, "digest": text})
+        return out
+
+    def _cell_descriptions(self) -> Dict[str, Any]:
+        """各格 description（四要素之 name/method/source_refs）。"""
+        out = {}  # type: Dict[str, Any]
+        for cid in self.fs.all_cells():
+            desc = self._cell_entry(cid).get("description")
+            out[cid] = desc if isinstance(desc, dict) else {}
+        return out
+
+    def _ensure_decision_file(self, iteration_id: int,
+                              proposals: List[Any], valid: bool) -> str:
+        """决策记录保底（KR3）：agent 未落盘 → 框架按提案合成最小记录。
+
+        返回 decisions 文件路径（存在即返回；不存在则合成后返回）。
+        """
+        path = self._decisions_path(iteration_id)
+        if os.path.isfile(path):
+            return path
+        lines = ["# adjust 决策记录 · 迭代 %d" % iteration_id, "",
+                 "> framework_synthesized: true"
+                 "（agent 未落盘决策记录，框架按提案合成）", "",
+                 "- agent_valid: %s" % bool(valid), "", "## 动作"]
+        if not proposals:
+            lines.append("- （无提案）")
+        for p in proposals:
+            if not isinstance(p, dict):
+                continue
+            lines.append("- **%s** %s：%s"
+                         % (p.get("type"),
+                            p.get("target_cell") or p.get("descriptor") or "",
+                            str(p.get("action") or "")[:200]))
+            ev = p.get("evidence") or p.get("rationale")
+            if ev:
+                lines.append("  - 依据：%s" % str(ev)[:300])
+        try:
+            os.makedirs(self.decisions_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+        except OSError:
+            return path
+        return path
+
+    # ---- debug 三触发（KR6） ----
+
+    def _debug_policy(self) -> Dict[str, Any]:
+        """debug 复验策略：env.json debug_policy 覆盖 conf（gen_env 追问 human）。"""
+        meta = self._load_env_meta()
+        dp = meta.get("debug_policy") if isinstance(
+            meta.get("debug_policy"), dict) else {}
+        gain = dp.get("gain_threshold_pct",
+                      self.conf.get("debug_gain_threshold_pct", 20))
+        try:
+            gain = float(gain)
+        except (TypeError, ValueError):
+            gain = 20.0
+        recheck = dp.get("recheck_tolerance_band",
+                         self.conf.get("debug_recheck_tolerance_band", True))
+        return {"gain_threshold_pct": gain,
+                "recheck_tolerance_band": bool(recheck)}
+
+    def _perf_gain_pct(self, gr: Any, cell_id: str) -> Optional[float]:
+        """本候选相对基线（该格精英 / 全局最优）的收益百分比（方向感知）。"""
+        perf = (getattr(gr, "metrics", None) or {}).get("perf") or {}
+        pv = perf.get("value")
+        if not isinstance(pv, (int, float)) or isinstance(pv, bool):
+            return None
+        ref = None  # type: Optional[float]
+        elite = self._cell_entry(cell_id).get("elite") or {}
+        ep = elite.get("perf_value")
+        if isinstance(ep, (int, float)) and not isinstance(ep, bool):
+            ref = float(ep)
+        elif isinstance(getattr(self, "_best_perf_before_iter", None),
+                        (int, float)):
+            ref = float(self._best_perf_before_iter)
+        elif isinstance(self._best_perf, (int, float)):
+            ref = float(self._best_perf)
+        if ref is None or ref == 0:
+            return None
+        pv = float(pv)
+        if self.perf_desc == "high":
+            return round((pv - ref) / abs(ref) * 100.0, 3)
+        return round((ref - pv) / abs(ref) * 100.0, 3)
+
+    def _recheck_reason(self, gr: Any, cell_id: str) -> Optional[str]:
+        """复验原因（None=不复验）：suspicious_gain / tolerance_band_recheck。"""
+        policy = self._debug_policy()
+        gain = self._perf_gain_pct(gr, cell_id)
+        thr = float(policy["gain_threshold_pct"])
+        if isinstance(gain, (int, float)) and thr > 0 and gain >= thr:
+            return "suspicious_gain"
+        if bool(getattr(gr, "tolerance_band", False)) and \
+                policy["recheck_tolerance_band"]:
+            return "tolerance_band_recheck"
+        return None
+
+    def _run_recheck_debug(self, plan: Dict[str, Any], cell_id: str,
+                           cursor: int, iter_dir: str, gr: Any,
+                           reason: str) -> Any:
+        """异常收益/容差带复验（attempt=200）：返回 (fixed_path|None, verdict)。
+
+        verdict ∈ {keep_original, fixed}（agent 契约）；缺省按 keep_original
+        处理——复验的目的是防错杀，不是制造新失败。
+        """
+        gain = self._perf_gain_pct(gr, cell_id)
+        failure = {
+            "failure_stage": None,
+            "metrics": getattr(gr, "metrics", None) or {},
+            "details": "recheck(%s): perf_gain_pct=%s" % (reason, gain),
+        }
+        self_check = {"passed": True, "stage": "recheck",
+                      "metrics": getattr(gr, "metrics", None) or {}}
+        result = self._run_debug(
+            plan, cell_id, cursor, iter_dir, attempt=200, max_attempts=1,
+            self_check=self_check,
+            last_err=json.dumps(failure, ensure_ascii=False),
+            gate_failure=failure, perf_gain_pct=gain,
+            recheck_reason=reason)
+        data = getattr(result, "data", None)
+        data = data if isinstance(data, dict) else {}
+        fix_report = data.get("fix_report") if isinstance(
+            data.get("fix_report"), dict) else {}
+        verdict = str(data.get("verdict") or fix_report.get("verdict")
+                      or "keep_original")
+        fixed = None  # type: Optional[str]
+        if verdict == "fixed":
+            fixed = self._candidate_path(result, iter_dir)
+        self.events.append("candidate_produced", {
+            "iteration_id": cursor, "cell_id": cell_id,
+            "role": "debug", "attempt": 200,
+            "code_path": fixed or "",
+            "recheck_reason": reason,
+            "verdict": verdict,
+            "fix_report": fix_report or
+            {"attempts": 200, "root_cause": None, "changes": []},
+            "self_check": {"passed": verdict != "failed",
+                           "stage": "recheck", "metrics": {}},
+        }, "agent:debug")
+        return fixed, verdict
+
+    def _emit_gate_result(self, gr: Any, cursor: int, cell_id: str,
+                          recheck: bool = False) -> None:
+        """gate_result 事件（复验时带 recheck 标记）。"""
+        payload = {
+            "iteration_id": cursor, "cell_id": cell_id,
+            "stage": getattr(gr, "failure_stage", None) or "passed",
+            "failure_stage": getattr(gr, "failure_stage", None),
+            "passed": bool(getattr(gr, "passed", False)),
+            "metrics": getattr(gr, "metrics", None) or {},
+            "details": (getattr(gr, "details", "") or "")[-400:],
+        }
+        if recheck:
+            payload["recheck"] = True
+        self.events.append("gate_result", payload, "gate")
 
     # ---- 饱和信号（task23 E 段） ----
 
