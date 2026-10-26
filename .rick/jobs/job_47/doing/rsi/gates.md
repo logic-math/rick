@@ -74,3 +74,10 @@ GATE gate20 pass=true (迭代9 L2: task46 成本 skill+cost_report+by_role；env
 GATE gate21 pass=true (迭代9 L3: task45 格锁+并发降级；413 单测)
 GATE gate22 pass=true (迭代9 L4: task47 文档 + task48 e2e；run_all 全绿)
 迭代9 全 5 task success（1380e3d3/799fc0a9/7c41c1f3/c20a4878）
+
+GATE gate23 pass=true (迭代10 L1: task49 事件并行化 experiment_id/read_experiment/interrupted_experiments)
+GATE gate24 pass=true (迭代10 L2: task51 成本优化 debug_max_turns=0 不截断 + 一次性根因协议 + 相邻格摘要)
+GATE gate25 pass=true (迭代10 L3: task50 并发槽池 max_parallel_experiments=2 + threading.local + 格锁)
+GATE gate26 pass=true (迭代10 L4: task52 e2e/成本对比 + task53 文档；run_all 全绿)
+迭代10 全 5 task success（e1ff8e2e/06a3c20a/bb263bef/887fdf98）
+成本对比验证：tokens 1.74M/迭代（-20% vs 基线 2.18M）；debug 截断 0/3（基线 12/20）；it16 门禁 soft_gate 失败→debug 救回；it17 入格 601ms；两槽并发窗口重叠实证
