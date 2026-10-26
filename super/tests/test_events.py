@@ -59,6 +59,9 @@ class TestConstants(unittest.TestCase):
             "cell_lock_resample", "cell_locked_skip", "cell_lock_overflow",
             "cell_lock_stale_recovered", "cell_lock_orphans_released",
             "parallel_degraded",
+            # 迭代10/task50：并发实验槽
+            "parallel_slots_enabled", "experiment_started",
+            "experiment_finished", "experiment_failed",
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))

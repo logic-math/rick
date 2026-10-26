@@ -224,6 +224,33 @@ def _cells_snapshot(archive: Any) -> Dict[str, Any]:
     return c or {}
 
 
+# --------------------------------------------------------------------------- #
+# 并发槽（task50）：每迭代可变状态的线程隔离
+# --------------------------------------------------------------------------- #
+# 并发实验时，迭代内的可变状态（成本累计 / 实验标记 / builder 产物 / TDD 痕迹…）
+# 必须按线程隔离：worker 线程各持一份，主线程也持一份（adjust 收尾等）。
+# 实现为 property → threading.local()，既有代码里的 self._xxx 读写全部不变。
+_ITER_TL_FIELDS = (
+    "_iter_cost", "_iter_agents", "_cur_exp_id", "_builder_outputs",
+    "_tdd_trace", "_record_updated", "_recheck_done_this_iter",
+    "_recheck_verdict", "_last_admit_verdict", "_last_reject_reason",
+    "_record_this_iter", "_best_perf_before_iter",
+)
+
+
+def _iter_tl_property(name: str) -> Any:
+    """把 ``self.<name>`` 落到 threading.local()（并发槽的迭代态隔离）。"""
+    key = "_tl_" + name
+
+    def _get(self: Any) -> Any:
+        return getattr(self._tl, key)
+
+    def _set(self: Any, value: Any) -> None:
+        setattr(self._tl, key, value)
+
+    return property(_get, _set)
+
+
 class Scheduler:
     """四状态循环调度器（superopt 心脏）。
 
@@ -238,6 +265,20 @@ class Scheduler:
                     heartbeat_interval_s, max_wall_time_h, max_iterations,
                     pi_path, ...}}
     """
+
+    # ---- 线程隔离的迭代态（task50：并发槽下每线程一份）----
+    _iter_cost = _iter_tl_property('_iter_cost')
+    _iter_agents = _iter_tl_property('_iter_agents')
+    _cur_exp_id = _iter_tl_property('_cur_exp_id')
+    _builder_outputs = _iter_tl_property('_builder_outputs')
+    _tdd_trace = _iter_tl_property('_tdd_trace')
+    _record_updated = _iter_tl_property('_record_updated')
+    _recheck_done_this_iter = _iter_tl_property('_recheck_done_this_iter')
+    _recheck_verdict = _iter_tl_property('_recheck_verdict')
+    _last_admit_verdict = _iter_tl_property('_last_admit_verdict')
+    _last_reject_reason = _iter_tl_property('_last_reject_reason')
+    _record_this_iter = _iter_tl_property('_record_this_iter')
+    _best_perf_before_iter = _iter_tl_property('_best_perf_before_iter')
 
     def __init__(self, ws: str, cfg: Dict[str, Any],
                  agent_client: Optional[Any] = None,
@@ -254,6 +295,14 @@ class Scheduler:
         conf = dict(DEFAULTS)
         conf.update(cfg.get("config") or {})
         self.conf = conf
+
+        # ---- 并发槽（task50）----
+        # _tl：每线程的迭代态（见 _ITER_TL_FIELDS）；_state_lock：共享计数
+        # （iteration_cursor / 饱和信号）的临界区；_ledger_lock：CostLedger 与
+        # 实验台账的串行写（两者内部无锁，多 worker 并发 record 会丢更新）。
+        self._tl = threading.local()
+        self._state_lock = threading.Lock()
+        self._ledger_lock = threading.Lock()
 
         self.events_path = os.path.join(self.ws, "events.jsonl")
         self.archive_path = os.path.join(self.ws, "archive.json")
@@ -414,22 +463,6 @@ class Scheduler:
         if released:
             self.events.append("cell_lock_orphans_released", {
                 "count": len(released), "cells": released[:20]}, "scheduler")
-        # 并发实验槽：当前实现仍为串行——每迭代的状态（_iter_cost/_iter_agents/
-        # builder_outputs/TDD 痕迹…）是调度器级共享态，且 worker 线程不得写
-        # events/archive（单写者纪律）。拆槽需要遍历全部事件与记账的重构，
-        # 风险高于收益（迭代9 plan 明确允许此降级）。**格级互斥已完整生效**
-        # （CellLocks：一格同时只有一个实验；跨进程文件锁）。
-        if self.max_parallel_experiments > 1:
-            self.events.append("parallel_degraded", {
-                "requested": self.max_parallel_experiments,
-                "effective": 1,
-                "reason": "per-iteration state is scheduler-scoped; "
-                          "slot refactor pending (events single-writer)",
-            }, "scheduler")
-            print("[superopt] NOTE: max_parallel_experiments=%d 降级为串行"
-                  "（并发槽未完成；格级互斥已生效）"
-                  % self.max_parallel_experiments,
-                  file=sys.stderr, flush=True)
         self._install_signal_handlers()
         # 心跳线程：长 agent 派发（真 pi 单次可达十余分钟）会阻塞主循环，
         # 若心跳只在主循环 tick 写，Go PySupervisor 会误判心跳超时→kill→重启
@@ -456,6 +489,148 @@ class Scheduler:
         return EXIT_OK
 
     def _loop(self) -> None:
+        """主循环分发（task50）：并发槽 >1 → 槽池；否则串行（原行为不变）。"""
+        if self.max_parallel_experiments > 1:
+            return self._loop_parallel()
+        return self._loop_serial()
+
+    def _alloc_cursor(self) -> int:
+        """原子分配迭代号（槽池并发起槽时唯一号源）。"""
+        with self._state_lock:
+            self.iteration_cursor += 1
+            return self.iteration_cursor
+
+    def _loop_parallel(self) -> None:
+        """并发槽池（task50）：异格并行实验，一格同时只有一个实验。
+
+        职责划分（保正确性的关键）：
+        - **主线程**：采样 + 格锁、分配迭代号、写 ``experiment_started``、
+          全局态操作（热重载/干预/裁决/epoch 复评/adjust）——仅在**无在飞槽**
+          时执行，避免与 worker 的档案变更交叠；
+        - **worker 线程**：``_step_locked``（builder/coding/debug/gate/admit），
+          事件并行写（EventWriter 锁 + experiment_id，O_APPEND 原子），
+          archive 写有 RLock，CostLedger/台账写经 ``_ledger_lock``；
+        - 格锁在 worker 的 finally 释放（异常也不漏）。
+        """
+        max_iter = int(self.conf.get("max_iterations") or 0)
+        adjust_every = int(self.conf.get("adjust_interval") or 0)
+        poll_s = max(0.05, float(self.conf.get("slot_poll_s", 0.2) or 0.2))
+        slots = {}  # type: Dict[int, Dict[str, Any]]
+        next_slot = 0
+        self.events.append("parallel_slots_enabled", {
+            "max_parallel_experiments": self.max_parallel_experiments,
+        }, "scheduler")
+        while True:
+            # ① adjust 收菜（后台线程结果 → 主线程应用）
+            self._collect_adjust()
+            # ② 收割已完成槽
+            self._reap_slots(slots)
+            if self.stop_requested:
+                break
+            if not self.ledger.within_budget():
+                self._budget_exhausted = True
+                break
+            # ③ 干预摄取每个 tick 都做（human 的 stop/降权不该被在飞槽拖延；
+            #    写入方是主线程，事件单写者语义不变）
+            self._drain_interventions()
+            if self.stop_requested:
+                break
+            # ③′ 需要改全局面貌的操作只在无在飞槽时做（热重载/裁决/epoch/adjust）
+            if not slots:
+                self._maybe_reload_feature_space()
+                self._drain_decisions()
+                if (self.iteration_cursor > 0
+                        and self.iteration_cursor % EPOCH_ITERATIONS == 0):
+                    self._reevaluate_pending()
+                if (adjust_every > 0 and self.iteration_cursor > 0
+                        and self.iteration_cursor % adjust_every == 0):
+                    self._maybe_start_adjust()
+            # ④ 补满在飞槽（每槽 = 一个实验：独占一格）
+            while (len(slots) < self.max_parallel_experiments
+                   and not self.stop_requested
+                   and (max_iter <= 0 or self.iteration_cursor < max_iter)):
+                cell_id = self._sample_and_lock()
+                if cell_id is None:
+                    break  # 全格被占/溢出停机（事件已落）
+                cursor = self._alloc_cursor()
+                exp_id = make_experiment_id(cell_id, cursor)
+                slot = next_slot
+                next_slot += 1
+                self.events.append("experiment_started", {
+                    "slot": slot, "iteration_id": cursor, "cell_id": cell_id,
+                }, "scheduler", experiment_id=exp_id)
+                th = threading.Thread(
+                    target=self._slot_worker,
+                    args=(slot, cell_id, cursor, exp_id),
+                    name="superopt-slot-%d" % slot, daemon=True)
+                slots[slot] = {"thread": th, "cell_id": cell_id,
+                               "iteration_id": cursor, "started": time.time()}
+                th.start()
+            # ⑤ 退出判据：达到迭代上限且无在飞槽
+            if (max_iter > 0 and self.iteration_cursor >= max_iter
+                    and not slots):
+                break
+            if not slots and self.stop_requested:
+                break
+            time.sleep(poll_s)
+        # ⑥ 收尾：等在飞槽优雅退出（grace 后记录超时；daemon 随进程退出）
+        self._drain_slots(slots)
+
+    def _slot_worker(self, slot: int, cell_id: str, cursor: int,
+                     exp_id: str) -> None:
+        """槽 worker：跑一次实验（已持格锁），结束时释放并落收尾事件。"""
+        t0 = time.time()
+        try:
+            self._step_locked(cell_id, cursor=cursor, exp_id=exp_id)
+        except Exception as exc:  # noqa: BLE001 —— 单实验失败不杀调度器
+            try:
+                self.events.append("experiment_failed", {
+                    "slot": slot, "iteration_id": cursor, "cell_id": cell_id,
+                    "error": str(exc)[:400],
+                }, "scheduler", experiment_id=exp_id)
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            try:
+                self.cell_locks.release(cell_id)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                self.events.append("experiment_finished", {
+                    "slot": slot, "iteration_id": cursor, "cell_id": cell_id,
+                    "wall_ms": int((time.time() - t0) * 1000),
+                }, "scheduler", experiment_id=exp_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _reap_slots(self, slots: Dict[int, Dict[str, Any]]) -> None:
+        """收割已结束的槽（非阻塞）。"""
+        for slot in list(slots):
+            th = slots[slot]["thread"]
+            if not th.is_alive():
+                th.join(timeout=0.1)
+                del slots[slot]
+
+    def _drain_slots(self, slots: Dict[int, Dict[str, Any]]) -> None:
+        """停止时等在飞槽收尾（grace 内）；超期记录 slot_stop_timeout。"""
+        grace_s = float(self.conf.get("slot_stop_grace_s", 120) or 0)
+        deadline = time.time() + max(0.0, grace_s)
+        for slot in list(slots):
+            th = slots[slot]["thread"]
+            th.join(timeout=max(0.1, deadline - time.time()))
+        leftover = [s for s, v in slots.items() if v["thread"].is_alive()]
+        if leftover:
+            try:
+                self.events.append("slot_stop_timeout", {
+                    "slots": leftover}, "scheduler")
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            for slot in list(slots):
+                slots[slot]["thread"].join(timeout=0.1)
+                del slots[slot]
+
+    def _loop_serial(self) -> None:
         max_iter = int(self.conf.get("max_iterations") or 0)
         adjust_every = int(self.conf.get("adjust_interval") or 0)
         while not self.stop_requested:
@@ -626,22 +801,31 @@ class Scheduler:
         except Exception:  # noqa: BLE001 —— 事件写失败不破坏锁语义
             pass
 
-    def _step_locked(self, cell_id: str) -> None:
+    def _step_locked(self, cell_id: str,
+                     cursor: Optional[int] = None,
+                     exp_id: Optional[str] = None) -> None:
         """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。
 
         task49：本迭代 = 一次实验，唯一标记 ``experiment_id``（格+迭代号）；
         迭代内全部事件都带该标记（并行写入时用 read_experiment / grep 还原
         单实验事件流），运维事件（心跳/干预/裁决）不带。
         """
-        self.iteration_cursor += 1
-        cursor = self.iteration_cursor
+        # 并发槽（task50）：迭代号与实验标记由主线程在起槽时分配（原子），
+        # 串行路径（_step）未传入时在此分配——两条路径语义一致。
+        if cursor is None:
+            cursor = self._alloc_cursor()
+        if exp_id is None:
+            exp_id = make_experiment_id(cell_id, cursor)
         # 实验标记（格 + 迭代号；cell_safe 形态，见 events.make_experiment_id）
-        self._cur_exp_id = make_experiment_id(cell_id, cursor)
+        self._cur_exp_id = exp_id
         iter_started = time.time()
         self._iter_cost = {"wall_ms": 0.0, "tool_calls": 0.0,
                            "tokens": 0.0, "cost_usd": 0.0}
-        self._iter_agents = dict(self._adjust_stats_carry)  # adjust 收集侧归属
-        self._adjust_stats_carry = {}
+        with self._state_lock:
+            # adjust 收集侧归属：拷贝并清空（多槽并发时只归属到第一个开跑的槽，
+            # 避免重复计入）
+            self._iter_agents = dict(self._adjust_stats_carry)
+            self._adjust_stats_carry = {}
         self._best_perf_before_iter = self._best_perf  # ledger perf_delta 基准
         self._last_admit_verdict = ""
         self._last_reject_reason = ""
@@ -706,17 +890,19 @@ class Scheduler:
                     candidate = None
         # else：coding/debug 全失败 → 已记失败事件，跳过终验（本迭代无产出）
 
-        # ---- 饱和状态维护（task23 E 段：每迭代完一次） ----
-        if not self._record_this_iter:
-            self._stale_iters += 1
-        else:
-            self._stale_iters = 0
-        # 冠军格连续未刷新计数：本迭代采了当前冠军格且无新纪录 → miss+1
-        champ = self._champion_cell()
-        if champ is not None and champ == cell_id and not self._record_this_iter:
-            self._champion_misses += 1
-        elif self._record_this_iter:
-            self._champion_misses = 0
+        # ---- 饱和状态维护（task23 E 段：每迭代完一次；并发槽下共享计数加锁）----
+        with self._state_lock:
+            if not self._record_this_iter:
+                self._stale_iters += 1
+            else:
+                self._stale_iters = 0
+            # 冠军格连续未刷新计数：本迭代采了当前冠军格且无新纪录 → miss+1
+            champ = self._champion_cell()
+            if (champ is not None and champ == cell_id
+                    and not self._record_this_iter):
+                self._champion_misses += 1
+            elif self._record_this_iter:
+                self._champion_misses = 0
 
         # ---- 收尾 ----
         wall_ms = int((time.time() - iter_started) * 1000)
@@ -1272,7 +1458,8 @@ class Scheduler:
             "reject_reason": reject_reason,
             "agents": dict(self._iter_agents),
         }
-        self.exp_ledger.append(entry)
+        with self._ledger_lock:  # 台账是共享文件：并发槽串行追加
+            self.exp_ledger.append(entry)
 
     def _admit(self, candidate: str, cell_id: str, cursor: int,
                plan: Dict[str, Any], gr: Any, had_elite: bool) -> None:
@@ -1469,9 +1656,10 @@ class Scheduler:
             adjust_dir = self._adjust_dir or os.path.join(
                 self.codes_dir, "adjust", "iter_%d" % iteration_id)
         # ---- 以下与 _dispatch_agent 的收尾同构（主线程执行） ----
-        self.ledger.record_agent("adjust", int(pending.wall_ms),
-                                 len(pending.tool_calls or []),
-                                 dict(pending.usage or {}))
+        with self._ledger_lock:
+            self.ledger.record_agent("adjust", int(pending.wall_ms),
+                                     len(pending.tool_calls or []),
+                                     dict(pending.usage or {}))
         self._iter_cost["wall_ms"] = self._iter_cost.get("wall_ms", 0.0) \
             + float(pending.wall_ms or 0)
         self._iter_cost["tool_calls"] = self._iter_cost.get("tool_calls", 0.0) \
@@ -1488,13 +1676,14 @@ class Scheduler:
         self.events.append("agent_ended", payload, "scheduler",
                            experiment_id=make_experiment_id("adjust",
                                                             iteration_id))
-        # adjust 统计暂存（下一个 _step 头部并入 _iter_agents）
-        self._adjust_stats_carry["adjust"] = {
-            "wall_ms": int(pending.wall_ms or 0),
-            "tokens": int((pending.usage or {}).get("total_tokens") or 0),
-            "tool_calls": len(pending.tool_calls or []),
-            "truncated": bool(getattr(pending, "truncated", False)),
-        }
+        # adjust 统计暂存（下一个 _step 头部并入 _iter_agents；加锁防并发槽竞争）
+        with self._state_lock:
+            self._adjust_stats_carry["adjust"] = {
+                "wall_ms": int(pending.wall_ms or 0),
+                "tokens": int((pending.usage or {}).get("total_tokens") or 0),
+                "tool_calls": len(pending.tool_calls or []),
+                "truncated": bool(getattr(pending, "truncated", False)),
+            }
         # 决策快照按迭代归档（task19）：agent_adjust.json 落 iter_N 目录
         # （不覆盖写——历史轨迹完整保留，自改进分析的物证）
         try:
@@ -2505,13 +2694,14 @@ class Scheduler:
         if not isinstance(perf_value, (int, float)):
             return
         v = float(perf_value)
-        improved = (self._best_perf is None or
-                    (v > self._best_perf if self.perf_desc == "high"
-                     else v < self._best_perf))
-        if improved:
-            self._best_perf = v
-            self._record_this_iter = True
-            self._champion_misses = 0
+        with self._state_lock:
+            improved = (self._best_perf is None or
+                        (v > self._best_perf if self.perf_desc == "high"
+                         else v < self._best_perf))
+            if improved:
+                self._best_perf = v
+                self._record_this_iter = True
+                self._champion_misses = 0
 
 
     def _proposal_digest(self, proposals: List[Any]) -> List[Dict[str, Any]]:
@@ -2865,9 +3055,10 @@ class Scheduler:
             getattr(result, "truncated", False))
         self._iter_agents[role] = acc
         # 记账 + 事件
-        self.ledger.record_agent(role, int(result.wall_ms),
-                                 len(result.tool_calls or []),
-                                 dict(result.usage or {}))
+        with self._ledger_lock:  # CostLedger 内部无锁；并发槽需串行化
+            self.ledger.record_agent(role, int(result.wall_ms),
+                                     len(result.tool_calls or []),
+                                     dict(result.usage or {}))
         self._iter_cost["wall_ms"] = self._iter_cost.get("wall_ms", 0.0) \
             + float(result.wall_ms or 0)
         self._iter_cost["tool_calls"] = self._iter_cost.get("tool_calls", 0.0) \

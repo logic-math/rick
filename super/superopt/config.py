@@ -14,9 +14,10 @@
   event_fsync=True（事件落盘 fsync 开关；高频事件可关，由 close/flush 兜底）/
   debug_gain_threshold_pct=20 / debug_recheck_tolerance_band=True
   （门禁通过后的异常收益/容差带复验；env.json debug_policy 可覆盖）/
-  max_parallel_experiments=1（并发实验槽；当前降级为串行——见 loop 事件
-  parallel_degraded）/ cell_lock_ttl_s=3600 / cell_lock_max_skips=60 /
-  cell_lock_skip_sleep_s=1.0（格级互斥，迭代9）。
+  max_parallel_experiments=2（并发实验槽：异格并行，一格同时只有一个实验；
+  迭代10/task50 已启用槽池——见 loop 事件 parallel_slots_enabled /
+  experiment_started / experiment_finished）/ cell_lock_ttl_s=3600 /
+  cell_lock_max_skips=60 / cell_lock_skip_sleep_s=1.0（格级互斥，迭代9）。
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 联合类型注解）。
 """
@@ -71,10 +72,11 @@ DEFAULTS: Dict[str, Any] = {
     # 实验 = 一次特征格上的迭代；**同一格同时只有一个实验**（builder/coding/
     # debug 在该格上顺序协作），不同格可并行。互斥由 CellLocks 双保险实现
     # （进程内集合 + <ws>/locks 文件锁，跨进程也成立）。
-    # max_parallel_experiments 是并发槽开关：>1 时当前实现会**降级为串行**
+    # max_parallel_experiments 是并发槽开关：>1 时启用槽池（异格并行实验；
+    # 同一格由 CellLocks 互斥，保证一格同时只有一个实验）。默认 2；1=纯串行。
     # （每迭代状态是调度器级共享态、worker 不得写 events/archive；拆槽重构
     # 未完成）——降级事实经 `parallel_degraded` 事件显式记录，不静默。
-    "max_parallel_experiments": 1,
+    "max_parallel_experiments": 2,
     "cell_lock_ttl_s": 3600,        # 格锁陈旧回收阈值（秒；<=0 关闭 TTL）
     "cell_lock_max_skips": 60,      # 连续「全格被占」跳过上限 → 优雅停
     "cell_lock_skip_sleep_s": 1.0,  # 每次跳过的等待（秒）

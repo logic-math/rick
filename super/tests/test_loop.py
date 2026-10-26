@@ -30,6 +30,7 @@ import random
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from typing import Any, Dict, List, Optional
@@ -250,6 +251,9 @@ class LoopTestBase(unittest.TestCase):
                 "heartbeat_interval_s": 0,  # 每迭代都写心跳（测试可断言）
                 "max_wall_time_h": 0,       # 不限时
                 "max_iterations": 0,
+                # 测试默认**串行**（确定性：事件顺序/调整节奏断言都基于串行）；
+                # 并发槽用例（TestParallelSlots）显式设 2（生产默认 2）
+                "max_parallel_experiments": 1,
                 "pi_path": "/nonexistent-pi",
             },
         }
@@ -2265,16 +2269,26 @@ class TestCellLockIntegration(LoopTestBase):
         self.assertEqual(ev[0]["payload"]["count"], 1)
         self.assertEqual(len(self.events_of("cell_sampled")), 1)
 
-    def test_parallel_requested_degrades_with_event(self):
-        """max_parallel_experiments>1 → 显式降级事件（不静默；行为仍串行）。"""
+    def test_parallel_requested_enables_slot_pool(self):
+        """max_parallel_experiments>1 → 槽池开启（task50：不再降级）。
+
+        断言：parallel_slots_enabled 事件 + 每实验 experiment_started/finished
+        成对出现，且实验事件可按 experiment_id 还原。
+        """
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 1, "max_parallel_experiments": 2,
             "cell_lock_skip_sleep_s": 0})
         sched.run()
-        ev = self.events_of("parallel_degraded")
+        ev = self.events_of("parallel_slots_enabled")
         self.assertEqual(len(ev), 1)
-        self.assertEqual(ev[0]["payload"]["requested"], 2)
-        self.assertEqual(ev[0]["payload"]["effective"], 1)
+        self.assertEqual(ev[0]["payload"]["max_parallel_experiments"], 2)
+        self.assertEqual(len(self.events_of("parallel_degraded")), 0)
+        started = self.events_of("experiment_started")
+        finished = self.events_of("experiment_finished")
+        self.assertEqual(len(started), 1)
+        self.assertEqual(len(finished), 1)
+        self.assertEqual(started[0]["experiment_id"],
+                         finished[0]["experiment_id"])
         self.assertEqual(len(self.events_of("iteration_started")), 1)
 
     def test_lock_released_after_each_iteration(self):
@@ -2503,3 +2517,176 @@ class TestCostReduction(LoopTestBase):
                                                     "event_fsync": False})
         self.assertIs(sched2.events._event_fsync, False,
                       "event_fsync=False 应透传到写器")
+
+
+# --------------------------------------------------------------------------- #
+# 并发槽池（task50）：异格并行实验；一格同时只有一个实验
+# --------------------------------------------------------------------------- #
+
+class _SlowFakeClient(FakeAgentClient):
+    """带延迟的 fake client（并发槽测试：让两实验的时间窗交叠）。
+
+    FakeAgentClient 内部脚本队列不是线程安全的；并发调用时用锁串行取脚本，
+    保证断言确定性（延迟仍在锁外，模拟真实 agent 的耗时）。
+    """
+
+    def __init__(self, delay_s: float = 0.25):
+        FakeAgentClient.__init__(self)
+        self.delay = delay_s
+        self._q_lock = threading.Lock()
+
+    def run(self, role: str, prompt_path: str, workdir: str,
+            timeout_s: int = 1800, model: Optional[str] = None,
+            max_turns: Optional[int] = None) -> Any:
+        time.sleep(self.delay)
+        with self._q_lock:
+            return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                       timeout_s, model, max_turns)
+
+
+class _SlowFakeGate(FakeGate):
+    """线程安全的脚本化门（并发槽下多 worker 同时 verify）。"""
+
+    def __init__(self, preverify_ok: bool = True):
+        FakeGate.__init__(self, preverify_ok)
+        self._g_lock = threading.Lock()
+
+    def verify(self, candidate_dir: str,
+               elite_perf: Optional[float] = None,
+               history: Optional[List[float]] = None) -> Any:
+        with self._g_lock:
+            return FakeGate.verify(self, candidate_dir, elite_perf, history)
+
+
+class TestParallelSlots(LoopTestBase):
+    """并发槽池（task50）行为断言。
+
+    ①②③④⑤⑥ 对应 task50 规格的六条验收：
+      ① 2 槽并行跑 2 个不同格（时间窗交叠）
+      ② 同一格不被两槽并发（锁拒绝/重采样/溢出停机）
+      ③ 事件按 experiment_id 还原互不污染（experiment_seq 连续）
+      ④ archive 入档无丢失（并发各入一格）
+      ⑤ stop 时在飞槽优雅收尾（无残留格锁）
+      ⑥ 只有 1 格时退化为串行（时间窗不重叠）
+    """
+
+    def _setup_parallel(self, max_iter: int = 2, delay: float = 0.25,
+                        parallel: int = 2, **extra: Any):
+        client = _SlowFakeClient(delay)
+        client.queue("builder", [_builder_result() for _ in range(6)])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)
+                                for _ in range(6)])
+        gate = _SlowFakeGate()
+        for _ in range(6):
+            gate.queue(_gate_pass(100.0))
+        cfg = {"max_iterations": max_iter,
+               "max_parallel_experiments": parallel,
+               "cell_lock_skip_sleep_s": 0,
+               "slot_poll_s": 0.02,
+               "heartbeat_interval_s": 0}
+        cfg.update(extra)
+        return self.make_scheduler(cfg_overrides=cfg, client=client, gate=gate)
+
+    def _exp_windows(self) -> Dict[str, Dict[str, int]]:
+        """experiment_id → {experiment_started: seq, experiment_finished: seq}。"""
+        out: Dict[str, Dict[str, int]] = {}
+        for e in self.read_events():
+            if e["type"] in ("experiment_started", "experiment_finished"):
+                out.setdefault(e["experiment_id"], {})[e["type"]] = e["seq"]
+        return out
+
+    # ① 2 槽并行跑 2 个不同格（时间窗交叠）
+    def test_two_slots_run_two_cells_in_parallel(self):
+        sched = self._setup_parallel(max_iter=2)
+        sched.run()
+        starts = self.events_of("experiment_started")
+        self.assertEqual(len(starts), 2)
+        self.assertEqual(len(self.events_of("experiment_finished")), 2)
+        self.assertEqual(len({e["payload"]["cell_id"] for e in starts}), 2,
+                         "两槽应跑两个不同格")
+        wins = self._exp_windows()
+        self.assertEqual(len(wins), 2)
+        by_start = sorted((v["experiment_started"], k) for k, v in wins.items())
+        first_id = by_start[0][1]
+        second_id = by_start[1][1]
+        self.assertLess(
+            wins[second_id]["experiment_started"],
+            wins[first_id]["experiment_finished"],
+            "并行时第二槽的起跑应先于第一槽的收尾（时间窗交叠）")
+
+    # ② 同一格不被两槽并发（全格被占 → skip → overflow 优雅停）
+    def test_same_cell_never_double_occupied(self):
+        sched = self._setup_parallel(max_iter=5, delay=0.4, parallel=2,
+                                     cell_lock_max_skips=2)
+        cells = sched.fs.all_cells()
+        for cid in cells[1:]:
+            sched.archive.set_weight(cid, 0.0)
+        sched.archive.save()
+        sched.run()
+        starts = self.events_of("experiment_started")
+        self.assertEqual(len(starts), 1, "唯一存活格只能被一个实验占用")
+        self.assertGreaterEqual(len(self.events_of("cell_locked_skip")), 1,
+                                "撞锁应有 skip 事件（不静默）")
+        self.assertEqual(len(self.events_of("cell_lock_overflow")), 1,
+                         "连续跳过超上限 → overflow 优雅停")
+
+    # ③ 事件按 experiment_id 还原互不污染
+    def test_event_stream_restorable_per_experiment(self):
+        sched = self._setup_parallel(max_iter=2)
+        sched.run()
+        ids = {e["experiment_id"] for e in self.events_of("experiment_started")}
+        self.assertEqual(len(ids), 2)
+        for exp in sorted(ids):
+            evs = sched.events.read_experiment(exp)
+            types = [e["type"] for e in evs]
+            self.assertIn("experiment_started", types)
+            self.assertIn("iteration_started", types)
+            self.assertIn("iteration_ended", types)
+            self.assertIn("experiment_finished", types)
+            seqs = [e["experiment_seq"] for e in evs]
+            self.assertEqual(seqs, list(range(1, len(evs) + 1)),
+                             "实验内 experiment_seq 必须 1..n 连续：%s" % exp)
+
+    # ④ archive 并发入档无丢失
+    def test_archive_admits_both_cells(self):
+        sched = self._setup_parallel(max_iter=2)
+        sched.run()
+        arch = self.read_archive()
+        elites = [c for c in arch["cells"].values() if c.get("elite")]
+        self.assertEqual(len(elites), 2, "两槽各入一格，档案不得丢更新")
+        for c in elites:  # 五要素（task44）在并发路径同样成立
+            self.assertIn("elite_code_path", c)
+
+    # ⑤ stop 时在飞槽优雅收尾
+    def test_stop_drains_inflight_slots(self):
+        sched = self._setup_parallel(max_iter=10, delay=0.3, parallel=2,
+                                     slot_stop_grace_s=15)
+        th = threading.Thread(target=sched.run, daemon=True)
+        th.start()
+        time.sleep(0.6)
+        sched.stop_requested = True
+        th.join(timeout=20)
+        self.assertFalse(th.is_alive(), "stop 后在飞槽应在 grace 内收尾")
+        for cid in sched.fs.all_cells():
+            self.assertFalse(sched.cell_locks.locked(cid),
+                             "收尾后不得残留格锁：%s" % cid)
+
+    # ⑥ 只有 1 格时退化为串行（两实验不重叠）
+    def test_single_alive_cell_runs_serially(self):
+        sched = self._setup_parallel(max_iter=2, delay=0.15, parallel=2,
+                                     cell_lock_max_skips=1000)
+        cells = sched.fs.all_cells()
+        for cid in cells[1:]:
+            sched.archive.set_weight(cid, 0.0)
+        sched.archive.save()
+        sched.run()
+        self.assertEqual(len(self.events_of("experiment_started")), 2,
+                         "同一格的两个实验都应完成（锁释放后重试成功）")
+        wins = self._exp_windows()
+        by_start = sorted((v["experiment_started"], k) for k, v in wins.items())
+        first_id = by_start[0][1]
+        second_id = by_start[1][1]
+        self.assertLess(
+            wins[first_id]["experiment_finished"],
+            wins[second_id]["experiment_started"],
+            "同格串行：第二个实验必须在第一个收尾之后才起跑")
