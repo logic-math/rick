@@ -607,6 +607,12 @@ class Scheduler:
             "tokens": int(self._iter_cost.get("tokens", 0.0)),
             "cost_usd": round(float(self._iter_cost.get("cost_usd", 0.0)), 6),
             "had_candidate": candidate is not None,
+            # 成本可解释性（task46）：本迭代按角色的 token/wall/tool_calls 归属
+            # ——每次迭代的成本可归因到 agent（cost_report 与 adjust 决策共用）
+            "by_role": {r: {"tokens": int(a.get("tokens") or 0),
+                             "wall_ms": int(a.get("wall_ms") or 0),
+                             "tool_calls": int(a.get("tool_calls") or 0)}
+                        for r, a in self._iter_agents.items()},
             # 迭代8：builder 产物校验 / coding TDD 痕迹 / debug 复验结论
             # （事件标注，缺失即质量缺口——trajectory 分析与自改进读这些）
             "builder_outputs": dict(self._builder_outputs),
@@ -1363,6 +1369,7 @@ class Scheduler:
         self._adjust_stats_carry["adjust"] = {
             "wall_ms": int(pending.wall_ms or 0),
             "tokens": int((pending.usage or {}).get("total_tokens") or 0),
+            "tool_calls": len(pending.tool_calls or []),
             "truncated": bool(getattr(pending, "truncated", False)),
         }
         # 决策快照按迭代归档（task19）：agent_adjust.json 落 iter_N 目录
@@ -2708,11 +2715,15 @@ class Scheduler:
             from superopt.agents import AgentResult as _AR
             result = _AR(role=role, valid=False, summary="agent error: %s" % exc)
         # 本迭代 agent 统计（ledger 条目用；同 role 多次运行累加）
+        # tool_calls 亦累加——iteration_ended.by_role 的成本可解释性需要
+        # 「每角色花了多少 token / 刷了多少工具调用」同帧可读（task46）
         acc = self._iter_agents.get(role) or {"wall_ms": 0, "tokens": 0,
-                                              "truncated": False}
+                                              "tool_calls": 0, "truncated": False}
         acc["wall_ms"] = int(acc["wall_ms"]) + int(getattr(result, "wall_ms", 0) or 0)
         acc["tokens"] = int(acc["tokens"]) + int(
             (result.usage or {}).get("total_tokens") or 0)
+        acc["tool_calls"] = int(acc.get("tool_calls") or 0) + len(
+            result.tool_calls or [])
         acc["truncated"] = bool(acc["truncated"]) or bool(
             getattr(result, "truncated", False))
         self._iter_agents[role] = acc

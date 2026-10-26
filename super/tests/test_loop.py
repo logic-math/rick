@@ -2107,3 +2107,81 @@ class TestFiveElementsInLoop(LoopTestBase):
         cid = next(iter(cells))
         self.assertEqual(sched.archive.get_record_path(cid),
                          cells[cid]["elite_record_path"])
+
+
+class TestCostAttribution(LoopTestBase):
+    """task46：iteration_ended.by_role —— 每迭代成本按角色归因（可解释性）。
+
+    口径：每次 agent 派发的 usage.total_tokens / wall_ms / tool_calls 累加到
+    该 role；iteration_ended 同帧暴露 by_role（cost_report 与 adjust 决策共用）。
+    """
+
+    @staticmethod
+    def _with_cost(result, tokens, wall_ms, tool_calls):
+        result.usage = {"input_tokens": tokens - 30, "output_tokens": 20,
+                        "cache_read": 10, "cache_write": 0,
+                        "total_tokens": tokens, "cost_usd": 0.001}
+        result.wall_ms = wall_ms
+        result.tool_calls = ["tool%d" % i for i in range(tool_calls)]
+        return result
+
+    def test_by_role_structure_and_totals(self):
+        """builder+coding 各一次 → by_role 各 role 的 tokens/wall/tool_calls 精确。"""
+        client = FakeAgentClient()
+        client.queue("builder", [self._with_cost(_builder_result(), 320, 1200, 2)])
+        client.queue("coding", [self._with_cost(
+            _coding_result(diff_path=self.cand_file), 640, 3400, 1)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        self.assertIn("by_role", ev, "iteration_ended 缺 by_role（成本可解释性）")
+        by_role = ev["by_role"]
+        self.assertEqual(set(by_role), {"builder", "coding"})
+        for role in ("builder", "coding"):
+            self.assertEqual(set(by_role[role]), {"tokens", "wall_ms", "tool_calls"})
+        self.assertEqual(by_role["builder"],
+                         {"tokens": 320, "wall_ms": 1200, "tool_calls": 2})
+        self.assertEqual(by_role["coding"],
+                         {"tokens": 640, "wall_ms": 3400, "tool_calls": 1})
+        # 与迭代合计一致（tokens 是各 role 之和）
+        self.assertEqual(ev["tokens"], 960)
+
+    def test_by_role_includes_adjust_carry(self):
+        """adjust 在边界触发 → 其成本并入下一迭代的 by_role。"""
+        client = FakeAgentClient()
+        client.queue("builder", [self._with_cost(_builder_result(), 100, 500, 1)])
+        client.queue("coding", [self._with_cost(
+            _coding_result(diff_path=self.cand_file), 200, 800, 1)])
+        client.queue("adjust", [self._with_cost(
+            _adjust_result([{"type": "soft_weight", "target_cell": "x",
+                             "action": "weight=0.5", "evidence": "seq 1"}]), 50, 300, 3)])
+        # 主循环顺序：collect → adjust 边界触发 → _step。adjust 在 iter1 末尾
+        # 边界启动，iter3 顶部被 collect（carry 并入 iter3 的 _iter_agents）
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                   "adjust_interval": 1},
+                                    client=client)
+        sched.run()
+        iters = self.events_of("iteration_ended")
+        self.assertGreaterEqual(len(iters), 3)
+        found = [e for e in iters if "adjust" in (e["payload"].get("by_role") or {})]
+        self.assertTrue(found, "adjust 成本应并入后续迭代的 by_role")
+        self.assertEqual(found[0]["payload"]["by_role"]["adjust"],
+                         {"tokens": 50, "wall_ms": 300, "tool_calls": 3})
+
+    def test_by_role_aggregates_repeated_role(self):
+        """同 role 多次派发（debug 修复循环）→ by_role 累加。"""
+        client = FakeAgentClient()
+        client.queue("builder", [self._with_cost(_builder_result(), 100, 500, 1)])
+        client.queue("coding", [self._with_cost(
+            _coding_result(passed=False), 200, 900, 1)])
+        client.queue("debug", [self._with_cost(_debug_result(passed=False), 70, 400, 2),
+                               self._with_cost(_debug_result(passed=True), 30, 200, 2)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1,
+                                                   "debug_max_attempts": 3},
+                                    client=client)
+        sched.run()
+        ev = self.events_of("iteration_ended")[-1]["payload"]
+        # 自检失败 → debug 循环；两次 debug 的 tokens/wall/tool_calls 累加
+        self.assertEqual(ev["by_role"]["debug"],
+                         {"tokens": 100, "wall_ms": 600, "tool_calls": 4})
