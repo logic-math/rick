@@ -7,20 +7,33 @@ events.jsonl 一行一事件（紧凑 JSON），py 调度器进程是唯一写�
   - 事件信封五字段：{ts, seq, type, source, payload}
     ts   RFC3339 带时区（domain/bugs.md 坑位：无时区会被 Go time.Parse 拒绝；
          项目惯例固定 +08:00，与 archive/config 一致）
-    seq  单调递增，从 1 起；重开（模拟重启）从「既有最大 seq+1」续号不回退
+    seq  进程内尽力递增，从 1 起；重开（模拟重启）从「既有最大 seq+1」续号
     type ∈ EVENT_TYPES（设计树 §2.2 定稿 19 类 + task19 adjust_decision）
     source ∈ {scheduler, gate, human, adjudicator, agent:<adjust|builder|coding|debug>}
     payload dict，必填字段见 EVENT_SCHEMAS
-  - 每次 append 后 flush + fsync（崩溃安全：返回即已落盘）
+  - 每次 append 后 flush（+ fsync，可关：见下）
   - 截断容错：读取端跳过坏行/半行；重开时若文件尾部是半写行（无换行结尾），
     先补一个换行符「封口」——恢复后的新事件不与残行粘连成坏行
   - append-only 硬约束：只追加，绝不读改写已有字节
 
+迭代 10 / task49：**实验维度的并行写入**（human 裁决）
+  - 「格子 + 迭代号」= 一次实验（experiment）的唯一标记：
+    ``experiment_id = "<cell_safe>#iter<N>"``（cell_safe = 非字母数字 → ``_``），
+    由 ``make_experiment_id(cell_id, iteration_id)`` 生成
+  - 实验内序号 ``experiment_seq`` 单调递增（1 起，重开时从既有事件扫描恢复）
+  - **seq 语义降级声明**：``seq`` 仅在单写者进程内尽力递增；**并行写入时不再
+    保证全局唯一/单调**。定位与还原请用 ``(experiment_id, experiment_seq)``
+    （或直接 ``read_experiment(experiment_id)``）；全局时间顺序看 ``ts``。
+    既有消费方：gates.py / adjust_trace.py / cost_report.py 只读 payload（不受
+    影响）；lineage.project_state 的游标已改为「已完成迭代的 max iteration_id」，
+    不依赖全局 seq 单调。
+  - **并行写安全**：一行一次 ``write``（O_APPEND 下 POSIX 单行 <4KB 原子）；
+    进程内仍用 ``threading.Lock`` 保护多线程 append 的 experiment_seq 计数
+  - ``event_fsync`` 实例开关（默认 True）：高频实验事件可关 fsync，退出时统一
+    flush（``close()`` 已 flush；崩溃时未 fsync 的尾行可能丢——由截断容错容忍）
+
 validate_event 是事件 schema 的唯一裁决点：EventWriter.append 写前校验
 （违规抛 ValueError，坏事件不落盘），测试与层门禁（gate）复用同一函数。
-
-与并行层（task2 archive / task3 sampler / task4 config·lineage）零 import 耦合：
-lineage.py 以字面量消费事件类型名，两边以设计树 §2.2 为对齐事实源。
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 X|Y 联合类型注解，用 Optional[...]）。
 """
@@ -29,7 +42,7 @@ import os
 import re
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 __all__ = [
     "EVENT_TYPES",
@@ -37,6 +50,8 @@ __all__ = [
     "SOURCES",
     "AGENT_SOURCES",
     "EventWriter",
+    "cell_safe",
+    "make_experiment_id",
     "validate_event",
 ]
 
@@ -123,6 +138,24 @@ _TS_RE = re.compile(
 )
 
 _ENVELOPE_KEYS = ("ts", "seq", "type", "source", "payload")
+_OPTIONAL_KEYS = ("experiment_id", "experiment_seq")
+
+# experiment_id 形态：<cell_safe 或角色名>#iter<N>（cell_safe 只含 [A-Za-z0-9_]）
+_EXP_ID_RE = re.compile(r"^[A-Za-z0-9_]+#iter\d+$")
+
+
+def cell_safe(cell_id: str) -> str:
+    """cell_id → 可安全进 experiment_id / 文件名的形态（非字母数字 → _）。"""
+    return re.sub(r"[^A-Za-z0-9]", "_", cell_id or "")
+
+
+def make_experiment_id(cell_id: str, iteration_id: Any) -> str:
+    """「格子 + 迭代号」= 一次实验的唯一标记（task49）。
+
+    例：``make_experiment_id("impl=a|mem=b", 7)`` → ``"impl_a_mem_b#iter7"``。
+    adjust 等非实验事件也可用 ``"adjust#iter7"`` 这类角色 id（同一形态）。
+    """
+    return "%s#iter%s" % (cell_safe(cell_id), iteration_id)
 
 # last_seq 反向扫描的初始窗口（字节），不足时按 8 倍扩到全文件
 _SCAN_WINDOW = 4096
@@ -189,6 +222,20 @@ def validate_event(ev: Any) -> List[str]:
             if field not in payload:
                 errors.append(
                     "payload of %r missing required field %r" % (etype, field))
+
+    # ---- 实验维度（task49，可选字段）----
+    eid = ev.get("experiment_id")
+    eseq = ev.get("experiment_seq")
+    if eid is not None:
+        if not isinstance(eid, str) or not _EXP_ID_RE.match(eid):
+            errors.append(
+                "experiment_id must match '<name>#iter<N>', got %r" % (eid,))
+        if eseq is None or not _is_int(eseq) or eseq < 1:
+            errors.append(
+                "experiment_seq must be a positive int when experiment_id "
+                "is present, got %r" % (eseq,))
+    elif eseq is not None:
+        errors.append("experiment_seq requires experiment_id")
     return errors
 
 
@@ -228,6 +275,45 @@ def _scan_last_seq(path: str) -> int:
             window *= 8
 
 
+def _iter_file_events(path: str):
+    """逐行读事件文件（坏行/半行跳过，不抛异常）。文件不存在 → 无输出。
+
+    读取端容错：追加中的半行（无换行）与非法 JSON 行都被跳过；
+    并行写入下也只影响正在写的那一行。
+    """
+    try:
+        f = open(path, "r", encoding="utf-8")
+    except FileNotFoundError:
+        return
+    with f:
+        for line in f:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                ev = json.loads(stripped)
+            except ValueError:
+                continue
+            if isinstance(ev, dict):
+                yield ev
+
+
+def _scan_experiment_seqs(path: str) -> Dict[str, int]:
+    """扫描既有事件，恢复每个 experiment_id 的当前最大 experiment_seq。
+
+    task49：实验内序号必须跨重启继续（同一次实验不会因进程重启而重号）。
+    """
+    out = {}  # type: Dict[str, int]
+    for ev in _iter_file_events(path):
+        eid = ev.get("experiment_id")
+        seq = ev.get("experiment_seq")
+        if not isinstance(eid, str) or not _is_int(seq):
+            continue
+        if seq > out.get(eid, 0):
+            out[eid] = seq
+    return out
+
+
 class EventWriter:
     """append-only 事件日志写入器（单写者，不做进程锁——架构保证）。
 
@@ -245,26 +331,40 @@ class EventWriter:
       - 崩溃重启后由调用方用 read_all()/last_seq() 做游标重放投影。
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, event_fsync: bool = True) -> None:
         self._path = path
         self._closed = False
         self._fh = open(path, "a", encoding="utf-8")
         self._seal_truncated_tail()
         self._next_seq = _scan_last_seq(path) + 1
+        # task49：实验内序号计数（跨重启从既有事件恢复，同实验不重号）
+        self._exp_seq = _scan_experiment_seqs(path)  # type: Dict[str, int]
+        # fsync 开关（默认 True 保守；高频实验事件可关，由 close/flush 兼容）
+        self._event_fsync = bool(event_fsync)
         # 线程锁：调度器心跳线程与主循环同进程并发 append（跨进程仍是单写者架构保证）
         self._lock = threading.Lock()
 
     # ---- 写 ----
 
-    def append(self, type: str, payload: dict, source: str) -> int:
+    def append(self, type: str, payload: dict, source: str,
+               experiment_id: Optional[str] = None,
+               fsync: Optional[bool] = None) -> int:
         """追加一条事件，返回其 seq。
 
-        写前用 validate_event 校验：schema 违规抛 ValueError，坏事件不落盘
-        （单写者自己写的事件必须当场合规，契约违例要在写入点暴露）。
-        写后 flush + fsync——返回即已落盘。
+        ``experiment_id``（task49）：给定时自动分配该实验的 ``experiment_seq``
+        （1 起、单调、跨重启续号）；为 None 时该事件是「运维/全局」事件
+        （session/heartbeat/intervention 等），不带实验字段。
+
+        ``fsync``：None → 用实例默认（``event_fsync``）；True/False 覆盖。
+
+        写前用 validate_event 校验：schema 违规抛 ValueError，坏事件不落盘。
+        线程安全（心跳线程/并发实验同进程写）；**seq 仅进程内尽力递增**，
+        并行场景请用 (experiment_id, experiment_seq) 定位事件流
+        （见模块 docstring 的 seq 语义降级声明）。
         """
         if self._closed:
             raise ValueError("EventWriter is closed")
+        do_fsync = self._event_fsync if fsync is None else bool(fsync)
         with self._lock:
             seq = self._next_seq
             ev = {
@@ -274,35 +374,59 @@ class EventWriter:
                 "source": source,
                 "payload": payload,
             }
+            if experiment_id is not None:
+                if not isinstance(experiment_id, str) or not experiment_id:
+                    raise ValueError(
+                        "experiment_id must be a non-empty str, got %r"
+                        % (experiment_id,))
+                eseq = self._exp_seq.get(experiment_id, 0) + 1
+                ev["experiment_id"] = experiment_id
+                ev["experiment_seq"] = eseq
             errors = validate_event(ev)
             if errors:
                 raise ValueError("invalid event: " + "; ".join(errors))
             line = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
+            # 单次 write 一行：O_APPEND 下 POSIX 单行 <4KB 写入原子
+            # （并行实验各写各的，不会互相截断成坏行）
             self._fh.write(line + "\n")
             self._fh.flush()
-            os.fsync(self._fh.fileno())
+            if do_fsync:
+                os.fsync(self._fh.fileno())
             self._next_seq = seq + 1
+            if experiment_id is not None:
+                self._exp_seq[experiment_id] = ev["experiment_seq"]
         return seq
 
     # ---- 读（重放/游标） ----
 
     def read_all(self) -> List[Dict[str, Any]]:
         """全量读取（重放投影用）。只读幂等；坏行/半行跳过不抛异常。"""
-        events: List[Dict[str, Any]] = []
-        try:
-            f = open(self._path, "r", encoding="utf-8")
-        except FileNotFoundError:
+        return list(_iter_file_events(self._path))
+
+    def read_experiment(self, experiment_id: str) -> List[Dict[str, Any]]:
+        """还原一次实验（格+迭代号）的完整事件流（task49）。
+
+        按 ``experiment_seq`` 升序返回该实验的事件；未知实验 → 空列表。
+        等价于 ``grep '"experiment_id":"<id>"' events.jsonl`` 后按实验内
+        序号排序。
+        """
+        if not isinstance(experiment_id, str) or not experiment_id:
             return []
-        with f:
-            for line in f:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    events.append(json.loads(stripped))
-                except ValueError:
-                    continue  # 坏行/半行：截断容错，跳过
-        return events
+        out = [ev for ev in _iter_file_events(self._path)
+               if ev.get("experiment_id") == experiment_id]
+        out.sort(key=lambda ev: ev.get("experiment_seq") or 0)
+        return out
+
+    def experiment_ids(self) -> List[str]:
+        """文件中出现过的全部 experiment_id（去重、按首次出现顺序）。"""
+        seen = []  # type: List[str]
+        known = set()
+        for ev in _iter_file_events(self._path):
+            eid = ev.get("experiment_id")
+            if isinstance(eid, str) and eid not in known:
+                known.add(eid)
+                seen.append(eid)
+        return seen
 
     def last_seq(self) -> int:
         """最后一条完整事件的 seq（崩溃恢复游标）。以文件为准（非内存计数）。"""
@@ -311,8 +435,12 @@ class EventWriter:
     # ---- 生命周期 ----
 
     def close(self) -> None:
-        """关闭写句柄（幂等）。"""
+        """关闭写句柄（幂等）。关前 flush（event_fsync=False 时也保证已入 OS 缓冲）。"""
         if not self._closed:
+            try:
+                self._fh.flush()
+            except (OSError, ValueError):
+                pass
             self._fh.close()
             self._closed = True
 

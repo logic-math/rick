@@ -63,7 +63,7 @@ from superopt.archive import Archive
 from superopt.budget import CostLedger
 from superopt.cell_lock import CellLocks
 from superopt.config import DEFAULTS
-from superopt.events import EventWriter
+from superopt.events import EventWriter, make_experiment_id
 from superopt.feature_space import FeatureSpace
 from superopt import experiment_record
 from superopt.gates import CascadeGate
@@ -619,9 +619,16 @@ class Scheduler:
             pass
 
     def _step_locked(self, cell_id: str) -> None:
-        """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。"""
+        """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。
+
+        task49：本迭代 = 一次实验，唯一标记 ``experiment_id``（格+迭代号）；
+        迭代内全部事件都带该标记（并行写入时用 read_experiment / grep 还原
+        单实验事件流），运维事件（心跳/干预/裁决）不带。
+        """
         self.iteration_cursor += 1
         cursor = self.iteration_cursor
+        # 实验标记（格 + 迭代号；cell_safe 形态，见 events.make_experiment_id）
+        self._cur_exp_id = make_experiment_id(cell_id, cursor)
         iter_started = time.time()
         self._iter_cost = {"wall_ms": 0.0, "tool_calls": 0.0,
                            "tokens": 0.0, "cost_usd": 0.0}
@@ -638,7 +645,8 @@ class Scheduler:
         self._recheck_done_this_iter = False
         self._recheck_verdict = None
         self.events.append("iteration_started",
-                           {"iteration_id": cursor}, "scheduler")
+                           {"iteration_id": cursor, "cell_id": cell_id},
+                           "scheduler", experiment_id=self._cur_exp_id)
 
         # ---- 状态 1：visit 递增 + cell_sampled 事件（采样与格锁已在上游
         #      _sample_and_lock 完成：一个格同时只有一个实验；visit 唯一递增点） ----
@@ -657,7 +665,7 @@ class Scheduler:
             "iteration_id": cursor, "cell_id": cell_id, "visit": visit_now,
             "weight_share": round(share, 6), "cold_start": cold_start,
             "total_visit": total_visit,
-        }, "scheduler")
+        }, "scheduler", experiment_id=self._cur_exp_id)
 
         # ---- 迭代工作区（codes/{uuid}/ 隔离快照） ----
         iter_dir = os.path.join(
@@ -723,7 +731,7 @@ class Scheduler:
             "tdd_trace": self._tdd_trace,
             "record_updated": self._record_updated,
             "recheck_verdict": self._recheck_verdict,
-        }, "scheduler")
+        }, "scheduler", experiment_id=self._cur_exp_id)
         # 每迭代落盘档案：bump_visit 只改内存，若本迭代无 admit/epoch 则到收尾都
         # 不 save——kill -9 后重启虽能从事件恢复，但「正常收尾的档案」会缺新采样
         # 格的 visit（job_47 e2e 实测投影1≠档案0）。每迭代一次 save，崩溃窗口
@@ -981,7 +989,7 @@ class Scheduler:
             "code_path": candidate or "",
             "self_check": self_check,
             "diff_path": result.data.get("diff_path"),
-        }, "agent:coding")
+        }, "agent:coding", experiment_id=self._cur_exp_id)
 
         if self_check.get("passed"):
             return candidate
@@ -1001,7 +1009,7 @@ class Scheduler:
                 "fix_report": debug_result.data.get("fix_report")
                 or {"attempts": attempt, "root_cause": None, "changes": []},
                 "self_check": dcheck,
-            }, "agent:debug")
+            }, "agent:debug", experiment_id=self._cur_exp_id)
             if dcheck.get("passed"):
                 return dpath or candidate
             last_err = json.dumps(dcheck, ensure_ascii=False)
@@ -1165,7 +1173,7 @@ class Scheduler:
                 "stderr_tail": (gr.details or "")[-400:],
                 "cause": "stage1_env_unhealthy",
                 "streak": self.env_fail_streak,
-            }, "scheduler")
+            }, "scheduler", experiment_id=getattr(self, "_cur_exp_id", None))
             if self.env_fail_streak >= ENV_FAIL_STREAK_LIMIT:
                 self.stop_requested = True
         else:
@@ -1317,6 +1325,7 @@ class Scheduler:
             # 事件流无记录」→ 重启投影丢失该项（e2e kill 场景 flaky 实测）
             pass
 
+        _exp = getattr(self, "_cur_exp_id", None)
         self.events.append(
             "elite_replaced" if had_elite else "elite_admitted",
             {
@@ -1330,7 +1339,7 @@ class Scheduler:
                 # reason：人读；pending_reason：lineage.project_state 的
                 # 投影重建契约字段（缺省 fallback 是 tolerance_band——必须显式）
                 "reason": reason, "pending_reason": reason,
-            }, "scheduler")
+            }, "scheduler", experiment_id=_exp)
         if reason:
             self.archive.add_pending(cell_id, candidate, reason)
         self.archive.save()
@@ -1402,7 +1411,7 @@ class Scheduler:
         self.events.append("agent_started", {
             "role": "adjust", "iteration_id": iteration_id,
             "workdir": adjust_dir,
-        }, "scheduler")
+        }, "scheduler", experiment_id=make_experiment_id("adjust", iteration_id))
         model = (self.conf.get("agent_models") or {}).get("adjust")
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
         max_turns = self._role_max_turns("adjust")
@@ -1468,7 +1477,9 @@ class Scheduler:
         payload["iteration_id"] = iteration_id
         # prompt 物证：本轮快照目录（iter_N）下的 prompt_adjust.md
         payload["prompt_path"] = os.path.join(adjust_dir, "prompt_adjust.md")
-        self.events.append("agent_ended", payload, "scheduler")
+        self.events.append("agent_ended", payload, "scheduler",
+                           experiment_id=make_experiment_id("adjust",
+                                                            iteration_id))
         # adjust 统计暂存（下一个 _step 头部并入 _iter_agents）
         self._adjust_stats_carry["adjust"] = {
             "wall_ms": int(pending.wall_ms or 0),
@@ -1501,7 +1512,8 @@ class Scheduler:
             "proposals": self._proposal_digest(proposals),
             "cells_status_summary": self._cells_status_digest(),
             "decision_path": decision_path,
-        }, "scheduler")
+        }, "scheduler",
+            experiment_id=make_experiment_id("adjust", iteration_id))
         for i, p in enumerate(proposals):
             if not isinstance(p, dict):
                 continue
@@ -2384,7 +2396,8 @@ class Scheduler:
         }
         if recheck:
             payload["recheck"] = True
-        self.events.append("gate_result", payload, "gate")
+        self.events.append("gate_result", payload, "gate",
+                           experiment_id=getattr(self, "_cur_exp_id", None))
 
     # ---- 饱和信号（task23 E 段） ----
 
@@ -2806,7 +2819,7 @@ class Scheduler:
         self.events.append("agent_started", {
             "role": role, "iteration_id": iteration_id,
             "workdir": workdir,
-        }, "scheduler")
+        }, "scheduler", experiment_id=getattr(self, "_cur_exp_id", None))
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
         # per-role 模型档位（优化空间①：builder 等角色可降档省 token）
         model = (self.conf.get("agent_models") or {}).get(role)
@@ -2848,7 +2861,8 @@ class Scheduler:
         payload["iteration_id"] = iteration_id
         payload["prompt_path"] = prompt_path
         # 事件表（§2.2）：agent_started/ended 产生者 = scheduler（调度器的观察）
-        self.events.append("agent_ended", payload, "scheduler")
+        self.events.append("agent_ended", payload, "scheduler",
+                           experiment_id=getattr(self, "_cur_exp_id", None))
         # 迭代物证：agent final 落盘
         try:
             with open(os.path.join(workdir, "agent_%s.json" % role), "w",

@@ -2302,3 +2302,92 @@ class TestCellLockIntegration(LoopTestBase):
             self.assertNotIn(sampled[0]["payload"]["cell_id"], cells[:2])
         finally:
             sched.cell_locks.release_all()
+class TestExperimentDimension(LoopTestBase):
+    """task49：每次迭代 = 一次实验（experiment_id = 格+迭代号）。
+
+    - 迭代内事件带 experiment_id/experiment_seq；运维事件（心跳）不带
+    - read_experiment 能还原单实验完整事件流（等价 grep 还原）
+    - 中断迭代不推进游标（_recover 语义）
+    """
+
+    def test_iteration_events_carry_experiment_id(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        evs = self.read_events()
+        exp_events = [e for e in evs if e.get("experiment_id")]
+        self.assertTrue(exp_events, "迭代内事件必须带 experiment_id")
+        # 同一迭代的全部实验事件共享同一个 experiment_id
+        ids = {e["experiment_id"] for e in exp_events}
+        self.assertEqual(len(ids), 1, "单迭代应只有一个 experiment_id: %r" % ids)
+        eid = ids.pop()
+        self.assertIn("#iter1", eid)
+        # 关键类型齐备（iteration_started/cell_sampled/agent/gate/iteration_ended）
+        types = {e["type"] for e in exp_events}
+        for need in ("iteration_started", "cell_sampled", "agent_started",
+                     "agent_ended", "gate_result", "iteration_ended"):
+            self.assertIn(need, types)
+        # 心跳（运维）不带实验字段
+        hbs = [e for e in evs if e["type"] == "heartbeat"]
+        for hb in hbs:
+            self.assertNotIn("experiment_id", hb)
+
+    def test_read_experiment_restores_single_flow(self):
+        from superopt.events import EventWriter as _EW
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        evs = [e for e in self.read_events() if e.get("experiment_id")]
+        eid = evs[0]["experiment_id"]
+        w = _EW(self.events_path)
+        try:
+            flow = w.read_experiment(eid)
+        finally:
+            w.close()
+        self.assertEqual([e["type"] for e in flow],
+                         [e["type"] for e in evs],
+                         "read_experiment 还原顺序与文件内实验事件一致")
+        self.assertEqual([e["experiment_seq"] for e in flow],
+                         list(range(1, len(flow) + 1)),
+                         "实验内序号 1..N 连续")
+
+    def test_grep_restore_equals_read_experiment(self):
+        """等价于 grep '"experiment_id":"<id>"' events.jsonl 的还原语义。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        evs = self.read_events()
+        ids = sorted({e["experiment_id"] for e in evs if e.get("experiment_id")})
+        self.assertEqual(len(ids), 2, "两迭代 = 两个实验: %r" % ids)
+        for eid in ids:
+            raw = open(self.events_path, encoding="utf-8").read().splitlines()
+            matched = [json.loads(line) for line in raw
+                       if '"experiment_id":"%s"' % eid in line]
+            self.assertTrue(matched, "grep 应命中 %s" % eid)
+            self.assertEqual([m["experiment_seq"] for m in matched],
+                             list(range(1, len(matched) + 1)))
+            self.assertEqual({m["experiment_id"] for m in matched}, {eid})
+
+    def test_interrupted_iteration_not_counted_in_cursor(self):
+        """手工造「迭代 3 已开始未结束」事件 → _recover 后 cursor 停在上个完成迭代。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        sched.run()
+        from superopt.events import EventWriter as _EW
+        w = _EW(self.events_path)
+        try:
+            w.append("iteration_started",
+                     {"iteration_id": 3, "cell_id": "X"}, "scheduler",
+                     experiment_id="X#iter3")
+            w.append("cell_sampled", {"cell_id": "X", "visit": 1,
+                                      "iteration_id": 3}, "scheduler",
+                     experiment_id="X#iter3")
+        finally:
+            w.close()
+        from superopt.lineage import project_state
+        proj = project_state(
+            [json.loads(x) for x in open(self.events_path, encoding="utf-8")])
+        self.assertEqual(proj["iteration_cursor"], 2,
+                         "中断迭代不推进 cursor")
+        self.assertEqual(proj["interrupted_experiments"], ["X#iter3"])
+
+        sched2 = self.make_scheduler(cfg_overrides={"max_iterations": 3})
+        sched2._recover()
+        self.assertEqual(sched2.iteration_cursor, 2,
+                         "重启恢复后 cursor=2 → 重跑 #3")

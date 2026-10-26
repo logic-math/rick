@@ -27,16 +27,31 @@ _WEIGHT_EVENT = "weight_changed"
 _SAMPLED_EVENT = "cell_sampled"
 _INVALIDATION_EVENT = "invalidation"
 _RESURRECTION_EVENT = "resurrection"
+_STARTED_EVENT = "iteration_started"
+_ENDED_EVENT = "iteration_ended"
 
 # 谱系回溯深度上限（防父本边成环导致死循环）。
 _MAX_LINEAGE_DEPTH = 100
 
 
+def _cell_safe(cell_id: str) -> str:
+    """cell_id → experiment_id 安全形态（与 events.cell_safe 同规则，本模块内联
+    一份以保持零 import 耦合）：非字母数字 → ``_``。"""
+    import re as _re
+    return _re.sub(r"[^A-Za-z0-9]", "_", cell_id or "")
+
+
 def _sorted_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """按 seq 升序排序（容忍乱序读取的事件流）。"""
+    """按 (ts, seq) 稳定排序（task49：seq 在并行写入下不再全局单调）。
+
+    单写者场景下 (ts, seq) 与 seq 序一致；并行场景下同秒事件按 seq 排序，
+    seq 回退时按 ts 先顺序。完全相等时保持文件原序（stable sort）。
+    """
     def _key(ev):
+        ts = ev.get("ts")
         seq = ev.get("seq")
-        return seq if isinstance(seq, (int, float)) else 0
+        return (ts if isinstance(ts, str) else "",
+                seq if isinstance(seq, (int, float)) else 0)
     return sorted(events, key=_key)
 
 
@@ -132,13 +147,18 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     返回：
         {
-          "iteration_cursor": int,   # 最后一个 iteration_started 的 iteration_id
-                                     # （无则 0；恢复后下一迭代 = cursor + 1）
+          "iteration_cursor": int,   # **已完成**迭代的 max iteration_id
+                                     # （无 iteration_ended 的旧日志回退到
+                                     #  max iteration_started；无则 0）
           "state": "running"|"stopped"|None,
-          "last_seq": int,           # 最后事件 seq（空流=0）
+          "last_seq": int,           # 最后事件 seq（空流=0；并行下仅参考）
           "cells": {cell_id: {"visit": int, "weight": float,
                               "elite": {"code_path", "perf_value", "gen"}|None}},
           "pending": [{"cell_id", "code_path", "reason"}],
+          "interrupted_experiments": [experiment_id, ...],
+                                     # 有 iteration_started/cell_sampled
+                                     # 但无 iteration_ended 的实验（task49：
+                                     # 崩溃恢复时用于清理格锁/记事件）
         }
 
     投影规则（全部 last-wins，事件流是唯一真相源）：
@@ -150,6 +170,11 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     - resurrection → cells[cell].weight = payload.restored_weight（缺省 1.0）
       + pending 结清
     - session_started → state="running"；session_ended → state="stopped"
+
+    游标语义（task49）：以「**已完成**迭代」为准——中断的迭代（started 但无
+    ended）不推进 cursor，恢复后重跑该迭代号（旧行为取 max started 会把
+    中断迭代当成已完成，导致该迭代被跳过）。旧日志（无 iteration_ended）
+    回退到 max started，保持向后兼容。
     """
     ordered = _sorted_events(events)
 
@@ -159,6 +184,13 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     cells = {}                 # type: Dict[str, Dict[str, Any]]
     pending = []               # type: List[Dict[str, Any]]
     pending_cells = set()      # type: set
+    # task49：迭代完成度记录（it -> {cell, started, ended}）
+    iter_rec = {}              # type: Dict[int, Dict[str, Any]]
+
+    def _rec(it):
+        if it not in iter_rec:
+            iter_rec[it] = {"cell": None, "started": True, "ended": False}
+        return iter_rec[it]
 
     def cell(cid):
         if cid not in cells:
@@ -176,10 +208,15 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             state = "running"
         elif typ == "session_ended":
             state = "stopped"
-        elif typ == "iteration_started":
+        elif typ in (_STARTED_EVENT, _ENDED_EVENT):
             it = p.get("iteration_id")
             if isinstance(it, (int, float)):
-                iteration_cursor = max(iteration_cursor, int(it))
+                rec = _rec(int(it))
+                if typ == _ENDED_EVENT:
+                    rec["ended"] = True
+                cid0 = p.get("cell_id")
+                if isinstance(cid0, str) and not rec.get("cell"):
+                    rec["cell"] = cid0
         elif typ == _SAMPLED_EVENT:
             cid = p.get("cell_id")
             if isinstance(cid, str):
@@ -189,6 +226,12 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                     c["visit"] = int(visit)
                 elif c["visit"] is None:
                     c["visit"] = 0
+                # 采样事件带 iteration_id 时用于推断中断实验的格归属
+                it = p.get("iteration_id")
+                if isinstance(it, (int, float)):
+                    rec = _rec(int(it))
+                    if not rec.get("cell"):
+                        rec["cell"] = cid
         elif typ == _WEIGHT_EVENT:
             cid = p.get("cell_id")
             nw = p.get("new_weight")
@@ -231,10 +274,27 @@ def project_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                     pending_cells.discard(cid)
                     pending = [q for q in pending if q["cell_id"] != cid]
 
+    # ---- task49：游标 = 已完成迭代的 max；中断实验单独上报 ----
+    ended_iters = [it for it, rec in iter_rec.items() if rec["ended"]]
+    started_iters = [it for it, rec in iter_rec.items() if rec["started"]]
+    if ended_iters:
+        iteration_cursor = max(ended_iters)
+    elif started_iters:
+        # 旧日志兼容（无 iteration_ended 事件）：回退到 max started
+        iteration_cursor = max(started_iters)
+    interrupted = []  # type: List[str]
+    for it in sorted(iter_rec):
+        rec = iter_rec[it]
+        if rec["ended"]:
+            continue
+        cid = rec.get("cell")
+        interrupted.append("%s#iter%d" % (_cell_safe(cid) if cid else "unknown", it))
+
     return {
         "iteration_cursor": iteration_cursor,
         "state": state,
         "last_seq": last_seq,
         "cells": cells,
         "pending": pending,
+        "interrupted_experiments": interrupted,
     }

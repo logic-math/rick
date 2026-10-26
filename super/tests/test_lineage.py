@@ -168,5 +168,81 @@ class TestProjectState(unittest.TestCase):
         self.assertEqual(st["cells"]["A"]["elite"]["code_path"], "codes/c3/")
 
 
+# --------------------------------------------------------------------------- #
+# task49：游标 = 已完成迭代 max；中断实验识别；新旧事件混排
+# --------------------------------------------------------------------------- #
+
+class TestProjectStateTask49(unittest.TestCase):
+    """task49：cursor 以「已完成迭代」为准；中断实验单独上报。"""
+
+    def test_cursor_uses_completed_iterations(self):
+        events = [
+            ev(1, "iteration_started", {"iteration_id": 1, "cell_id": "A"}),
+            ev(2, "iteration_ended", {"iteration_id": 1, "cell_id": "A"}),
+            ev(3, "iteration_started", {"iteration_id": 2, "cell_id": "B"}),
+            ev(4, "iteration_ended", {"iteration_id": 2, "cell_id": "B"}),
+            # 3 开始但未结束（崩溃）→ 不推进 cursor
+            ev(5, "iteration_started", {"iteration_id": 3, "cell_id": "A"}),
+            ev(6, "cell_sampled", {"cell_id": "A", "visit": 5,
+                                   "iteration_id": 3}),
+        ]
+        st = project_state(events)
+        self.assertEqual(st["iteration_cursor"], 2,
+                         "中断的迭代不推进 cursor（恢复后重跑 #3）")
+        self.assertEqual(st["interrupted_experiments"], ["A#iter3"])
+
+    def test_interrupted_detection_multiple(self):
+        events = [
+            ev(1, "iteration_started", {"iteration_id": 1, "cell_id": "A"}),
+            ev(2, "iteration_ended", {"iteration_id": 1, "cell_id": "A"}),
+            ev(3, "iteration_started", {"iteration_id": 2, "cell_id": "B"}),
+            ev(4, "iteration_started", {"iteration_id": 3, "cell_id": "C"}),
+            ev(5, "iteration_ended", {"iteration_id": 3, "cell_id": "C"}),
+        ]
+        st = project_state(events)
+        self.assertEqual(st["iteration_cursor"], 3)
+        self.assertEqual(st["interrupted_experiments"], ["B#iter2"])
+
+    def test_legacy_events_without_ended_fallback(self):
+        """旧日志（无 iteration_ended）→ 回退 max started（向后兼容）。"""
+        events = [
+            ev(1, "iteration_started", {"iteration_id": 1}),
+            ev(2, "iteration_started", {"iteration_id": 2}),
+        ]
+        st = project_state(events)
+        self.assertEqual(st["iteration_cursor"], 2)
+        # 无 cell 信息 → unknown#iterN
+        self.assertEqual(st["interrupted_experiments"],
+                         ["unknown#iter1", "unknown#iter2"])
+
+    def test_mixed_event_shapes(self):
+        """新旧事件混排（带/不带 experiment_id）→ 投影一致。"""
+        e1 = ev(1, "iteration_started", {"iteration_id": 1, "cell_id": "A"})
+        e1["experiment_id"] = "A#iter1"
+        e1["experiment_seq"] = 1
+        e2 = ev(2, "cell_sampled", {"cell_id": "A", "visit": 1,
+                                    "iteration_id": 1})
+        e2["experiment_id"] = "A#iter1"
+        e2["experiment_seq"] = 2
+        e3 = ev(3, "iteration_ended", {"iteration_id": 1, "cell_id": "A"})
+        e3["experiment_id"] = "A#iter1"
+        e3["experiment_seq"] = 3
+        e4 = ev(4, "iteration_started", {"iteration_id": 2, "cell_id": "A"})
+        e5 = ev(5, "iteration_ended", {"iteration_id": 2})
+        st = project_state([e1, e2, e3, e4, e5])
+        self.assertEqual(st["iteration_cursor"], 2)
+        self.assertEqual(st["cells"]["A"]["visit"], 1)
+        self.assertEqual(st["interrupted_experiments"], [])
+
+    def test_sorted_by_ts_when_seq_regresses(self):
+        """并行写入下 seq 可能回退：排序以 ts 为主序（last-wins 不被旧事件覆盖）。"""
+        e1 = ev(10, "cell_sampled", {"cell_id": "A", "visit": 2})
+        e2 = ev(5, "cell_sampled", {"cell_id": "A", "visit": 1})   # seq 回退但 ts 更早
+        e2["ts"] = "2026-10-17T09:00:00+08:00"
+        e1["ts"] = "2026-10-17T10:00:00+08:00"
+        st = project_state([e1, e2])
+        self.assertEqual(st["cells"]["A"]["visit"], 2, "ts 更晚的事件 last-wins")
+
+
 if __name__ == "__main__":
     unittest.main()

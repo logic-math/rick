@@ -22,6 +22,8 @@ from super.superopt.events import (  # noqa: E402
     EVENT_SCHEMAS,
     EVENT_TYPES,
     EventWriter,
+    cell_safe,
+    make_experiment_id,
     validate_event,
 )
 
@@ -256,6 +258,152 @@ class TestEventWriter(unittest.TestCase):
             self.assertEqual(w.last_seq(), 4)
         with EventWriter(self.path) as w2:
             self.assertEqual(w2.last_seq(), 4)  # 重开后游标一致
+
+
+# --------------------------------------------------------------------------- #
+# task49：实验维度（experiment_id = 格+迭代号）+ 并行写入
+# --------------------------------------------------------------------------- #
+
+class TestExperimentDimension(unittest.TestCase):
+    """task49：一次实验 = 格+迭代号；实验内序号单调、跨重启续号、可还原。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "events.jsonl")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_cell_safe_and_experiment_id_shape(self):
+        self.assertEqual(cell_safe("impl=a|mem=b"), "impl_a_mem_b")
+        self.assertEqual(make_experiment_id("impl=a|mem=b", 7),
+                         "impl_a_mem_b#iter7")
+        self.assertEqual(cell_safe(""), "")
+
+    def test_experiment_seq_monotonic_per_experiment(self):
+        exp = make_experiment_id("A", 1)
+        with EventWriter(self.path) as w:
+            for i in range(3):
+                w.append("cell_sampled", {"cell_id": "A", "visit": i + 1},
+                         "scheduler", experiment_id=exp)
+            w.append("heartbeat", {"seq": 0, "iteration_cursor": 1}, "scheduler")
+        evs = EventWriter(self.path).read_all()
+        seqs = [e.get("experiment_seq") for e in evs if e.get("experiment_id") == exp]
+        self.assertEqual(seqs, [1, 2, 3])
+        # 运维事件不带实验字段
+        hb = [e for e in evs if e["type"] == "heartbeat"][0]
+        self.assertNotIn("experiment_id", hb)
+        self.assertNotIn("experiment_seq", hb)
+
+    def test_experiment_seq_restored_across_reopen(self):
+        exp = make_experiment_id("A", 2)
+        with EventWriter(self.path) as w:
+            w.append("iteration_started", {"iteration_id": 2}, "scheduler",
+                     experiment_id=exp)
+            w.append("cell_sampled", {"cell_id": "A", "visit": 1}, "scheduler",
+                     experiment_id=exp)
+        with EventWriter(self.path) as w2:   # 模拟重启：同实验续号不回退
+            w2.append("iteration_ended", {"iteration_id": 2}, "scheduler",
+                      experiment_id=exp)
+        seqs = [e["experiment_seq"] for e in EventWriter(self.path).read_experiment(exp)]
+        self.assertEqual(seqs, [1, 2, 3])
+
+    def test_read_experiment_restores_single_flow(self):
+        a1, b1 = make_experiment_id("A", 1), make_experiment_id("B", 1)
+        with EventWriter(self.path) as w:
+            w.append("iteration_started", {"iteration_id": 1}, "scheduler",
+                     experiment_id=a1)
+            w.append("cell_sampled", {"cell_id": "A", "visit": 1}, "scheduler",
+                     experiment_id=a1)
+            w.append("iteration_started", {"iteration_id": 1}, "scheduler",
+                     experiment_id=b1)
+            w.append("iteration_ended", {"iteration_id": 1}, "scheduler",
+                     experiment_id=b1)
+            w.append("iteration_ended", {"iteration_id": 1}, "scheduler",
+                     experiment_id=a1)
+        flows = EventWriter(self.path).read_experiment(a1)
+        self.assertEqual([e["type"] for e in flows],
+                         ["iteration_started", "cell_sampled", "iteration_ended"])
+        self.assertEqual([e["experiment_seq"] for e in flows], [1, 2, 3])
+        # 未知实验 → 空
+        self.assertEqual(EventWriter(self.path).read_experiment("nope#iter9"), [])
+
+    def test_experiment_ids_listing(self):
+        with EventWriter(self.path) as w:
+            w.append("iteration_started", {"iteration_id": 1}, "scheduler",
+                     experiment_id="A#iter1")
+            w.append("iteration_started", {"iteration_id": 1}, "scheduler",
+                     experiment_id="A#iter1")
+            w.append("iteration_started", {"iteration_id": 2}, "scheduler",
+                     experiment_id="B#iter2")
+        self.assertEqual(EventWriter(self.path).experiment_ids(),
+                         ["A#iter1", "B#iter2"])
+
+    def test_parallel_append_no_corruption(self):
+        """100 线程并发 append（不同实验）→ 行完整、实验内序号连续无重。"""
+        import threading
+        n_threads, per_thread = 20, 5
+        errors = []
+
+        def worker(idx):
+            try:
+                for i in range(per_thread):
+                    exp = make_experiment_id("cell%d" % idx, 1)
+                    w.append("cell_sampled", {"cell_id": "cell%d" % idx,
+                                              "visit": i + 1},
+                             "scheduler", experiment_id=exp)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        w = EventWriter(self.path, event_fsync=False)
+        threads = [threading.Thread(target=worker, args=(i,))
+                   for i in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        w.close()
+        self.assertEqual(errors, [])
+        evs = EventWriter(self.path).read_all()
+        self.assertEqual(len(evs), n_threads * per_thread, "行数不丢")
+        # 每个实验的序号 1..per_thread 连续无重
+        by_exp = {}
+        for e in evs:
+            by_exp.setdefault(e["experiment_id"], []).append(e["experiment_seq"])
+        for exp, seqs in by_exp.items():
+            self.assertEqual(sorted(seqs), list(range(1, per_thread + 1)),
+                             "实验 %s 序号应连续" % exp)
+        # 每行都是合法 JSON 且能过 schema 校验
+        for e in evs:
+            self.assertEqual(validate_event(e), [])
+
+    def test_fsync_disabled_still_readable(self):
+        with EventWriter(self.path, event_fsync=False) as w:
+            w.append("heartbeat", {"seq": 0, "iteration_cursor": 0}, "scheduler")
+        self.assertEqual(len(EventWriter(self.path).read_all()), 1)
+
+    def test_validate_event_experiment_fields(self):
+        base = valid_event()
+        # 合法实验字段
+        ok = dict(base, experiment_id="A#iter1", experiment_seq=1)
+        self.assertEqual(validate_event(ok), [])
+        # experiment_id 形态非法
+        bad = dict(base, experiment_id="no-iter-suffix", experiment_seq=1)
+        self.assertTrue(any("experiment_id" in e for e in validate_event(bad)))
+        # experiment_seq 缺失
+        bad2 = dict(base, experiment_id="A#iter1")
+        self.assertTrue(any("experiment_seq" in e for e in validate_event(bad2)))
+        # experiment_seq 无 experiment_id
+        bad3 = dict(base, experiment_seq=2)
+        self.assertTrue(any("experiment_id" in e for e in validate_event(bad3)))
+        # 运维事件（无实验字段）仍合法
+        self.assertEqual(validate_event(base), [])
+
+    def test_append_rejects_bad_experiment_id(self):
+        with EventWriter(self.path) as w:
+            with self.assertRaises(ValueError):
+                w.append("heartbeat", {}, "scheduler", experiment_id="")
+        self.assertEqual(EventWriter(self.path).read_all(), [])
 
 
 if __name__ == "__main__":
