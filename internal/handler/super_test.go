@@ -263,9 +263,12 @@ func TestBuildSuperPrompt(t *testing.T) {
 			t.Errorf("prompt missing keyword %q", kw)
 		}
 	}
-	// 无未替换变量
-	if strings.Contains(p, "{{") {
-		t.Errorf("prompt contains unreplaced {{...}} variable")
+	// 无**未替换的注入变量**。BuildSuperPrompt 只注入 {{grilling_workdir}}；
+	// gen_env skill 的「可用 ctx 字段清单」里 {{env_dir}}/{{profile_cmd}} 等是
+	// 文档示例（py 调度器渲染 agent 模板时才替换），不是本 prompt 的未替换变量——
+	// release gate（go test ./...）抓到此断言过严，精确化为只查注入变量。
+	if strings.Contains(p, "{{grilling_workdir}}") {
+		t.Errorf("prompt contains unreplaced {{grilling_workdir}}")
 	}
 	// 会话 id 落盘（resume 契约）
 	sessDir := filepath.Dir(promptFile)
