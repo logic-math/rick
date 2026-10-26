@@ -1,0 +1,29 @@
+{
+  "role": "debug",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "自检失败根因：m<4 时 M 四分退化为 1 行块，M=1 的 sgemm 在 Accelerate 走 GEMV 型内核，累加序与锚的多行 gemm 差 1 ULP（(2,16) 实测 err=4.77e-07，框架门禁本就全绿，失败仅在自建 TDD 套件）；最小修复 = m<4 退化回退整阵单次 tensordot（einsum 原生形态，实测逐位），m>=4 门规模路径逐字未动，复验 gate_check passed=true / max_error=0.0 / 484.29ms / score 1.072。",
+  "usage": {
+    "input_tokens": 123753,
+    "output_tokens": 35273,
+    "cache_read": 588288,
+    "cache_write": 0,
+    "total_tokens": 747314,
+    "cost_usd": 0.48141027999999997
+  },
+  "wall_ms": 550098,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search",
+    "edit"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 11,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter011-607eb59d/prompt_debug.md"
+}

@@ -1,0 +1,29 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 0.973538645845387,
+  "perf_value": 453.444292,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "m_halves via np.dot：以 iter004 父格精英为父本，M 维二分（mid=m//2 奇数行安全）+ 每半单次 2-D np.dot(a32[:mid], b32, out=c[:mid]) 整阵派发（C 预分配 + C 连续行切片 out= 直写，无转置/不切 K/N/无中间拷贝），K 求和序不动 → 与 np.matmul 锚逐位一致（verify max_error=0.0）；@8192 中位 453.44-463.45ms 落 BLAS 平价带（父本 naive 11017-11575ms ≈ 25× 塌缩），score 0.9735-0.977，软门禁 verdict=better（相对基线 484.43 ratio 0.936，同 session 低于 iter004 复测 480.5ms——np.dot 入口避开 matmul+out= 慢路径 numpy#18669）",
+  "usage": {
+    "input_tokens": 237218,
+    "output_tokens": 40047,
+    "cache_read": 1188992,
+    "cache_write": 0,
+    "total_tokens": 1466257,
+    "cost_usd": 0.81744992
+  },
+  "wall_ms": 703136,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 10,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter010-be7d11f3/prompt_coding.md"
+}

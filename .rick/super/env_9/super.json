@@ -1,9 +1,9 @@
 {
-  "state": "stopped",
-  "iteration_cursor": 9,
+  "state": "completed",
+  "iteration_cursor": 15,
   "env_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env",
-  "pid": 80630,
-  "worker_pid": 80630,
+  "pid": 93660,
+  "worker_pid": 93660,
   "daemon": true,
   "preverify_red": true,
   "heartbeat_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/heartbeat.json",
@@ -29,5 +29,5 @@
     "soft_gate_k": 3,
     "term_grace_s": 5
   },
-  "updated_at": "2026-10-26T03:17:49+08:00"
+  "updated_at": "2026-10-26T06:33:12+08:00"
 }

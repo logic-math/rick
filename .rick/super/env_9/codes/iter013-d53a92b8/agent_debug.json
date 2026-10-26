@@ -1,0 +1,29 @@
+{
+  "role": "debug",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 16] **控制实验定论**：精英/父本形态本身（plain np.matmul）今天用同一协议、同一基线测得 **452.97ms，ratio=1.0514，同样出带（worse）**。这证明：\n\n1. **机器漂移**：当日机器比精英 430.83 记录时慢 ~5%——连精英自身形态都过不了对自己的历史基线；\n2. **配对平价**：候选 455.",
+  "usage": {
+    "input_tokens": 122097,
+    "output_tokens": 17026,
+    "cache_read": 370752,
+    "cache_write": 0,
+    "total_tokens": 509875,
+    "cost_usd": 0.34224572000000003
+  },
+  "wall_ms": 324870,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 13,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter013-d53a92b8/prompt_debug.md"
+}

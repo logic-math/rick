@@ -1,0 +1,52 @@
+{
+  "ts": "2026-10-26T04:54:38+08:00",
+  "iteration_id": 13,
+  "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+  "candidate": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+  "profile": {
+    "ok": true,
+    "n": 8192,
+    "hotspots": [
+      {
+        "function": "matmul",
+        "self_ms": 572.379708,
+        "cum_ms": 572.38175,
+        "pct": 100.0
+      },
+      {
+        "function": "<built-in method numpy.asarray>",
+        "self_ms": 0.002042,
+        "cum_ms": 0.002042,
+        "pct": 0.0
+      },
+      {
+        "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+        "self_ms": 0.0005420000000000001,
+        "cum_ms": 0.0005420000000000001,
+        "pct": 0.0
+      }
+    ],
+    "env_facts": {
+      "python": "3.9.6",
+      "numpy": "2.0.2",
+      "cpu_count": 18,
+      "dtype": "float32",
+      "blas": "accelerate",
+      "memcpy_gbps": 32.7
+    },
+    "parent_facts": {
+      "candidate": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+      "loc": 61,
+      "imports": [
+        "json",
+        "numpy",
+        "time"
+      ],
+      "functions": [
+        "matmul",
+        "main"
+      ],
+      "runtime_ms": 544.061
+    }
+  }
+}

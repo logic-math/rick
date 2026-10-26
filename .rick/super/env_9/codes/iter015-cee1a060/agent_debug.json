@@ -1,0 +1,29 @@
+{
+  "role": "debug",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "容差带复验收口：-0.876% 为常驻外部争用（winedevice.exe 约 271% CPU、load 4.19）的窗口通胀伪影（安静窗同候选 428.05 < 基线 430.83，真值约 +0.65%），但去掩收益本身为带内边际量级，band 实质判定维持；候选无缺陷、VECLIB_MAXIMUM_THREADS=6 用法经 ACCELERATE(7) 原文核对无误，处置 keep_original，本格以「BLAS 平价天花板」三维度证据链收口。",
+  "usage": {
+    "input_tokens": 111281,
+    "output_tokens": 18374,
+    "cache_read": 399488,
+    "cache_write": 0,
+    "total_tokens": 529143,
+    "cost_usd": 0.34050588000000004
+  },
+  "wall_ms": 281210,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "fetch_content",
+    "web_search"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 15,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter015-cee1a060/prompt_debug.md"
+}

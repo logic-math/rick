@@ -1,0 +1,7 @@
+{
+  "idea": "[turn-budget-exceeded: 20] 现在是设计 JSON（注意路径中包含 `|` 和 `=` — 请谨慎引用）：",
+  "target_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+  "parents": [],
+  "plan_steps": [],
+  "expected_behavior": null
+}

@@ -1,0 +1,29 @@
+{
+  "role": "coding",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 24] 基准测试读数：`timings=[452.14, 444.52, 445.14]`，中位数 **445.14ms**，下限 **444.52ms**，参考值 481.41（评分 1.08）。注意：参考值为 481 而非安静状态下的 ~429-440，这表明当前处于一个温和的高负载窗口（非极端的 550-590 窗口）。根据实验方案纪律：按原样记",
+  "usage": {
+    "input_tokens": 335037,
+    "output_tokens": 19722,
+    "cache_read": 829056,
+    "cache_write": 0,
+    "total_tokens": 1183815,
+    "cost_usd": 0.7713831599999998
+  },
+  "wall_ms": 313371,
+  "exit_code": 143,
+  "tool_calls": [
+    "read",
+    "bash",
+    "write",
+    "edit"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 15,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter015-cee1a060/prompt_coding.md"
+}

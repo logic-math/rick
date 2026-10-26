@@ -1,0 +1,24 @@
+{
+  "iteration_id": 15,
+  "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+  "ts": "2026-10-26T06:05:43+08:00",
+  "profile_facts": [
+    "matmul=100.0",
+    "<built-in method numpy.asarray>=0.0",
+    "<method 'disable' of '_lsprof.Profiler' objects>=0.0",
+    "python=3.9.6",
+    "numpy=2.0.2",
+    "cpu_count=18",
+    "dtype=float32"
+  ],
+  "papers": [],
+  "inspirations": [],
+  "reasoning": "[turn-budget-exceeded: 20] 现在是设计 JSON（注意路径中包含 `|` 和 `=` — 请谨慎引用）：",
+  "experiment_plan": {
+    "idea": "[turn-budget-exceeded: 20] 现在是设计 JSON（注意路径中包含 `|` 和 `=` — 请谨慎引用）：",
+    "target_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+    "parents": [],
+    "plan_steps": [],
+    "expected_behavior": null
+  }
+}

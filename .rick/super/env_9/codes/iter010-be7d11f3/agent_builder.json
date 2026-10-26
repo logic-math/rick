@@ -1,0 +1,29 @@
+{
+  "role": "builder",
+  "valid": false,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "[turn-budget-exceeded: 20] 这三个交付成果均已到位。让我对所需的路径进行最终验证：",
+  "usage": {
+    "input_tokens": 151902,
+    "output_tokens": 20141,
+    "cache_read": 519424,
+    "cache_write": 0,
+    "total_tokens": 691467,
+    "cost_usd": 0.43633343999999996
+  },
+  "wall_ms": 366372,
+  "exit_code": 143,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": true,
+  "iteration_id": 10,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter010-be7d11f3/prompt_builder.md"
+}

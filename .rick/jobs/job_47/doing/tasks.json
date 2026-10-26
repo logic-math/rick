@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-25T18:22:28.407Z",
+  "updated_at": "2026-10-26T03:30:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -528,6 +528,72 @@
         "task39"
       ],
       "task_file": "plan/task42.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task44",
+      "task_name": "特征格五要素（+elite_code_path/record_path）+ archive 线程安全",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task44.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task45",
+      "task_name": "格级互斥 + 并发实验（一格一实验，异格并行，单写者保序）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:30:00+08:00",
+      "dependencies": [
+        "task44",
+        "task46"
+      ],
+      "task_file": "plan/task45.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task46",
+      "task_name": "token 成本监控 skill（super_cost_analysis）+ cost_report 工具 + iteration_ended.by_role",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:30:00+08:00",
+      "dependencies": [
+        "task44"
+      ],
+      "task_file": "plan/task46.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task47",
+      "task_name": "文档：五要素/并发约束/成本复盘",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:30:00+08:00",
+      "dependencies": [
+        "task44",
+        "task45",
+        "task46"
+      ],
+      "task_file": "plan/task47.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task48",
+      "task_name": "测试与 e2e 适配（五要素/并发/成本）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:30:00+08:00",
+      "dependencies": [
+        "task45"
+      ],
+      "task_file": "plan/task48.md",
       "commit_hash": ""
     }
   ]

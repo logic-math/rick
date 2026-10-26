@@ -4,7 +4,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 0.5,
+      "weight": 0.25,
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-23T16:47:19+08:00",
@@ -12,13 +12,32 @@
     },
     "dispatch_target=np_dot|impl_strategy=m_halves": {
       "descriptor": {},
-      "elite": null,
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter010-be7d11f3/solution.py",
+        "perf_value": 462.82120800000024,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9782682473790181,
+        "lineage": [],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-26T03:36:17+08:00",
+        "gen": 1
+      },
       "history": [],
-      "weight": 0.7,
-      "visit": 1,
-      "sample_count": 0,
-      "last_sampled_at": null,
-      "description": {}
+      "weight": 1.0,
+      "visit": 2,
+      "sample_count": 1,
+      "last_sampled_at": "2026-10-26T03:17:52+08:00",
+      "description": {
+        "method": "精英 = iter010（462.82ms：两半块 np.dot(a32[:mid], b32, out=c[:mid]) / np.dot(a32[mid:], b32, out=c[mid:]) 直写，mid=m//2 奇数行安全，c 预分配 np.empty((m,n),f32)）。若被采样：① 主交付 = 基线复测两半 dot+out=（跑一次、读数即记录）；② 预 fault 变体降级为确认性单跑——iter13/14 已在 np_matmul|full 形态证伪预 fault 反转（P5 pre 452.9-482.4 与 P0 plain 432.5-433.0 同 floor、全臂 minflt/call=0，numpy#18669 收益是 Linux/OpenBLAS 情境、本机 macOS 无可省成本），本格预期同样带内、不作收割目标；③ m<4 退化回退整阵单次 np.dot 2-D（iter011 教训：M=1 块走 GEMV 型内核与整阵 gemm 累加序偶差 1-ULP）作为鲁棒性交付。定位说明：本格 floor ~463（M 二分结构代价 ~+26ms vs np_dot 整阵 437.4，iter007 预检/iter010 实测），不可能接近全局纪录 430.83——重访价值仅为族档案完整性与 ② 的跨形态确认，总工作量 ≤ iter010 的一半。约束：只切 M、不切 K/N、不转置（1e-3 容差墙，arXiv:2411.00442）；契约照抄 iter010 精英模板。过程纪律：每个门禁工具至多跑一次、读数即记录、不复跑不追噪声。",
+        "source_refs": [
+          "codes/iter013-d53a92b8/experiment_record.md",
+          "codes/iter014-34c87586/experiment_record.md",
+          "github:numpy/numpy#18669",
+          "arxiv:2411.00442",
+          "decisions/iter10.md"
+        ]
+      }
     },
     "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
@@ -36,11 +55,21 @@
         "gen": 1
       },
       "history": [],
-      "weight": 3.0,
-      "visit": 1,
-      "sample_count": 1,
-      "last_sampled_at": "2026-10-23T17:07:05+08:00",
-      "description": {}
+      "weight": 2.0,
+      "visit": 4,
+      "sample_count": 4,
+      "last_sampled_at": "2026-10-26T05:54:22+08:00",
+      "description": {
+        "method": "收口态（iter13/14 已实测穷尽格内微变体空间）。内核 = 单次整阵 np.matmul(a32, b32) 直派（K 求和序 = BLAS 锚，逐位一致），契约照抄 iter003 模板（--n JSON 协议 / seterr 三项抑制 / _self_check 用例表）。已证伪清单（勿重探）：① iter13 V2 每次新建 c=np.empty + c[:]=0 预 fault + matmul(out=) → 451.14ms band 拒（平价收口）；② iter14 P1 per-shape 持久缓冲+预 fault+out= → 432.81-440.14ms band 拒，与 plain 同 floor（buffer_ab 6 形态 P0/P1/P2/P5/P6/P7 全部 ~433ms、bitwise P1≡P0、全臂 minflt/call=0——numpy#18669 预 fault 收益是 Linux/OpenBLAS 情境，本机 macOS 分配行为下无可省成本）；③ 线程收紧恒劣（iter13 thread_sweep，默认 18 线程已最优）；④ P6 spacer 布局规避三形态最差（数据驱动否决）。天花板 = vecLib sgemm floor ~433ms；精英 430.83 为跨会话安静窗读数（iter14 debug attempt 200：当日 plain ref 440-476ms、warm floor 432.5-433.1、30 交错计时零个 <409.3ms）。若再被采样：只做基线单跑——单次整阵 np.matmul(a32,b32) 原样（不改缓冲管理），TDD 移植契约，每个门禁工具至多跑一次、读数即记录、不复跑不追噪声；方案先落码后验证（iter12/13/14 三轮 900s 进程死亡教训：深探研必死）。预期 perf [430.8, 460] 带内；低于 430.83 才是新纪录，否则如实记录拒绝。约束：单次整阵派发、不切 K/N、不转置、不改累加序（1e-3 容差墙，arXiv:2411.00442）。",
+        "source_refs": [
+          "codes/iter013-d53a92b8/experiment_record.md",
+          "codes/iter014-34c87586/experiment_record.md",
+          "github:numpy/numpy#18669",
+          "github:OpenMathLib/OpenBLAS#3197",
+          "arxiv:2411.00442",
+          "decisions/iter12.md"
+        ]
+      }
     },
     "dispatch_target=np_dot|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
@@ -50,13 +79,22 @@
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-26T02:31:53+08:00",
-      "description": {}
+      "description": {
+        "method": "iter007 三段 agent 全因 turn-budget 耗尽而 no_candidate——失败在过程非性能（预检：np.dot 437.4ms vs np.matmul 433.1ms，±1% 噪声带内；iter010 交错复测 full_dot 480.7 为负载噪声）。本格内核极简：单次整阵 np.dot(a32, b32)（2-D BLAS gemm 直派，与 np.matmul 同 cblas_sgemm，逐位一致已证）；可选变体：c=np.empty((m,n),f32) + np.dot(a32,b32,out=c)（numpy#18669：dot 的 out= 入口对未 fault 输出页最宽容）。实现范围钉死：一行内核 + 从 iter003/iter010 模板移植契约（main 的 --n JSON 协议 / seterr 三项抑制 / _self_check 用例表），总工作量应 ≤ iter010 的一半。约束：不切 K/N、不转置、保持单次整阵派发（arXiv:2411.00442）。过程纪律：每个工具至多跑一次、读数即记录、不复跑门禁、不过度调研（≤3 来源即可）",
+        "source_refs": [
+          "github:numpy/numpy#18669",
+          "arxiv:2411.00442",
+          "codes/iter007-be5b45a7/experiment_record.md",
+          "codes/iter010-be7d11f3/experiment_record.md",
+          "decisions/iter10.md"
+        ]
+      }
     },
     "dispatch_target=einsum_path|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 1.0,
+      "weight": 0.25,
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-24T01:53:00+08:00",
@@ -96,7 +134,7 @@
       "descriptor": {},
       "elite": null,
       "history": [],
-      "weight": 0.7,
+      "weight": 0.25,
       "visit": 1,
       "sample_count": 0,
       "last_sampled_at": null,
@@ -104,12 +142,22 @@
     },
     "dispatch_target=einsum_path|impl_strategy=m_quarters": {
       "descriptor": {},
-      "elite": null,
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter011-607eb59d/solution.py",
+        "perf_value": 482.359875,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9026725989594386,
+        "lineage": [],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-26T04:10:21+08:00",
+        "gen": 1
+      },
       "history": [],
-      "weight": 0.7,
-      "visit": 0,
-      "sample_count": 0,
-      "last_sampled_at": null,
+      "weight": 0.25,
+      "visit": 3,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-26T04:10:21+08:00",
       "description": {}
     },
     "dispatch_target=np_matmul|impl_strategy=m_halves": {
@@ -157,28 +205,16 @@
   },
   "pending": [
     {
-      "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
-      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+      "cell_id": "dispatch_target=einsum_path|impl_strategy=m_quarters",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter011-607eb59d/solution.py",
       "reason": "new_cell",
-      "added_at": "2026-10-26T02:48:08+08:00"
-    },
-    {
-      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_halves",
-      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter004-e77e66ca/solution.py",
-      "reason": "new_cell",
-      "added_at": "2026-10-26T02:48:08+08:00"
-    },
-    {
-      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_quarters",
-      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter005-8dfa5ba2/solution.py",
-      "reason": "new_cell",
-      "added_at": "2026-10-26T02:48:08+08:00"
+      "added_at": "2026-10-26T04:10:21+08:00"
     }
   ],
   "meta": {
     "env": "",
     "feature_axes": [],
     "perf_desc": "low",
-    "updated_at": "2026-10-26T02:48:08+08:00"
+    "updated_at": "2026-10-26T06:33:12+08:00"
   }
 }

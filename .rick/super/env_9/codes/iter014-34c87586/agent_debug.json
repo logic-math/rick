@@ -1,0 +1,30 @@
+{
+  "role": "debug",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "-2.161% 为跨会话机器漂移+争用窗噪声（当日同进程 plain ref 440.9-476.5 全高于精英 430.83；候选 vs plain ref score 0.9998 打平），persist 与 plain 同 floor≈433ms（BLAS 平价，本机 plain 预热后零缺页、无预 fault 成本可省），30 计时零个 <409.3ms 亦无被掩盖收益 → keep_original 维持带内无收益结论，候选未改动。",
+  "usage": {
+    "input_tokens": 75666,
+    "output_tokens": 21613,
+    "cache_read": 537216,
+    "cache_write": 0,
+    "total_tokens": 634495,
+    "cost_usd": 0.34070576
+  },
+  "wall_ms": 356264,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "write",
+    "source_check",
+    "fetch_content"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 14,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter014-34c87586/prompt_debug.md"
+}

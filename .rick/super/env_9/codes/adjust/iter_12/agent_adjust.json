@@ -1,0 +1,29 @@
+{
+  "role": "adjust",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "区间证据（iter12 同代码 6 读数 ±3% 双侧摆动 + 9 轮无纪录 + AMX/SME 平台容量研究）判定主要矛盾为『剩余产出由采样命中率×过程存活率而非 kernel 机制决定』：冠军提权 6.0 收割负载尾部、np_dot|m_halves 提权 1.5 并注入 method（微变体+纪律）、einsum|m_quarters 衰减 0.25（iter12 reject+双杀新证据），三个 method 注入格合计份额 77.6%，iter13-15 若冠军重采全 440+ 则下轮提 terminate_recommend",
+  "usage": {
+    "input_tokens": 182858,
+    "output_tokens": 29492,
+    "cache_read": 443584,
+    "cache_write": 0,
+    "total_tokens": 655934,
+    "cost_usd": 0.50109784
+  },
+  "wall_ms": 452386,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 12,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/adjust/iter_12/prompt_adjust.md"
+}
