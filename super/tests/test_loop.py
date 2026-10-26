@@ -2070,3 +2070,40 @@ class TestDebugThreeTriggers(LoopTestBase):
         policy = sched._debug_policy()
         self.assertEqual(policy["gain_threshold_pct"], 5.0)
         self.assertFalse(policy["recheck_tolerance_band"])
+
+
+class TestFiveElementsInLoop(LoopTestBase):
+    """task44：入格后档案格含五要素（elite_code_path / elite_record_path）。
+
+    五要素 = name/method（description）+ weight + score（elite.score）
+    + code_path（当前最佳精英代码，并与该迭代 experiment_record.md 关联）。
+    """
+
+    def test_admit_records_elite_code_and_record_path(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        cells = self.read_archive()["cells"]
+        self.assertEqual(len(cells), 1)
+        _cid, cell = next(iter(cells.items()))
+        code_path = cell.get("elite_code_path")
+        self.assertIsNotNone(code_path, "五要素缺 elite_code_path")
+        self.assertTrue(str(code_path).endswith("solution.py"),
+                        "elite_code_path 应指向候选代码: %r" % (code_path,))
+        record_path = cell.get("elite_record_path")
+        self.assertIsNotNone(record_path, "五要素缺 elite_record_path")
+        self.assertTrue(str(record_path).endswith("experiment_record.md"),
+                        "elite_record_path 应指向实验记录: %r" % (record_path,))
+        # 关联一致性：实验记录与精英代码在同一迭代目录
+        self.assertEqual(os.path.dirname(str(record_path)),
+                         os.path.dirname(str(code_path)))
+        # 与 elite.code_path 同步（同一精英）
+        self.assertEqual(cell["elite"]["code_path"], code_path)
+
+    def test_archive_get_record_path_after_run(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        cells = self.read_archive()["cells"]
+        cid = next(iter(cells))
+        self.assertEqual(sched.archive.get_record_path(cid),
+                         cells[cid]["elite_record_path"])

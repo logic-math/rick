@@ -1,5 +1,5 @@
 {
-  "state": "completed",
+  "state": "stopped",
   "iteration_cursor": 15,
   "env_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/env",
   "pid": 93660,
@@ -29,5 +29,5 @@
     "soft_gate_k": 3,
     "term_grace_s": 5
   },
-  "updated_at": "2026-10-26T06:33:12+08:00"
+  "updated_at": "2026-10-26T11:41:02+08:00"
 }

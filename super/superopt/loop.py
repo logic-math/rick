@@ -1176,7 +1176,11 @@ class Scheduler:
                 "gen": gen,
             },
         }
-        admitted = self.archive.admit(cell_id, entry)
+        # 五要素（task44）：入档同时关联该精英的实验记录（elite_record_path=
+        # codes/iter{N}/experiment_record.md）——builder 后续读「精英代码 + 其实验记录」
+        record_path = experiment_record.path_for(
+            os.path.dirname(os.path.abspath(candidate)))
+        admitted = self.archive.admit(cell_id, entry, record_path=record_path)
         if not admitted:
             # 更差解：同格替换条件不满足（事件流无 elite_*——诚实记录）
             self._last_admit_verdict = "reject"

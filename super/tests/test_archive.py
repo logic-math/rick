@@ -407,3 +407,126 @@ class TestCellDescription(unittest.TestCase):
         a = Archive(self.path, perf_desc="low")
         a.load()
         self.assertEqual(a.cells["c1"]["description"], {})
+
+
+class TestFiveElements(unittest.TestCase):
+    """task44：特征格五要素——elite_code_path / elite_record_path 与并发安全。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="archive-five-")
+        self.path = os.path.join(self.tmp, "archive.json")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_admit_syncs_elite_code_path_and_record_path(self):
+        a = Archive(self.path, perf_desc="low")
+        rec = os.path.join(self.tmp, "codes", "iter001-x", "experiment_record.md")
+        ok = a.admit("c1", entry(5.0, code_path="codes/iter001-x/solution.py"),
+                     record_path=rec)
+        self.assertTrue(ok)
+        cell = a.cells["c1"]
+        self.assertEqual(cell["elite_code_path"], "codes/iter001-x/solution.py")
+        self.assertEqual(cell["elite_record_path"], rec)
+        self.assertEqual(a.get_record_path("c1"), rec)
+        # 副本安全：外部改副本不影响内部
+        cell["elite_record_path"] = "hacked"
+        self.assertEqual(a.get_record_path("c1"), rec)
+
+    def test_replace_updates_both_paths(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(9.0, code_path="codes/iter001-x/s"))
+        a.admit("c1", entry(5.0, code_path="codes/iter002-y/s"),
+                record_path="/w/codes/iter002-y/experiment_record.md")
+        cell = a.cells["c1"]
+        self.assertEqual(cell["elite_code_path"], "codes/iter002-y/s")
+        self.assertEqual(cell["elite_record_path"],
+                         "/w/codes/iter002-y/experiment_record.md")
+
+    def test_admit_without_record_path_keeps_none(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(5.0, code_path="codes/iter003-z/s"))
+        cell = a.cells["c1"]
+        self.assertEqual(cell["elite_code_path"], "codes/iter003-z/s")
+        self.assertIsNone(cell["elite_record_path"])
+        self.assertIsNone(a.get_record_path("c1"))
+
+    def test_get_record_path_unknown_cell_none(self):
+        a = Archive(self.path, perf_desc="low")
+        self.assertIsNone(a.get_record_path("nope"))
+
+    def test_old_archive_without_five_elements_backfilled(self):
+        """旧档格无 elite_code_path/elite_record_path → load 后补 None。"""
+        os.makedirs(self.tmp, exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({
+                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
+                         "updated_at": "2026-10-01T00:00:00+08:00"},
+                "cells": {"c1": {"descriptor": {"a": "x"},
+                                 "elite": {"code_path": "codes/old/solution.py",
+                                           "perf_value": 5.0},
+                                 "history": [], "weight": 1.0, "visit": 1}},
+                "pending": [],
+            }, f)
+        a = Archive(self.path, perf_desc="low")
+        a.load()
+        cell = a.cells["c1"]
+        self.assertIn("elite_code_path", cell)
+        self.assertIsNone(cell["elite_code_path"])
+        self.assertIsNone(cell["elite_record_path"])
+        self.assertIsNone(a.get_record_path("c1"))
+
+    def test_concurrent_admits_do_not_break(self):
+        """20 线程并发写不同格 + 并发读——不炸且全部落档（task45 前置）。"""
+        import threading
+        a = Archive(self.path, perf_desc="low")
+        errs = []
+
+        def worker(i):
+            try:
+                for k in range(5):
+                    a.admit("c%d" % i, entry(10.0 - k, code_path="codes/c%d-%d" % (i, k)),
+                            record_path="/w/c%d/%d.md" % (i, k))
+                    a.set_weight("c%d" % i, 1.0 - 0.1 * k)
+                    a.set_visit("c%d" % i, k)
+                    _ = a.cells
+                    _ = a.get_record_path("c%d" % i)
+            except Exception as exc:  # noqa: BLE001
+                errs.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errs, [])
+        cells = a.cells
+        self.assertEqual(len(cells), 20)
+        for i in range(20):
+            self.assertEqual(cells["c%d" % i]["elite_code_path"], "codes/c%d-4" % i)
+            self.assertEqual(cells["c%d" % i]["elite_record_path"], "/w/c%d/4.md" % i)
+
+    def test_concurrent_save_and_mutate_serialized(self):
+        """并发 save + mutate 串行化（不产生半写档案）。"""
+        import threading
+        a = Archive(self.path, perf_desc="low")
+        errs = []
+
+        def writer(i):
+            try:
+                for k in range(3):
+                    a.admit("d%d" % i, entry(20.0 - k))
+                    a.save()
+            except Exception as exc:  # noqa: BLE001
+                errs.append(exc)
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errs, [])
+        b = Archive(self.path, perf_desc="low")
+        b.load()  # 合法 JSON（未半写）
+        self.assertEqual(len(b.cells), 6)

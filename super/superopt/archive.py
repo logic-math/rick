@@ -25,6 +25,7 @@ import copy
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -108,6 +109,9 @@ class Archive:
         self.path = path
         self._perf_desc = perf_desc
         self._data = _empty_data(perf_desc)
+        # 并发实验（task44/task45）：多 worker 线程读写档案 → 全部公开方法加锁。
+        # RLock（可重入）：bump_visit → set_visit 等嵌套调用不会自锁。
+        self._lock = threading.RLock()
 
     # ---- 读档 / 落盘 ----
 
@@ -115,7 +119,8 @@ class Archive:
         """读档。文件不存在 → 空档；损坏（非法 JSON）→ 抛错（档案是事件流投影，
         宁可炸也不静默清空——由调用方决定从事件流重建）。"""
         if not os.path.exists(self.path):
-            self._data = _empty_data(self._perf_desc)
+            with self._lock:
+                self._data = _empty_data(self._perf_desc)
             return
         with open(self.path, encoding="utf-8") as f:
             data = json.load(f)
@@ -135,44 +140,67 @@ class Archive:
             cell.setdefault("visit", 0)
             cell.setdefault("sample_count", 0)
             cell.setdefault("last_sampled_at", None)
-        self._data = data
+            # 迭代9/五要素兼容：旧档无精英代码路径与实验记录关联 → 补 None
+            cell.setdefault("elite_code_path", None)
+            cell.setdefault("elite_record_path", None)
+        with self._lock:
+            self._data = data
 
     def save(self) -> None:
         """原子落盘：临时文件（同目录）→ fsync → os.replace。
-        任一步失败：旧档保持完整（replace 之前不动旧文件）。"""
-        self._data["meta"]["updated_at"] = _now()
-        self._data["meta"]["perf_desc"] = self._perf_desc
-        d = os.path.dirname(os.path.abspath(self.path)) or "."
-        fd, tmp = tempfile.mkstemp(prefix=".archive-", suffix=".tmp", dir=d)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp, self.path)
-        except BaseException:
-            # 清理半写临时文件（不留垃圾；旧档未动）
+        任一步失败：旧档保持完整（replace 之前不动旧文件）。
+
+        线程安全：写盘全程持锁（并发 worker 的 save 串行化，不会交叉写）。"""
+        with self._lock:
+            self._data["meta"]["updated_at"] = _now()
+            self._data["meta"]["perf_desc"] = self._perf_desc
+            d = os.path.dirname(os.path.abspath(self.path)) or "."
+            fd, tmp = tempfile.mkstemp(prefix=".archive-", suffix=".tmp", dir=d)
             try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(self._data, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, self.path)
+            except BaseException:
+                # 清理半写临时文件（不留垃圾；旧档未动）
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
     # ---- 访问器（副本，防外部直改） ----
 
     @property
     def cells(self) -> dict:
-        return copy.deepcopy(self._data["cells"])
+        with self._lock:
+            return copy.deepcopy(self._data["cells"])
 
     @property
     def meta(self) -> dict:
-        return copy.deepcopy(self._data["meta"])
+        with self._lock:
+            return copy.deepcopy(self._data["meta"])
 
     def get_elite(self, cell_id: str) -> Optional[dict]:
-        cell = self._data["cells"].get(cell_id)
-        if not cell or cell.get("elite") is None:
-            return None
-        return copy.deepcopy(cell["elite"])
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if not cell or cell.get("elite") is None:
+                return None
+            return copy.deepcopy(cell["elite"])
+
+    def get_record_path(self, cell_id: str) -> Optional[str]:
+        """五要素关联（task44）：该格当前最佳精英对应的实验记录路径。
+
+        返回 `elite_record_path`（admit 时由调度器传入的该迭代
+        `experiment_record.md`）；无精英/无记录/旧档 → None。
+        """
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if not cell:
+                return None
+            p = cell.get("elite_record_path")
+            return p if isinstance(p, str) and p else None
 
     # ---- 变更（内存） ----
 
@@ -180,44 +208,63 @@ class Archive:
         d = entry.get("descriptor")
         return copy.deepcopy(d) if isinstance(d, dict) else {}
 
-    def admit(self, cell_id: str, entry: dict) -> bool:
+    def admit(self, cell_id: str, entry: dict,
+              record_path: Optional[str] = None) -> bool:
         """同格替换条件：新 perf_value 严格优于旧（perf_desc 方向感知），或旧格为空。
 
         entry 形态：{"descriptor": {...}, "elite": {perf_value, code_path, ...}}
         （兼容顶层扁平携带精英字段）。
+        record_path：该精英对应迭代的 experiment_record.md（五要素关联，可选）。
 
         - 新格 / 无精英格 → 入档（True）
         - 更优 → 替换：旧精英入 history（上限 HISTORY_LIMIT，最旧挤出）（True）
         - 更差或相等 → 拒绝（False），档案不变
+
+        入档同时同步五要素字段：`elite_code_path`（当前最佳精英代码）、
+        `elite_record_path`（其实验记录）。
         """
-        cell = self._data["cells"].get(cell_id)
-        if cell is None:
-            self._data["cells"][cell_id] = {
-                "descriptor": self._descriptor_from_entry(entry),
-                "description": {},
-                "elite": _elite_from_entry(entry),
-                "history": [],
-                "weight": 1.0,
-                "visit": 0,
-                "sample_count": 0,
-                "last_sampled_at": None,
-            }
-            return True
-        old_elite = cell.get("elite")
-        if old_elite is None:
-            cell["elite"] = _elite_from_entry(entry)
-            cell.setdefault("descriptor", self._descriptor_from_entry(entry))
-            return True
-        new_elite = _elite_from_entry(entry)
-        if _is_better(new_elite.get("perf_value"), old_elite.get("perf_value"),
-                      self._data["meta"].get("perf_desc", self._perf_desc)):
-            history = cell.setdefault("history", [])
-            history.append(copy.deepcopy(old_elite))
-            if len(history) > self.HISTORY_LIMIT:
-                del history[: len(history) - self.HISTORY_LIMIT]
-            cell["elite"] = new_elite
-            return True
-        return False
+        with self._lock:
+            elite = _elite_from_entry(entry)
+            code_path = elite.get("code_path")
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                cell = {
+                    "descriptor": self._descriptor_from_entry(entry),
+                    "description": {},
+                    "elite": elite,
+                    "history": [],
+                    "weight": 1.0,
+                    "visit": 0,
+                    "sample_count": 0,
+                    "last_sampled_at": None,
+                }
+                self._data["cells"][cell_id] = cell
+                admitted = True
+            else:
+                old_elite = cell.get("elite")
+                if old_elite is None:
+                    cell["elite"] = elite
+                    cell.setdefault("descriptor", self._descriptor_from_entry(entry))
+                    admitted = True
+                elif _is_better(elite.get("perf_value"),
+                                old_elite.get("perf_value"),
+                                self._data["meta"].get("perf_desc", self._perf_desc)):
+                    history = cell.setdefault("history", [])
+                    history.append(copy.deepcopy(old_elite))
+                    if len(history) > self.HISTORY_LIMIT:
+                        del history[: len(history) - self.HISTORY_LIMIT]
+                    cell["elite"] = elite
+                    admitted = True
+                else:
+                    admitted = False
+            if admitted:
+                # 五要素：code_path = 当前最佳精英代码；record_path = 其实验记录
+                cell["elite_code_path"] = (
+                    code_path if isinstance(code_path, str) and code_path else None)
+                cell["elite_record_path"] = (
+                    record_path if isinstance(record_path, str) and record_path
+                    else None)
+            return admitted
 
     def set_visit(self, cell_id: str, visit: int) -> None:
         """崩溃恢复落点：以事件流投影的 visit 覆盖内存档案（真相在事件；
@@ -225,49 +272,58 @@ class Archive:
         档案 visit 回 0）。未知格：创建格骨架（同 set_weight 语义）。"""
         if visit < 0:
             raise ValueError("visit must be >= 0, got %r" % (visit,))
-        cell = self._data["cells"].get(cell_id)
-        if cell is None:
-            cell = {
-                "descriptor": {},
-                "description": {},
-                "elite": None,
-                "history": [],
-                "weight": 1.0,
-                "visit": 0,
-            }
-            self._data["cells"][cell_id] = cell
-        cell["visit"] = int(visit)
-        cell["last_sampled_at"] = _now()
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                cell = {
+                    "descriptor": {},
+                    "description": {},
+                    "elite": None,
+                    "history": [],
+                    "weight": 1.0,
+                    "visit": 0,
+                    "sample_count": 0,
+                    "last_sampled_at": None,
+                    "elite_code_path": None,
+                    "elite_record_path": None,
+                }
+                self._data["cells"][cell_id] = cell
+            cell["visit"] = int(visit)
+            cell["last_sampled_at"] = _now()
 
     def bump_visit(self, cell_id: str) -> None:
         """visit 递增入口（Sampler.on_visit 回调的档案落地形态：事件之外
         档案也同步计数——投影恢复与运行时计数双链一致）。"""
-        cell = self._data["cells"].get(cell_id)
-        if cell is None:
-            self.set_visit(cell_id, 1)
-            return
-        cell["visit"] = int(cell.get("visit") or 0) + 1
-        cell["last_sampled_at"] = _now()
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                self.set_visit(cell_id, 1)
+                return
+            cell["visit"] = int(cell.get("visit") or 0) + 1
+            cell["last_sampled_at"] = _now()
 
     def set_weight(self, cell_id: str, weight: float) -> None:
         """adjust 软动作落点。weight=0 = 功能性灭绝（**不删格**）。
         未知格：创建格骨架（elite=None）——adjust 可对未入档格预设权重。"""
         if weight < 0:
             raise ValueError("weight must be >= 0, got %r" % (weight,))
-        cell = self._data["cells"].get(cell_id)
-        if cell is None:
-            cell = {
-                "descriptor": {},
-                "description": {},
-                "elite": None,
-                "history": [],
-                "weight": 1.0,
-                "visit": 0,
-                "sample_count": 0,
-                "last_sampled_at": None,
-            }
-            self._data["cells"][cell_id] = cell
-        cell["weight"] = weight
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                cell = {
+                    "descriptor": {},
+                    "description": {},
+                    "elite": None,
+                    "history": [],
+                    "weight": 1.0,
+                    "visit": 0,
+                    "sample_count": 0,
+                    "last_sampled_at": None,
+                    "elite_code_path": None,
+                    "elite_record_path": None,
+                }
+                self._data["cells"][cell_id] = cell
+            cell["weight"] = weight
 
     def set_description(self, cell_id: str, description: "dict") -> None:
         """特征格四要素之「方法描述」落点（KR2）：{name, method, source_refs}。
@@ -296,20 +352,23 @@ class Archive:
                     normalized[k] = [str(refs)]
                 continue
             normalized[k] = str(description.get(k) or "")
-        cell = self._data["cells"].get(cell_id)
-        if cell is None:
-            cell = {
-                "descriptor": {},
-                "description": {},
-                "elite": None,
-                "history": [],
-                "weight": 1.0,
-                "visit": 0,
-                "sample_count": 0,
-                "last_sampled_at": None,
-            }
-            self._data["cells"][cell_id] = cell
-        cell["description"] = normalized
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                cell = {
+                    "descriptor": {},
+                    "description": {},
+                    "elite": None,
+                    "history": [],
+                    "weight": 1.0,
+                    "visit": 0,
+                    "sample_count": 0,
+                    "last_sampled_at": None,
+                    "elite_code_path": None,
+                    "elite_record_path": None,
+                }
+                self._data["cells"][cell_id] = cell
+            cell["description"] = normalized
 
     # ---- pending（延迟入库队列） ----
 
@@ -322,18 +381,20 @@ class Archive:
             raise ValueError(
                 "reason must be one of %s, got %r" % (sorted(PENDING_REASONS), reason)
             )
-        self._data["pending"] = [
-            p for p in self._data["pending"] if p.get("cell_id") != cell_id
-        ]
-        self._data["pending"].append({
-            "cell_id": cell_id,
-            "code_path": code_path,
-            "reason": reason,
-            "added_at": _now(),
-        })
+        with self._lock:
+            self._data["pending"] = [
+                p for p in self._data["pending"] if p.get("cell_id") != cell_id
+            ]
+            self._data["pending"].append({
+                "cell_id": cell_id,
+                "code_path": code_path,
+                "reason": reason,
+                "added_at": _now(),
+            })
 
     def drain_pending(self) -> list:
         """取走全部 pending（重评估消费方）。内存队列即清空；持久化由调用方 save。"""
-        out = self._data["pending"]
-        self._data["pending"] = []
-        return out
+        with self._lock:
+            out = self._data["pending"]
+            self._data["pending"] = []
+            return out
