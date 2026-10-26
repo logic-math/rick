@@ -68,3 +68,9 @@ GATE gate16 pass=true (迭代8 L1: task36 五件 super_* skill + task37 gen_env 
 GATE gate17 pass=true (迭代8 L2: task39 loop 八段接线；401 单测)
 GATE gate18 pass=true (迭代8 L3: task41 super-loop + task42 mock/e2e 适配；run_all 全量)
 迭代8 全 7 task success（44e8bdb1/9884a6df/HEAD）
+
+GATE gate19 pass=true (迭代9 L1: task44 五要素+archive RLock)
+GATE gate20 pass=true (迭代9 L2: task46 成本 skill+cost_report+by_role；env_9 真数据 26.11M/$17.59，debug 20次12截断)
+GATE gate21 pass=true (迭代9 L3: task45 格锁+并发降级；413 单测)
+GATE gate22 pass=true (迭代9 L4: task47 文档 + task48 e2e；run_all 全绿)
+迭代9 全 5 task success（1380e3d3/799fc0a9/7c41c1f3/c20a4878）
