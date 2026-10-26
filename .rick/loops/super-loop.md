@@ -87,9 +87,12 @@ scope: "super 会话（全局）"
 - **内容**：区间实验全景摘要 → **主要矛盾判定** → research 检索到并采用的 idea（论文/文档引用）→ 四类格动作（`new_cell` / `modify_cell` / `weight` / `terminate_recommend`）及依据 → 正交性论证（新建格时）。
 - **谁读**：adjust 自己（`decision_history` 近 3 份，防震荡/防重复）；**中控会话 Step 7 轨迹复盘必读**（决策可解释性的主证据）。
 
-### 特征格四要素
+### 特征格五要素
 
-`{name, description(方法描述，可引用论文/调研文档地址), weight, score}`——`description.method` 由 adjust 的 `modify_cell` 改进；`new_cell` 新建时必须给 name/method/source_refs 与**正交性论证**（新维度未被现有格覆盖）。权重 0 = 功能性删除（格与谱系保留，可复活）。
+`{name, description(方法描述，可引用论文/调研文档地址), weight, score, code_path}`：
+
+- **前四要素由 adjust 维护**：`new_cell` 必填 name/method/source_refs 与**正交性论证**（新维度未被现有格覆盖）；`modify_cell` 改进 method；`weight` 0 = 功能性删除（格与谱系保留，可复活）。
+- **第五要素 `code_path` 由框架在入格时同步**：`elite_code_path` = 当前最佳精英代码，`elite_record_path` = 其实验记录（`codes/iter{N}/experiment_record.md`）——agent 读格即得代码与实验档案，不必扫目录。
 
 ## 依赖准备（硬约束，缺失则报错停止）
 
@@ -154,6 +157,7 @@ scope: "super 会话（全局）"
 **Step 3 监控**
 - `rick super status --name <n>`（或 `--json` 给机器可读）：心跳/迭代游标/预算墙（--max-wall-time）/北极星（入格数、各格最优 perf、token 分 role 成本）+ 事件尾摘要（最近迭代的 gate_result / elite_admitted / env_failure_concluded）。
 - 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
+- **token / cost 分布（成本可解释性的读法）**：① `status --json` 的北极星含总 token 成本；② 逐迭代归因看 `events.jsonl` 的 `iteration_ended.by_role`（各角色的 tokens/wall_ms/tool_calls）；③ 需要分布视图时跑 `python3 super/tools/cost_report.py --workdir <ws>`（按角色/迭代的成本表 + Top-N 昂贵迭代 + 上下文膨胀 + cache 命中率）——发现「单角色占比异常」或「截断（`truncated=true`）频发」时按 `super_cost_analysis` skill 的浪费模式清单定位。
 - **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`decisions/`（**adjust 每轮决策记录**：区间实验摘要 → 主要矛盾判定 → research 引用 → 格动作与依据，决策可解释性的主证据）、`codes/iter{N}-{uuid}/experiment_record.md`（**实验记录全文**：假设/验证逻辑/步骤/执行与结论——四 agent 共享的恒常上下文）、`codes/iter{N}-{uuid}/research_report.md`（builder 调研报告）与 `coding_plan.md`/`test_solution.py`（coding 的编码计划与 TDD 痕迹）、`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素/检索命令是否被真调用）。
 
 **Step 4 干预**
@@ -204,6 +208,12 @@ scope: "super 会话（全局）"
   ② **是否落到计划**（`applicability` 是否出现在 `plan_steps`/`reasoning`——「只检索不落地」是常见坏模式）；
   ③ **同质 idea 检测**（某格连续多轮 idea 都在同一小角度微调 = 语义空间局部最优征兆）→ 处方优先改 `skills/research.py` 的 `ROLE_PROFILES`
   （放宽关注点 / 换信源 / 换检索方法；属 env 级升级，需 human 确认），而不是只调权重。
+- **成本复盘（每个 run 收尾必做——短跑可快速扫一眼并在会话记录注明）**：跑 `python3 super/tools/cost_report.py --workdir <ws>`，读三段：
+  ① **按角色占比与中位**（找最大成本项：builder 计划质量 vs coding 实现 vs debug 复验——经验参考：debug 派发次数 / 截断次数是最灵敏的浪费信号）；
+  ② **Top-N 昂贵迭代与截断次数**（`truncated=true` 多 = 回合预算不足或任务过大；对照 config 的 `*_max_turns`）；
+  ③ **上下文膨胀曲线**（单 agent input 持续 >200k = 上下文在膨胀：相邻格全文注入/实验记录全文注入/重复 benchmark 交叉验证是常见根因）。
+  与 `.rick/skills/super_cost_analysis/skill.md` 的浪费模式清单对照（重复 benchmark 验证 / 无效检索 / debug 烧在瞬时波动 / 超长上下文）→ 出优化处方：限长（相邻格只读摘要、调研报告限长）/ 限次（benchmark 复验上限）/ 分工（贵档只给关键格）/ 回合预算校准。
+  **纪律**：本步只计量与解释（human 裁决：先保证可解释，再谈优化）；优化动作经 human 确认后落 `env/prompts/` 或 config，不在跑中热改。
 - **两级接通**：本步进化的是 env 级资产（该 run 的搜索 DNA：四角色模板/特征空间/门禁）；
   若轨迹分析发现的坏模式是**系统性**的（跨 env 都会出现，如「adjust 普遍不引用事件证据」），
   升级为 rick 既有 **learning/dream 循环**（learning job 沉淀 → 更新 super-loop/gen_env skill 等仓级知识）——

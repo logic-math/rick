@@ -266,12 +266,43 @@ gates/                       # 工作区级（非 env 内）：
 - `recheck_tolerance_band`：`gate_check` 判定 `tolerance_band`（带内劣化）时 → 派 debug 复验（`reason=tolerance_band_recheck`）
 - human 未明确时用默认值并在 `domain_knowledge.md` 记「用默认，待首跑后校准」；调整该阈值属 **env 升级路径**（改后重跑门先证红）。
 
+### 2.6 成本监控与预算（token 可解释性——建 env 时就要定口径）
+
+一次实验 = builder/coding/debug 多次 LLM 调用，成本是主要运行约束。**先保证计量与可解释，再谈优化**（human 裁决：暂时只做计量与解释）。
+
+- **预算**：`env.json` 的 `max_total_tokens`（0=不限）与 `--max-wall-time` 双轨，命中任一 → 调度器优雅停（`session_ended.budget_exhausted=true`）。首轮建议设 token 上限：先观察一轮的「单迭代平均成本」再定。
+- **归因口径（框架写入，权威，勿另建账本）**：`events.jsonl` 的 `agent_ended.usage`（input/output/cache_read/cache_write/total_tokens/cost_usd）与 `iteration_ended.by_role`（本迭代按角色的 tokens/wall_ms/tool_calls 聚合）——**每次迭代的成本可归因到具体 agent**。
+- **复盘工具**：`python3 super/tools/cost_report.py --workdir <ws> [--json] [--top N]` → 按角色/迭代的成本表、Top-N 昂贵迭代、上下文膨胀曲线、cache 命中率；能定位 pi session 时补单轮明细（定位失败自动降级为仅事件流）。
+- **配套 skill**：`.rick/skills/super_cost_analysis/skill.md`（七维分析 + 浪费模式清单 + 优化处方）——run 收尾与 super-loop Step 7 复盘时加载。
+
 ### 3. 初始特征空间
 
 `env/feature_space.json` 的 axes：**2-4 轴起步**，每轴 {name, type, values/取值域, desc}。
 - 引导原则：**轴间正交**——每根轴刻画解的一个独立维度（例：impl_strategy=算法策略轴 / memory_layout=数据排布轴；一个讲「怎么算」、一个讲「数据怎么放」，互不蕴含）。
 - 轴取值域是「可枚举的行为描述子」（enum）或「可分档的量」——格 id 由框架从描述子确定性生成。
 - 宁少勿滥：先 2 轴跑起来，进化轨迹显示解空间贫瘠再加轴（加轴走 env 升级路径）。**每个格后续由 adjust 逐步补 `description`（名字/方法描述/来源引用）**，新建时框架给空描述。
+
+**特征格五要素**（进化算法的核心数据结构；框架落盘在 `archive.json`）：
+
+| # | 要素 | 含义 | 谁维护 |
+|---|---|---|---|
+| 1 | `name` | 短名（一句话指代这个优化方向） | adjust（`new_cell` 必填；`modify_cell` 可改） |
+| 2 | `method` | 方法描述（这个方向具体怎么做；**可引用论文/调研地址** `source_refs`，供 builder 设计实验） | adjust（`new_cell` / `modify_cell`） |
+| 3 | `weight` | 采样权重（概率 ∝ weight；0 = 功能性灭绝——格与谱系保留，可复活） | adjust（每轮决策） |
+| 4 | `score` | 该格当前最佳精英的归一化得分（框架权威口径） | 框架（admit 时覆盖写） |
+| 5 | `code_path` | **该格当前最佳精英代码**（`elite_code_path`）+ **其实验记录**（`elite_record_path` → `codes/iter{N}/experiment_record.md`） | 框架（admit 时同步） |
+
+- 前四要素回答「这个方向是什么 / 值多少预算 / 现在多好」；第五要素把**可复用代码与完整实验档案直接挂在格上**——agent（builder/coding/debug）读格即得精英代码与实验记录，不必扫目录猜。
+- 正交性：`new_cell` 必须引入**未被现有格覆盖的优化维度**（新轴值或新描述维度），正交性论证写进决策记录（`decisions/iter{N}.md`）。
+
+### 3.5 并发约束（一格同时只有一个实验；不同格可并行）
+
+**为什么**：一个「实验」= 在某个特征格上的一次迭代（builder→coding→debug→门禁）。同一格上并存两个实验会互相踩精英、污染 profile 历史与实验记录；不同格之间无共享状态，天然可并行。
+
+- **格级互斥（已实现）**：调度器每个实验持格锁（内存 + 文件 `<ws>/locks/cell_<safe_id>.lock`，`O_CREAT|O_EXCL` 原子创建）。采样撞锁 → 重采样到其它格（事件 `cell_lock_resample`）；全部格被占 → 短暂等待并记 `cell_locked_skip`（**不消耗迭代号**：跳过的不是实验），连续超 `cell_lock_max_skips`（默认 60）→ `cell_lock_overflow` 优雅停（防死等空转）。
+- **陈旧锁回收**：锁文件 mtime 超 `cell_lock_ttl_s`（默认 3600s）视为崩溃遗留 → 清理并记 `cell_lock_stale_recovered`；启动时清理孤儿锁记 `cell_lock_orphans_released`。
+- **并发度**：`max_parallel_experiments`（默认 1）。**当前实现为保守串行**——设为 >1 时调度器记 `parallel_degraded` 事件并在 stderr 说明，仍按串行执行（并发槽要求事件流/档案单写者纪律，正确性保障仍在演进）。**建 env 时不要依赖并发**；需要吞吐优先加迭代预算或降低单迭代成本。
+- **对 env 的要求**：三要素脚本必须**可被并发调用**（无共享可变状态、不写固定临时文件名——用 `tempfile` 或带 candidate 哈希）；benchmark 计时对并发负载敏感，放宽 `gates.ref_runtime_band_ms` 前先确认是否真要点并发。
 
 ### 4. 初始解
 

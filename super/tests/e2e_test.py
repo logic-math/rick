@@ -74,10 +74,37 @@ def _master_root() -> str:
     return _MASTER["root"]
 
 
+def _master_venv_dir() -> str:
+    """master venv 目录（E2E_MASTER_VENV 覆盖优先——离线/受限网络复用预置 numpy）。"""
+    override = os.environ.get("E2E_MASTER_VENV", "").strip()
+    if override:
+        return override
+    return os.path.join(_master_root(), "master-venv")
+
+
 def _ensure_master_venv() -> Optional[str]:
-    """master venv（numpy）：一次构建；返回 bin/python 路径，失败 None。"""
+    """master venv（numpy）：一次构建；返回 bin/python 路径，失败 None。
+
+    离线/受限网络支持：若环境变量 ``E2E_MASTER_VENV`` 指向一个**已带 numpy**
+    的 venv（如产物 env 的 .venv），直接复用——避免每进程重新 pip install
+    （本机曾实测 pip 无网：SSL/索引不可达时全部 e2e 被 skip，掩盖回归）。
+    """
     if _MASTER["venv"] is not None:
         return _MASTER["venv"] or None
+    override = os.environ.get("E2E_MASTER_VENV", "").strip()
+    if override:
+        py = os.path.join(override, "bin", "python")
+        if os.path.exists(py):
+            probe = subprocess.run([py, "-c", "import numpy"],
+                                   capture_output=True, text=True, timeout=120)
+            if probe.returncode == 0:
+                _MASTER["venv"] = py
+                return py
+            _MASTER["reason"] = "E2E_MASTER_VENV 不可用（import numpy 失败）"
+        else:
+            _MASTER["reason"] = "E2E_MASTER_VENV 路径无效: %r" % override
+        _MASTER["venv"] = ""
+        return None
     root = _master_root()
     venv_dir = os.path.join(root, "master-venv")
     py = os.path.join(venv_dir, "bin", "python")
@@ -467,7 +494,7 @@ def make_env_dir(ws: str, relative_band: Optional[float] = None,
     # numpy venv：软链 master（gates 侧 env/.venv/bin/python 生效即可）
     venv_link = os.path.join(env_dir, ".venv")
     if not os.path.exists(venv_link):
-        os.symlink(os.path.join(_master_root(), "master-venv"), venv_link)
+        os.symlink(_master_venv_dir(), venv_link)
     return env_dir
 
 
@@ -878,6 +905,72 @@ class TestSuperFullChain(unittest.TestCase):
                         "档案 pending 应是投影子集（丢失=%r）"
                         % (arch_pending - proj_pending,))
 
+        # ---- 特征格五要素（迭代9/task44，human fix 1）----
+        # 格 = {name, method, weight, score, code_path}：description 承载 name/method，
+        # elite_code_path/elite_record_path 指向「当前最佳精英代码 + 其实验记录」。
+        admitted_cells = [cid for cid, c in (arch.get("cells") or {}).items()
+                          if c.get("elite")]
+        self.assertTrue(admitted_cells, "应至少有一个含精英的格（五要素载体）")
+        for cid in admitted_cells:
+            cell = arch["cells"][cid]
+            self.assertTrue(cell.get("elite_code_path"),
+                            "格 %s 缺五要素之 elite_code_path" % cid)
+            self.assertTrue(cell.get("elite_record_path"),
+                            "格 %s 缺五要素之 elite_record_path" % cid)
+            self.assertTrue(os.path.isfile(cell["elite_code_path"]),
+                            "elite_code_path 不是真实文件: %r"
+                            % (cell["elite_code_path"],))
+            self.assertTrue(os.path.isfile(cell["elite_record_path"]),
+                            "elite_record_path 不是真实文件: %r"
+                            % (cell["elite_record_path"],))
+            self.assertIn("description", cell,
+                          "格 %s 缺 description（五要素之 name/method）" % cid)
+
+        # ---- 成本可解释性（迭代9/task46，human fix 3+4）：iteration_ended.by_role ----
+        ended_payloads = [e["payload"] for e in events
+                          if e["type"] == "iteration_ended"]
+        self.assertTrue(ended_payloads, "应有 iteration_ended 事件")
+        for p in ended_payloads:
+            by_role = p.get("by_role")
+            self.assertIsInstance(by_role, dict,
+                                  "iteration_ended 缺 by_role（成本归因）")
+            for role, cost in by_role.items():
+                for k in ("tokens", "wall_ms", "tool_calls"):
+                    self.assertIn(k, cost,
+                                  "by_role[%s] 缺 %s" % (role, k))
+        self.assertTrue(
+            any(v.get("tokens", 0) > 0
+                for p in ended_payloads
+                for v in (p.get("by_role") or {}).values()),
+            "by_role tokens 应非零（mock usage 非零）")
+
+        # ---- cost_report 工具冒烟（迭代9/task46）：真数据 ws 上出表与 JSON ----
+        report_tool = os.path.join(_SUPER, "tools", "cost_report.py")
+        self.assertTrue(os.path.isfile(report_tool), "缺 cost_report.py")
+        r = subprocess.run([sys.executable, report_tool, "--workdir", ws,
+                            "--json"], capture_output=True, text=True,
+                           timeout=120)
+        self.assertEqual(r.returncode, 0, "cost_report --json 失败: %s%s"
+                         % (r.stdout[-400:], r.stderr[-400:]))
+        cr = json.loads(r.stdout[r.stdout.index("{"):])
+        self.assertIn("roles", cr, "cost_report --json 缺 roles")
+        self.assertIn("total", cr, "cost_report --json 缺 total")
+        self.assertGreater(cr["total"].get("tokens", 0), 0,
+                           "cost_report total.tokens 应非零")
+        r = subprocess.run([sys.executable, report_tool, "--workdir", ws],
+                           capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, "cost_report markdown 失败: %s"
+                         % (r.stderr[-300:],))
+        self.assertIn("|", r.stdout, "cost_report markdown 应含表格列")
+        self.assertIn("coding", r.stdout, "cost_report markdown 应含角色行")
+
+        # ---- 并发默认 1 回归（迭代9/task45）：默认不产生 parallel_degraded ----
+        self.assertEqual(count_events(ws, "parallel_degraded"), 0,
+                         "默认 max_parallel_experiments=1 不应降级")
+        # 格锁：每迭代都有配对释放（无泄漏）；正常路径不应有跳过
+        self.assertEqual(count_events(ws, "cell_locked_skip"), 0,
+                         "串行正常路径不应有格锁跳过")
+
         # ---- 北极星（north_star）与事件流聚合一致（status 独立计算交叉验证） ----
         # north_star = {iterations, elite_admits, cells, total_tokens}——事件流聚合
         st2 = self._status_json()
@@ -1039,6 +1132,121 @@ class TestRecheckTriggers(unittest.TestCase):
         self.assertTrue(dec_events, "应有 adjust_decision 事件")
         self.assertTrue(any(p.get("decision_path") for p in dec_events),
                         "adjust_decision 应携带 decision_path")
+
+
+# --------------------------------------------------------------------------- #
+# 用例 ①c：格级互斥与并发降级（迭代9/task45，human fix 2）
+# --------------------------------------------------------------------------- #
+
+class TestCellLockMutex(unittest.TestCase):
+    """一个特征格同时只有一个实验（格锁）；不同格可并行（降级串行时显式记录）。
+
+    真调度器子进程 + mock pi + 单格 env（1 轴 1 值）：
+    - 外部预占该格锁（模拟另一个并发实验）→ 调度器全格被占 →
+      ``cell_locked_skip``（**不消耗迭代号**）→ 连续跳过超 ``cell_lock_max_skips``
+      → ``cell_lock_overflow`` 优雅停；
+    - 锁释放后同格可正常跑实验（互斥不误杀）；
+    - 请求 ``max_parallel_experiments>1`` → 显式 ``parallel_degraded``（effective=1）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if _ensure_master_venv() is None:
+            raise unittest.SkipTest("numpy venv 不可用：%s"
+                                    % _MASTER.get("reason", ""))
+
+    def _make(self, tag: str, *, max_iterations: int = 1,
+              overrides: Optional[Dict[str, Any]] = None):
+        ws = os.path.join(_master_root(), "ws-celllock-" + tag)
+        if os.path.exists(ws):
+            shutil.rmtree(ws)
+        state = os.path.join(_master_root(), "mock-state-celllock-" + tag)
+        os.makedirs(state, exist_ok=True)
+        for role in ("builder", "coding", "debug", "adjust"):
+            p = os.path.join(state, role + ".count")
+            if os.path.exists(p):
+                os.unlink(p)
+        env_dir = make_env_dir(ws, single_cell=True)
+        make_gates_dir(ws)
+        ov = {"cell_lock_max_skips": 2, "cell_lock_skip_sleep_s": 0}
+        ov.update(overrides or {})
+        write_super_json(ws, env_dir, _write_mock_pi(state),
+                         max_iterations=max_iterations,
+                         config_overrides=ov)
+        return ws, state, env_dir
+
+    def _run(self, ws: str, state: str, *, max_iterations: int = 1):
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _SUPER
+        env["MOCK_STATE_DIR"] = state
+        env.pop("MOCK_CODING_MODE", None)
+        env.pop("MOCK_DEBUG_VERDICT", None)
+        return subprocess.run(
+            [sys.executable, "-m", "superopt", "--workdir", ws,
+             "--max-iterations", str(max_iterations)],
+            capture_output=True, text=True, timeout=600, env=env)
+
+    def _only_cell(self, env_dir: str) -> str:
+        from superopt.feature_space import FeatureSpace
+        with open(os.path.join(env_dir, "feature_space.json"),
+                  encoding="utf-8") as f:
+            axes = json.load(f)["axes"]
+        return FeatureSpace(axes).all_cells()[0]
+
+    def test_all_cells_locked_skips_and_overflow(self):
+        """全格被外部实验占用 → cell_locked_skip ×N → cell_lock_overflow 优雅停。"""
+        ws, state, env_dir = self._make("occupied")
+        cell = self._only_cell(env_dir)
+        from superopt.cell_lock import CellLocks
+        holder = CellLocks(ws)
+        self.assertTrue(holder.acquire(cell), "测试预占锁应成功")
+        try:
+            r = self._run(ws, state)
+        finally:
+            holder.release(cell)
+        self.assertEqual(r.returncode, 0,
+                         "全格被占应优雅停（exit 0）: %s%s"
+                         % (r.stdout[-400:], r.stderr[-600:]))
+        evs = read_events(ws)
+        skips = [e for e in evs if e["type"] == "cell_locked_skip"]
+        self.assertGreaterEqual(len(skips), 2,
+                                "连续跳过应逐次记 cell_locked_skip（≥2）")
+        self.assertEqual(skips[0]["payload"].get("sampled_cell"), cell,
+                         "跳过事件应记录被占的格")
+        self.assertTrue(any(e["type"] == "cell_lock_overflow" for e in evs),
+                        "连续跳过超限应记 cell_lock_overflow")
+        # 互斥语义：被占期间该格上没有任何实验启动（无 iteration_started）
+        self.assertEqual(count_events(ws, "iteration_started"), 0,
+                         "格被占期间不应启动实验（互斥保证）")
+        self.assertGreaterEqual(count_events(ws, "session_ended"), 1,
+                                "溢出后应优雅收口（session_ended）")
+
+    def test_lock_released_allows_experiment(self):
+        """锁释放后同格可正常跑实验（互斥不误杀）。"""
+        ws, state, env_dir = self._make("released")
+        r = self._run(ws, state)
+        self.assertEqual(r.returncode, 0, "无锁时应正常跑: %s%s"
+                         % (r.stdout[-400:], r.stderr[-600:]))
+        self.assertGreaterEqual(count_events(ws, "iteration_started"), 1,
+                                "无锁时应启动实验")
+        self.assertEqual(count_events(ws, "cell_locked_skip"), 0,
+                         "无锁时不应出现跳过")
+
+    def test_parallel_request_degrades_to_serial(self):
+        """请求并发 >1 → 显式降级串行（parallel_degraded），实验仍完成。"""
+        ws, state, env_dir = self._make(
+            "degraded", max_iterations=1,
+            overrides={"max_parallel_experiments": 2})
+        r = self._run(ws, state)
+        self.assertEqual(r.returncode, 0, "降级后应正常完成: %s%s"
+                         % (r.stdout[-400:], r.stderr[-600:]))
+        degr = [e["payload"] for e in read_events(ws)
+                if e["type"] == "parallel_degraded"]
+        self.assertTrue(degr, "请求并发>1 应记 parallel_degraded（显式降级）")
+        self.assertEqual(degr[0].get("requested"), 2)
+        self.assertEqual(degr[0].get("effective"), 1)
+        self.assertGreaterEqual(count_events(ws, "iteration_ended"), 1,
+                                "降级后实验照常完成")
 
 
 # --------------------------------------------------------------------------- #
