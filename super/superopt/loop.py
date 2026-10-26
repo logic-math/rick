@@ -91,6 +91,10 @@ _TZ = timezone(timedelta(hours=8))
 # adjust 软动作 action 字符串里的权重解析（如 "weight 0.5" / "0.5"）
 _WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)")
 
+# 相邻格实验记录摘要上限（迭代10/task51 降本）：相邻格只作灵感源，不让
+# 其二篇完整记录撑大 builder 上下文（目标格精英记录仍用 1200）。
+_NEIGHBOR_RECORD_LIMIT = 400
+
 
 def _fmt_num(v: float) -> str:
     """性能数字的人读格式：整数不带尾零；浮点保留 1 位小数。"""
@@ -293,7 +297,11 @@ class Scheduler:
             self.perf_type = env_meta.get("perf_type", "runtime_ms")
 
             # ---- 组装（可注入） ----
-            self.events = event_writer or EventWriter(self.events_path)
+            # event_fsync（迭代10/task51）：默认 True；高频/并发实验可关（省 IO，
+            # 崩溃可能丢尾行——events 读取有截断容错）
+            self.events = event_writer or EventWriter(
+                self.events_path,
+                event_fsync=bool(conf.get("event_fsync", True)))
             self.archive = archive or _RuntimeArchive(
                 self.archive_path, perf_desc=self.perf_desc)
             self.archive.load()
@@ -2153,15 +2161,26 @@ class Scheduler:
             return text[:limit]
         return text
 
-    def _record_for_code_path(self, code_path: Any) -> str:
-        """精英解所在迭代目录的实验记录摘要（builder/coding 的「必读上下文」）。"""
+    def _record_for_code_path(self, code_path: Any,
+                              limit: int = 1200) -> str:
+        """精英解所在迭代目录的实验记录摘要（builder/coding 的「必读上下文」）。
+
+        limit：摘要字符上限。目标格精英记录用 1200（完整上下文）；**相邻格
+        只作灵感源，用 400（降本，迭代10/task51：相邻格×2 的上下文是 builder
+        成本的大头之一）**。
+        """
         if not isinstance(code_path, str) or not code_path:
             return ""
         iter_dir = os.path.dirname(os.path.abspath(code_path))
-        return experiment_record.digest(iter_dir)
+        return experiment_record.digest(iter_dir, limit=limit)
 
     def _neighbor_samples(self, cell_id: str, k: int = 2) -> List[Dict[str, Any]]:
-        """两个随机相邻格样本（J-i8-3）：description/精英代码/实验记录摘要。"""
+        """两个随机相邻格样本（J-i8-3）——**摘要形态**（迭代10/task51 降本）。
+
+        每项只给：cell_id / description / elite_code_path（**路径引用，不内联
+        代码正文**）/ elite_perf / record_digest（≤400 字）。需要看代码或完整
+        记录时由 agent 用 read 自取——避免把相邻格全文塞进 builder 上下文。
+        """
         out = []  # type: List[Dict[str, Any]]
         for cid in self.fs.sample_neighbors(cell_id, k):
             entry = self._cell_entry(cid)
@@ -2175,7 +2194,8 @@ class Scheduler:
                 "elite_code_path": elite.get("code_path"),
                 "elite_perf": elite.get("perf_value"),
                 "record_digest": self._or_default(
-                    self._record_for_code_path(elite.get("code_path")),
+                    self._record_for_code_path(elite.get("code_path"),
+                                               limit=_NEIGHBOR_RECORD_LIMIT),
                     "（该格无精英或记录缺失）"),
             })
         return out

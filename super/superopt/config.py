@@ -9,8 +9,9 @@
   heartbeat_interval_s=30 / heartbeat_timeout_s=90 / term_grace_s=5 /
   max_wall_time_h=24.0 / max_iterations=0（0=无迭代上限）/ python_path="python3" /
   pi_path=""（空=必须由 super.json 显式给出；消费方（agents/loop）对空值报错）/
-  builder_max_turns=12 / coding_max_turns=16 / debug_max_turns=10 /
-  adjust_max_turns=8（assistant 回合预算；0=不限）/
+  builder_max_turns=20 / coding_max_turns=24 / debug_max_turns=0 /
+  adjust_max_turns=16（assistant 回合预算；0=不限）/
+  event_fsync=True（事件落盘 fsync 开关；高频事件可关，由 close/flush 兜底）/
   debug_gain_threshold_pct=20 / debug_recheck_tolerance_band=True
   （门禁通过后的异常收益/容差带复验；env.json debug_policy 可覆盖）/
   max_parallel_experiments=1（并发实验槽；当前降级为串行——见 loop 事件
@@ -52,11 +53,20 @@ DEFAULTS: Dict[str, Any] = {
     # max-turns flag → agents.PiAgentClient 在 NDJSON 流计数 assistant
     # message_end，达上限走 kill 梯优雅终止（truncated 标记，已产出内容保留）。
     # 默认值依据：env_8 实测中位 3-7 回合、极值 23 → 截尾部；
-    # coding 实现回合略多，debug 修复窗口短，adjust 只需审视一次。
+    # coding 实现回合略多，adjust 只需审视一次。
+    # **debug_max_turns=0（不设回合上限）——human 裁决（迭代10/task51）**：
+    # env_9 实测 debug 20 次派发 12 次截断，而截断后的重试才是浪费主因
+    # （截断=根因没定位完就死 → 下次重派从头再来）。改为不限回合，配合
+    # 「一次性根因定位」协议（super/prompts/debug.md：复现→三假设→一次
+    # 跑完验证→单次修复），兜底改由 agent_timeout_s（默认 900s）+ wall budget。
     "builder_max_turns": 20,
     "coding_max_turns": 24,
-    "debug_max_turns": 16,
+    "debug_max_turns": 0,
     "adjust_max_turns": 16,
+    # ---- 事件落盘 fsync 开关（迭代10/task49+51）----
+    # True（保守）=每事件 fsync；False=仅 flush（高频/并发实验时省 IO，
+    # 崩溃可能丢尾行——events 读取有截断容错）。
+    "event_fsync": True,
     # ---- 格级互斥与并发实验（迭代9/task45，human fix 2）----
     # 实验 = 一次特征格上的迭代；**同一格同时只有一个实验**（builder/coding/
     # debug 在该格上顺序协作），不同格可并行。互斥由 CellLocks 双保险实现

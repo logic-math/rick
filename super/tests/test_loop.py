@@ -2391,3 +2391,115 @@ class TestExperimentDimension(LoopTestBase):
         sched2._recover()
         self.assertEqual(sched2.iteration_cursor, 2,
                          "重启恢复后 cursor=2 → 重跑 #3")
+
+
+# --------------------------------------------------------------------------- #
+# ⑩ 成本优化（迭代10/task51）：debug 不截断 + 相邻格摘要形态 + event_fsync
+# --------------------------------------------------------------------------- #
+
+class TestCostReduction(LoopTestBase):
+    """human 裁决：debug 回合截断是浪费主因；相邻格只给摘要不内联代码。"""
+
+    def test_debug_no_turn_cap_by_default(self):
+        """DEFAULTS debug_max_turns=0 → _role_max_turns 返回 None（不限）；
+        实际派发 debug 时客户端收到 max_turns=None。"""
+        self.client.queue("coding", [_coding_result(passed=False)])
+        self.client.queue("debug", [_debug_result(passed=True)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1,
+                                                   "debug_max_attempts": 1})
+        self.assertEqual(sched.conf.get("debug_max_turns"), 0,
+                         "debug 回合上限默认应为 0（不截断）")
+        self.assertIsNone(sched._role_max_turns("debug"),
+                          "0 → 不限（None 透传给 client）")
+        sched.run()
+        debug_calls = [c for c in self.client.calls if c["role"] == "debug"]
+        self.assertTrue(debug_calls, "自检失败应派发 debug")
+        self.assertIsNone(debug_calls[0]["max_turns"],
+                          "debug 派发不得带回合上限（截断=浪费主因）")
+
+    def test_other_roles_keep_turn_caps(self):
+        """builder/coding 仍保留回合预算（只有 debug 放开）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        self.assertEqual(sched._role_max_turns("builder"),
+                         sched.conf.get("builder_max_turns"))
+        self.assertEqual(sched._role_max_turns("coding"),
+                         sched.conf.get("coding_max_turns"))
+        self.assertGreater(sched._role_max_turns("builder") or 0, 0)
+
+    def test_neighbor_samples_are_digest_only(self):
+        """相邻格样本：给路径+摘要，**不内联代码正文**（builder 上下文降本）。"""
+        from superopt.archive import Archive
+        marker = "SECRET_NEIGHBOR_CODE_MARKER"
+        arc = Archive(self.archive_path, perf_desc="low")
+        arc.load()
+        for i, cid in enumerate(self.fs_all_cells()):
+            d = os.path.join(self.ws, "codes",
+                             "iter%03d-%s" % (i + 1, "aaaa%04d" % i))
+            os.makedirs(d, exist_ok=True)
+            sol = os.path.join(d, "solution.py")
+            with open(sol, "w", encoding="utf-8") as f:
+                f.write("# %s\nprint(1)\n" % marker)
+            arc.admit(cid, {"descriptor": {},
+                            "elite": {"code_path": sol,
+                                      "perf_value": 10.0 + i}})
+        arc.save()
+
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        iter_dir = [d for d in os.listdir(os.path.join(self.ws, "codes"))
+                    if d.startswith("iter001-") and "aaaa" not in d][0]
+        text = open(os.path.join(self.ws, "codes", iter_dir,
+                                 "prompt_builder.md"), encoding="utf-8").read()
+        self.assertIn("elite_code_path", text, "应给相邻格精英代码路径")
+        self.assertIn(os.path.join(self.ws, "codes"), text, "路径应真实注入")
+        self.assertNotIn(marker, text,
+                         "相邻格代码正文不得内联——只有路径，需要时 read 自取")
+
+    def test_neighbor_record_digest_capped_at_400(self):
+        """相邻格实验记录摘要 ≤400 字（目标格精英记录仍用 1200）。"""
+        from superopt.archive import Archive
+        from superopt import experiment_record as _er
+        tail = "TAIL_MARKER_BEYOND_400"
+        arc = Archive(self.archive_path, perf_desc="low")
+        arc.load()
+        for i, cid in enumerate(self.fs_all_cells()):
+            d = os.path.join(self.ws, "codes",
+                             "iter%03d-%s" % (i + 1, "bbbb%04d" % i))
+            os.makedirs(d, exist_ok=True)
+            sol = os.path.join(d, "solution.py")
+            with open(sol, "w", encoding="utf-8") as f:
+                f.write("# cand %d\n" % i)
+            _er.create(d, {"iteration_id": i + 1, "cell_id": cid,
+                           "idea": "x" * 1200 + tail, "parents": []})
+            arc.admit(cid, {"descriptor": {},
+                            "elite": {"code_path": sol,
+                                      "perf_value": 5.0 + i}})
+        arc.save()
+
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        cells = self.fs_all_cells()
+        target = cells[0]
+        samples = sched._neighbor_samples(target, 2)
+        self.assertTrue(samples, "应有相邻格样本")
+        for s in samples:
+            digest = s["record_digest"]
+            self.assertLessEqual(len(digest), 420,
+                                 "相邻格记录摘要应 ≤400 字（含截断标注）: %d"
+                                 % len(digest))
+            self.assertNotIn(tail, digest,
+                             "相邻格摘要不得包含 400 字之后的尾部内容")
+        # 目标格精英记录仍可到 1200（对照：同一记录在目标格语境下取更多）
+        target_digest = sched._record_for_code_path(
+            sched._cell_entry(target).get("elite", {}).get("code_path"))
+        self.assertGreater(len(target_digest), 420,
+                           "目标格精英记录摘要应允许更长（1200 口径）")
+
+    def test_event_fsync_config_wired(self):
+        """event_fsync 配置透传到 EventWriter（默认 True；可关）。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
+        self.assertIs(sched.events._event_fsync, True,
+                      "默认 event_fsync=True（保守）")
+        sched2 = self.make_scheduler(cfg_overrides={"max_iterations": 0,
+                                                    "event_fsync": False})
+        self.assertIs(sched2.events._event_fsync, False,
+                      "event_fsync=False 应透传到写器")

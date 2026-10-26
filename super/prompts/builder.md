@@ -42,10 +42,11 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 
 **两个随机相邻格（跨格重组灵感源）**
 
-- 相邻格样本（每项含 cell_id / description / 精英代码路径 / 实验记录摘要）：{{neighbor_samples}}
+- 相邻格样本（每项含 cell_id / **description** / **精英代码路径（elite_code_path，不内联代码正文——需要时用 `read` 自取）** / 精英 perf / **实验记录摘要（≤ 400 字）**）：{{neighbor_samples}}
 - 邻格精英（若 `neighbor_samples` 为空则退化为这一项的概览）：{{neighbor_elites}}
 
 > 相邻格的价值在**迁移**：它们的 method 描述、精英代码与实验记录告诉你「别的思路做到哪一步、踩过什么坑」。若相邻格与你目标格瓶颈同源，其经验往往可直接搬。
+> **使用纪律（降本）**：相邻格只给摘要与路径——**先在 description/记录摘要上判断是否有迁移价值，值得时才 `read` 它的代码**；不要一开始就把相邻格代码全部读进来（那是上下文浪费）。
 
 **历史与现状**
 
