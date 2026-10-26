@@ -1,6 +1,0 @@
-auto-adjudicate.sh: line 29: WS�: unbound variable
-[2026-10-21 23:35:27] auto-adjudicate 守护启动：ws=/Users/logic/workdir/rick-dev/.rick/super/env_8（30s 扫描；human 已裁决加格免审批）
-[2026-10-21 23:36:57] 发现未裁决提案：chain-test-reject → 跑内置保守裁决规则
-auto-adjudicate.sh: line 44: rc�: unbound variable
-[2026-10-21 23:37:12] auto-adjudicate 守护启动：ws=/Users/logic/workdir/rick-dev/.rick/super/env_8（30s 扫描；human 已裁决加格免审批）
-[2026-10-21 23:37:31] auto-adjudicate 守护启动：ws=/Users/logic/workdir/rick-dev/.rick/super/env_8（30s 扫描；human 已裁决加格免审批）

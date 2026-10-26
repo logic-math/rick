@@ -1,7 +1,0 @@
-{
-  "idea": "研究收获颇丰。已确认关键机制：**numpy#18669**（matmul+out= 在未预故障的页面上较慢，预故障后反转）、**OpenBLAS#3197**（多线程页面故障内核锁竞争 / 零填充缓存抖动；memset 预故障带来了 4 倍的 GEMM 加速）、**页面故障成本基准测试**（首次访问 ~2.5µs/页）以及 **GEMMbench (arX [timeout after 900s",
-  "target_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
-  "parents": [],
-  "plan_steps": [],
-  "expected_behavior": null
-}

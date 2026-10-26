@@ -1,7 +1,0 @@
-{
-  "idea": "[exit 143]",
-  "target_cell": "dispatch_target=np_matmul|impl_strategy=naive_loops|memory_layout=col_major|parallelism=serial",
-  "parents": [],
-  "plan_steps": [],
-  "expected_behavior": null
-}

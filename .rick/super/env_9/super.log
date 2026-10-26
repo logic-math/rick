@@ -1,7 +1,0 @@
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: signal: killed (last_seq=60)
-[rick super] worker died (exited: signal: killed), restarting 1/3
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: 0 (last_seq=74)
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: 0 (last_seq=100)
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: 0 (last_seq=230)
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: 0 (last_seq=811)
-[rick] super: worker /Users/logic/workdir/rick-dev/.rick/super/env_9 died: exited: 0 (last_seq=905)

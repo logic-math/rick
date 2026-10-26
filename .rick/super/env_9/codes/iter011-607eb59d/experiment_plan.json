@@ -1,7 +1,0 @@
-{
-  "idea": "[turn-budget-exceeded: 20] 手动复制 einsum 内部序列（tensordot 462.6 + identity copy 16.6 = 479ms total）—— 速度很快！但实际中 `np.einsum(..., out=dst, optimize=True)` = 832ms。所以开销出在 einsum 自身的调度代码中，而不是计算部分。\n\n区别在于：手动 se",
-  "target_cell": "dispatch_target=einsum_path|impl_strategy=m_quarters",
-  "parents": [],
-  "plan_steps": [],
-  "expected_behavior": null
-}

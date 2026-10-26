@@ -1,7 +1,0 @@
-{
-  "idea": "现在我理解了基准测试协议：在同一个进程中先运行 candidate（预热 + k=3），然后运行 ref np.matmul，score = ref_median/cand_median。iter006 的 einsum candidate 在 gate_check 中的测量值为 531-647ms，而参考值为 453ms——这要么是负载噪声，要么是实际的 einsum 开销。我的单元是 eins",
-  "target_cell": "dispatch_target=einsum_path|impl_strategy=m_quarters",
-  "parents": [],
-  "plan_steps": [],
-  "expected_behavior": null
-}
