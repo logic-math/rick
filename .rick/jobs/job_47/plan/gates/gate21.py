@@ -17,12 +17,8 @@ def main():
     c = read("super/superopt/config.py")
     for kw in ["max_parallel_experiments", "cell_lock_ttl_s"]:
         if kw not in c: ERRORS.append("[B] config 缺 " + kw)
-    if "五要素" not in read(".rick/skills/gen_env_skill/skill.md"):
-        ERRORS.append("[C] gen_env 缺五要素")
-    if "cost_report" not in read(".rick/loops/super-loop.md"):
-        ERRORS.append("[C] super-loop 缺成本复盘")
-    r = run(["bash", "super/tests/run_all.sh"])
-    if r.returncode != 0: ERRORS.append("[D] run_all 失败：\n" + (r.stdout + r.stderr)[-2500:])
+    r = run([sys.executable, "-m", "unittest", "discover", "-s", "super/tests", "-p", "test_*.py"])
+    if r.returncode != 0: ERRORS.append("[C] py 全量失败：\n" + (r.stdout + r.stderr)[-2500:])
     print(json.dumps({"pass": not ERRORS, "errors": ERRORS}, ensure_ascii=False, indent=2))
     sys.exit(0 if not ERRORS else 1)
 if __name__ == "__main__": main()

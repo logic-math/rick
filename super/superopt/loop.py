@@ -61,6 +61,7 @@ from typing import Any, Callable, Dict, List, Optional
 from superopt.agents import PiAgentClient
 from superopt.archive import Archive
 from superopt.budget import CostLedger
+from superopt.cell_lock import CellLocks
 from superopt.config import DEFAULTS
 from superopt.events import EventWriter
 from superopt.feature_space import FeatureSpace
@@ -268,6 +269,17 @@ class Scheduler:
         os.makedirs(self.proposals_dir, exist_ok=True)
         os.makedirs(self.gates_dir, exist_ok=True)
         os.makedirs(self.decisions_dir, exist_ok=True)
+        # 格级互斥（迭代9/task45，human fix 2）：一个格同时只有一个实验。
+        # 内存集合 + 文件锁双保险（跨进程）；陈旧锁按 TTL 回收、启动时清孤儿。
+        # 回调在调用线程（主线程/采样处）落事件——本模块自身不写事件。
+        self.cell_locks = CellLocks(
+            self.ws,
+            ttl_s=float(conf.get("cell_lock_ttl_s", 3600) or 3600),
+            on_stale=self._on_cell_lock_stale)
+        self.max_parallel_experiments = max(
+            1, int(conf.get("max_parallel_experiments", 1) or 1))
+        # 连续「全格被占」跳过计数（超过 cell_lock_max_skips → 优雅停，防空转）
+        self._lock_skip_count = 0
 
         # ---- env 装配（坏 env 不炸构造：run() 先检 env_error 给可诊断退出码） ----
         self.env_error = None  # type: Optional[str]
@@ -387,6 +399,29 @@ class Scheduler:
                            {"env": self.env_dir, "pid": os.getpid()},
                            "scheduler")
         self._recover()
+        # ---- 格级互斥启动清理（迭代9/task45）----
+        # 上个进程被 SIGKILL 时可能留下锁文件：持有者 pid 已死 → 立即清理
+        # （不必等 TTL），避免恢复后的首个迭代空等。
+        released = self.cell_locks.release_orphans()
+        if released:
+            self.events.append("cell_lock_orphans_released", {
+                "count": len(released), "cells": released[:20]}, "scheduler")
+        # 并发实验槽：当前实现仍为串行——每迭代的状态（_iter_cost/_iter_agents/
+        # builder_outputs/TDD 痕迹…）是调度器级共享态，且 worker 线程不得写
+        # events/archive（单写者纪律）。拆槽需要遍历全部事件与记账的重构，
+        # 风险高于收益（迭代9 plan 明确允许此降级）。**格级互斥已完整生效**
+        # （CellLocks：一格同时只有一个实验；跨进程文件锁）。
+        if self.max_parallel_experiments > 1:
+            self.events.append("parallel_degraded", {
+                "requested": self.max_parallel_experiments,
+                "effective": 1,
+                "reason": "per-iteration state is scheduler-scoped; "
+                          "slot refactor pending (events single-writer)",
+            }, "scheduler")
+            print("[superopt] NOTE: max_parallel_experiments=%d 降级为串行"
+                  "（并发槽未完成；格级互斥已生效）"
+                  % self.max_parallel_experiments,
+                  file=sys.stderr, flush=True)
         self._install_signal_handlers()
         # 心跳线程：长 agent 派发（真 pi 单次可达十余分钟）会阻塞主循环，
         # 若心跳只在主循环 tick 写，Go PySupervisor 会误判心跳超时→kill→重启
@@ -516,6 +551,75 @@ class Scheduler:
     # ------------------------------------------------------------------ #
 
     def _step(self) -> None:
+        """单迭代 = 一个实验：先抢占格锁（一个格同时只有一个实验）。"""
+        cell_id = self._sample_and_lock()
+        if cell_id is None:
+            return  # 全格被其它实验占用（事件已落）；外层等待后重试
+        try:
+            self._step_locked(cell_id)
+        finally:
+            self.cell_locks.release(cell_id)
+
+    def _sample_and_lock(self) -> Optional[str]:
+        """采样 + 格锁（迭代9/task45，human fix 2）。
+
+        - 随机采样撞锁 → 按权重降序尝试其它存活格（确定性兜底：并发时各
+          实例/槽自然分道——**不同格可并行**）；
+        - 全部被占 → 记 ``cell_locked_skip``，短暂等待后返回 None（**不消耗
+          迭代号**：跳过的不是实验）；连续跳过超 ``cell_lock_max_skips``
+          → 记 ``cell_lock_overflow`` 并优雅停（防死等空转）。
+        """
+        cell = self.sampler.sample_cell()  # 无可用格时抛 ValueError（原语义）
+        if self.cell_locks.acquire(cell):
+            self._lock_skip_count = 0
+            return cell
+        snap = _cells_snapshot(self.archive)
+        alive = [cid for cid in self.fs.all_cells()
+                 if cid != cell
+                 and float((snap.get(cid) or {}).get("weight") or 0.0) > 0.0]
+        alive.sort(key=lambda cid: -float(
+            (snap.get(cid) or {}).get("weight") or 0.0))
+        for cid in alive:
+            if self.cell_locks.acquire(cid):
+                self._lock_skip_count = 0
+                self.events.append("cell_lock_resample", {
+                    "iteration_cursor": self.iteration_cursor,
+                    "sampled_cell": cell, "locked_to": cid,
+                }, "scheduler")
+                return cid
+        # 全部候选格被其它实验占用
+        self._lock_skip_count += 1
+        self.events.append("cell_locked_skip", {
+            "iteration_cursor": self.iteration_cursor,
+            "sampled_cell": cell,
+            "consecutive_skips": self._lock_skip_count,
+        }, "scheduler")
+        max_skips = int(self.conf.get("cell_lock_max_skips", 60) or 60)
+        if max_skips > 0 and self._lock_skip_count >= max_skips:
+            self.events.append("cell_lock_overflow", {
+                "iteration_cursor": self.iteration_cursor,
+                "consecutive_skips": self._lock_skip_count,
+            }, "scheduler")
+            self.stop_requested = True
+            return None
+        sleep_s = float(self.conf.get("cell_lock_skip_sleep_s", 1.0) or 0.0)
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+        return None
+
+    def _on_cell_lock_stale(self, cell_id: str) -> None:
+        """格锁陈旧回收上报（CellLocks 回调）→ 事件（可观测）。"""
+        events = getattr(self, "events", None)
+        if events is None:
+            return
+        try:
+            events.append("cell_lock_stale_recovered",
+                          {"cell_id": cell_id}, "scheduler")
+        except Exception:  # noqa: BLE001 —— 事件写失败不破坏锁语义
+            pass
+
+    def _step_locked(self, cell_id: str) -> None:
+        """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。"""
         self.iteration_cursor += 1
         cursor = self.iteration_cursor
         iter_started = time.time()
@@ -536,8 +640,8 @@ class Scheduler:
         self.events.append("iteration_started",
                            {"iteration_id": cursor}, "scheduler")
 
-        # ---- 状态 1：采样（纯加权随机，决策权在 adjust；visit 唯一递增点） ----
-        cell_id = self.sampler.sample_cell()
+        # ---- 状态 1：visit 递增 + cell_sampled 事件（采样与格锁已在上游
+        #      _sample_and_lock 完成：一个格同时只有一个实验；visit 唯一递增点） ----
         visit_before = int(self._cell_entry(cell_id).get("visit") or 0)
         cold_start = visit_before == 0
         self.sampler.increment_visit(cell_id)

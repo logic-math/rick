@@ -67,6 +67,13 @@ EVENT_TYPES = frozenset({
     "intervention",               # human 输入原文+分类（摄取自干预队列）
     "heartbeat",                  # 无必填载荷（信封 ts 即心跳时刻）
     "env_failure_concluded",      # 诊断包 returncode/stderr_tail/cause
+    # ---- 迭代9/task45：格级互斥（一个格同时只有一个实验）----
+    "cell_lock_resample",         # sampled_cell/locked_to（采样撞锁 → 异格兜底）
+    "cell_locked_skip",           # sampled_cell/consecutive_skips（全格被占 → 跳过）
+    "cell_lock_overflow",         # consecutive_skips（连续跳过超上限 → 优雅停）
+    "cell_lock_stale_recovered",  # cell_id（超 TTL 锁回收）
+    "cell_lock_orphans_released",  # count/cells（启动时死 pid 孤儿锁清理）
+    "parallel_degraded",          # requested/effective/reason（并发槽降级为串行）
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -88,6 +95,13 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "proposal": ("proposal_id", "type"),
     "adjudicated": ("proposal_id", "decision"),
     "adjust_decision": ("iteration", "proposals"),
+    # 迭代9/task45：格级互斥事件（必填字段最小契约）
+    "cell_lock_resample": ("sampled_cell", "locked_to"),
+    "cell_locked_skip": ("sampled_cell", "consecutive_skips"),
+    "cell_lock_overflow": ("consecutive_skips",),
+    "cell_lock_stale_recovered": ("cell_id",),
+    "cell_lock_orphans_released": ("count",),
+    "parallel_degraded": ("requested", "effective", "reason"),
     "cell_created": ("cell_id", "descriptor"),
     "cell_modified": ("cell_id", "method"),
     "invalidation": ("cell_id", "reason"),

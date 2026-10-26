@@ -12,7 +12,10 @@
   builder_max_turns=12 / coding_max_turns=16 / debug_max_turns=10 /
   adjust_max_turns=8（assistant 回合预算；0=不限）/
   debug_gain_threshold_pct=20 / debug_recheck_tolerance_band=True
-  （门禁通过后的异常收益/容差带复验；env.json debug_policy 可覆盖）。
+  （门禁通过后的异常收益/容差带复验；env.json debug_policy 可覆盖）/
+  max_parallel_experiments=1（并发实验槽；当前降级为串行——见 loop 事件
+  parallel_degraded）/ cell_lock_ttl_s=3600 / cell_lock_max_skips=60 /
+  cell_lock_skip_sleep_s=1.0（格级互斥，迭代9）。
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 联合类型注解）。
 """
@@ -54,6 +57,17 @@ DEFAULTS: Dict[str, Any] = {
     "coding_max_turns": 24,
     "debug_max_turns": 16,
     "adjust_max_turns": 16,
+    # ---- 格级互斥与并发实验（迭代9/task45，human fix 2）----
+    # 实验 = 一次特征格上的迭代；**同一格同时只有一个实验**（builder/coding/
+    # debug 在该格上顺序协作），不同格可并行。互斥由 CellLocks 双保险实现
+    # （进程内集合 + <ws>/locks 文件锁，跨进程也成立）。
+    # max_parallel_experiments 是并发槽开关：>1 时当前实现会**降级为串行**
+    # （每迭代状态是调度器级共享态、worker 不得写 events/archive；拆槽重构
+    # 未完成）——降级事实经 `parallel_degraded` 事件显式记录，不静默。
+    "max_parallel_experiments": 1,
+    "cell_lock_ttl_s": 3600,        # 格锁陈旧回收阈值（秒；<=0 关闭 TTL）
+    "cell_lock_max_skips": 60,      # 连续「全格被占」跳过上限 → 优雅停
+    "cell_lock_skip_sleep_s": 1.0,  # 每次跳过的等待（秒）
     # debug 触发扩展（迭代8/KR6）：门禁通过后仍可能因「异常收益」或「容差带内
     # 无明显收益」被复验——防止错误的性能结论进入精英地图。
     # env.json 的 `debug_policy: {gain_threshold_pct, recheck_tolerance_band}`

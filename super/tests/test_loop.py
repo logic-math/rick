@@ -2185,3 +2185,120 @@ class TestCostAttribution(LoopTestBase):
         # 自检失败 → debug 循环；两次 debug 的 tokens/wall/tool_calls 累加
         self.assertEqual(ev["by_role"]["debug"],
                          {"tokens": 100, "wall_ms": 600, "tool_calls": 4})
+
+
+class TestCellLockIntegration(LoopTestBase):
+    """迭代9/task45：格级互斥（一格一实验；异格兜底；全锁跳过；陈旧/孤儿回收）。"""
+
+    def test_locked_cells_resampled_to_free_cell(self):
+        """除一格外的所有格被预占 → 采样兜底落到唯一空闲格。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "cell_lock_skip_sleep_s": 0})
+        cells = sched.fs.all_cells()
+        self.assertGreaterEqual(len(cells), 2)
+        free = cells[0]
+        for cid in cells[1:]:
+            self.assertTrue(sched.cell_locks.acquire(cid))
+        try:
+            sched.run()
+            sampled = self.events_of("cell_sampled")
+            self.assertEqual(len(sampled), 1)
+            self.assertEqual(sampled[0]["payload"]["cell_id"], free,
+                             "唯一未锁格必须被选中（异格兜底）")
+            started = self.events_of("iteration_started")
+            self.assertEqual(len(started), 1)
+        finally:
+            sched.cell_locks.release_all()
+
+    def test_all_cells_locked_skips_without_consuming_iteration(self):
+        """全格被占 → 跳过事件（不消耗迭代号）；连续跳过超上限 → 优雅停。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "cell_lock_max_skips": 2,
+            "cell_lock_skip_sleep_s": 0})
+        for cid in sched.fs.all_cells():
+            self.assertTrue(sched.cell_locks.acquire(cid))
+        try:
+            sched.run()
+        finally:
+            sched.cell_locks.release_all()
+        skips = self.events_of("cell_locked_skip")
+        self.assertGreaterEqual(len(skips), 2, "应至少跳过 2 次")
+        self.assertEqual(len(self.events_of("cell_lock_overflow")), 1,
+                         "超上限应记 overflow（防空转）")
+        # 跳过的不是实验：无 iteration_started / cell_sampled
+        self.assertEqual(len(self.events_of("iteration_started")), 0)
+        self.assertEqual(len(self.events_of("cell_sampled")), 0)
+        # 优雅停：session_ended 存在
+        self.assertEqual(len(self.events_of("session_ended")), 1)
+
+    def test_stale_lock_recovered_at_sampling(self):
+        """活 pid + 超 TTL 的锁（持有者挂死）→ 采样时回收并开跑。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "cell_lock_ttl_s": 0.001,
+            "cell_lock_skip_sleep_s": 0})
+        os.makedirs(sched.cell_locks.locks_dir, exist_ok=True)
+        for cid in sched.fs.all_cells():
+            path = sched.cell_locks.lock_path(cid)
+            with open(path, "w", encoding="utf-8") as f:
+                # 活 pid（父进程）+ 老 mtime：孤儿清理不动，TTL 回收生效
+                json.dump({"pid": os.getppid(), "ts": "old",
+                           "cell_id": cid}, f)
+            old = time.time() - 3600
+            os.utime(path, (old, old))
+        sched.run()
+        self.assertGreaterEqual(
+            len(self.events_of("cell_lock_stale_recovered")), 1,
+            "超 TTL 锁应被回收并记事件")
+        self.assertEqual(len(self.events_of("cell_sampled")), 1)
+
+    def test_orphan_locks_released_on_run(self):
+        """死 pid 的锁文件（上次进程被 SIGKILL）→ run 启动即清理。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "cell_lock_skip_sleep_s": 0})
+        cid = sched.fs.all_cells()[0]
+        os.makedirs(sched.cell_locks.locks_dir, exist_ok=True)
+        with open(sched.cell_locks.lock_path(cid), "w", encoding="utf-8") as f:
+            json.dump({"pid": 999999, "ts": "x", "cell_id": cid}, f)
+        sched.run()
+        ev = self.events_of("cell_lock_orphans_released")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0]["payload"]["count"], 1)
+        self.assertEqual(len(self.events_of("cell_sampled")), 1)
+
+    def test_parallel_requested_degrades_with_event(self):
+        """max_parallel_experiments>1 → 显式降级事件（不静默；行为仍串行）。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "max_parallel_experiments": 2,
+            "cell_lock_skip_sleep_s": 0})
+        sched.run()
+        ev = self.events_of("parallel_degraded")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0]["payload"]["requested"], 2)
+        self.assertEqual(ev[0]["payload"]["effective"], 1)
+        self.assertEqual(len(self.events_of("iteration_started")), 1)
+
+    def test_lock_released_after_each_iteration(self):
+        """每迭代 finally 释放：多迭代跑完后无残留锁。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "cell_lock_skip_sleep_s": 0})
+        sched.run()
+        self.assertEqual(len(self.events_of("iteration_started")), 2)
+        for cid in sched.fs.all_cells():
+            self.assertFalse(sched.cell_locks.locked(cid),
+                             "迭代结束必须释放格锁：%s" % cid)
+
+    def test_same_cell_not_double_held_within_scheduler(self):
+        """同一调度器对象内，格锁已被持有时采样必兜底到其它格（不会双占）。"""
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "cell_lock_skip_sleep_s": 0})
+        cells = sched.fs.all_cells()
+        # 预占 2 个格，剩余格仍应可运行且不与预占格冲突
+        for cid in cells[:2]:
+            self.assertTrue(sched.cell_locks.acquire(cid))
+        try:
+            sched.run()
+            sampled = self.events_of("cell_sampled")
+            self.assertEqual(len(sampled), 1)
+            self.assertNotIn(sampled[0]["payload"]["cell_id"], cells[:2])
+        finally:
+            sched.cell_locks.release_all()
