@@ -8,7 +8,9 @@
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-23T16:47:19+08:00",
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_dot|impl_strategy=m_halves": {
       "descriptor": {},
@@ -37,7 +39,9 @@
           "arxiv:2411.00442",
           "decisions/iter10.md"
         ]
-      }
+      },
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
@@ -69,16 +73,31 @@
           "arxiv:2411.00442",
           "decisions/iter12.md"
         ]
-      }
+      },
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_dot|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
-      "elite": null,
+      "elite": {
+        "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/solution.py",
+        "perf_value": 600.999584,
+        "perf_type": "runtime_ms",
+        "perf_desc": "low",
+        "score": 0.9821150724789846,
+        "lineage": [
+          "codes/iter007-be5b45a7/solution.py",
+          "env/code/naive_start.py"
+        ],
+        "confidence": 0.8,
+        "admitted_at": "2026-10-26T21:29:42+08:00",
+        "gen": 1
+      },
       "history": [],
       "weight": 2.0,
-      "visit": 1,
-      "sample_count": 1,
-      "last_sampled_at": "2026-10-26T02:31:53+08:00",
+      "visit": 2,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-26T21:04:16+08:00",
       "description": {
         "method": "iter007 三段 agent 全因 turn-budget 耗尽而 no_candidate——失败在过程非性能（预检：np.dot 437.4ms vs np.matmul 433.1ms，±1% 噪声带内；iter010 交错复测 full_dot 480.7 为负载噪声）。本格内核极简：单次整阵 np.dot(a32, b32)（2-D BLAS gemm 直派，与 np.matmul 同 cblas_sgemm，逐位一致已证）；可选变体：c=np.empty((m,n),f32) + np.dot(a32,b32,out=c)（numpy#18669：dot 的 out= 入口对未 fault 输出页最宽容）。实现范围钉死：一行内核 + 从 iter003/iter010 模板移植契约（main 的 --n JSON 协议 / seterr 三项抑制 / _self_check 用例表），总工作量应 ≤ iter010 的一半。约束：不切 K/N、不转置、保持单次整阵派发（arXiv:2411.00442）。过程纪律：每个工具至多跑一次、读数即记录、不复跑门禁、不过度调研（≤3 来源即可）",
         "source_refs": [
@@ -88,7 +107,9 @@
           "codes/iter010-be7d11f3/experiment_record.md",
           "decisions/iter10.md"
         ]
-      }
+      },
+      "elite_code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/solution.py",
+      "elite_record_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/experiment_record.md"
     },
     "dispatch_target=einsum_path|impl_strategy=full_blas_dispatch": {
       "descriptor": {},
@@ -98,7 +119,9 @@
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-24T01:53:00+08:00",
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_dot|impl_strategy=rowwise_vectorized": {
       "descriptor": {},
@@ -108,7 +131,9 @@
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null,
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_matmul|impl_strategy=rowwise_vectorized": {
       "descriptor": {},
@@ -118,7 +143,9 @@
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null,
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=einsum_path|impl_strategy=rowwise_vectorized": {
       "descriptor": {},
@@ -128,7 +155,9 @@
       "visit": 0,
       "sample_count": 0,
       "last_sampled_at": null,
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=einsum_path|impl_strategy=m_halves": {
       "descriptor": {},
@@ -138,7 +167,9 @@
       "visit": 1,
       "sample_count": 0,
       "last_sampled_at": null,
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=einsum_path|impl_strategy=m_quarters": {
       "descriptor": {},
@@ -158,7 +189,9 @@
       "visit": 3,
       "sample_count": 2,
       "last_sampled_at": "2026-10-26T04:10:21+08:00",
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_matmul|impl_strategy=m_halves": {
       "descriptor": {},
@@ -175,10 +208,12 @@
       },
       "history": [],
       "weight": 0.5,
-      "visit": 1,
-      "sample_count": 1,
-      "last_sampled_at": "2026-10-24T01:31:54+08:00",
-      "description": {}
+      "visit": 2,
+      "sample_count": 2,
+      "last_sampled_at": "2026-10-26T21:04:16+08:00",
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     },
     "dispatch_target=np_matmul|impl_strategy=m_quarters": {
       "descriptor": {},
@@ -200,21 +235,53 @@
       "visit": 1,
       "sample_count": 1,
       "last_sampled_at": "2026-10-24T01:41:49+08:00",
-      "description": {}
+      "description": {},
+      "elite_code_path": null,
+      "elite_record_path": null
     }
   },
   "pending": [
     {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter003-0de54e75/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-26T21:04:16+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_halves",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter004-e77e66ca/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-26T21:04:16+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_matmul|impl_strategy=m_quarters",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter005-8dfa5ba2/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-26T21:04:16+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_dot|impl_strategy=m_halves",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter010-be7d11f3/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-26T21:04:16+08:00"
+    },
+    {
       "cell_id": "dispatch_target=einsum_path|impl_strategy=m_quarters",
       "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter011-607eb59d/solution.py",
       "reason": "new_cell",
-      "added_at": "2026-10-26T04:10:21+08:00"
+      "added_at": "2026-10-26T21:04:16+08:00"
+    },
+    {
+      "cell_id": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch",
+      "code_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/solution.py",
+      "reason": "new_cell",
+      "added_at": "2026-10-26T21:29:42+08:00"
     }
   ],
   "meta": {
     "env": "",
     "feature_axes": [],
     "perf_desc": "low",
-    "updated_at": "2026-10-26T06:33:12+08:00"
+    "updated_at": "2026-10-26T21:32:27+08:00"
   }
 }

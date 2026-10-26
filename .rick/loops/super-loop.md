@@ -11,7 +11,7 @@ scope: "super 会话（全局）"
 - 本 loop 是普通的 rick loop：super 会话的提示词注入「可用的项目 Loops」目录，当任务属于 super 模式操作时**先完整读取本文件**再动手。
 - 架构分工（三层）：中控会话（本 loop）= 人机接口；`rick super start` 起的 Go PySupervisor = 进程监督（心跳/kill 梯/游标重启）；py 调度器 = 唯一真相源写者（events.jsonl）与进化循环——循环由**四个 agent loop** 组成（见「四 Agent Loop」节）。
 - 自改进分层（Step 7）：内层迭代进化「解」，中层 adjust 进化「搜索策略」（权重/加格/灭绝），外层（本 loop 的 Step 7 + gen_env skill 第 7 节）用轨迹证据进化「搜索者本身」（四角色 prompt 模板等 env 级资产）。
-- **单写者纪律（不可协商）**：events.jsonl 只有 py 调度器一个写者。human 的任何干预（暂停/降权/复活/停机）一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取入事件——中控会话与 human **永远不直写 events.jsonl / archive.json**。
+- **单写者纪律（不可协商，进程级）**：events.jsonl 只有 **py 调度器进程**能写（进程内并发槽的 worker 线程也属于该进程，写入见「事件模型」节的并行写规则）。human 的任何干预（暂停/降权/复活/停机）一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取入事件——**中控会话与 human 永远不直写 events.jsonl / archive.json**。
 
 ## 四 Agent Loop（实验驱动的调度架构）
 
@@ -94,6 +94,28 @@ scope: "super 会话（全局）"
 - **前四要素由 adjust 维护**：`new_cell` 必填 name/method/source_refs 与**正交性论证**（新维度未被现有格覆盖）；`modify_cell` 改进 method；`weight` 0 = 功能性删除（格与谱系保留，可复活）。
 - **第五要素 `code_path` 由框架在入格时同步**：`elite_code_path` = 当前最佳精英代码，`elite_record_path` = 其实验记录（`codes/iter{N}/experiment_record.md`）——agent 读格即得代码与实验档案，不必扫目录。
 
+## 事件模型（实验唯一标记 + 并行写）
+
+**一次实验的唯一标记 = (cell_id, iteration_id) → `experiment_id`**（形如 `impl_a_mem_b#iter7`，非字母数字转 `_`）。
+
+- **事件字段**：每行 `{ts, seq, experiment_id, experiment_seq, type, source, payload}`。实验内事件带 `experiment_id` + `experiment_seq`（**实验内**单调递增）；运维事件（session/heartbeat/intervention/adjust 类）`experiment_id` 为 `null`。
+- **并发写安全**（迭代10/task49+task50）：并发槽的 worker 线程与主线程可**并行追加**同一 events.jsonl——O_APPEND 下单行 <4KB 写入原子 + EventWriter 写锁；`seq` 在并行下**仅尽力单调**，**定位与还原一律用 `(experiment_id, experiment_seq)`**，全局时间顺序看 `ts`。跨进程仍然是单写者（只有调度器进程写）。
+- **还原单实验**（排障/复盘的标准手法）：
+  ```bash
+  grep '"experiment_id":"<cell>#iter<N>"' <ws>/events.jsonl | python3 -c 'import sys,json; [print(json.loads(l)["experiment_seq"], json.loads(l)["type"]) for l in sys.stdin]'
+  # 或进程内：events.read_experiment("<cell>#iter<N>") -> 按 experiment_seq 排序的事件列表
+  ```
+- **崩溃恢复**：`lineage.project_state` 按实验分组——有 `cell_sampled` 而无 `iteration_ended` 的实验 → `interrupted_experiments`（重启时据此清格锁/记事件，不重复入档）。
+- **`event_fsync`**（`super.json config`，默认 `true`）：关掉可降 I/O 开销，代价是断电时尾部事件可能丢；崩溃恢复依赖事件流时保持 `true`。
+
+### 并发实验（一格一实验，异格并行）
+
+- `max_parallel_experiments`（**默认 2**；1 = 纯串行）：>1 时启用**并发槽池**——主线程负责采样 + 格锁 + 迭代号分配 + `experiment_started{slot}` 事件；worker 线程只跑单次实验（builder→coding→debug→gate→admit），事件并行写（带 experiment_id）。
+- **格级互斥**：`<ws>/locks/cell_<safe>.lock`（`O_CREAT|O_EXCL`，跨进程有效）+ 内存集合；同一格同时只有一实验——采样撞锁 → 重采样其它格（`cell_lock_resample`）→ 全占则 `cell_locked_skip`（不消耗迭代号）。
+- **全局态操作串行化**：热重载/裁决消费/epoch 复评/adjust 只在「无在飞槽」时执行（避免与 worker 的档案变更交叠）。
+- **收尾**：停机时等在飞槽 `slot_stop_grace_s`（默认 120s），超期记 `slot_stop_timeout` 后退出；`experiment_finished` 事件可核对每个实验是否收口。
+- **观察口径**：按实验 grep 还原（见上），不要试图从全局 seq 推断实验边界。
+
 ## 依赖准备（硬约束，缺失则报错停止）
 
 1. `rick super --help` 列出五子命令（session/start/stop/status/event）——super 命令组已构建进当前 rick。
@@ -159,6 +181,14 @@ scope: "super 会话（全局）"
 - 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
 - **token / cost 分布（成本可解释性的读法）**：① `status --json` 的北极星含总 token 成本；② 逐迭代归因看 `events.jsonl` 的 `iteration_ended.by_role`（各角色的 tokens/wall_ms/tool_calls）；③ 需要分布视图时跑 `python3 super/tools/cost_report.py --workdir <ws>`（按角色/迭代的成本表 + Top-N 昂贵迭代 + 上下文膨胀 + cache 命中率）——发现「单角色占比异常」或「截断（`truncated=true`）频发」时按 `super_cost_analysis` skill 的浪费模式清单定位。
 - **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`decisions/`（**adjust 每轮决策记录**：区间实验摘要 → 主要矛盾判定 → research 引用 → 格动作与依据，决策可解释性的主证据）、`codes/iter{N}-{uuid}/experiment_record.md`（**实验记录全文**：假设/验证逻辑/步骤/执行与结论——四 agent 共享的恒常上下文）、`codes/iter{N}-{uuid}/research_report.md`（builder 调研报告）与 `coding_plan.md`/`test_solution.py`（coding 的编码计划与 TDD 痕迹）、`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素/检索命令是否被真调用）。
+- **单实验维度巡检（迭代10；并发槽下首选口径）**：一次实验 = `(cell_id, iteration_id)` → `experiment_id`。
+  - 列出当前在飞/近期实验：`grep '"type":"experiment_started"' events.jsonl | tail -5`（带 `slot`/`experiment_id`）；收口核对 `experiment_finished`。
+  - 还原某次实验的完整事件流（四 agent 时序一览）：
+    ```bash
+    grep '"experiment_id":"<cell>#iter<N>"' <ws>/events.jsonl
+    # 或进程内/脚本：events.read_experiment("<cell>#iter<N>")（按 experiment_seq 排序）
+    ```
+  - 并发下**不要用全局 seq 推断实验边界**（seq 仅尽力单调）；跨实验时序看 `ts`。
 
 **Step 4 干预**
 - `rick super event --name <n> --type <t> --payload '<json>'`——类型如 pause / weight（降采样权，0=功能性灭绝不删格）/ resurrect（复活误杀格）/ env_change / stop。

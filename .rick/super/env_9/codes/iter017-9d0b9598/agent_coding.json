@@ -1,0 +1,29 @@
+{
+  "role": "coding",
+  "valid": true,
+  "score": 1.0360450344219312,
+  "perf_value": 598.5868330000002,
+  "perf_type": "runtime_ms",
+  "perf_desc": "low",
+  "summary": "kernel 收敛为单次整阵 np.dot(a32,b32) 2-D cblas_sgemm 直派（无 out=/无转置/无切分，契约照 iter003/iter007 零改动，移植 iter010 自检表）：11192.5ms→598.6ms（18.7×），verify max_error=0.0 逐位过门，同进程 score=1.036（np.dot 快于 np.matmul ref 3.6%，入口等价）；gate_check 软门 worse 系跨 session 机器态漂移（ref 同幅 +41% 至 620ms），本格无精英按豁免待框架终验",
+  "usage": {
+    "input_tokens": 243594,
+    "output_tokens": 37827,
+    "cache_read": 446528,
+    "cache_write": 0,
+    "total_tokens": 727949,
+    "cost_usd": 0.62356768
+  },
+  "wall_ms": 628964,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "web_search",
+    "write"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 17,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/prompt_coding.md"
+}

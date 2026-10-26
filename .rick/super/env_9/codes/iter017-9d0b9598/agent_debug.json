@@ -1,0 +1,28 @@
+{
+  "role": "debug",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "根因=测量环境非实现：本 session 后台负载（Wine/Steam ≈439% CPU，load ~7）令全部 BLAS 读数系统性慢 ~35-41%（同进程 ref np.matmul 自身 586.9-620.2ms vs 基线 session ~433ms），soft-gate「worse」为跨 session 机器态比较伪影；候选同进程交错 ±1.2% 平价、score 摆动 0.987-1.045（中心 ~1.0）、max_error=0.0 逐位一致、无 API 误用。处置 keep_original（零代码改动），本格 elite=null 的规范终验（gate_check 无 --baseline → 首解豁免）实测 passed=true（value 594.84ms、score 0.9867、exit 0）。",
+  "usage": {
+    "input_tokens": 110888,
+    "output_tokens": 29807,
+    "cache_read": 156352,
+    "cache_write": 0,
+    "total_tokens": 297047,
+    "cost_usd": 0.32704552000000003
+  },
+  "wall_ms": 500400,
+  "exit_code": 0,
+  "tool_calls": [
+    "read",
+    "bash",
+    "web_search"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 17,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter017-9d0b9598/prompt_debug.md"
+}

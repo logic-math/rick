@@ -1,0 +1,28 @@
+{
+  "role": "debug",
+  "valid": true,
+  "score": null,
+  "perf_value": null,
+  "perf_type": null,
+  "perf_desc": null,
+  "summary": "容差带「-4.664% 无收益」为跨窗测量假象：负载窗（ref 558-598，loadavg 7-9）系统性抬升一切绝对读数约 100ms，安静窗基线 484.43 不可比；同窗 A/B 并发较精英顺序形态 -95.8ms（三窗复证）、每窗低于同窗 ref 53-91ms，收益被窗口掩盖而非不存在——无可修缺陷，维持原结论不改代码",
+  "usage": {
+    "input_tokens": 83306,
+    "output_tokens": 19278,
+    "cache_read": 224064,
+    "cache_write": 0,
+    "total_tokens": 326648,
+    "cost_usd": 0.25970824
+  },
+  "wall_ms": 345378,
+  "exit_code": 0,
+  "tool_calls": [
+    "bash",
+    "read",
+    "web_search"
+  ],
+  "model": "",
+  "truncated": false,
+  "iteration_id": 16,
+  "prompt_path": "/Users/logic/workdir/rick-dev/.rick/super/env_9/codes/iter016-c1767812/prompt_debug.md"
+}

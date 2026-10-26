@@ -1,0 +1,18 @@
+{
+  "idea": "瓶颈在父本 Python 层逐行循环 + B 全量重读 + stack 装配（profile：listcomp self 99.8%、10400/11192ms，dot 仅 1.2ms）——把 kernel 收敛为单次整阵 np.dot(a32, b32) 2-D cblas_sgemm 直派（本格定义形态，与 np.matmul 同一 BLAS 路径、K 求和序不变、逐位一致已证）。本轮是 iter007 同一设计的流程修复重跑（上次死于 turn-budget 而非性能），以「每个工具至多跑一次、读数即记录」的最小动作链走完 verify→benchmark→gate，产出被 admit 的候选并写入本格精英。",
+  "target_cell": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch",
+  "parents": [
+    "codes/iter007-be5b45a7/solution.py",
+    "env/code/naive_start.py"
+  ],
+  "hypothesis": "把逐行 listcomp + np.stack kernel（11192ms）替换为单次整阵 np.dot(a32, b32)（2-D f32 → 同一 cblas_sgemm，K 求和序不变）后，@8192 中位 runtime ∈ [434,488]ms（预检 437.4ms，~25× 塌缩）、score ~0.93-1.05，且 max_error=0.0 逐位一致过 1e-3 门。",
+  "validation_logic": "支持假设：verify.py passed=true 且 max_error=0.0（[64,8192]×双 seed×双跑逐位一致）；benchmark.py @8192 k=3 中位 ∈ [434,488]ms、score ∈ [0.90,1.05]、ref ∈ [380,700]ms。否定假设：中位 >1s（未走 gemm 派发/装配开销残留）、max_error > 1e-3（K 求和序被改）、score < 0.9（入口未预期开销）。对照：邻格精英 np_matmul|full_blas_dispatch 430.83ms 全场纪录（±5% 软带内 ⇒ 两入口等价的轴级证据）；iter007 同进程交错预检 dot 437.4 vs matmul 433.1ms（±1% 噪声带）。过程性失败线（非假设否定）：再次 no_candidate = 流程修复失败，须如实记录。",
+  "plan_steps": [
+    "读父本与模板：codes/iter007-be5b45a7/solution.py（同格上轮已写好的一行内核，未过门）+ codes/iter003-0de54e75/solution.py（契约模板）+ env/code/naive_start.py（kernel 谱系起点）",
+    "落候选 codes/iter017-9d0b9598/solution.py：kernel = 单次整阵 np.dot(a32, b32)——不用 out=、不预转置、不切 K/N（调研报告 §4 第 1 条：同 cblas_sgemm 累积路径保逐位一致）；契约照 iter003 模板（matmul(a,b) 接口 / asarray→f32 / seterr 三项抑制 / main warmup+计时+JSON 协议），移植 iter010 的 _self_check 用例表，impl 标签 full_blas_dispatch_np_dot",
+    "快速自检：env/.venv/bin/python codes/iter017-9d0b9598/solution.py --n 64（绿）→ --n 8192（预期 runtime ~434-488ms、max_error_vs_matmul 0.0）",
+    "正确性门（一次，不复跑）：env/.venv/bin/python env/skills/verify.py --candidate codes/iter017-9d0b9598/solution.py——预期 passed=true、max_error=0.0（双 seed 双跑逐位一致）",
+    "性能门（一次，不复跑）：env/.venv/bin/python env/skills/benchmark.py --candidate codes/iter017-9d0b9598/solution.py——预期 @8192 k=3 中位 ∈ [434,488]ms、score ∈ [0.90,1.05]、ref ∈ [380,700]ms；读数立即写入实验记录 §6"
+  ],
+  "expected_behavior": "@8192 中位 runtime 从 11192ms 塌缩到 434-488ms BLAS 平价带（预检 437.4ms，~25×）；max_error=0.0 逐位过 1e-3 门；score ~0.93-1.05（中心 ~1.0，落在邻格纪录 430.83ms 的 ±5% 软带内或紧邻）；profile 热点 <listcomp>/<stack> 完全消失，kernel 只剩单次 BLAS 调用；verify 双 seed 双跑逐位一致。"
+}

@@ -1,0 +1,67 @@
+{
+  "iteration_id": 17,
+  "cell_id": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch",
+  "ts": "2026-10-26T21:10:38+08:00",
+  "profile_facts": [
+    "<listcomp>=99.8",
+    "stack=0.1",
+    "matmul=0.0",
+    "python=3.9.6",
+    "numpy=2.0.2",
+    "cpu_count=18",
+    "dtype=float32"
+  ],
+  "papers": [
+    {
+      "arxiv_id": "2411.00442",
+      "title": "Revealing Floating-Point Accumulation Orders in Software/Hardware Implementations",
+      "insight": "累积型运算（summation/matmul）的累积顺序普遍未文档化且直接决定逐位结果；跨实现一致性只能靠同一累积路径保证",
+      "applicability": "plan_steps 第 2 步：kernel 钉死单次整阵 np.dot（与锚 np.matmul 同走 cblas_sgemm、同 K 求和序）——不切 K/N、不转置，保证逐位过 1e-3 门"
+    },
+    {
+      "arxiv_id": "github:numpy/numpy#18669",
+      "title": "np.matmul with out= parameter slower than np.dot in some cases",
+      "insight": "matmul 的 out= 路径在未 fault-in 输出页上慢于 dot 入口；plain 调用两入口差异在噪声带内（iter007 预检 ±1% 印证）",
+      "applicability": "plan_steps 第 2 步：用 plain np.dot(a32,b32) 不带 out=——单变量、与 iter003 模板同构"
+    },
+    {
+      "arxiv_id": "gemmbench-collective-knowledge",
+      "title": "GEMMbench: a framework for reproducible and collaborative benchmarking of matrix multiplication",
+      "insight": "warm-up 丢弃 + 重复计时取中位 + 多实现交错对比 + 环境快照的可复现 GEMM 评测协议",
+      "applicability": "plan_steps 第 3-5 步：自检/verify/benchmark 照 env 口径（@8192、k=3 中位、ref 带 380-700ms），每工具至多一次、读数即记录"
+    }
+  ],
+  "inspirations": [
+    {
+      "source_cell": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch（同格 iter007 遗产）",
+      "what": "solution.py 已写好本格定义形态的一行内核（return np.dot(a32,b32)，契约与 iter003 一致），预检 437.4ms/逐位 0.0——本轮以它为父本直接过门，修复其 turn-budget 流程失败"
+    },
+    {
+      "source_cell": "dispatch_target=np_matmul|impl_strategy=full_blas_dispatch（邻格精英 iter003，430.83ms 全场纪录）",
+      "what": "整阵派发的契约保持模板（接口/asarray→f32/seterr/main JSON 协议）+ ±5% 软带内的同带对照基准"
+    },
+    {
+      "source_cell": "dispatch_target=np_dot|impl_strategy=m_halves（邻格精英 iter010，462.82ms）",
+      "what": "2-D f32 np.dot 与 np.matmul 同一 cblas_sgemm 的逐位一致证明（@8192 maxdiff=0.0）+ _self_check 鲁棒性用例表整体移植"
+    }
+  ],
+  "reasoning": "事实：父本 profile @8192 显示 <listcomp> self 99.8%（10400/11192ms）、dot 仅 1.2ms——瓶颈是 Python 层装配非 BLAS，内核本身值 ~440ms（ref 带 434-484ms）。邻格 iter003 同 impl_strategy 单次整阵派发即 430.83ms 全场纪录；iter010 已证 2-D f32 np.dot 与 np.matmul 同走 cblas_sgemm、@8192 逐位 maxdiff=0.0、交错计时 437.4 vs 433.1ms（±1%）。假设：一行内核替换后中位落入 434-488ms 平价带且逐位过 1e-3 门。机制：np.dot 2-D 直派 cblas_sgemm，K 求和序与锚相同（2411.00442：累积序决定逐位结果）。证伪判据：中位 >1s / max_error > 1e-3 / score < 0.9 任一出现即否定；iter007 的 no_candidate 是过程失败非方向否定，本轮以每工具至多一次的纪律修复重跑。",
+  "experiment_plan": {
+    "idea": "瓶颈在父本 Python 层逐行循环 + B 全量重读 + stack 装配（profile：listcomp self 99.8%、10400/11192ms，dot 仅 1.2ms）——把 kernel 收敛为单次整阵 np.dot(a32, b32) 2-D cblas_sgemm 直派（本格定义形态，与 np.matmul 同一 BLAS 路径、K 求和序不变、逐位一致已证）。本轮是 iter007 同一设计的流程修复重跑（上次死于 turn-budget 而非性能），以「每个工具至多跑一次、读数即记录」的最小动作链走完 verify→benchmark→gate，产出被 admit 的候选并写入本格精英。",
+    "target_cell": "dispatch_target=np_dot|impl_strategy=full_blas_dispatch",
+    "parents": [
+      "codes/iter007-be5b45a7/solution.py",
+      "env/code/naive_start.py"
+    ],
+    "hypothesis": "把逐行 listcomp + np.stack kernel（11192ms）替换为单次整阵 np.dot(a32, b32)（2-D f32 → 同一 cblas_sgemm，K 求和序不变）后，@8192 中位 runtime ∈ [434,488]ms（预检 437.4ms，~25× 塌缩）、score ~0.93-1.05，且 max_error=0.0 逐位一致过 1e-3 门。",
+    "validation_logic": "支持假设：verify.py passed=true 且 max_error=0.0（[64,8192]×双 seed×双跑逐位一致）；benchmark.py @8192 k=3 中位 ∈ [434,488]ms、score ∈ [0.90,1.05]、ref ∈ [380,700]ms。否定假设：中位 >1s（未走 gemm 派发/装配开销残留）、max_error > 1e-3（K 求和序被改）、score < 0.9（入口未预期开销）。对照：邻格精英 np_matmul|full_blas_dispatch 430.83ms 全场纪录（±5% 软带内 ⇒ 两入口等价的轴级证据）；iter007 同进程交错预检 dot 437.4 vs matmul 433.1ms（±1% 噪声带）。过程性失败线（非假设否定）：再次 no_candidate = 流程修复失败，须如实记录。",
+    "plan_steps": [
+      "读父本与模板：codes/iter007-be5b45a7/solution.py（同格上轮已写好的一行内核，未过门）+ codes/iter003-0de54e75/solution.py（契约模板）+ env/code/naive_start.py（kernel 谱系起点）",
+      "落候选 codes/iter017-9d0b9598/solution.py：kernel = 单次整阵 np.dot(a32, b32)——不用 out=、不预转置、不切 K/N（调研报告 §4 第 1 条：同 cblas_sgemm 累积路径保逐位一致）；契约照 iter003 模板（matmul(a,b) 接口 / asarray→f32 / seterr 三项抑制 / main warmup+计时+JSON 协议），移植 iter010 的 _self_check 用例表，impl 标签 full_blas_dispatch_np_dot",
+      "快速自检：env/.venv/bin/python codes/iter017-9d0b9598/solution.py --n 64（绿）→ --n 8192（预期 runtime ~434-488ms、max_error_vs_matmul 0.0）",
+      "正确性门（一次，不复跑）：env/.venv/bin/python env/skills/verify.py --candidate codes/iter017-9d0b9598/solution.py——预期 passed=true、max_error=0.0（双 seed 双跑逐位一致）",
+      "性能门（一次，不复跑）：env/.venv/bin/python env/skills/benchmark.py --candidate codes/iter017-9d0b9598/solution.py——预期 @8192 k=3 中位 ∈ [434,488]ms、score ∈ [0.90,1.05]、ref ∈ [380,700]ms；读数立即写入实验记录 §6"
+    ],
+    "expected_behavior": "@8192 中位 runtime 从 11192ms 塌缩到 434-488ms BLAS 平价带（预检 437.4ms，~25×）；max_error=0.0 逐位过 1e-3 门；score ~0.93-1.05（中心 ~1.0，落在邻格纪录 430.83ms 的 ±5% 软带内或紧邻）；profile 热点 <listcomp>/<stack> 完全消失，kernel 只剩单次 BLAS 调用；verify 双 seed 双跑逐位一致。"
+  }
+}

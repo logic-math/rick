@@ -475,6 +475,10 @@ def make_env_dir(ws: str, relative_band: Optional[float] = None,
     # [380,700]ms）不兼容——按 e2e 规模显式覆写（门禁逻辑不变，只调 env 参数）
     env_json.setdefault("gates", {})["runtime_ms_min"] = 0.0
     env_json.setdefault("gates", {})["ref_runtime_band_ms"] = [0.0, 60.0]
+    # 同理：µs 级计时的 ref/candidate 比值噪声极大，score=ref/cand 常越过模板
+    # 的 score_max=2.0 → plausibility 误拒（无精英 → 容差带用例无基线，flaky）。
+    # e2e 显式放宽上界（只调 env 参数，门禁逻辑不变）。
+    env_json.setdefault("gates", {})["score_max"] = 100.0
     if relative_band is not None:
         env_json.setdefault("tolerance", {}).setdefault(
             "soft_gate", {})["relative_band"] = float(relative_band)
@@ -690,7 +694,11 @@ class TestSuperFullChain(unittest.TestCase):
         cls.ws = os.path.join(cls.home, ".rick", "super", cls.name)
         env_dir = make_env_dir(cls.ws)
         make_gates_dir(cls.ws)
-        write_super_json(cls.ws, env_dir, cls.mock_pi, max_iterations=0)
+        # 迭代10：全链用例保留**串行**语义（它专门断言「kill -9 恰留 1 个
+        # 悬挂迭代」——并发槽下会留到 max_parallel 个，二者语义不同）。
+        # 并发 2 槽的端到端另有专例（TestCellLockMutex.test_parallel_slots_*）。
+        write_super_json(cls.ws, env_dir, cls.mock_pi, max_iterations=0,
+                         config_overrides={"max_parallel_experiments": 1})
 
     def _status_json(self) -> Dict[str, Any]:
         r = run_rick(self.rick, self.home, "super", "status",
@@ -769,6 +777,17 @@ class TestSuperFullChain(unittest.TestCase):
         sj = read_super_json(ws)
         old_worker_pid = int(sj.get("worker_pid") or 0)
         self.assertGreater(old_worker_pid, 0, "worker_pid 未落盘")
+
+        # 确定性 kill 时机（task52）：必须在**实验在飞**时杀——否则 kill -9 落在
+        # 迭代间隙，就不会留下悬挂实验（断言不稳定，实测 2/3 失败）。等
+        # started-ended == 1（有一个未收尾的实验）再杀。
+        def _in_flight() -> int:
+            n_started = count_events(ws, "iteration_started")
+            n_ended = count_events(ws, "iteration_ended")
+            return n_started - n_ended
+
+        wait_until(lambda: _in_flight() == 1 or None, WAIT_ITERS_S,
+                   "等一个实验在飞（started-ended==1）后再 kill -9")
         iters_before_kill = iters()
         os.kill(old_worker_pid, signal.SIGKILL)
         # 重启：新 worker_pid ≠ 旧 + 游标继续增长
@@ -871,6 +890,44 @@ class TestSuperFullChain(unittest.TestCase):
         total_ended = count_events(ws, "iteration_ended")
         self.assertEqual(total_started - total_ended, 1,
                          "kill -9 恰留 1 个悬挂迭代（多了=异常）")
+
+        # ---- 事件按实验还原（迭代10/task49；task52 断言适配）----
+        # 实验唯一标记 = (格, 迭代号) → experiment_id；不再依赖全局 seq 推断
+        # 单实验：每个实验的事件流用 read_experiment 独立还原（等价于
+        # grep '"experiment_id":"<id>"'）——实验内 experiment_seq 必须 1..N
+        # 连续。
+        # 崩溃语义（task49 的 cursor = max 已完成迭代）：kill -9 后恢复会**重跑**
+        # 那个被打断的迭代；若重跑落到同一格 → 同 experiment_id 的流会出现
+        # 2×iteration_started + 1×iteration_ended；否则打挂的流就停在 started。
+        # 两种形态都用「started 数 > ended 数」判定为「被打断又接管」的实验，
+        # 且恰好 1 个。
+        from superopt.events import EventWriter as _EventWriter
+        _w = _EventWriter(os.path.join(ws, "events.jsonl"))
+        try:
+            exp_ids = _w.experiment_ids()
+            self.assertTrue(exp_ids, "事件流应带 experiment_id（格#迭代）")
+            interrupted = []
+            for eid in exp_ids:
+                stream = _w.read_experiment(eid)
+                self.assertTrue(stream, "实验 %s 的事件流为空" % eid)
+                eseqs = [x.get("experiment_seq") for x in stream]
+                self.assertEqual(
+                    eseqs, list(range(1, len(stream) + 1)),
+                    "实验 %s 的 experiment_seq 应 1..N 连续：%r"
+                    % (eid, eseqs[:12]))
+                self.assertEqual(
+                    stream[0]["type"], "iteration_started",
+                    "实验 %s 首事件应为 iteration_started（串行链路）" % eid)
+                types = [x["type"] for x in stream]
+                if types.count("iteration_started") > types.count(
+                        "iteration_ended"):
+                    interrupted.append(eid)
+            self.assertEqual(
+                len(interrupted), 1,
+                "恰 1 个被打断的实验（kill -9 段，可由 started>ended 识别）：%r"
+                % (interrupted,))
+        finally:
+            _w.close()
 
         # ---- 事件重放一致性：project_state == archive 实态 ----
         from superopt.lineage import project_state
@@ -1139,14 +1196,15 @@ class TestRecheckTriggers(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 
 class TestCellLockMutex(unittest.TestCase):
-    """一个特征格同时只有一个实验（格锁）；不同格可并行（降级串行时显式记录）。
+    """一个特征格同时只有一个实验（格锁）；不同格可真正并行（槽池）。
 
-    真调度器子进程 + mock pi + 单格 env（1 轴 1 值）：
+    真调度器子进程 + mock pi：
     - 外部预占该格锁（模拟另一个并发实验）→ 调度器全格被占 →
       ``cell_locked_skip``（**不消耗迭代号**）→ 连续跳过超 ``cell_lock_max_skips``
-      → ``cell_lock_overflow`` 优雅停；
+      → ``cell_lock_overflow`` 优雅停（单格 env，1 轴 1 值）；
     - 锁释放后同格可正常跑实验（互斥不误杀）；
-    - 请求 ``max_parallel_experiments>1`` → 显式 ``parallel_degraded``（effective=1）。
+    - ``max_parallel_experiments=2`` → 真并发槽池（异格并行；事件按
+      experiment_id 可独立还原；双格入档）。
     """
 
     @classmethod
@@ -1156,7 +1214,8 @@ class TestCellLockMutex(unittest.TestCase):
                                     % _MASTER.get("reason", ""))
 
     def _make(self, tag: str, *, max_iterations: int = 1,
-              overrides: Optional[Dict[str, Any]] = None):
+              overrides: Optional[Dict[str, Any]] = None,
+              single_cell: bool = True):
         ws = os.path.join(_master_root(), "ws-celllock-" + tag)
         if os.path.exists(ws):
             shutil.rmtree(ws)
@@ -1166,7 +1225,7 @@ class TestCellLockMutex(unittest.TestCase):
             p = os.path.join(state, role + ".count")
             if os.path.exists(p):
                 os.unlink(p)
-        env_dir = make_env_dir(ws, single_cell=True)
+        env_dir = make_env_dir(ws, single_cell=single_cell)
         make_gates_dir(ws)
         ov = {"cell_lock_max_skips": 2, "cell_lock_skip_sleep_s": 0}
         ov.update(overrides or {})
@@ -1175,12 +1234,20 @@ class TestCellLockMutex(unittest.TestCase):
                          config_overrides=ov)
         return ws, state, env_dir
 
-    def _run(self, ws: str, state: str, *, max_iterations: int = 1):
+    def _run(self, ws: str, state: str, *, max_iterations: int = 1,
+             extra_env: Optional[Dict[str, str]] = None):
         env = dict(os.environ)
         env["PYTHONPATH"] = _SUPER
         env["MOCK_STATE_DIR"] = state
         env.pop("MOCK_CODING_MODE", None)
         env.pop("MOCK_DEBUG_VERDICT", None)
+        env.pop("MOCK_AGENT_SLEEP_S", None)
+        if extra_env:
+            env.update(extra_env)
+        if max_iterations is None:
+            return subprocess.run(
+                [sys.executable, "-m", "superopt", "--workdir", ws],
+                capture_output=True, text=True, timeout=600, env=env)
         return subprocess.run(
             [sys.executable, "-m", "superopt", "--workdir", ws,
              "--max-iterations", str(max_iterations)],
@@ -1232,21 +1299,85 @@ class TestCellLockMutex(unittest.TestCase):
         self.assertEqual(count_events(ws, "cell_locked_skip"), 0,
                          "无锁时不应出现跳过")
 
-    def test_parallel_request_degrades_to_serial(self):
-        """请求并发 >1 → 显式降级串行（parallel_degraded），实验仍完成。"""
+    def test_parallel_slots_run_two_cells(self):
+        """并发 2 槽（迭代10/task50）：不同格并行；每实验事件流可独立还原；双格入档。
+
+        确定性：mock pi 加 ``MOCK_AGENT_SLEEP_S=0.4``——两槽的 agent 调用
+        必然跨过主线程补槽的窗口，不依赖门禁真实耗时（避免 flaky）。
+        """
         ws, state, env_dir = self._make(
-            "degraded", max_iterations=1,
-            overrides={"max_parallel_experiments": 2})
-        r = self._run(ws, state)
-        self.assertEqual(r.returncode, 0, "降级后应正常完成: %s%s"
+            "parallel", max_iterations=2, single_cell=False,
+            overrides={"max_parallel_experiments": 2, "slot_poll_s": 0.05})
+        r = self._run(ws, state, max_iterations=2,
+                      extra_env={"MOCK_AGENT_SLEEP_S": "0.4"})
+        self.assertEqual(r.returncode, 0, "并发槽应正常完成: %s%s"
                          % (r.stdout[-400:], r.stderr[-600:]))
-        degr = [e["payload"] for e in read_events(ws)
-                if e["type"] == "parallel_degraded"]
-        self.assertTrue(degr, "请求并发>1 应记 parallel_degraded（显式降级）")
-        self.assertEqual(degr[0].get("requested"), 2)
-        self.assertEqual(degr[0].get("effective"), 1)
-        self.assertGreaterEqual(count_events(ws, "iteration_ended"), 1,
-                                "降级后实验照常完成")
+        evs = read_events(ws)
+        # ① 槽池已启用（真并行，不再降级）
+        enabled = [e["payload"] for e in evs
+                   if e["type"] == "parallel_slots_enabled"]
+        self.assertTrue(enabled, "max_parallel_experiments=2 应启用槽池")
+        self.assertEqual(enabled[0].get("max_parallel_experiments"), 2)
+        self.assertEqual(count_events(ws, "parallel_degraded"), 0,
+                         "槽池已实现，不应再出现降级事件")
+        # ② 两个实验、不同格
+        starts = [e for e in evs if e["type"] == "experiment_started"]
+        self.assertGreaterEqual(len(starts), 2,
+                                "max_iterations=2 应起 ≥2 个实验槽")
+        cells = [e["payload"].get("cell_id") for e in starts[:2]]
+        self.assertEqual(len(set(cells)), 2,
+                         "两槽应分道不同格（格锁互斥）：%r" % (cells,))
+        # ③ 并行证据：第二个槽在任一槽完成前已启动
+        idx_second = [i for i, e in enumerate(evs)
+                      if e["type"] == "experiment_started"][1]
+        idx_finished = next(i for i, e in enumerate(evs)
+                            if e["type"] == "experiment_finished")
+        self.assertLess(idx_second, idx_finished,
+                        "两槽应时间窗重叠（第二个启动先于第一个完成）")
+        # ④ 事件按实验可还原：每实验流 experiment_seq 1..N 连续且完整
+        from superopt.events import EventWriter as _EW
+        w = _EW(os.path.join(ws, "events.jsonl"))
+        try:
+            for e in starts[:2]:
+                eid = e.get("experiment_id")
+                self.assertTrue(eid, "experiment_started 应带 experiment_id")
+                stream = w.read_experiment(eid)
+                self.assertTrue(stream, "实验 %s 事件流为空" % eid)
+                eseqs = [x.get("experiment_seq") for x in stream]
+                self.assertEqual(
+                    eseqs, list(range(1, len(stream) + 1)),
+                    "实验 %s 的 experiment_seq 应 1..N 连续：%r"
+                    % (eid, eseqs[:12]))
+                types = [x["type"] for x in stream]
+                self.assertEqual(types[0], "experiment_started")
+                self.assertIn("iteration_started", types)
+                self.assertIn("iteration_ended", types)
+                self.assertEqual(types[-1], "experiment_finished")
+                # 单实验流内部的“格”始终是同一格（实验独占一格）
+                cids = {x["payload"].get("cell_id") for x in stream
+                        if isinstance(x.get("payload"), dict)
+                        and x["payload"].get("cell_id")}
+                self.assertEqual(len(cids), 1,
+                                 "实验 %s 跨了多格（应该独占一格）：%r"
+                                 % (eid, cids))
+        finally:
+            w.close()
+        # ⑤ 双格入档（archive 两个格各有 elite；五要素字段同步）
+        with open(os.path.join(ws, "archive.json"), encoding="utf-8") as f:
+            arch = json.load(f)
+        elites = [(cid, c) for cid, c in (arch.get("cells") or {}).items()
+                  if c.get("elite")]
+        self.assertGreaterEqual(len(elites), 2,
+                                "两槽应各入一格精英（并发入档不丢）")
+        for cid, cell in elites[:2]:
+            self.assertTrue(cell.get("elite_code_path"),
+                            "格 %s 缺 elite_code_path" % cid)
+        # ⑥ 成本归因：两个迭代都有 by_role
+        ended = [e["payload"] for e in evs
+                 if e["type"] == "iteration_ended"]
+        self.assertGreaterEqual(len(ended), 2)
+        self.assertTrue(all(p.get("by_role") for p in ended),
+                        "并发迭代也应带 by_role（成本可解释性）")
 
 
 # --------------------------------------------------------------------------- #

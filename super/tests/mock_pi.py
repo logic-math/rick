@@ -409,6 +409,14 @@ def main():
         sys.stderr.write("mock_pi: unknown MOCK_SCENARIO=%r (known: %s)\n"
                          % (scenario, ", ".join(sorted(SCENARIOS))))
         return 2
+    # 可选确定性延迟（迭代10/task52）：并发槽 e2e 用它保证两个实验的时间窗
+    # 必然重叠（不依赖真实门禁耗时，避免 flaky）。默认 0 = 不延迟（零影响）。
+    try:
+        _delay = float(os.environ.get("MOCK_AGENT_SLEEP_S", "0") or 0)
+    except ValueError:
+        _delay = 0.0
+    if _delay > 0:
+        time.sleep(_delay)
     # pi 兼容参数（--mode/--append-system-prompt/-p 及位置参数）全部容忍忽略：
     # mock 只按场景输出，不解析语义。
     fn()

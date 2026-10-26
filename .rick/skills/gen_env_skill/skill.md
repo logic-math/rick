@@ -301,8 +301,15 @@ gates/                       # 工作区级（非 env 内）：
 
 - **格级互斥（已实现）**：调度器每个实验持格锁（内存 + 文件 `<ws>/locks/cell_<safe_id>.lock`，`O_CREAT|O_EXCL` 原子创建）。采样撞锁 → 重采样到其它格（事件 `cell_lock_resample`）；全部格被占 → 短暂等待并记 `cell_locked_skip`（**不消耗迭代号**：跳过的不是实验），连续超 `cell_lock_max_skips`（默认 60）→ `cell_lock_overflow` 优雅停（防死等空转）。
 - **陈旧锁回收**：锁文件 mtime 超 `cell_lock_ttl_s`（默认 3600s）视为崩溃遗留 → 清理并记 `cell_lock_stale_recovered`；启动时清理孤儿锁记 `cell_lock_orphans_released`。
-- **并发度**：`max_parallel_experiments`（默认 1）。**当前实现为保守串行**——设为 >1 时调度器记 `parallel_degraded` 事件并在 stderr 说明，仍按串行执行（并发槽要求事件流/档案单写者纪律，正确性保障仍在演进）。**建 env 时不要依赖并发**；需要吞吐优先加迭代预算或降低单迭代成本。
-- **对 env 的要求**：三要素脚本必须**可被并发调用**（无共享可变状态、不写固定临时文件名——用 `tempfile` 或带 candidate 哈希）；benchmark 计时对并发负载敏感，放宽 `gates.ref_runtime_band_ms` 前先确认是否真要点并发。
+- **并发度（已实现，迭代10/task50）**：`max_parallel_experiments`（**默认 2**；1 = 纯串行，行为与旧版完全一致）。>1 时启用**并发槽池**：异格并行实验。
+  - **职责划分**：主线程独占「采样 + 格锁 + 迭代号分配 + `experiment_started` 事件 + 全局态操作（热重载/干预/裁决/epoch 复评/adjust）」；worker 线程只跑 `_step_locked`（builder→coding→debug→gate→admit）。
+  - **事件并行写**：每条实验事件带 `experiment_id`（`<cell_safe>#iter<N>`），定位用 `read_experiment(experiment_id)` 或 `grep '"experiment_id":"<cell>#iter<N>"' events.jsonl`——**不要依赖全局 seq 单调**（异步完成顺序使 seq 尽力单调，真实顺序看 `ts`/`experiment_seq`）。
+  - **安全边界**：`archive` 有 RLock；台账/CostLedger 经调度器锁；格锁保证一格同时只有一个实验。
+  - **收尾**：`rick super stop` 时等在飞槽收尾 `slot_stop_grace_s`（默认 120s），超期记 `slot_stop_timeout` 后优雅退。
+- **对 env 的要求（并发下更严）**：
+  1. 三要素脚本**可被并发调用**：无共享可变状态、不写固定临时文件名（用 `tempfile` 或带 candidate 哈希）。
+  2. benchmark 计时对并发负载敏感——若要开多槽，`gates.ref_runtime_band_ms` 需按并发负载重校（否则合法解会被软门禁误杀）。
+  3. exploit / golden 样本校验保持确定性（不得依赖时间/随机性）。
 
 ### 4. 初始解
 
