@@ -22,3 +22,7 @@ RELEASE_DRYRUN version=e4246ff-261018033233 target_bin=/Users/logic/workdir/AI_C
 5. darwin Alive 漏检 os.ErrProcessDone（死 pid 误判存活）
 6. findProdPIDs/findDevPIDs 全进程逐 pid lsof 分钟级挂死（TestReleaseCmd* 全挂根因）→procfs.Snapshot 批量（252ms/907 进程）
 7. （测试侧）realHomeOf 只读 /etc/passwd→补 user.LookupId；devweb Layout 测试路径归一；supervisor 测试路径归一
+
+## S3 演练（2026-10-26，job_47 迭代3-10 累计发布）
+RELEASE_DRYRUN version=2775b22-261026220808 prod_untouched=true cleanup=ok gate_pass=true(tests+frontend 13s)
+演练前修复（release gate 抓到）：TestBuildSuperPrompt 断言过严（gen_env skill 的 ctx 字段清单是文档示例，非未替换变量）→ 精确化为只查 {{grilling_workdir}}
