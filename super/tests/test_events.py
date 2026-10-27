@@ -62,6 +62,8 @@ class TestConstants(unittest.TestCase):
             # 迭代10/task50：并发实验槽
             "parallel_slots_enabled", "experiment_started",
             "experiment_finished", "experiment_failed",
+            # 迭代11/task54：adjust 饥饿修复可观测
+            "adjust_dispatched",
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))

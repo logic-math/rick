@@ -120,6 +120,12 @@ func NewPySupervisor(cfg PySupervisorConfig) *PySupervisor {
 // <repoRoot>/super so the `superopt` package resolves regardless of where
 // the rick process was invoked from. The worker is registered under ws; a
 // LIVE duplicate is rejected, a dead one is replaced (respawn path).
+//
+// 进程树收割契约（task55，handler.SuperStopIn 依赖）：
+//   - daemon 主体用 Setsid（handler/super.go superStartDaemon）→ daemon pid==pgid
+//   - worker 由本函数 Setpgid 启动 → 与 daemon 同组（组信号 -pgid 覆盖两曾）
+//   - SuperStopIn 额外读 super.json.worker_pid 单点补刀（supervisor 自动重启
+//     产生的孤儿 worker 可能不在原组内——红黑树 env 实跑实证）
 func (s *PySupervisor) Start(ws string) (*PyWorker, error) {
 	if ws == "" {
 		return nil, ErrEmptyWs

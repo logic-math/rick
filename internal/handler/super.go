@@ -618,38 +618,105 @@ func SuperStopIn(ws string) error {
 		return fmt.Errorf("super: 前台会话归本进程所有——在其终端 Ctrl+C 停止（或用 --daemon 形态才能跨进程 stop）")
 	}
 	if !pidAliveHandler(pid) {
+		// daemon 已死，但 worker_pid 可能存活（孤儿）——补刀后才算干净。
+		// 红黑树 env 实跑：supervisor 死后 worker 被系统收养仍写 events.jsonl
+		// → 多实例并发。所以：pid 死 ≠ 可以直接标 stopped，须看 worker。
+		if sj.WorkerPid > 0 && sj.WorkerPid != pid && pidAliveHandler(sj.WorkerPid) {
+			fmt.Printf("[rick super] pid %d not alive; worker %d still running — killing\n", pid, sj.WorkerPid)
+			_ = syscall.Kill(sj.WorkerPid, syscall.SIGTERM)
+			// 等 worker 优雅退（≤5s）
+			wdl := time.Now().Add(5 * time.Second)
+			for time.Now().Before(wdl) {
+				if !pidAliveHandler(sj.WorkerPid) {
+					mergeFinalState(ws, "stopped", sj)
+					fmt.Printf("[rick super] stopped (worker %d)\n", sj.WorkerPid)
+					return nil
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			_ = syscall.Kill(sj.WorkerPid, syscall.SIGKILL)
+			// 杀后验证
+			vdl := time.Now().Add(5 * time.Second)
+			for time.Now().Before(vdl) {
+				if !pidAliveHandler(sj.WorkerPid) {
+					mergeFinalState(ws, "stopped", sj)
+					return nil
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			return fmt.Errorf("super: worker pid %d 在 SIGKILL 后仍存活——请手动 `kill -9 %d`；"+
+				"super.json 状态未标记 stopped", sj.WorkerPid, sj.WorkerPid)
+		}
 		sj.State = "stopped"
-		_ = writeSuperJSONAtomic(ws, sj)  // cursor 保留读取值（本地 sj 即刚读的）
+		_ = writeSuperJSONAtomic(ws, sj) // cursor 保留读取值（本地 sj 即刚读的）
 		fmt.Printf("[rick super] pid %d not alive; state=stopped\n", pid)
 		return nil
 	}
 
-	// daemon 形态：进程组收割（setsid 后 pid==pgid）；前台外部形态：单点 TERM
+	workerPid := sj.WorkerPid // 兜底杀目标（组信号未覆盖时单点补刀——孤儿进程防多实例并发写）
+
+	// ---- 第 1 梯：TERM（daemon=进程组收割 setsid 后 pid==pgid；前台=单点） ----
+	// 注：daemon 用 Setsid（handler.go:331）启动，pid==pgid；py worker 由
+	// supervisor.go:143 Setpgid 启动（同组）——组信号通常覆盖两者。
 	if sj.Daemon {
 		_ = syscall.Kill(-pid, syscall.SIGTERM)
 	} else {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
 	}
-	// 等优雅退出（TERM grace 预算 + 余量）
+	// worker_pid 兜底单点 TERM（组信号漏网时补刀——红黑树 env 实跑实证：
+	// supervisor 自动重启可产生不在原始组内的孤儿 worker）
+	if workerPid > 0 && workerPid != pid {
+		_ = syscall.Kill(workerPid, syscall.SIGTERM)
+	}
+
+	// ---- 第 2 梯：等优雅退出（TERM grace 预算 + 余量，≤10s） ----
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if !pidAliveHandler(pid) {
+		if !pidAliveHandler(pid) && (workerPid <= 0 || !pidAliveHandler(workerPid)) {
 			mergeFinalState(ws, "stopped", sj)
 			fmt.Printf("[rick super] stopped (pid %d)\n", pid)
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	// 兜底强杀
+
+	// ---- 第 3 梯：SIGKILL（组 + worker_pid 单点） ----
 	if sj.Daemon {
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
 	} else {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
-	time.Sleep(200 * time.Millisecond)
-	mergeFinalState(ws, "stopped", sj)
-	fmt.Printf("[rick super] force-stopped (pid %d)\n", pid)
-	return nil
+	if workerPid > 0 && workerPid != pid {
+		_ = syscall.Kill(workerPid, syscall.SIGKILL)
+	}
+
+	// ---- 第 4 梯：杀后验证（≤5s 轮询两 pid 全死；未死→明确错误不误标 stopped） ----
+	// 红黑树 env 实跑实证：SIGKILL 后仍有孤儿存活（PySupervisor 自动重启的
+	// 多实例叠加）→ 若静默标 stopped，用户以为干净而进程还在写 events.jsonl
+	// → 数据损坏（事件 seq 冲突）。验证失败 = 返回错误，state 不改。
+	verifyDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(verifyDeadline) {
+		daemonDead := !pidAliveHandler(pid)
+		workerDead := workerPid <= 0 || !pidAliveHandler(workerPid)
+		if daemonDead && workerDead {
+			mergeFinalState(ws, "stopped", sj)
+			fmt.Printf("[rick super] force-stopped (pid %d)\n", pid)
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// 验证失败：列出仍存活的 pid，返回错误（不标 stopped——用户需手动处理）
+	var survivors []string
+	if pidAliveHandler(pid) {
+		survivors = append(survivors, fmt.Sprintf("daemon pid %d", pid))
+	}
+	if workerPid > 0 && pidAliveHandler(workerPid) {
+		survivors = append(survivors, fmt.Sprintf("worker pid %d", workerPid))
+	}
+	return fmt.Errorf("super: stop 后进程仍存活（%s）——请手动 `kill -9 %d %d` 并检查 `ps -p %d,%d`；"+
+		"super.json 状态未标记 stopped（数据安全优先）",
+		strings.Join(survivors, ", "), pid, workerPid, pid, workerPid)
 }
 
 func pidAliveHandler(pid int) bool {

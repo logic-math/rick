@@ -2690,3 +2690,127 @@ class TestParallelSlots(LoopTestBase):
             wins[first_id]["experiment_finished"],
             wins[second_id]["experiment_started"],
             "同格串行：第二个实验必须在第一个收尾之后才起跑")
+
+
+class TestAdjustNoStarvation(LoopTestBase):
+    """task54：并发槽池下 adjust 不饥饿（回归：21 迭代 0 次 adjust 实证）。
+
+    根因：_loop_parallel 把 adjust 触发放在 ``if not slots`` 内，槽池每 tick
+    自动补满 → 门永不打开。修复：移出该门 + 跨边界判断
+    （cursor - _last_adjust_iter >= adjust_interval）。
+
+    ①②③④⑤ 对应 task54 规格五条验收：
+      ① 并发 2 槽 6 迭代 → adjust 至少触发 2 次（直指本 bug）
+      ② 串行路径 adjust 触发次数与旧行为一致（跨边界语义）
+      ③ adjust 在飞时再次到边界不重复派发（单飞保护）
+      ④ 跨边界：cursor 跳跃（如直接 5→8）仍触发（>= 而非 ==）
+      ⑤ adjust_dispatched 事件 {iteration, window_since} 可观测
+    """
+
+    def _setup_no_starve(self, max_iter: int = 6, delay: float = 0.25,
+                         parallel: int = 2, adjust_interval: int = 2):
+        client = _SlowFakeClient(delay)
+        n_agent = max_iter * 3 + 8  # builder+coding 每迭代 2 + adjust 若干
+        client.queue("builder", [_builder_result() for _ in range(n_agent)])
+        client.queue("coding", [_coding_result(diff_path=self.cand_file)
+                                for _ in range(n_agent)])
+        client.queue("adjust", [_adjust_result([])])  # 空提案（不调权重）
+        gate = _SlowFakeGate()
+        for _ in range(n_agent):
+            gate.queue(_gate_pass(100.0))
+        return self.make_scheduler(cfg_overrides={
+            "max_iterations": max_iter,
+            "max_parallel_experiments": parallel,
+            "adjust_interval": adjust_interval,
+            "cell_lock_skip_sleep_s": 0,
+            "slot_poll_s": 0.02,
+            "heartbeat_interval_s": 0,
+        }, client=client, gate=gate)
+
+    def _adjust_start_count(self) -> int:
+        """agent_started(role=adjust) 次数（用 experiment_id 区分 adjust 派发）。"""
+        return len([
+            e for e in self.read_events()
+            if e["type"] == "agent_started" and e["payload"].get("role") == "adjust"
+        ])
+
+    # ① 并发 2 槽 6 迭代 → adjust 至少触发 2 次（本 bug 的核心回归断言）
+    def test_concurrent_slots_adjust_not_starved(self):
+        sched = self._setup_no_starve(max_iter=6, parallel=2,
+                                      adjust_interval=2)
+        sched.run()
+        total_started = len(self.events_of("experiment_started"))
+        self.assertGreaterEqual(total_started, 4,
+                                "2 槽 6 迭代至少起 4 个实验")
+        adjust_count = self._adjust_start_count()
+        self.assertGreaterEqual(
+            adjust_count, 2,
+            "并发下 adjust 至少触发 2 次（饥饿回归：cursor 达 2 与 4 应触发；"
+            "实际 %d）" % adjust_count)
+        # adjust_dispatched 事件可观测
+        dispatched = self.events_of("adjust_dispatched")
+        self.assertGreaterEqual(len(dispatched), 2,
+                                "adjust_dispatched 事件至少 2 条")
+
+    # ② 串行路径 adjust 触发次数与旧行为一致
+    def test_serial_adjust_same_count_as_before(self):
+        sched = self._setup_no_starve(max_iter=4, parallel=1,
+                                      adjust_interval=2)
+        sched.run()
+        # 串行 4 迭代，interval=2 → cursor 达 2 时触发 1 次；达 4 时触发 1 次
+        # （第 4 次迭代完成后循环顶部 cursor=4 ≥ 2+2 → 第 2 次触发，
+        #  然后达 max_iter 退出——事件流至少 1 次即可（最后一次可能未消费）
+        adjust_count = self._adjust_start_count()
+        self.assertGreaterEqual(adjust_count, 1,
+                                "串行 4 迭代 interval=2 至少触发 1 次")
+        self.assertLessEqual(adjust_count, 2,
+                             "串行 4 迭代 interval=2 至多触发 2 次")
+
+    # ③ adjust 在飞时再次到边界不重复派发（单飞保护——直接调用 _maybe_start_adjust）
+    def test_adjust_in_flight_no_duplicate_dispatch(self):
+        sched = self._setup_no_starve(max_iter=6, parallel=2,
+                                      adjust_interval=2)
+        sched._adjust_thread = threading.Thread(target=lambda: None,
+                                                daemon=True)
+        sched._adjust_thread.start()
+        try:
+            sched._maybe_start_adjust()  # 在飞 → 应直接 return
+            self.assertEqual(self._adjust_start_count(), 0,
+                             "在飞时不应重复派发（单飞保护）")
+        finally:
+            sched._adjust_thread.join(timeout=2)
+            sched._adjust_thread = None
+
+    # ④ 跨边界：cursor 跳跃（3→7）仍触发（>= 而非 ==）
+    def test_cursor_jump_still_triggers(self):
+        sched = self._setup_no_starve(max_iter=6, parallel=2,
+                                      adjust_interval=2)
+        # 模拟 cursor 跳跃：_last_adjust_iter=2，cursor 跳到 7（跳过 3..6 的等值点）
+        sched._last_adjust_iter = 2
+        sched.iteration_cursor = 7
+        self.assertTrue(sched._adjust_due(2),
+                        "cursor=7, last=2 → 7-2=5 >= 2 → 应触发")
+        # 对照：cursor=3（7-2-2=3 < N+1）——仅差 1 未到边界 → 不触发
+        sched.iteration_cursor = 3
+        self.assertFalse(sched._adjust_due(2),
+                         "cursor=3, last=2 → 1 < 2 → 不应触发")
+        # 等值语义下的漏判演示：跳跃 3→5 时 % 判断 5%2=1 会漏，>= 不漏
+        sched._last_adjust_iter = 3
+        sched.iteration_cursor = 5
+        self.assertTrue(sched._adjust_due(2),
+                        "cursor=5, last=3 → 2 >= 2 → 触发（等值 % 判断 5%2=1 会漏）")
+
+    # ⑤ adjust_dispatched 事件 {iteration, window_since} 可观测
+    def test_adjust_dispatched_event_observable(self):
+        sched = self._setup_no_starve(max_iter=4, parallel=2,
+                                      adjust_interval=2)
+        sched.run()
+        dispatched = self.events_of("adjust_dispatched")
+        self.assertGreaterEqual(len(dispatched), 1)
+        for e in dispatched:
+            p = e["payload"]
+            self.assertIn("iteration", p)
+            self.assertIn("window_since", p)
+            self.assertGreaterEqual(p["iteration"], 1)
+            self.assertGreaterEqual(p["window_since"], 1,
+                                    "距上次 adjust 的窗口 >= interval")

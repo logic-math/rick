@@ -21,14 +21,23 @@ def main():
     if r.returncode != 0: ERRORS.append("[A] py 全量失败：\n" + (r.stdout + r.stderr)[-2000:])
     l = read("super/superopt/loop.py")
     seg = l[l.index("def _loop_parallel"):l.index("def _loop_parallel")+2500]
-    if "_maybe_start_adjust" in l:
-        # 检查它不在 if not slots 内：找 _maybe_start_adjust 调用点上下文
-        lines = l.split("\n")
-        for i, ln in enumerate(lines):
-            if "_maybe_start_adjust" in ln and "def " not in ln:
-                ctx = "\n".join(lines[max(0,i-6):i+1])
-                if "if not slots" in ctx:
-                    ERRORS.append("[B] adjust 仍在 if not slots 内（饥饿根因）")
+    # 精确检查：_maybe_start_adjust 调用行不得缩进在 if not slots: 块内
+    # （通过 Python 缩进判断，不靠模糊上下文匹配——注释/文档提到的不算）
+    lines = l.split("\n")
+    in_not_slots = False
+    slots_indent = 0
+    for ln in lines:
+        stripped = ln.strip()
+        if stripped.startswith("if not slots:"):
+            in_not_slots = True
+            slots_indent = len(ln) - len(ln.lstrip())
+            continue
+        if in_not_slots:
+            cur = len(ln) - len(ln.lstrip())
+            if cur <= slots_indent and stripped:
+                in_not_slots = False
+        if "_maybe_start_adjust" in stripped and "def " not in stripped and in_not_slots:
+            ERRORS.append("[B] adjust 仍在 if not slots 内（饥饿根因）")
     for kw in ["_last_adjust_iter", "adjust_dispatched"]:
         if kw not in l: ERRORS.append("[B] loop.py 缺 " + kw)
     h = read("internal/handler/super.go")

@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -769,5 +770,155 @@ func TestSuperLifecycleUnderNewRoot(t *testing.T) {
 	sj := readSuperJSONForTest(t, ws)
 	if sj.State != "stopped" {
 		t.Fatalf("state = %q, want stopped", sj.State)
+	}
+}
+
+// --- task55：进程树收割（kill 进程组 + worker_pid 兜底 + 杀后验证） ---
+
+// fakeProcessTree 造一棵「daemon(setsid) → supervisor → worker」三层进程树。
+// 返回 (daemonPid, workerPid, cleanup)。worker 是 supervisor fork 出的孙进程
+// （用 shell 的 `exec sh -c 'sleep 300 & wait'` 模拟 supervisor 再拉子进程）。
+func fakeProcessTree(t *testing.T) (int, int, func()) {
+	t.Helper()
+	// daemon（setsid → pid==pgid），内部起 supervisor 子进程，supervisor 再起 worker
+	daemon := exec.Command("sh", "-c",
+		"exec sh -c 'sh -c \"sleep 300\" & sleep 300'")
+	daemon.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := daemon.Start(); err != nil {
+		t.Fatalf("start daemon: %v", err)
+	}
+	daemonPid := daemon.Process.Pid
+	go func() { _ = daemon.Wait() }()
+
+	// 找 worker pid：用 ps 列出全部进程的 pid/ppid，找 ppid 是 daemon 子进程的进程
+	// （daemon 是 sh，它的直接子也是 sh，孙是 sleep 300 —— 取最深层的非 daemon 后代）
+	workerPid := 0
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && workerPid == 0 {
+		out, err := exec.Command("sh", "-c",
+			"ps -axo pid,ppid | grep -v PID | grep -w " + fmt.Sprint(daemonPid) + " | awk '{print $1}'").CombinedOutput()
+		if err == nil {
+			// 找 ppid == daemonPid 的进程（多行取最后一个非 daemon 的）
+			for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+				p, e := strconv.Atoi(strings.TrimSpace(ln))
+				if e == nil && p != daemonPid {
+					// 检查它是否有子进程（更深层的 sleep 300）
+				sub, se := exec.Command("sh", "-c",
+					"ps -axo pid,ppid | grep -w "+fmt.Sprint(p)+" | awk '{print $1}' | head -1").CombinedOutput()
+					if se == nil {
+						sp, pe := strconv.Atoi(strings.TrimSpace(string(sub)))
+						if pe == nil && sp != p && sp != daemonPid {
+							workerPid = sp
+						}
+					}
+					if workerPid == 0 {
+						workerPid = p // 没找到孙，用子（至少是一棵树）
+					}
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cleanup := func() {
+		_ = syscall.Kill(-daemonPid, syscall.SIGKILL)
+		_ = daemon.Process.Kill()
+	}
+	return daemonPid, workerPid, cleanup
+}
+
+// ① fake 进程树 → stop 后 daemon 与 worker 都消失 + state=stopped
+func TestSuperStopKillsProcessTree(t *testing.T) {
+	_, ws := newSuperWS(t)
+	daemonPid, workerPid, cleanup := fakeProcessTree(t)
+	defer cleanup()
+	if workerPid == 0 {
+		t.Skip("macOS ps 未找到 worker 孙进程——跳过树级断言（组杀由 daemon pid 断言覆盖）")
+	}
+
+	sj := map[string]interface{}{
+		"state":      "running",
+		"pid":        daemonPid,
+		"worker_pid": workerPid,
+		"daemon":     true,
+	}
+	if err := writeSuperJSONForTest(t, ws, sj); err != nil {
+		t.Fatal(err)
+	}
+	if err := SuperStopIn(ws); err != nil {
+		t.Fatalf("SuperStopIn: %v", err)
+	}
+	// daemon 死
+	waitFor(t, 3*time.Second, "daemon gone", func() bool {
+		return !pidAlive(daemonPid)
+	})
+	// worker 也死（组信号覆盖 or 兜底单点）
+	waitFor(t, 3*time.Second, "worker gone", func() bool {
+		return !pidAlive(workerPid)
+	})
+	// state=stopped
+	if s := readSuperJSONForTest(t, ws); s.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", s.State)
+	}
+}
+
+// ② worker_pid 单独存活（daemon 已死）→ 兜底单点杀
+func TestSuperStopKillsOrphanWorker(t *testing.T) {
+	_, ws := newSuperWS(t)
+	// daemon 已死（不启动）；worker 是一个独立进程（不在 daemon 组内——模拟孤儿）
+	worker := exec.Command("sh", "-c", "exec sleep 300")
+	worker.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // 独立组（孤儿形态）
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = worker.Wait() }()
+	defer func() { _ = worker.Process.Kill() }()
+	workerPid := worker.Process.Pid
+
+	// super.json：daemon pid 指向一个不存在的 pid（已死），worker_pid 存活
+	deadPid := 999999
+	if pidAlive(deadPid) {
+		t.Skip("pid 999999 意外存活——跳过")
+	}
+	sj := map[string]interface{}{
+		"state":      "running",
+		"pid":        deadPid,
+		"worker_pid": workerPid,
+		"daemon":     true,
+	}
+	if err := writeSuperJSONForTest(t, ws, sj); err != nil {
+		t.Fatal(err)
+	}
+	if err := SuperStopIn(ws); err != nil {
+		t.Fatalf("SuperStopIn: %v", err)
+	}
+	waitFor(t, 3*time.Second, "orphan worker gone", func() bool {
+		return !pidAlive(workerPid)
+	})
+	if s := readSuperJSONForTest(t, ws); s.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", s.State)
+	}
+}
+
+// ③ pid 不存在 → 幂等返回 stopped（不报错）
+func TestSuperStopNonexistentPidIdempotent(t *testing.T) {
+	_, ws := newSuperWS(t)
+	sj := map[string]interface{}{
+		"state":      "running",
+		"pid":        999999, // 不存在
+		"worker_pid": 0,
+		"daemon":     true,
+	}
+	if err := writeSuperJSONForTest(t, ws, sj); err != nil {
+		t.Fatal(err)
+	}
+	if pidAlive(999999) {
+		t.Skip("pid 999999 意外存活——跳过")
+	}
+	if err := SuperStopIn(ws); err != nil {
+		t.Fatalf("不存在的 pid 应幂等返回: %v", err)
+	}
+	if s := readSuperJSONForTest(t, ws); s.State != "stopped" {
+		t.Fatalf("state = %q, want stopped", s.State)
 	}
 }

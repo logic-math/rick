@@ -500,13 +500,28 @@ class Scheduler:
             self.iteration_cursor += 1
             return self.iteration_cursor
 
+    def _adjust_due(self, adjust_every: int) -> bool:
+        """跨边界触发判定（task54）：cursor - 上次 adjust >= adjust_every。
+
+        等值判断（cursor % N == 0）在并发 cursor 跳跃（如 3→7 直接跳过 4）时会
+        漏判；改为区间判断后两路径（串行/并发）语义一致。首轮 _last_adjust_iter=0
+        → cursor 达到 N 即触发。
+        """
+        if adjust_every <= 0 or self.iteration_cursor <= 0:
+            return False
+        return (self.iteration_cursor - self._last_adjust_iter) >= adjust_every
+
     def _loop_parallel(self) -> None:
         """并发槽池（task50）：异格并行实验，一格同时只有一个实验。
 
         职责划分（保正确性的关键）：
         - **主线程**：采样 + 格锁、分配迭代号、写 ``experiment_started``、
-          全局态操作（热重载/干预/裁决/epoch 复评/adjust）——仅在**无在飞槽**
-          时执行，避免与 worker 的档案变更交叠；
+          干预摄取 + **adjust 调度**（后台线程，与 worker 并行安全——task54 修复
+          饥饿：原实现把 adjust 放在 ``if not slots`` 内，槽池每 tick 自动补满
+          → 门永不打开 → 21 迭代 0 次 adjust 实证。adjust 是只读快照 + 后台
+          线程：``_adjust_lock`` 单飞、archive RLock 快照、events 只读）；
+        - **全局态操作**（热重载/裁决消费/epoch 复评）仍在**无在飞槽**时执行
+          （它们改全局面貌，与 worker 的 admit 交叠有风险）；
         - **worker 线程**：``_step_locked``（builder/coding/debug/gate/admit），
           事件并行写（EventWriter 锁 + experiment_id，O_APPEND 原子），
           archive 写有 RLock，CostLedger/台账写经 ``_ledger_lock``；
@@ -535,16 +550,18 @@ class Scheduler:
             self._drain_interventions()
             if self.stop_requested:
                 break
-            # ③′ 需要改全局面貌的操作只在无在飞槽时做（热重载/裁决/epoch/adjust）
+            # ③′ adjust 调度：移出 if not slots（task54：并发下槽池总被补满，
+            # 等值 + 无在飞槽的门 → adjust 永久饥饿）。跨边界判断 + 后台线程
+            # 单飞；ctx 快照在主线程组装，与 worker 并行安全。
+            if self._adjust_due(adjust_every):
+                self._maybe_start_adjust()
+            # ③″ 其余全局态操作（热重载/裁决/epoch）仍在无在飞槽时执行
             if not slots:
                 self._maybe_reload_feature_space()
                 self._drain_decisions()
                 if (self.iteration_cursor > 0
                         and self.iteration_cursor % EPOCH_ITERATIONS == 0):
                     self._reevaluate_pending()
-                if (adjust_every > 0 and self.iteration_cursor > 0
-                        and self.iteration_cursor % adjust_every == 0):
-                    self._maybe_start_adjust()
             # ④ 补满在飞槽（每槽 = 一个实验：独占一格）
             while (len(slots) < self.max_parallel_experiments
                    and not self.stop_requested
@@ -653,9 +670,9 @@ class Scheduler:
                 break
             # ② 裁决决策消费（外置 adjudicator 的 decision 文件）
             self._drain_decisions()
-            # ③ adjust（每 N 迭代；cursor 为已完成迭代数）——后台并行派发
-            if adjust_every > 0 and self.iteration_cursor > 0 \
-                    and self.iteration_cursor % adjust_every == 0:
+            # ③ adjust（每 N 迭代；cursor 为已完成迭代数）——跨边界触发
+            # （task54：cursor % N 在跳跃时漏判；串行/并发两路径语义统一）
+            if self._adjust_due(adjust_every):
                 self._maybe_start_adjust()
             # ④ 单迭代
             self._step()
@@ -1629,7 +1646,13 @@ class Scheduler:
                 target=_worker, name="superopt-adjust", daemon=True)
             self._adjust_thread.start()
         # 区间起点推进（下一次 adjust 的全局实验分析从本次起算）
+        old_last = self._last_adjust_iter
         self._last_adjust_iter = iteration_id
+        # task54 可观测性：何时触发、距上次多少迭代（并发饥饿修复的回归证据）
+        self.events.append("adjust_dispatched", {
+            "iteration": iteration_id,
+            "window_since": iteration_id - old_last,
+        }, "scheduler")
 
     def _collect_adjust(self) -> None:
         """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。

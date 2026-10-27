@@ -94,6 +94,8 @@ EVENT_TYPES = frozenset({
     "experiment_started",         # slot/iteration_id/cell_id（实验起跑）
     "experiment_finished",        # slot/iteration_id/cell_id/wall_ms（实验收尾）
     "experiment_failed",          # slot/iteration_id/cell_id/error（实验异常）
+    # ---- 迭代11/task54：adjust 饥饿修复可观测 ----
+    "adjust_dispatched",          # iteration/window_since（跨边界触发证据）
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -125,6 +127,8 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "experiment_started": ("slot", "iteration_id", "cell_id"),
     "experiment_finished": ("slot", "iteration_id", "cell_id", "wall_ms"),
     "experiment_failed": ("slot", "iteration_id", "cell_id", "error"),
+    # 迭代11/task54：adjust 跨边界触发可观测
+    "adjust_dispatched": ("iteration", "window_since"),
     "parallel_degraded": ("requested", "effective", "reason"),
     "cell_created": ("cell_id", "descriptor"),
     "cell_modified": ("cell_id", "method"),
