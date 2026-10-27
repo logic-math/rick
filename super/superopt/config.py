@@ -63,7 +63,7 @@ DEFAULTS: Dict[str, Any] = {
     "builder_max_turns": 20,
     "coding_max_turns": 24,
     "debug_max_turns": 0,
-    "adjust_max_turns": 16,
+    "adjust_max_turns": 0,
     # ---- 事件落盘 fsync 开关（迭代10/task49+51）----
     # True（保守）=每事件 fsync；False=仅 flush（高频/并发实验时省 IO，
     # 崩溃可能丢尾行——events 读取有截断容错）。

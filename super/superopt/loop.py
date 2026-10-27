@@ -1602,10 +1602,7 @@ class Scheduler:
                 self._experiment_records(self._last_adjust_iter,
                                          self.iteration_cursor),
                 "（区间内尚无实验记录——首轮或 builder 未落盘）"),
-            "experiment_sessions": self._or_default(
-                self._experiment_sessions(self._last_adjust_iter,
-                                          self.iteration_cursor),
-                "（未定位到区间 session 目录——按记录分析即可）"),
+            "experiment_sessions": self._experiment_sessions_count(self._last_adjust_iter, self.iteration_cursor),
             "decision_history": self._or_default(
                 self._decision_history(3), "（暂无历史决策记录）"),
             "cell_descriptions": self._cell_descriptions(),
@@ -1889,16 +1886,20 @@ class Scheduler:
         self.events.append("proposal", prop_payload, "agent:adjust")
 
     def _cells_status(self) -> List[Dict[str, Any]]:
+        """格子现状（adjust 决策依据）。红黑树 env_11 实测：完整 JSON 拼进 ctx
+        导致 prompt 88KB → input 膨胀 → 截断失败。压缩为精简元信息：
+        cell_id + description.name + weight + visit + score。需要详细
+        descriptor/elite 时 agent 自己 read archive.json（它的决策）。"""
         out = []
         for cid in self.fs.all_cells():
             e = self._cell_entry(cid)
+            desc = e.get("description") or {}
+            elite = e.get("elite") or {}
             out.append({"cell_id": cid,
-                        "descriptor": self.fs.describe_cell(cid) or {},
+                        "name": desc.get("name") or cid.split("|")[0].split("=")[-1],
                         "visit": e.get("visit", 0),
                         "weight": e.get("weight", 1.0),
-                        "elite": ({"code_path": e["elite"].get("code_path"),
-                                   "perf_value": e["elite"].get("perf_value")}
-                                  if e.get("elite") else None)})
+                        "perf": elite.get("perf_value") if elite else None})
         return out
 
     def _recent_events_summary(self, n: int = 15) -> List[Dict[str, Any]]:
@@ -2421,6 +2422,13 @@ class Scheduler:
         until = max(since, int(until_iter or 0))
         return experiment_record.recent(self.ws, since, until)
 
+    def _experiment_sessions_count(self, since: int, until: int) -> str:
+        """区间 agent session 可用性提示（不预列完整路径——ctx 降本）。"""
+        n = until - max(0, since)
+        if n <= 0:
+            return "（本区间无新实验 session）"
+        return "（%d 次实验的 pi session 可用——需要补细节时 read codes/iter{N}/ 下对应 prompt 的 workdir）" % n
+
     def _experiment_sessions(self, since_iter: int,
                              until_iter: int) -> List[str]:
         """区间内 agent 的 pi session 目录（best-effort：按编码后的 cwd 名匹配）。
@@ -2478,11 +2486,23 @@ class Scheduler:
         return out
 
     def _cell_descriptions(self) -> Dict[str, Any]:
-        """各格 description（四要素之 name/method/source_refs）。"""
+        """各格 description（精简版：name + method 前 200 字 + source_refs 数量）。
+
+        红黑树 env_11 实测：完整 description JSON 使 prompt 达 88KB → input
+        膨胀 → 截断。精简到 200 字后仍能支撑「改进 method」的判断（方向在，
+        细节靠 archive.json 自查）。"""
         out = {}  # type: Dict[str, Any]
         for cid in self.fs.all_cells():
             desc = self._cell_entry(cid).get("description")
-            out[cid] = desc if isinstance(desc, dict) else {}
+            if not isinstance(desc, dict):
+                out[cid] = {}
+                continue
+            method = str(desc.get("method") or "")
+            out[cid] = {
+                "name": desc.get("name") or "",
+                "method_brief": method[:200] + ("…" if len(method) > 200 else ""),
+                "source_refs": desc.get("source_refs") or [],
+            }
         return out
 
     def _ensure_decision_file(self, iteration_id: int,
