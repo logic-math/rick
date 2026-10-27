@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-26T19:00:00+08:00",
+  "updated_at": "2026-10-27T12:12:20.270Z",
   "tasks": [
     {
       "task_id": "task1",
@@ -665,24 +665,24 @@
     {
       "task_id": "task54",
       "task_name": "adjust 并发饥饿修复（移出 if not slots + 跨边界触发 + 并发回归断言）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-26T19:00:00+08:00",
-      "updated_at": "2026-10-26T19:00:00+08:00",
+      "updated_at": "2026-10-27T12:12:20.270Z",
       "dependencies": [],
       "task_file": "plan/task54.md",
-      "commit_hash": ""
+      "commit_hash": "a65a5d999fdd67e5291511cb825f4d3f40b2ffd7"
     },
     {
       "task_id": "task55",
       "task_name": "super stop 进程树收割修复（kill 进程组 + worker_pid 兜底 + 杀后验证）",
-      "status": "pending",
-      "attempts": 0,
+      "status": "success",
+      "attempts": 1,
       "created_at": "2026-10-26T19:00:00+08:00",
-      "updated_at": "2026-10-26T19:00:00+08:00",
+      "updated_at": "2026-10-27T12:12:20.270Z",
       "dependencies": [],
       "task_file": "plan/task55.md",
-      "commit_hash": ""
+      "commit_hash": "a65a5d999fdd67e5291511cb825f4d3f40b2ffd7"
     }
   ]
 }

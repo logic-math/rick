@@ -81,3 +81,6 @@ GATE gate25 pass=true (迭代10 L3: task50 并发槽池 max_parallel_experiments
 GATE gate26 pass=true (迭代10 L4: task52 e2e/成本对比 + task53 文档；run_all 全绿)
 迭代10 全 5 task success（e1ff8e2e/06a3c20a/bb263bef/887fdf98）
 成本对比验证：tokens 1.74M/迭代（-20% vs 基线 2.18M）；debug 截断 0/3（基线 12/20）；it16 门禁 soft_gate 失败→debug 救回；it17 入格 601ms；两槽并发窗口重叠实证
+
+GATE gate27 pass=true (迭代11: task54 adjust 饥饿 + task55 进程树收割；红黑树 env 实跑发现)
+迭代11 全 2 task success（a65a5d99）
