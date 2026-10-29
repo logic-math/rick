@@ -35,6 +35,12 @@ func deployRickCustomizations(skillsDir string) error {
 		filepath.Join(runtime.AgentDir(), "extensions", "rick-gates")); err != nil {
 		return fmt.Errorf("deploy rick-gates: %w", err)
 	}
+	// superopt-json-guard：superopt agent 的 JSON 输出确定性 hook（task56 补遗：
+	// pi 进程内 agent_settled 检查 + sendUserMessage 修复，同进程不重启）
+	if err := copyDir(filepath.Join(skillsDir, "superopt-json-guard"),
+		filepath.Join(runtime.AgentDir(), "extensions", "superopt-json-guard")); err != nil {
+		return fmt.Errorf("deploy superopt-json-guard: %w", err)
+	}
 
 	// rick skills（*_skill 目录，含 skill.md）→ skills/。
 	entries, err := os.ReadDir(skillsDir)
