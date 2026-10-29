@@ -116,6 +116,8 @@ EVENT_TYPES = frozenset({
     # ---- 迭代13/task58：幻影 elite 防线 + 处方-基座相位差 ----
     "elite_measurement_refresh",  # cell_id/code_hash/new_perf/old_perf（同码重测 → 只刷测量值）
     "ref_drift_warning",          # old_ref/new_ref/drift_pct（基准漂移超阈 → 测量分辨率告警）
+    # ---- 迭代13/task59：同码双测噪声标定（测量分辨率锚） ----
+    "noise_calibrated",           # cell_id/current_perf/archived_perf/noise_pct（冠军精英重测 → 噪声带）
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -171,6 +173,8 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     # 迭代13/task58：幻影 elite 防线（同码重测）/ ref 漂移告警
     "elite_measurement_refresh": ("cell_id", "code_hash", "new_perf", "old_perf"),
     "ref_drift_warning": ("old_ref", "new_ref", "drift_pct"),
+    # 迭代13/task59：同码双测噪声标定
+    "noise_calibrated": ("cell_id", "current_perf", "archived_perf", "noise_pct"),
 }
 
 # 事件来源域（设计树 §2.2）

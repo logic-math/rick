@@ -110,6 +110,19 @@ DEFAULTS: Dict[str, Any] = {
     # 可逐 env 覆盖（gen_env 追问 human 确认）。
     "debug_gain_threshold_pct": 20,      # 收益 ≥ 该百分比 → debug 复验
     "debug_recheck_tolerance_band": True,  # 软门禁容差带内 → debug 复验
+    # ---- 迭代13/task59 R5：同码双测噪声标定 + 停止判据 ----
+    # 每 N 迭代对在位冠军精英做一次同码重测（与 gate_check 同协议）：
+    # |重测 - 档案| / |档案| → noise_calibrated 事件 → _noise_band（测量
+    # 分辨率锚）。饱和判据增两支：top3_spread < noise_band（头三名差距
+    # 小于噪声带 → 位次不可区分）/ identified_headroom < noise_band（已识别
+    # 剩余空间合计小于噪声带 → 收益不可认证）→ stop_reason=
+    # headroom_below_noise（adjust 可据此提 terminate_recommend）。
+    # 0 = 关闭标定（噪声判据随之失活——_noise_band 恒 0）。
+    "noise_calibration_interval": 10,
+    # ref 漂移阈值（task58/R3 已消费；此处入 DEFAULTS 显式化）：本迭代基准
+    # 与该格精英入档基准偏差超阈 → ref_drift_warning + gate_result 标注
+    # measurement_degraded（不硬拒——按 env tolerance 处置）。
+    "ref_drift_threshold": 0.15,
 }
 
 # merge_cli 允许从 CLI 覆盖的键（与 __main__.py 的 flags 对齐）。

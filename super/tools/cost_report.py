@@ -114,6 +114,66 @@ def _iteration_totals(events):
     return iters
 
 
+# task59 R5：outcome 五态（与 superopt.loop._iteration_outcome 同词表；
+# 旧事件流无 outcome → had_candidate 兑底二分，标 legacy_*）
+_OUTCOMES = ("delivered", "agent_failed", "turn_truncated",
+             "infra_noop", "no_output")
+
+
+def _outcome_breakdown(events):
+    """task59 R5：按 outcome 分列——「真实成本 vs 空转成本」直接可读。
+
+    env_11 判例：旧口径把 68% 的 infra 空转计入「80% 无产出」，指向了
+    错误的对象（agent 无能 vs 基础设施）。分列后复盘从「猜」变成「读」。
+    旧事件流（无 outcome 字段）→ had_candidate 二分标 legacy，不入新口径。
+    """
+    buckets = {k: {"iterations": 0, "tokens": 0, "cost_usd": 0.0,
+                   "wall_ms": 0} for k in _OUTCOMES}
+    legacy = {"legacy_delivered": 0, "legacy_no_candidate": 0,
+              "tokens": 0, "cost_usd": 0.0, "wall_ms": 0}
+    has_outcome = False
+    for ev in events:
+        if ev.get("type") != "iteration_ended":
+            continue
+        p = ev.get("payload") or {}
+        outcome = p.get("outcome")
+        row = {"tokens": int(_num(p.get("tokens"))),
+               "cost_usd": round(_num(p.get("cost_usd")), 6),
+               "wall_ms": int(_num(p.get("wall_ms")))}
+        if outcome in buckets:
+            has_outcome = True
+            b = buckets[outcome]
+            b["iterations"] += 1
+            b["tokens"] += row["tokens"]
+            b["cost_usd"] = round(b["cost_usd"] + row["cost_usd"], 6)
+            b["wall_ms"] += row["wall_ms"]
+        else:
+            key = ("legacy_delivered" if p.get("had_candidate")
+                   else "legacy_no_candidate")
+            legacy[key] += 1
+            legacy["tokens"] += row["tokens"]
+            legacy["cost_usd"] = round(legacy["cost_usd"] + row["cost_usd"], 6)
+            legacy["wall_ms"] += row["wall_ms"]
+    if not has_outcome and legacy["legacy_delivered"] == 0 \
+            and legacy["legacy_no_candidate"] == 0:
+        return None
+    total_tokens = sum(b["tokens"] for b in buckets.values()) + legacy["tokens"]
+    for b in buckets.values():
+        b["share_pct"] = (round(100.0 * b["tokens"] / total_tokens, 1)
+                           if total_tokens else 0.0)
+    if total_tokens:
+        legacy["share_pct"] = round(100.0 * legacy["tokens"] / total_tokens, 1)
+    else:
+        legacy["share_pct"] = 0.0
+    real = ("delivered", "agent_failed", "turn_truncated", "no_output")
+    return {
+        "outcomes": buckets,
+        "legacy": legacy,
+        "real_work_iterations": sum(buckets[k]["iterations"] for k in real),
+        "infra_noop_iterations": buckets["infra_noop"]["iterations"],
+    }
+
+
 def _role_stats(calls):
     """按 role 聚合：次数/总量/单次中位/占比。"""
     roles = {}
@@ -319,6 +379,8 @@ def build_report(ws, top=5):
         "total": {"tokens": total_tokens, "cost_usd": total_cost,
                   "wall_ms": total_wall},
         "roles": roles,
+        # task59 R5：按 outcome 分列（真实成本 vs 空转成本）
+        "outcome_breakdown": _outcome_breakdown(events),
         "iterations_detail": sorted(iters.values(), key=lambda v: v["iteration_id"]),
         "top_expensive_iterations": expensive,
         "context_growth": _context_growth(calls),
@@ -388,6 +450,44 @@ def render_markdown(report):
                      % (v["iteration_id"], cell, _fmt_k(v["tokens"]),
                         v["cost_usd"], _fmt_wall(v["wall_ms"]), br_txt))
     lines.append("")
+
+    # task59 R5：按 outcome 分列（度量口径分离——真实成本 vs 空转成本）
+    ob = report.get("outcome_breakdown")
+    if ob:
+        lg = ob.get("legacy") or {}
+        lg_iters = int(lg.get("legacy_delivered", 0) or 0) + \
+            int(lg.get("legacy_no_candidate", 0) or 0)
+        total_iters = ob["real_work_iterations"] \
+            + ob["infra_noop_iterations"] + lg_iters
+        infra_pct = (100.0 * ob["infra_noop_iterations"] / total_iters
+                     if total_iters else 0.0)
+        lines.append("## 按 outcome（度量口径分离）")
+        lines.append("")
+        lines.append("真实工作迭代 %d ｜ infra 空转迭代 %d（%.1f%%）"
+                     "——空转不是 agent 失败，修复在基础设施侧"
+                     % (ob["real_work_iterations"],
+                        ob["infra_noop_iterations"], infra_pct))
+        lines.append("")
+        lines.append("| outcome | 迭代数 | tokens | 占比 | cost_usd | wall |")
+        lines.append("|---|---|---|---|---|---|")
+        for k in _OUTCOMES:
+            b = ob["outcomes"][k]
+            if b["iterations"] == 0 and b["tokens"] == 0:
+                continue
+            lines.append("| %s | %d | %s | %.1f%% | %.4f | %s |"
+                         % (k, b["iterations"], _fmt_k(b["tokens"]),
+                            b["share_pct"], b["cost_usd"],
+                            _fmt_wall(b["wall_ms"])))
+        if lg.get("legacy_delivered", 0) or lg.get("legacy_no_candidate", 0):
+            lines.append("| _legacy（旧事件流无 outcome）_ | %d+%d | %s | %.1f%% | "
+                         "%.4f | %s |"
+                         % (lg.get("legacy_delivered", 0),
+                            lg.get("legacy_no_candidate", 0),
+                            _fmt_k(lg.get("tokens", 0)),
+                            lg.get("share_pct", 0.0),
+                            lg.get("cost_usd", 0.0),
+                            _fmt_wall(lg.get("wall_ms", 0))))
+        lines.append("")
 
     if report["top_expensive_iterations"]:
         lines.append("## Top-%d 昂贵迭代" % len(report["top_expensive_iterations"]))

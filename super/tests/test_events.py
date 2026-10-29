@@ -64,6 +64,8 @@ class TestConstants(unittest.TestCase):
         # 迭代13/task58：幻影 elite 防线 + ref 漂移告警
         "elite_measurement_refresh",
         "ref_drift_warning",
+        # 迭代13/task59：同码双测噪声标定（测量分辨率锚）
+        "noise_calibrated",
             "adjust_decision",   # task19：adjust 决策轨迹事件
             "cell_created",      # 迭代8：adjust new_cell（特征格新建）
             "cell_modified",     # 迭代8：adjust modify_cell（特征格描述改进）

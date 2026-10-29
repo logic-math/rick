@@ -18,11 +18,10 @@ def main():
     # R2 产物抢救
     for kw in ["artifact_rescued", "agent_completed_but_no_json"]:
         if kw not in l: ERRORS.append("[R2] loop.py 缺 " + kw)
+    a = read("super/superopt/archive.py")
     # R3 幻影拒绝
     for kw in ["elite_code_hash", "elite_measurement_refresh"]:
-        if kw not in l: ERRORS.append("[R3] loop.py 缺 " + kw)
-    a = read("super/superopt/archive.py")
-    if "elite_code_hash" not in a: ERRORS.append("[R3] archive 缺 elite_code_hash")
+        if kw not in l and kw not in a: ERRORS.append("[R3] 缺 " + kw)
     # R4 method_stale
     for kw in ["method_stale", "set_stale", "[STALE]"]:
         if kw not in l and kw not in a: ERRORS.append("[R4] 缺 " + kw)

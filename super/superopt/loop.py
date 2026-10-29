@@ -465,6 +465,11 @@ class Scheduler:
         self._stale_iters = 0
         self._champion_misses = 0
         self._record_this_iter = False
+        # ---- task59 R5：同码双测噪声带（测量分辨率锚） ----
+        # _noise_band：最近一次冠军精英同码重测的相对差（0 = 未标定/标定关闭，
+        # 噪声饱和判据失活）；_noise_calib_last：上次标定时的迭代号（幂等防重）
+        self._noise_band = 0.0  # type: float
+        self._noise_calib_last = 0  # type: int
         # ---- 本迭代 agent 统计（ledger 条目用：role → {wall_ms, tokens, truncated}）
         self._iter_agents = {}  # type: Dict[str, Dict[str, Any]]
         # adjust 跨迭代并行：统计在收集时暂存，归属到「收集发生的迭代」
@@ -617,6 +622,9 @@ class Scheduler:
             if not slots:
                 self._maybe_reload_feature_space()
                 self._drain_decisions()
+                # task59 R5：噪声标定（无在飞实验时对冠军精英同码重测；
+                # 幂等触发见方法内——cursor % interval == 0 才跑）
+                self._maybe_run_noise_calibration()
                 if (self.iteration_cursor > 0
                         and self.iteration_cursor % EPOCH_ITERATIONS == 0):
                     self._reevaluate_pending()
@@ -740,6 +748,9 @@ class Scheduler:
                 self._maybe_start_adjust()
             # ④ 单迭代
             self._step()
+            # ④′ task59 R5：迭代边界噪声标定（cursor 已推进；无在飞实验，
+            #     冠军精英可安全同码重测——幂等触发见方法内）
+            self._maybe_run_noise_calibration()
             # ⑤ epoch 边界：pending 重评估
             if (self.iteration_cursor > 0
                     and self.iteration_cursor % EPOCH_ITERATIONS == 0):
@@ -1074,6 +1085,132 @@ class Scheduler:
                 continue
             return p
         return None
+
+    # ------------------------------------------------------------------ #
+    # task59 R5：同码双测噪声标定 + 噪声带饱和判据
+    # ------------------------------------------------------------------ #
+
+    def _maybe_run_noise_calibration(self) -> None:
+        """task59 R5：迭代边界的同码双测噪声标定（测量分辨率锚）。
+
+        触发：cursor % noise_calibration_interval == 0（默认 10；0 = 关闭）。
+        幂等：_noise_calib_last 记上次标定迭代号，同一 cursor 不重标。
+
+        标的：当前冠军格的在位精英（code_path + 档案 perf_value）——
+        同码重测（与 gate_check 同协议：gate.verify 同一候选路径）→
+        相对差 |重测 - 档案| / |档案| → noise_calibrated 事件 →
+        self._noise_band（饱和判据的分辨率锚，见 _saturation_signal）。
+
+        失败静默（gate 挂/精英缺失/非数值 → 不打断主循环——标定是增强
+        信号，非关键路径）；noise_pct=0 是合法读数（测量稳定）。
+        """
+        interval = int(self.conf.get("noise_calibration_interval", 10) or 0)
+        cursor = int(self.iteration_cursor or 0)
+        if interval <= 0 or cursor <= 0:
+            return
+        if cursor % interval != 0 or self._noise_calib_last == cursor:
+            return
+        self._noise_calib_last = cursor
+
+        champ = self._champion_cell()
+        if champ is None:
+            return
+        elite = (self._cell_entry(champ).get("elite") or {})
+        code_path = elite.get("code_path")
+        archived = elite.get("perf_value")
+        if (not isinstance(code_path, str) or not code_path
+                or not isinstance(archived, (int, float))
+                or isinstance(archived, bool) or float(archived) == 0.0
+                or not os.path.exists(code_path)):
+            return
+        try:
+            gr = self.gate.verify(code_path)
+        except Exception:  # noqa: BLE001 —— 标定失败不破坏主循环
+            return
+        perf = ((getattr(gr, "metrics", None) or {}).get("perf") or {})
+        current = perf.get("value") if isinstance(perf, dict) else None
+        if (not getattr(gr, "passed", False)
+                or not isinstance(current, (int, float))
+                or isinstance(current, bool)):
+            return
+        noise_pct = abs(float(current) - float(archived)) / abs(float(archived))
+        self._noise_band = noise_pct
+        self.events.append("noise_calibrated", {
+            "iteration_id": cursor,
+            "cell_id": champ,
+            "code_path": code_path,
+            "current_perf": float(current),
+            "archived_perf": float(archived),
+            "noise_pct": round(noise_pct, 6),
+        }, "gate")
+
+    def _identified_headroom(self, snap: Dict[str, Any]) -> Optional[float]:
+        """task59 R5：已识别剩余空间（相对当前最优，无据可算 → None）。
+
+        代理口径：冠军格精英时间序（history 旧→新 + 在位）最近 3 次
+        gen-over-gen 增量绝对值合计 / |当前最优|。env_11 判例语义：已识别
+        （armed）杠杆合计 2-4ns < 跨会话噪声 12-18% → 继续迭代的期望收益
+        低于测量分辨率——框架可机读的近似 = 近期机制收益在收敛。
+        """
+        champ = self._champion_cell()
+        if champ is None:
+            return None
+        entry = snap.get(champ) or {}
+        current = (entry.get("elite") or {}).get("perf_value")
+        if (not isinstance(current, (int, float)) or isinstance(current, bool)
+                or float(current) == 0.0):
+            return None
+        seq = [h.get("perf_value") for h in (entry.get("history") or [])]
+        seq = [float(v) for v in seq
+               if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        seq.append(float(current))  # 时间序：history（旧→新）+ 在位精英
+        deltas = [abs(seq[i] - seq[i - 1])
+                  for i in range(max(1, len(seq) - 3), len(seq))]
+        if not deltas:
+            return None
+        return sum(deltas) / abs(float(current))
+
+    def _noise_saturation_evidence(
+            self, snap: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """task59 R5：噪声带饱和证据（两支判据任一触发才非 None）。
+
+        - top3_spread < noise_band：头三名格精英差距小于噪声带 →
+          位次不可区分（排序键分辨率不足）；
+        - identified_headroom < noise_band：已识别剩余空间合计小于
+          噪声带 → 收益不可认证（继续迭代的期望收益为负）。
+        触发 → 附 stop_reason="headroom_below_noise"（adjust 可据此提
+        terminate_recommend——停止判据从「预算跑道」改锚到「测量分辨率」）。
+        """
+        band = float(self._noise_band or 0.0)
+        if band <= 0.0:
+            return None
+        low = (self.perf_desc != "high")
+        values = []  # type: List[float]
+        for cid in self.fs.all_cells():
+            pv = ((snap.get(cid) or {}).get("elite") or {}).get("perf_value")
+            if isinstance(pv, (int, float)) and not isinstance(pv, bool):
+                values.append(float(pv))
+        if len(values) < 3:
+            return None  # 头三名无从谈起
+        values.sort(reverse=not low)
+        best = values[0]
+        top3_spread = (abs(values[2] - best) / abs(best)
+                       if best != 0.0 else None)
+        headroom = self._identified_headroom(snap)
+        evidence = {"noise_band": round(band, 6)}  # type: Dict[str, Any]
+        triggered = False
+        if top3_spread is not None:
+            evidence["top3_spread"] = round(top3_spread, 6)
+            if top3_spread < band:
+                triggered = True
+        if headroom is not None:
+            evidence["identified_headroom"] = round(headroom, 6)
+            if headroom < band:
+                triggered = True
+        if not triggered:
+            return None
+        evidence["stop_reason"] = "headroom_below_noise"
+        return evidence
 
     def _step_locked(self, cell_id: str,
                      cursor: Optional[int] = None,
@@ -3075,7 +3212,11 @@ class Scheduler:
     # ---- 饱和信号（task23 E 段） ----
 
     def _recover_saturation_state(self) -> None:
-        """从事件流恢复历史最优 perf（崩溃重启后 stale 计数不从头来）。"""
+        """从事件流恢复历史最优 perf（崩溃重启后 stale 计数不从头来）。
+
+        task59 R5：同帧恢复噪声带（最近一次 noise_calibrated 的 noise_pct）
+        与标定迭代号（幂等防重——重启后同 cursor 不重标）。
+        """
         best = None  # type: Optional[float]
         try:
             events = self.events.read_all()
@@ -3083,6 +3224,15 @@ class Scheduler:
             return
         for ev in events:
             if ev.get("type") not in ("elite_admitted", "elite_replaced"):
+                if ev.get("type") == "noise_calibrated":
+                    p = ev.get("payload") or {}
+                    noise = p.get("noise_pct")
+                    it = p.get("iteration_id")
+                    if isinstance(noise, (int, float)) \
+                            and not isinstance(noise, bool):
+                        self._noise_band = float(noise)
+                    if isinstance(it, int) and not isinstance(it, bool):
+                        self._noise_calib_last = int(it)
                 continue
             pv = (ev.get("payload") or {}).get("perf_value")
             if not isinstance(pv, (int, float)):
@@ -3126,10 +3276,17 @@ class Scheduler:
     def _saturation_signal(self) -> Optional[Dict[str, Any]]:
         """数据饱和信号（env_8 实测：18 轮无新纪录仍只调权重、0 次加格）。
 
-        三条件全满足才返回非空：
+        原三条件全满足（task23 E 段，保留不变）：
           - stale_iterations >= 3（自上次全局最优刷新）
           - all_visited：所有 weight>0 的格 visit >= 2
           - champion_misses >= 3（冠军格近 3 次采样未刷新）
+
+        task59 R5 新增独立触发支（噪声带判据）：
+          - noise_band > 0 且 top3_spread < noise_band（位次不可区分）
+          - identified_headroom < noise_band（收益不可认证）
+          → 载荷附 noise_band/top3_spread/identified_headroom +
+            stop_reason="headroom_below_noise"（adjust 可据此提
+            terminate_recommend——停止判据从「预算跑道」改锚「测量分辨率」）。
         """
         try:
             snap = _cells_snapshot(self.archive)
@@ -3142,15 +3299,18 @@ class Scheduler:
             return None
         all_visited = all(int((snap.get(c) or {}).get("visit") or 0) >= 2
                           for c in alive)
-        if not (self._stale_iters >= 3 and all_visited
-                and self._champion_misses >= 3):
+        original = (self._stale_iters >= 3 and all_visited
+                    and self._champion_misses >= 3)
+        noise = self._noise_saturation_evidence(snap)
+        if not original and noise is None:
             return None
         return {
             "stale_iterations": int(self._stale_iters),
-            "all_visited": True,
+            "all_visited": all_visited,
             "champion_cell": self._champion_cell(),
             "best_perf": self._best_perf,
             "alive_cells": len(alive),
+            **(noise or {}),
         }
 
     def _note_perf_record(self, perf_value: Any) -> None:

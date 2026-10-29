@@ -3395,3 +3395,283 @@ class TestPhantomEliteGuard(LoopTestBase):
                         "只改 source_refs 不该解除相位差标记")
         mods = self.events_of("cell_modified")
         self.assertFalse(mods[0]["payload"].get("stale_cleared"))
+
+
+# --------------------------------------------------------------------------- #
+# 迭代13/task59 R5：同码双测噪声标定 + 噪声带停止判据 + cost_report outcome 分列
+# --------------------------------------------------------------------------- #
+
+import importlib.util as _ilu
+
+_COST_REPORT_PATH = os.path.join(_SUPER, "tools", "cost_report.py")
+
+
+def _load_cost_report():
+    """super/tools 非包（无 __init__）→ 按文件路径加载 cost_report 模块。"""
+    spec = _ilu.spec_from_file_location("superopt_cost_report",
+                                        _COST_REPORT_PATH)
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _elite_entry(perf: float, code_path: str, gen: int = 1) -> Dict[str, Any]:
+    """预置档案的精英条目（与 loop._admit 的 elite 字段形态对齐）。"""
+    return {"code_path": code_path, "perf_value": perf,
+            "perf_type": "runtime_ms", "perf_desc": "low", "score": 0.9,
+            "lineage": [], "confidence": 0.8,
+            "admitted_at": "2026-10-30T08:00:00+08:00", "gen": gen}
+
+
+class TestNoiseCalibration(LoopTestBase):
+    """task59 R5①：每 N 迭代对冠军在位精英同码重测 → 噪声带。
+
+    env_11 判例：同会话噪声 ±1.5%、跨会话漂移 12-18%、ref 摆动 ±20%，
+    而头三名候选仅差 4.4%——没有噪声带锚，位次与收益都不可认证。
+    """
+
+    def test_calibration_event_and_noise_band(self):
+        """interval=1：迭代边界重测冠军精英 → noise_calibrated + _noise_band。"""
+        self.gate.queue(_gate_pass(value=100.0))   # 候选终验（入档 100）
+        self.gate.queue(_gate_pass(value=110.0))   # 同码重测（读数 110）
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "noise_calibration_interval": 1})
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        calib = self.events_of("noise_calibrated")
+        self.assertEqual(len(calib), 1)
+        payload = calib[0]["payload"]
+        sampled = self.events_of("cell_sampled")[0]["payload"]["cell_id"]
+        self.assertEqual(payload["cell_id"], sampled)
+        self.assertEqual(payload["archived_perf"], 100.0)
+        self.assertEqual(payload["current_perf"], 110.0)
+        self.assertAlmostEqual(payload["noise_pct"], 0.1, places=6)
+        self.assertEqual(payload["iteration_id"], 1)
+        self.assertEqual(payload["code_path"], self.cand_file)
+        # 噪声带已锚定（饱和判据的分辨率锚）
+        self.assertAlmostEqual(sched._noise_band, 0.1, places=6)
+
+    def test_calibration_gate_failure_silent(self):
+        """重测挂（gate 失败）→ 不写事件、不炸循环（增强信号非关键路径）。"""
+        self.gate.queue(_gate_pass(value=100.0))   # 候选终验（入档 100）
+        self.gate.queue(_gate_fail("stage3_perf"))  # 同码重测失败
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "noise_calibration_interval": 1})
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.events_of("noise_calibrated"), [])
+        self.assertEqual(sched._noise_band, 0.0)
+
+    def test_calibration_off_by_default_and_modulo_trigger(self):
+        """默认 interval=10：cursor=1 不触发；interval=0 显式关闭。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        self.assertEqual(self.events_of("noise_calibrated"), [])
+        self.assertEqual(sched._noise_band, 0.0)
+
+    def test_calibration_skips_before_interval_boundary(self):
+        """interval=2：cursor=1（1%2≠0）不标定。"""
+        self.gate.queue(_gate_pass(value=100.0))
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "noise_calibration_interval": 2})
+        sched.run()
+        self.assertEqual(self.events_of("noise_calibrated"), [])
+
+    def test_noise_band_recovered_after_restart(self):
+        """崩溃重启：noise_calibrated 事件 → _noise_band/标定迭代号恢复。"""
+        self.gate.queue(_gate_pass(value=100.0))
+        self.gate.queue(_gate_pass(value=110.0))
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "noise_calibration_interval": 1})
+        sched.run()
+        self.assertAlmostEqual(sched._noise_band, 0.1, places=6)
+        # 第二个调度器（同 ws）从事件流恢复噪声带（饱和判据不因重启失忆）
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 2})
+        self.assertAlmostEqual(s2._noise_band, 0.1, places=6)
+        self.assertEqual(s2._noise_calib_last, 1)
+
+
+class TestNoiseSaturation(LoopTestBase):
+    """task59 R5②：噪声带停止判据（top3_spread / identified_headroom < band）。
+
+    停止判据从「预算跑道」改锚「测量分辨率」：剩余可识别空间小于噪声带
+    时继续迭代的期望收益为负（env_11 最优 4.73ms 已处该区间）。
+    """
+
+    def _preseed_archive(self, elites: Dict[str, Dict[str, Any]]) -> None:
+        """直接写 archive.json（make_scheduler 前调用——__init__ 时 load）。"""
+        cells = {}
+        for cid, spec in elites.items():
+            cell = {"elite": _elite_entry(spec["perf"], self.cand_file,
+                                          gen=spec.get("gen", 1))}
+            if "history" in spec:
+                cell["history"] = [_elite_entry(v, self.cand_file)
+                                   for v in spec["history"]]
+            cells[cid] = cell
+        with open(self.archive_path, "w", encoding="utf-8") as f:
+            json.dump({"cells": cells, "pending": []}, f)
+
+    def test_top3_spread_below_noise_triggers(self):
+        """头三名差距（2%）< 噪声带（5%）→ 饱和 + stop_reason。"""
+        cids = self.fs_all_cells()
+        self._preseed_archive({
+            cids[0]: {"perf": 100.0},
+            cids[1]: {"perf": 101.0},
+            cids[2]: {"perf": 102.0},
+        })
+        sched = self.make_scheduler()
+        # 未标定（噪声带 0）→ 不触发（不早停）
+        self.assertIsNone(sched._saturation_signal())
+        sched._noise_band = 0.05
+        sig = sched._saturation_signal()
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["stop_reason"], "headroom_below_noise")
+        self.assertAlmostEqual(sig["noise_band"], 0.05, places=6)
+        self.assertAlmostEqual(sig["top3_spread"], 0.02, places=6)
+        # 冠军格无换代史 → identified_headroom 无据（不出现）
+        self.assertNotIn("identified_headroom", sig)
+
+    def test_identified_headroom_below_noise_triggers(self):
+        """已识别收益合计（10%）< 噪声带（15%）→ 触发（spread 大不背锅）。"""
+        cids = self.fs_all_cells()
+        self._preseed_archive({
+            # 冠军格：110→105→100（两代收益各 5 → 合计 10%）
+            cids[0]: {"perf": 100.0, "history": [110.0, 105.0]},
+            cids[1]: {"perf": 150.0},
+            cids[2]: {"perf": 200.0},
+        })
+        sched = self.make_scheduler()
+        sched._noise_band = 0.15
+        sig = sched._saturation_signal()
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["stop_reason"], "headroom_below_noise")
+        self.assertAlmostEqual(sig["identified_headroom"], 0.1, places=6)
+        # spread=100% ≥ 噪声带 → 该支不触发（headroom 独立判据）
+        self.assertAlmostEqual(sig["top3_spread"], 1.0, places=6)
+
+    def test_spread_above_noise_no_trigger(self):
+        """头三名差距大于噪声带 → 位次可区分 → 不饱和（判据不误伤）。"""
+        cids = self.fs_all_cells()
+        self._preseed_archive({
+            cids[0]: {"perf": 100.0},
+            cids[1]: {"perf": 150.0},
+            cids[2]: {"perf": 200.0},
+        })
+        sched = self.make_scheduler()
+        sched._noise_band = 0.05
+        self.assertIsNone(sched._saturation_signal())
+
+    def test_original_saturation_conditions_preserved(self):
+        """原三条件（stale/全访问/冠军 miss）触发 → 形状不变、无 stop_reason。"""
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        for cid in self.fs_all_cells():
+            sched.archive.set_visit(cid, 2)
+        sched._stale_iters = 3
+        sched._champion_misses = 3
+        sig = sched._saturation_signal()
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["stale_iterations"], 3)
+        self.assertTrue(sig["all_visited"])
+        self.assertEqual(sig["alive_cells"], len(self.fs_all_cells()))
+        self.assertNotIn("stop_reason", sig)
+
+    def test_stop_reason_reaches_builder_prompt(self):
+        """噪声带饱和 → 后续迭代的 builder/adjust ctx 携带 stop_reason。"""
+        cids = self.fs_all_cells()
+        # 预置 3 精英（103/104/105）+ 新候选 100 → 冠军=100、top3 差距 ~5%
+        self._preseed_archive({
+            cids[0]: {"perf": 103.0},
+            cids[1]: {"perf": 104.0},
+            cids[2]: {"perf": 105.0},
+        })
+        self.gate.queue(_gate_pass(value=100.0))   # 迭代1 候选终验
+        self.gate.queue(_gate_pass(value=110.0))   # 迭代1 边界同码重测（10% 带）
+        s1 = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "noise_calibration_interval": 1})
+        s1.run()
+        calib = self.events_of("noise_calibrated")
+        self.assertEqual(len(calib), 1)
+        # 第二轮：噪声带从事件恢复（0.1）→ builder ctx 的 saturation 带
+        # stop_reason=headroom_below_noise（adjust 据此可提 terminate_recommend）
+        self.gate.queue(_gate_pass(value=99.0))    # 迭代2 候选终验
+        self.gate.queue(_gate_pass(value=111.0))   # 迭代2 边界重测
+        s2 = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "noise_calibration_interval": 1})
+        rc = s2.run()
+        self.assertEqual(rc, 0)
+        iter_dirs = sorted(d for d in os.listdir(
+            os.path.join(self.ws, "codes")) if d.startswith("iter"))
+        bprompt = open(os.path.join(self.ws, "codes", iter_dirs[-1],
+                                    "prompt_builder.md"),
+                       encoding="utf-8").read()
+        self.assertIn("headroom_below_noise", bprompt)
+        self.assertIn("noise_band", bprompt)
+
+
+class TestCostReportOutcome(LoopTestBase):
+    """task59 R5③：cost_report 按 outcome 分列（真实成本 vs 空转成本）。"""
+
+    def _write_events(self, rows: List[Dict[str, Any]]) -> None:
+        with open(self.events_path, "w", encoding="utf-8") as f:
+            for i, r in enumerate(rows, 1):
+                f.write(json.dumps({"seq": i, "ts": "2026-10-30T08:00:00+08:00",
+                                    "type": "iteration_ended",
+                                    "source": "scheduler", "payload": r},
+                                   ensure_ascii=False) + "\n")
+
+    def test_outcome_breakdown_buckets(self):
+        mod = _load_cost_report()
+        self._write_events([
+            {"iteration_id": 1, "cell_id": "a", "outcome": "delivered",
+             "tokens": 100, "cost_usd": 0.5, "wall_ms": 1000},
+            {"iteration_id": 2, "cell_id": "a", "outcome": "infra_noop",
+             "tokens": 0, "cost_usd": 0.0, "wall_ms": 900},
+            {"iteration_id": 3, "cell_id": "b", "outcome": "infra_noop",
+             "tokens": 0, "cost_usd": 0.0, "wall_ms": 800},
+            {"iteration_id": 4, "cell_id": "b", "outcome": "agent_failed",
+             "tokens": 50, "cost_usd": 0.25, "wall_ms": 5000},
+            # 旧事件流（无 outcome）：had_candidate 二分标 legacy
+            {"iteration_id": 5, "cell_id": "c", "had_candidate": True,
+             "tokens": 10, "cost_usd": 0.05, "wall_ms": 1000},
+        ])
+        report = mod.build_report(self.ws)
+        ob = report["outcome_breakdown"]
+        self.assertIsNotNone(ob)
+        b = ob["outcomes"]
+        self.assertEqual(b["delivered"]["iterations"], 1)
+        self.assertEqual(b["delivered"]["tokens"], 100)
+        self.assertEqual(b["infra_noop"]["iterations"], 2)
+        self.assertEqual(b["agent_failed"]["iterations"], 1)
+        self.assertEqual(b["agent_failed"]["tokens"], 50)
+        # 度量口径分离：真实 2 vs 空转 2（旧口径 4/5=80% 全算「无产出/失败」）
+        self.assertEqual(ob["real_work_iterations"], 2)
+        self.assertEqual(ob["infra_noop_iterations"], 2)
+        # 旧事件流 → legacy 桶（不入新口径）
+        self.assertEqual(ob["legacy"]["legacy_delivered"], 1)
+        self.assertEqual(ob["legacy"]["legacy_no_candidate"], 0)
+        # 占比：delivered 100/160=62.5%
+        self.assertAlmostEqual(b["delivered"]["share_pct"], 62.5, places=1)
+
+    def test_outcome_section_renders_markdown(self):
+        mod = _load_cost_report()
+        self._write_events([
+            {"iteration_id": 1, "cell_id": "a", "outcome": "delivered",
+             "tokens": 100, "cost_usd": 0.5, "wall_ms": 1000},
+            {"iteration_id": 2, "cell_id": "a", "outcome": "infra_noop",
+             "tokens": 0, "cost_usd": 0.0, "wall_ms": 900},
+        ])
+        report = mod.build_report(self.ws)
+        md = mod.render_markdown(report)
+        self.assertIn("按 outcome（度量口径分离）", md)
+        self.assertIn("infra_noop", md)
+        self.assertIn("delivered", md)
+        self.assertIn("空转不是 agent 失败", md)
+
+    def test_outcome_breakdown_absent_without_iterations(self):
+        """无 iteration_ended 事件 → outcome_breakdown 为 None（不炸）。"""
+        mod = _load_cost_report()
+        with open(self.events_path, "w", encoding="utf-8") as f:
+            f.write("")
+        report = mod.build_report(self.ws)
+        self.assertIsNone(report["outcome_breakdown"])
