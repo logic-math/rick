@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-27T12:12:20.270Z",
+  "updated_at": "2026-10-29T15:30:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -683,6 +683,17 @@
       "dependencies": [],
       "task_file": "plan/task55.md",
       "commit_hash": "a65a5d999fdd67e5291511cb825f4d3f40b2ffd7"
+    },
+    {
+      "task_id": "task56",
+      "task_name": "agent 确定性输出 + session resume 失败恢复 + 回合软监控 + API 断连检测 + self_check 语义修正 + 特征空间约束",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-29T15:30:00+08:00",
+      "updated_at": "2026-10-29T15:30:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task56.md",
+      "commit_hash": ""
     }
   ]
 }
