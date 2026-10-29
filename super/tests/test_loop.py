@@ -53,12 +53,18 @@ from superopt.loop import EPOCH_ITERATIONS, Scheduler
 
 def _agent_result(role: str, data: Optional[Dict[str, Any]] = None,
                   valid: bool = True, exit_code: int = 0) -> AgentResult:
-    """构造 AgentResult（六字段 + 角色增量载体 data）。"""
+    """构造 AgentResult（六字段 + 角色增量载体 data）。
+
+    usage 同帧带 total/total_tokens 两键：CostLedger 读 total（budget 口径）、
+    loop 的 by_role 读 total_tokens（task46 口径）——旧 fixture 只有 total，
+    by_role.tokens 恒 0（task57 outcome 分类需要真实 token 计数）。
+    """
     return AgentResult(
         role=role, valid=valid, score=0.85, perf_value=123.4,
         perf_type="runtime_ms", perf_desc="low", summary="mock",
         usage={"input_tokens": 100, "output_tokens": 50, "cache_read": 10,
-               "cache_write": 0, "total": 160, "cost_usd": 0.01},
+               "cache_write": 0, "total": 160, "total_tokens": 160,
+               "cost_usd": 0.01},
         data=dict(data or {}), final_message="mock final",
         tool_calls=["read"], wall_ms=11, exit_code=exit_code)
 
@@ -91,6 +97,22 @@ def _debug_result(passed: bool = True) -> AgentResult:
 
 def _adjust_result(proposals: List[Dict[str, Any]]) -> AgentResult:
     return _agent_result("adjust", {"proposals": proposals})
+
+
+def _infra_result(role: str,
+                  summary: str = "您的2026-10-29额度已使用完毕，当前剩余额度为 0。"
+                                 "如需申请提额：https://credit-hub.sankuai.com"
+                                 "/credit-mgmt/credit-apply") -> AgentResult:
+    """task57 R1：配额报错形态的 agent 结果（0-token + infra 标记）。
+
+    env_11 实测形态：exit 0、秒退、0 token、回复是额度报错文案。
+    """
+    return AgentResult(
+        role=role, valid=False, summary=summary,
+        usage={"input_tokens": 0, "output_tokens": 0, "cache_read": 0,
+               "cache_write": 0, "total_tokens": 0, "cost_usd": 0.0},
+        data={}, final_message=summary, wall_ms=800, exit_code=0,
+        infra_failure=True)
 
 
 class FakeAgentClient(object):
@@ -2815,3 +2837,306 @@ class TestAdjustNoStarvation(LoopTestBase):
             self.assertGreaterEqual(p["iteration"], 1)
             self.assertGreaterEqual(p["window_since"], 1,
                                     "距上次 adjust 的窗口 >= interval")
+
+
+# --------------------------------------------------------------------------- #
+# task57：R1 基础设施熔断（探活恢复）+ R2 产物抢救 + outcome 分类
+# --------------------------------------------------------------------------- #
+
+class _ArtifactWritingClient(FakeAgentClient):
+    """coding/debug 派发时向 workdir 落盘 solution.py（模拟 agent 写产物
+    但没输出 JSON 契约——「做完了但没说」）。"""
+
+    def run(self, role: str, prompt_path: str, workdir: str,
+            timeout_s: int = 1800, model: Optional[str] = None,
+            max_turns: Optional[int] = None) -> AgentResult:
+        if role in ("coding", "debug"):
+            with open(os.path.join(workdir, "solution.py"), "w",
+                      encoding="utf-8") as f:
+                f.write("# rescued candidate\nimport numpy as np\n\n"
+                        "def solve():\n    return np.zeros(4)\n")
+        return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                   timeout_s, model, max_turns)
+
+
+class TestApiOutageBreaker(LoopTestBase):
+    """task57 R1①：连续 infra 失败 → 熔断暂停（cursor 不推进、不建目录）。
+
+    env_11 实测：配额耗尽后 382 轮零 token 空转（68% 迭代），每轮仍完整走
+    4 角色链（debug×3 重试）+ 空壳 decisions/iterNNN 目录全被烧。
+    """
+
+    def test_three_infra_failures_open_outage_pause_and_stop(self):
+        client = FakeAgentClient()
+        client.queue("builder", [_infra_result("builder")])
+        client.queue("coding", [_infra_result("coding")])
+        client.queue("debug", [_infra_result("debug")])
+        # 探活也持续失败（配额没恢复）→ 0-token 熔断兜底停机
+        client.queue("probe", [_infra_result("probe")])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 5,
+            "api_outage_retry_s": 0,   # 探活无间隔（测试提速）
+        }, client=client)
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        # ① 第 3 次 infra 派发后熔断打开（api_outage_detected 恰一次）
+        detected = self.events_of("api_outage_detected")
+        self.assertEqual(len(detected), 1)
+        self.assertGreaterEqual(detected[0]["payload"]["consecutive_empty"], 3)
+        # ② cursor 不推进：整个会话只有 1 个迭代（第 2 起被熔断暂停拦下）
+        self.assertEqual(len(self.events_of("iteration_started")), 1)
+        self.assertEqual(sched.iteration_cursor, 1)
+        # ③ 不建新的 iterNNN 目录（codes/ 只有第 1 迭代的目录）
+        codes = os.path.join(self.ws, "codes")
+        iters = [d for d in os.listdir(codes) if d.startswith("iter")]
+        self.assertEqual(len(iters), 1,
+                         "熔断暂停期间不该烧迭代目录：%s" % iters)
+        # ④ 熔断打开后本迭代剩余 debug 派发被短路（debug 只真跑 1 次）
+        debug_calls = [c for c in client.calls if c["role"] == "debug"]
+        self.assertEqual(len(debug_calls), 1,
+                         "熔断打开后 debug 派发应被短路")
+        # ⑤ 本迭代 outcome = infra_noop（度量口径分离：非 agent 失败）
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "infra_noop")
+        # ⑥ 探活持续失败 → 0-token 熔断兜底（infra_failure_concluded 停机）
+        concluded = self.events_of("infra_failure_concluded")
+        self.assertEqual(len(concluded), 1)
+        session = self.events_of("session_ended")
+        self.assertTrue(session[0]["payload"]["infra_failure"])
+
+    def test_outage_recovery_resumes_loop(self):
+        """task57 R1②：探活成功 → api_outage_recovered → 循环继续交付。"""
+        client = FakeAgentClient()
+        # 首迭代全 infra（第 3 次 → 熔断）；探活 1 次失败 1 次成功；之后正常
+        client.queue("builder", [_infra_result("builder"), _builder_result()])
+        client.queue("coding", [_infra_result("coding"),
+                                _coding_result(diff_path=self.cand_file)])
+        client.queue("debug", [_infra_result("debug")])
+        client.queue("probe", [_infra_result("probe"), _agent_result("probe")])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2,
+            "api_outage_retry_s": 0,
+        }, client=client)
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        # 探活恢复事件恰一次（失败 1 次后成功）
+        recovered = self.events_of("api_outage_recovered")
+        self.assertEqual(len(recovered), 1)
+        self.assertGreaterEqual(recovered[0]["payload"]["probes"], 1)
+        # 恢复后第 2 迭代正常交付（cursor 推进到 2 + 精英入库）
+        self.assertEqual(len(self.events_of("iteration_started")), 2)
+        self.assertEqual(sched.iteration_cursor, 2)
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[-1]["payload"]["outcome"], "delivered")
+        # 探活失败未烧 cursor：恢复后无 infra_failure 停机
+        session = self.events_of("session_ended")
+        self.assertFalse(session[0]["payload"]["infra_failure"])
+
+    def test_outage_pause_does_not_touch_decisions(self):
+        """task57 R1①：熔断暂停不写空壳决策（adjust 不被空转触发）。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_infra_result("builder")])
+        client.queue("coding", [_infra_result("coding")])
+        client.queue("debug", [_infra_result("debug")])
+        client.queue("probe", [_infra_result("probe")])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 5,
+            "api_outage_retry_s": 0,
+            "agent_failure_breaker": 6,  # 少探几次就兜底停（提速）
+        }, client=client)
+        sched.run()
+        decisions = os.path.join(self.ws, "decisions")
+        # 只有真实跑过的迭代才有决策目录（1 个）；熔断后没有空壳
+        self.assertEqual(sorted(os.listdir(decisions)), [])
+        self.assertEqual(len(self.events_of("iteration_started")), 1)
+
+
+class TestArtifactRescue(LoopTestBase):
+    """task57 R2③④：agent 完成但没 JSON → workdir 产物抢救直交终验。"""
+
+    def test_invalid_agent_artifact_rescued(self):
+        client = _ArtifactWritingClient()
+        client.queue("builder", [_builder_result()])
+        # coding 未完成输出协议（valid=False 无 JSON）但写了 solution.py
+        client.queue("coding", [_agent_result("coding", valid=False)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        rc = sched.run()
+        self.assertEqual(rc, 0)
+        rescued = self.events_of("artifact_rescued")
+        self.assertEqual(len(rescued), 1)
+        payload = rescued[0]["payload"]
+        self.assertEqual(payload["reason"], "agent_completed_but_no_json")
+        self.assertEqual(payload["role"], "coding")
+        self.assertTrue(payload["code_path"].endswith("solution.py"))
+        self.assertFalse(payload["agent_valid"])
+        # 不触发 debug 重做（做完了但没说 ≠ 没做——debug 从头重做是
+        # env_11 实测最大的 token 浪费源）
+        self.assertFalse([c for c in client.calls if c["role"] == "debug"],
+                         "产物抢救后不该再派 debug")
+        # 产物走框架终验（与正常 candidate 同路）→ 入格
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "delivered")
+
+    def test_truncated_agent_artifact_rescued(self):
+        """task57 R2④：截断（truncated=True）但有产物 → 同样抢救。"""
+        client = _ArtifactWritingClient()
+        client.queue("builder", [_builder_result()])
+        truncated = _agent_result("coding", valid=False)
+        truncated.truncated = True
+        client.queue("coding", [truncated])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        rescued = self.events_of("artifact_rescued")
+        self.assertEqual(len(rescued), 1)
+        payload = rescued[0]["payload"]
+        self.assertTrue(payload["agent_truncated"])
+        self.assertFalse([c for c in client.calls if c["role"] == "debug"])
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+
+    def test_debug_attempt_artifact_rescued(self):
+        """task57 R2：debug 侧同样抢救——修复写盘但没发 JSON → 不追加重试。"""
+        client = _ArtifactWritingClient()
+        client.queue("builder", [_builder_result()])
+        # coding 真实自检失败（有内容）→ 进 debug 循环
+        coding = _agent_result("coding", {
+            "diff_path": "solution.py",
+            "self_check": {"passed": False, "stage": "self_check",
+                           "metrics": {"max_error": 1.0}},
+        })
+        client.queue("coding", [coding])
+        # debug 改了 solution.py（fake 客户端写盘）但没输出 JSON
+        client.queue("debug", [_agent_result("debug", valid=False)])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "debug_max_attempts": 3}, client=client)
+        sched.run()
+        rescued = self.events_of("artifact_rescued")
+        self.assertEqual(len(rescued), 1)
+        self.assertEqual(rescued[0]["payload"]["role"], "debug")
+        self.assertTrue(rescued[0]["payload"]["code_path"].endswith("solution.py"))
+        # 抢救发生在第 1 次 debug 尝试后（不再烧第 2/3 次）
+        debug_calls = [c for c in client.calls if c["role"] == "debug"]
+        self.assertEqual(len(debug_calls), 1)
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+
+    def test_no_artifact_no_rescue(self):
+        """无产物（agent 真空手而归）→ 无抢救事件，走既有失败路径。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_agent_result("coding", valid=False)])
+        client.queue("debug", [_debug_result(passed=False)])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "debug_max_attempts": 1}, client=client)
+        sched.run()
+        self.assertEqual(self.events_of("artifact_rescued"), [])
+        self.assertEqual(self.events_of("elite_admitted"), [])
+
+    def test_stale_seed_not_rescued(self):
+        """种子父本（旧 mtime）不触发抢救——mtime 基线的判别力。
+
+        coding 失败且未写任何新文件，但 workdir 里有 seed 的 solution.py
+        （_seed_parent_code 拷入、mtime 在过去）→ 不算本轮产物。
+        """
+        client = FakeAgentClient()
+
+        class _SeedOnlyClient(FakeAgentClient):
+            def run(self, role, prompt_path, workdir, timeout_s=1800,
+                    model=None, max_turns=None):
+                if role == "builder":
+                    # builder 阶段塞一个旧 mtime 的 solution.py（模拟父本种子）
+                    p = os.path.join(workdir, "solution.py")
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write("# parent seed\n")
+                    past = time.time() - 3600
+                    os.utime(p, (past, past))
+                return FakeAgentClient.run(self, role, prompt_path, workdir,
+                                           timeout_s, model, max_turns)
+
+        client = _SeedOnlyClient()
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_agent_result("coding", valid=False)])
+        client.queue("debug", [_agent_result("debug", valid=False)])
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "debug_max_attempts": 1}, client=client)
+        sched.run()
+        self.assertEqual(self.events_of("artifact_rescued"), [],
+                         "旧 mtime 的种子父本不该被抢救")
+
+
+class TestIterationOutcome(LoopTestBase):
+    """task57 R1⑤：iteration_ended.outcome 五态分类（度量口径分离）。"""
+
+    def test_outcome_delivered(self):
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "delivered")
+
+    def test_outcome_infra_noop(self):
+        """infra 标记（配额报错）→ infra_noop（非 agent 失败）。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        coding = _agent_result("coding", {
+            "diff_path": "", "self_check": {"passed": False}}, valid=False)
+        # coding 带配额报错 + 0 token（空 metrics → task56 C 跳 debug 路径）
+        coding.usage = {"input_tokens": 0, "output_tokens": 0, "cache_read": 0,
+                        "cache_write": 0, "total_tokens": 0, "cost_usd": 0.0}
+        coding.infra_failure = True
+        coding.summary = "额度已使用完毕，剩余额度为 0"
+        client.queue("coding", [coding])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "infra_noop")
+
+    def test_outcome_turn_truncated(self):
+        """回合截断（truncated=True、有 token、无产物）→ turn_truncated。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        truncated = _agent_result("coding", {
+            "diff_path": "", "self_check": {"passed": False}})
+        truncated.truncated = True
+        truncated.wall_ms = 6000
+        client.queue("coding", [truncated])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "turn_truncated")
+
+    def test_outcome_agent_failed(self):
+        """真实实验失败（自检有内容但 fail + debug 3 次未修复）→ agent_failed。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        client.queue("coding", [_coding_result(passed=False)])
+        client.queue("debug", [_debug_result(passed=False)])
+        # by_role 的 wall 合计需 ≥5s（infra_noop 的秒退判据）：调大 wall
+        for seq in (client.script["coding"], client.script["debug"]):
+            for r in seq:
+                r.wall_ms = 6000
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 1, "debug_max_attempts": 3}, client=client)
+        sched.run()
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "agent_failed")
+
+    def test_outcome_no_output(self):
+        """agent 空手而归（无自检内容、无产物）→ no_output。"""
+        client = FakeAgentClient()
+        client.queue("builder", [_builder_result()])
+        # coding 报了空 self_check（passed=False，无 metrics/stage 内容）
+        # → task56 C 跳 debug 路径 + 无产物 → no_output（非 agent_failed）
+        client.queue("coding", [_agent_result("coding", {
+            "self_check": {"passed": False}}, valid=False)])
+        for seq in client.script.values():
+            for r in seq:
+                r.wall_ms = 6000
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1},
+                                    client=client)
+        sched.run()
+        ended = self.events_of("iteration_ended")
+        self.assertEqual(ended[0]["payload"]["outcome"], "no_output")

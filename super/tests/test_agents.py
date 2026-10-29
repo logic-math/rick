@@ -317,3 +317,212 @@ class TestPerRoleModel(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FakePiScript:
+    """task57：按需构造 fake pi（TestPerRoleModel 同范式——不依赖 mock_pi）。
+
+    body 里可用 $COUNT 写调用计数文件（$SCRIPT.count.json），供断言
+    「派发了几次」（quota 不 resume / repair resume 一次）。计数文件写在
+    脚本同目录，避免污染测试 workdir。
+    """
+
+    def __init__(self, td: str, name: str, body: str):
+        self.path = os.path.join(td, name)
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(body)
+        os.chmod(self.path, 0o755)
+
+    @property
+    def count_path(self) -> str:
+        return self.path + ".count.json"
+
+    def count(self) -> int:
+        import json
+        try:
+            with open(self.count_path, encoding="utf-8") as f:
+                return int(json.load(f))
+        except (OSError, ValueError):
+            return 0
+
+
+# 模板：计数 + 单条 assistant message_end（text/usage 自定义）
+_EMIT_TMPL = """#!/usr/bin/env python3
+import json, os, sys
+_p = os.path.abspath(sys.argv[0]) + ".count.json"
+_n = 0
+try:
+    _n = json.load(open(_p)) + 1
+except Exception:
+    _n = 1
+json.dump(_n, open(_p, "w"))
+%s
+print(json.dumps(ev, ensure_ascii=False))
+sys.stdout.flush()
+"""
+
+
+class TestQuotaError(unittest.TestCase):
+    """task57 R1：配额/额度报错识别——infra_failure 标记 + 不 resume。
+
+    env_11 实测形态：pi 正常退出 0、回复是额度报错文案、usage 全零。
+    旧行为：走 failure-resume（同一凭据重试必然再失败——白烧一次派发）。
+    新行为：标 infra_failure=True 直接返回，调度器走熔断/探活路径。
+    """
+
+    def _quota_pi(self, td: str) -> _FakePiScript:
+        msg = ("您的2026-10-29额度已使用完毕，当前剩余额度为 0。"
+               "额度将于次日 00:00:00自动重置。如需申请提额："
+               "https://credit-hub.sankuai.com/credit-mgmt/credit-apply")
+        emit = ("ev = {'type': 'message_end', 'message': {'role': 'assistant',\n"
+                "      'content': [{'type': 'text', 'text': %r}]}}" % msg)
+        return _FakePiScript(td, "quota_pi.py", _EMIT_TMPL % emit)
+
+    def test_quota_error_flags_infra_and_skips_resume(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pi = self._quota_pi(td)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="builder", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            # 配额识别：infra 标记 + 0 token + 无 JSON
+            self.assertTrue(r.infra_failure, "配额报错应标 infra_failure")
+            self.assertFalse(r.valid)
+            self.assertEqual(r.usage["total_tokens"], 0)
+            # 不 resume（只派发 1 次）+ 不修复（json_repair=0）
+            self.assertEqual(pi.count(), 1,
+                             "配额报错不该 resume——同一凭据重试只会再失败")
+            self.assertEqual(r.json_repair, 0)
+            # session 已建（若未来走 resume 仍有会话句柄）+ payload 可观测
+            self.assertTrue(r.session_id)
+            self.assertTrue(r.to_payload()["infra_failure"])
+            # 诊断线索保留：额度文案进 summary（first 200 chars）
+            self.assertIn("额度", r.summary or "")
+
+    def test_non_quota_marker_not_flagged(self):
+        """非配额文案（普通 bad-json）不误标 infra。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            emit = ("ev = {'type': 'message_end', 'message': {'role': 'assistant',\n"
+                    "      'content': [{'type': 'text', 'text': '目标格父本缺失，"
+                    "无法完成实现。'}]}}")
+            pi = _FakePiScript(td, "plain_pi.py", _EMIT_TMPL % emit)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="builder", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            self.assertFalse(r.infra_failure)
+
+
+class TestJsonRepairEmptyFinalMessage(unittest.TestCase):
+    """task57 R2：json_repair 触发条件修正——去掉 final_message 非空前置。
+
+    截断/空回场景 final_message 可能为空（agent 没来得及说话），但 JSON
+    契约输出仍值得补发一次（env_11 实测：coding 截断后 final_message=None
+    → 旧条件不触发 → 产物全靠 debug 代偿）。
+    """
+
+    def test_empty_final_message_still_repairs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            # assistant 轮带 usage 但无文本（final_message=""）
+            emit = ("ev = {'type': 'message_end', 'message': {'role': 'assistant',\n"
+                    "      'content': [],\n"
+                    "      'usage': {'input': 10, 'output': 5, 'cacheRead': 0,\n"
+                    "                'cacheWrite': 0, 'totalTokens': 15,\n"
+                    "                'cost': {'total': 0.001}}}}")
+            pi = _FakePiScript(td, "empty_pi.py", _EMIT_TMPL % emit)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="builder", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            # 旧条件（final_message 非空才修复）不会 resume；新条件必须 resume 一次
+            self.assertEqual(pi.count(), 2,
+                             "空 final_message + 无 JSON 应触发一次修复 resume")
+            self.assertEqual(r.json_repair, 1)
+            self.assertEqual(r.usage["total_tokens"], 15)
+
+
+class TestArtifactPath(unittest.TestCase):
+    """task57 R2：AgentResult.artifact_path——本轮新落盘候选的可观测物证。"""
+
+    def _artifact_pi(self, td: str, write_solution: bool) -> _FakePiScript:
+        """生成脚本零手写反斜杠（chr(10) 代换行——多层转义在生成式测试里易错）。
+
+        write_solution=True：先向 cwd（= workdir）写 solution.py（模拟
+        agent 产物落盘），再发一条无 JSON 的 message_end。
+        """
+        sol_src = "# agent-written candidate" + chr(10) + "print(42)" + chr(10)
+        parts = []
+        if write_solution:
+            parts.append(
+                "open(os.path.join(os.getcwd(), 'solution.py'), 'w')"
+                ".write(%r)" % sol_src)
+        parts += [
+            "ev = {'type': 'message_end', 'message': {'role': 'assistant',",
+            "      'content': [{'type': 'text', 'text': %r}],"
+            % "已完成实现（未输出 JSON 契约）",
+            "      'usage': {'input': 30, 'output': 10, 'cacheRead': 0,",
+            "                'cacheWrite': 0, 'totalTokens': 40,",
+            "                'cost': {'total': 0.002}}}}",
+        ]
+        emit = chr(10).join(parts)
+        return _FakePiScript(td, "artifact_pi.py", _EMIT_TMPL % emit)
+
+    def test_fresh_artifact_located(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pi = self._artifact_pi(td, write_solution=True)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="coding", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            # 产物被定位（mtime ≥ 运行起点；含 repair resume 后的覆盖写）
+            self.assertTrue(r.artifact_path.endswith("solution.py"),
+                            r.artifact_path)
+            self.assertTrue(os.path.isfile(r.artifact_path))
+            # repair 照常触发（无 JSON）——产物定位不受 resume 影响
+            self.assertEqual(r.json_repair, 1)
+            self.assertTrue(r.to_payload()["artifact_path"])
+
+    def test_no_artifact_empty_string(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pi = self._artifact_pi(td, write_solution=False)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="coding", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            self.assertEqual(r.artifact_path, "")
+
+    def test_seeded_parent_not_mistaken_as_artifact(self):
+        """种子父本（旧 mtime）不算本轮产物——mtime 基线的判别力。"""
+        import tempfile
+        import time as _time
+        with tempfile.TemporaryDirectory() as td:
+            # 预置 solution.py（模拟 _seed_parent_code 的父本，mtime 在过去）
+            seeded = os.path.join(td, "solution.py")
+            with open(seeded, "w", encoding="utf-8") as f:
+                f.write("# parent seed\n")
+            past = time.time() - 3600
+            os.utime(seeded, (past, past))
+            pi = self._artifact_pi(td, write_solution=False)
+            prompt = os.path.join(td, "prompt_builder.md")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write("# test\n")
+            client = PiAgentClient(pi_path=pi.path)
+            r = client.run(role="coding", prompt_path=prompt,
+                           workdir=td, timeout_s=30)
+            self.assertEqual(r.artifact_path, "",
+                             "旧 mtime 的种子父本不该被当成 agent 产物")

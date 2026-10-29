@@ -95,6 +95,12 @@ _WEIGHT_RE = re.compile(r"(\d+(?:\.\d+)?)")
 # 其二篇完整记录撑大 builder 上下文（目标格精英记录仍用 1200）。
 _NEIGHBOR_RECORD_LIMIT = 400
 
+# task57 R1：infra_noop 判定的秒退墙（agent 总墙钟 < 5s 且无产出 →\# 基础设施空转形态，非实验失败）
+_INFRA_NOOP_WALL_MS = 5000
+
+# task57 R1：探活消息（极小 agent 派发——成功即 API 恢复）
+_PROBE_PROMPT_TEXT = "回复 OK（探活消息，不要做任何其它事情）\n"
+
 
 def _fmt_num(v: float) -> str:
     """性能数字的人读格式：整数不带尾零；浮点保留 1 位小数。"""
@@ -235,6 +241,7 @@ _ITER_TL_FIELDS = (
     "_tdd_trace", "_record_updated", "_recheck_done_this_iter",
     "_recheck_verdict", "_last_admit_verdict", "_last_reject_reason",
     "_record_this_iter", "_best_perf_before_iter",
+    "_iter_self_check_real",  # task57 R1：agent 是否真实报告了自检内容（outcome 分类）
 )
 
 
@@ -279,6 +286,7 @@ class Scheduler:
     _last_reject_reason = _iter_tl_property('_last_reject_reason')
     _record_this_iter = _iter_tl_property('_record_this_iter')
     _best_perf_before_iter = _iter_tl_property('_best_perf_before_iter')
+    _iter_self_check_real = _iter_tl_property('_iter_self_check_real')
 
     def __init__(self, ws: str, cfg: Dict[str, Any],
                  agent_client: Optional[Any] = None,
@@ -412,7 +420,11 @@ class Scheduler:
         self._consec_zero_token_fails = 0
         self._infra_failure = False
         # task56 D 段：API 断连检测 / task56 A 段：turn_warn 连续告警
-        self._consec_api_empty = 0
+        # task57 R1 升级：连续 N 次 infra 失败（配额报错/空回）→ 熔断打开
+        # （_api_outage_active）→ 循环层暂停（不推进 cursor、不建 iterNNN
+        # 目录、不写空壳决策）+ 周期探活（_probe_api_recovery）恢复。
+        # _consec_infra_fails：连续 infra 失败计数（任何非 infra 结果重置）。
+        self._consec_infra_fails = 0
         self._api_outage_active = False
         self._turn_warn_streak = {}
         # ---- 饱和信号状态（task23 E 段）----
@@ -561,12 +573,17 @@ class Scheduler:
             self._drain_interventions()
             if self.stop_requested:
                 break
-            # ③′ adjust 调度：移出 if not slots（task54：并发下槽池总被补满，
+            # ③′ 熔断暂停（task57 R1）：断连/配额 → 停止补槽（在飞槽自然收尾），
+            # 探活恢复后再继续（cursor / iterNNN 目录 / 决策都不再新增）
+            if self._api_outage_active:
+                if not self._probe_api_recovery():
+                    break
+            # ③″ adjust 调度：移出 if not slots（task54：并发下槽池总被补满，
             # 等值 + 无在飞槽的门 → adjust 永久饥饿）。跨边界判断 + 后台线程
             # 单飞；ctx 快照在主线程组装，与 worker 并行安全。
             if self._adjust_due(adjust_every):
                 self._maybe_start_adjust()
-            # ③″ 其余全局态操作（热重载/裁决/epoch）仍在无在飞槽时执行
+            # ③‴ 其余全局态操作（热重载/裁决/epoch）仍在无在飞槽时执行
             if not slots:
                 self._maybe_reload_feature_space()
                 self._drain_decisions()
@@ -679,6 +696,12 @@ class Scheduler:
             self._drain_interventions()
             if self.stop_requested:
                 break
+            # ①′ 熔断暂停（task57 R1）：API 断连/配额耗尽 → 不推进 cursor、
+            # 不建 iterNNN 目录、不写空壳决策——探活恢复后续跑（期间仍摄取
+            # 干预，human 可停）
+            if self._api_outage_active:
+                if not self._probe_api_recovery():
+                    break
             # ② 裁决决策消费（外置 adjudicator 的 decision 文件）
             self._drain_decisions()
             # ③ adjust（每 N 迭代；cursor 为已完成迭代数）——跨边界触发
@@ -829,6 +852,199 @@ class Scheduler:
         except Exception:  # noqa: BLE001 —— 事件写失败不破坏锁语义
             pass
 
+    # ------------------------------------------------------------------ #
+    # task57 R1：失败分类 + 熔断探活
+    # ------------------------------------------------------------------ #
+
+    def _iteration_outcome(self, candidate: Optional[str]) -> str:
+        """三态失败分类（task57 R1）：iteration_ended.outcome 判据。
+
+        delivered      有候选交框架终验并入库（admit/replace/延迟入库 pending）
+        infra_noop     基础设施空转（agent 带 infra_failure 标记 / 全程
+                       0-token / 总墙钟 < 5s 且无产出）——非实验失败，
+                       度量上应从「失败率」里剔除（env_11 实测 68% 迭代
+                       属此类，被旧口径计入「80% 无产出」）
+        turn_truncated agent 回合预算截断（真实工作被攔断——修复方向是
+                       提预算/产物抢救，不是「agent 失败」）
+        agent_failed   真实实验失败（自检有内容但 fail / 门禁拒绝）
+        no_output      其它无产出（如 agent 未报自检内容地空手而归）
+        """
+        if candidate is not None:
+            return "delivered"
+        agents = self._iter_agents or {}
+        if any(bool(a.get("infra_failure")) for a in agents.values()):
+            return "infra_noop"
+        total_tokens = sum(int(a.get("tokens") or 0) for a in agents.values())
+        total_wall = sum(int(a.get("wall_ms") or 0) for a in agents.values())
+        if total_tokens <= 0 or total_wall < _INFRA_NOOP_WALL_MS:
+            return "infra_noop"
+        if any(bool(a.get("truncated")) for a in agents.values()):
+            return "turn_truncated"
+        if self._iter_self_check_real:
+            return "agent_failed"
+        return "no_output"
+
+    def _probe_api_recovery(self) -> bool:
+        """task57 R1：熔断暂停期间的探活循环（成功 → 恢复迭代推进）。
+
+        - 每 api_outage_retry_s 探一次（极小 agent「回复 OK」，
+          超时 api_outage_probe_timeout_s）；
+        - 探活周期内仍摄取干预（human 可停——暂停不等于聋）；
+        - 持续失败计入 0-token 熔断后备（agent_failure_breaker →
+          infra_failure_concluded 优雅停，等 human 换号/修号）。
+
+        返回 False = 停止请求（或熔断停机），外层退出主循环。
+        """
+        retry_s = int(self.conf.get("api_outage_retry_s", 60) or 0)
+        probes = 0
+        while not self.stop_requested:
+            self._sleep_interruptible(retry_s)
+            if self.stop_requested:
+                return False
+            self._drain_interventions()
+            if self.stop_requested:
+                return False
+            probes += 1
+            if self._run_api_probe():
+                self.events.append("api_outage_recovered", {
+                    "consecutive_infra": self._consec_infra_fails,
+                    "probes": probes,
+                    "diagnosis": "探活成功——API 恢复，继续迭代推进（暂停期间"
+                                "cursor/格状态未被烧）",
+                }, "scheduler")
+                self._api_outage_active = False
+                self._consec_infra_fails = 0
+                self._consec_zero_token_fails = 0
+                return True
+            # 探活失败计入 0-token 熔断后备（持续断连 → 停机等 human）
+            self._consec_zero_token_fails += 1
+            if self._maybe_fire_infra_breaker():
+                return False
+        return False
+
+    def _run_api_probe(self) -> bool:
+        """task57 R1：探活——极小 agent 派发，成功即 API 恢复。
+
+        有回复（valid 或 token>0）= 恢复；空回/异常 = 仍断连。探活不进
+        agent_ended/账本（它不是实验派发，独立于迭代事件流）。
+        """
+        timeout_s = int(self.conf.get("api_outage_probe_timeout_s", 30) or 30)
+        probe_prompt = os.path.join(self.ws, "probe_prompt.md")
+        try:
+            if not os.path.isfile(probe_prompt):
+                with open(probe_prompt, "w", encoding="utf-8") as f:
+                    f.write(_PROBE_PROMPT_TEXT)
+            result = self._call_client("probe", probe_prompt, self.ws,
+                                       timeout_s, None, None, turn_soft_warn=0)
+        except Exception:  # noqa: BLE001 —— 探活异常 = 仍断连
+            return False
+        total_tokens = float((getattr(result, "usage", None) or
+                              {}).get("total_tokens") or 0)
+        return bool(getattr(result, "valid", False)) or total_tokens > 0.0
+
+    def _sleep_interruptible(self, seconds: float) -> None:
+        """可中断睡眠（stop_requested 即刻醒——探活周期不聋）。"""
+        deadline = time.monotonic() + max(0.0, float(seconds or 0.0))
+        while not self.stop_requested:
+            remain = deadline - time.monotonic()
+            if remain <= 0:
+                return
+            time.sleep(min(0.05, remain))
+
+    def _maybe_fire_infra_breaker(self) -> bool:
+        """task57 R1（factor 自原内联块）：0-token 熔断后备。
+
+        连续 agent_failure_breaker 次 0-token 失败 → infra_failure_concluded
+        + 优雅停（返回 True = 触发）。0-token 秒退是认证/配额/供应商级故障
+        的稳定信号；真实验失败都烧 token。
+        """
+        breaker = int(self.conf.get("agent_failure_breaker", 8) or 0)
+        if breaker <= 0:
+            return False
+        if self._consec_zero_token_fails < breaker or self._infra_failure:
+            return False
+        self._infra_failure = True
+        self.stop_requested = True
+        self.events.append("infra_failure_concluded", {
+            "consecutive_zero_token_fails": self._consec_zero_token_fails,
+            "threshold": breaker,
+            "diagnosis": "连续 %d 次 agent 0-token 失败——认证/配额/"
+                          "供应商级故障（非实验失败）。调度器优雅停机；"
+                          "修复凭据后 rick super start 续跑（工作区状态"
+                          "全持久）。" % self._consec_zero_token_fails,
+        }, "scheduler")
+        return True
+
+    def _track_infra_failure(self, result: Any) -> None:
+        """task57 R1：agent 结果的 infra 计数 + 断连熔断 + 0-token 后备。
+
+        infra 判定：client 层配额标记（AgentResult.infra_failure）或空回
+        形态（0-token + exit 0 + 秒退）。连续 api_outage_threshold 次 →
+        熔断打开（_api_outage_active）：本迭代剩余派发被短路，循环层
+        暂停 + 探活（替代 task56 D 的内联 sleep——那会阻塞事件流与心跳）。
+        """
+        total_tokens = float((result.usage or {}).get("total_tokens") or 0)
+        # 0-token 熔断后备（与原内联块同语义）
+        breaker = int(self.conf.get("agent_failure_breaker", 8) or 0)
+        if breaker > 0:
+            if (not result.valid) and total_tokens <= 0.0:
+                self._consec_zero_token_fails += 1
+            elif result.valid or total_tokens > 0.0:
+                self._consec_zero_token_fails = 0
+            self._maybe_fire_infra_breaker()
+        # 断连/配额熔断（R1 主判据）
+        outage_thr = int(self.conf.get("api_outage_threshold", 3) or 0)
+        if outage_thr > 0:
+            is_infra = bool(getattr(result, "infra_failure", False)) or (
+                (not result.valid) and total_tokens <= 0.0
+                and result.exit_code in (0, None)
+                and int(result.wall_ms or 0) < 10000)
+            if is_infra:
+                self._consec_infra_fails += 1
+            else:
+                self._consec_infra_fails = 0
+            if self._consec_infra_fails >= outage_thr \
+                    and not self._api_outage_active:
+                self._api_outage_active = True
+                retry_s = int(self.conf.get("api_outage_retry_s", 60) or 60)
+                self.events.append("api_outage_detected", {
+                    "consecutive_empty": self._consec_infra_fails,
+                    "threshold": outage_thr,
+                    "retry_s": retry_s,
+                    "diagnosis": "连续 %d 次 infra 失败（配额报错/空回："
+                                "0-token/exit=0/秒退）——疑似 API 断连或额度"
+                                "耗尽。熔断：暂停迭代推进（不烧 cursor/不建"
+                                "目录），每 %ds 探活，恢复后续跑。"
+                                % (self._consec_infra_fails, retry_s),
+                }, "scheduler")
+
+    def _rescue_artifact(self, iter_dir: str, since_epoch: float) -> Optional[str]:
+        """task57 R2：产物抢救——找 agent 启动后新落盘的候选文件。
+
+        契约（与 agents._find_fresh_artifact 同规）：solution.*/candidate.*
+        源文件、非空、mtime ≥ since_epoch。种子父本（copy2 保留源 mtime）
+        天然排除——只有本轮 agent 写的才算「做完了但没说」的物证。
+        """
+        try:
+            names = sorted(os.listdir(iter_dir))
+        except OSError:
+            return None
+        for name in names:
+            if not (name.startswith("solution") or name.startswith("candidate")):
+                continue
+            if not name.endswith((".py", ".cpp", ".cc", ".cxx", ".c")):
+                continue
+            p = os.path.join(iter_dir, name)
+            try:
+                if not os.path.isfile(p) or os.path.getsize(p) <= 0:
+                    continue
+                if os.path.getmtime(p) < since_epoch:
+                    continue
+            except OSError:
+                continue
+            return p
+        return None
+
     def _step_locked(self, cell_id: str,
                      cursor: Optional[int] = None,
                      exp_id: Optional[str] = None) -> None:
@@ -864,6 +1080,8 @@ class Scheduler:
         self._record_updated = None
         self._recheck_done_this_iter = False
         self._recheck_verdict = None
+        # task57 R1：outcome 分类的本迭代标记（agent 是否真实报告了自检内容）
+        self._iter_self_check_real = False
         self.events.append("iteration_started",
                            {"iteration_id": cursor, "cell_id": cell_id},
                            "scheduler", experiment_id=self._cur_exp_id)
@@ -953,6 +1171,8 @@ class Scheduler:
             "tdd_trace": self._tdd_trace,
             "record_updated": self._record_updated,
             "recheck_verdict": self._recheck_verdict,
+            # task57 R1：三态失败分类（度量口径分离——复盘从「猜」变成「读」）
+            "outcome": self._iteration_outcome(candidate),
         }, "scheduler", experiment_id=self._cur_exp_id)
         # 每迭代落盘档案：bump_visit 只改内存，若本迭代无 admit/epoch 则到收尾都
         # 不 save——kill -9 后重启虽能从事件恢复，但「正常收尾的档案」会缺新采样
@@ -1191,6 +1411,9 @@ class Scheduler:
         # 迭代8：实验记录 mtime 基线（coding 是否把执行过程追加进记录）
         rec_path = experiment_record.path_for(iter_dir)
         rec_mtime_before = self._mtime_ns(rec_path)
+        # task57 R2：产物新鲜度基线（agent 启动前——种子父本 copy2 保留旧
+        # mtime，本轮新落盘的才算「做完了但没说」的物证）
+        agent_t0 = time.time()
         result = self._dispatch_agent("coding", prompt_path, iter_dir, cursor)
         # TDD 痕迹：测试文件是否落盘（模板要求先写测试再实现）
         self._tdd_trace = os.path.isfile(os.path.join(iter_dir,
@@ -1205,6 +1428,14 @@ class Scheduler:
 
         candidate = self._candidate_path(result, iter_dir)
         self_check = self._self_check_of(result)
+        # task57 R1：outcome 分类标记（agent 是否真实报告了自检内容）。
+        # 仅计 data.self_check 里的真实报告（有 metrics/stage 内容）；
+        # _self_check_of 的合成 fallback（stage 恒为 self_check）不算——
+        # 没报告过内容 → no_output 而非 agent_failed。
+        reported_sc = result.data.get("self_check")
+        self._iter_self_check_real = (
+            isinstance(reported_sc, dict) and "passed" in reported_sc
+            and bool(reported_sc.get("metrics") or reported_sc.get("stage")))
         self.events.append("candidate_produced", {
             "iteration_id": cursor, "cell_id": cell_id,
             "role": "coding",
@@ -1215,6 +1446,24 @@ class Scheduler:
 
         if self_check.get("passed"):
             return candidate
+
+        # ---- task57 R2：产物抢救——「做完了但没说」不再等于「没做」----
+        # agent 未完成输出协议（result 无效/截断——无 JSON）但工作区有
+        # 本轮新落盘的候选产物 → 不触发 debug 重做（debug 从头重做一份
+        # 实现是 env_11 实测最大的 token 浪费源），产物直接交框架
+        # gate_check 终验（与正常 candidate 同一路径——终验才是真判据）。
+        # valid=True 的诚实自检失败不抢：agent 协议正常，走既有 debug 循环。
+        if (not result.valid or result.truncated):
+            rescued = self._rescue_artifact(iter_dir, agent_t0)
+            if rescued is not None:
+                self.events.append("artifact_rescued", {
+                    "iteration_id": cursor, "cell_id": cell_id, "role": "coding",
+                    "code_path": rescued,
+                    "reason": "agent_completed_but_no_json",
+                    "agent_valid": bool(result.valid),
+                    "agent_truncated": bool(result.truncated),
+                }, "scheduler", experiment_id=self._cur_exp_id)
+                return rescued
 
         # task56 C 段：self_check 空 metrics 不触发 debug——agent 被截断/没
         # 跑完自检（不是实验失败），触发 debug 只会浪费 token。直接返回
@@ -1233,6 +1482,9 @@ class Scheduler:
         m = int(self.conf.get("debug_max_attempts") or 0)
         last_err = json.dumps(self_check, ensure_ascii=False)
         for attempt in range(1, m + 1):
+            # task57 R2：debug 侧新鲜度基线（本轮 debug 内的写盘才算修复产物；
+            # coding 阶段的旧文件 mtime 早于 debug_t0，不会被误抢）
+            debug_t0 = time.time()
             debug_result = self._run_debug(plan, cell_id, cursor, iter_dir,
                                            attempt, m, self_check, last_err)
             dpath = self._candidate_path(debug_result, iter_dir)
@@ -1247,6 +1499,20 @@ class Scheduler:
             }, "agent:debug", experiment_id=self._cur_exp_id)
             if dcheck.get("passed"):
                 return dpath or candidate
+            # task57 R2：debug 产物抢救——debug agent 改了代码但没发 JSON
+            #（截断/空回/无效）→ 修复产物直接交终验，不再追加 debug 重做
+            if not debug_result.valid or debug_result.truncated:
+                d_rescued = self._rescue_artifact(iter_dir, debug_t0)
+                if d_rescued is not None:
+                    self.events.append("artifact_rescued", {
+                        "iteration_id": cursor, "cell_id": cell_id,
+                        "role": "debug", "attempt": attempt,
+                        "code_path": d_rescued,
+                        "reason": "agent_completed_but_no_json",
+                        "agent_valid": bool(debug_result.valid),
+                        "agent_truncated": bool(debug_result.truncated),
+                    }, "scheduler", experiment_id=self._cur_exp_id)
+                    return d_rescued
             last_err = json.dumps(dcheck, ensure_ascii=False)
         # M 次仍未修复 → 记失败（iteration_ended.had_candidate=False 由调用方收尾）
         return None
@@ -3121,6 +3387,16 @@ class Scheduler:
             "role": role, "iteration_id": iteration_id,
             "workdir": workdir,
         }, "scheduler", experiment_id=getattr(self, "_cur_exp_id", None))
+        # task57 R1：熔断已打开 → 本迭代剩余派发快速失败（不再起 pi 进程。
+        # env_11 实测一轮配额空转烧满 4 角色×重试链；熔断后短路是主要止损）
+        if self._api_outage_active:
+            from superopt.agents import AgentResult as _AR
+            result = _AR(role=role, valid=False, infra_failure=True,
+                         summary="api_outage_active: dispatch skipped"
+                                 "（熔断暂停中，探活恢复后自动续跑）")
+            self._finish_dispatch(role, result, iteration_id, prompt_path,
+                                  workdir)
+            return result
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
         # per-role 模型档位（优化空间①：builder 等角色可降档省 token）
         model = (self.conf.get("agent_models") or {}).get(role)
@@ -3134,6 +3410,16 @@ class Scheduler:
         except Exception as exc:  # agent 超时/崩溃 → 记失败继续（spec）
             from superopt.agents import AgentResult as _AR
             result = _AR(role=role, valid=False, summary="agent error: %s" % exc)
+        return self._finish_dispatch(role, result, iteration_id, prompt_path,
+                                     workdir)
+
+    def _finish_dispatch(self, role: str, result: Any, iteration_id: int,
+                         prompt_path: str, workdir: str) -> Any:
+        """派发收尾（task57 拆出）：记账 + 事件 + infra 计数 + 物证落盘。
+
+        （原本体内联；拆出后熔断短路路径与正常路径共用同一收尾——
+        账本/事件/分类计数语义一致。）
+        """
         # 本迭代 agent 统计（ledger 条目用；同 role 多次运行累加）
         # tool_calls 亦累加——iteration_ended.by_role 的成本可解释性需要
         # 「每角色花了多少 token / 刷了多少工具调用」同帧可读（task46）
@@ -3146,6 +3432,10 @@ class Scheduler:
             result.tool_calls or [])
         acc["truncated"] = bool(acc["truncated"]) or bool(
             getattr(result, "truncated", False))
+        # task57 R1：infra 标记进入 by_role 内部口径（outcome 分类用；
+        # iteration_ended.by_role 载荷仍只投影 tokens/wall_ms/tool_calls）
+        acc["infra_failure"] = bool(acc.get("infra_failure")) or bool(
+            getattr(result, "infra_failure", False))
         self._iter_agents[role] = acc
         # 记账 + 事件
         with self._ledger_lock:  # CostLedger 内部无锁；并发槽需串行化
@@ -3167,55 +3457,10 @@ class Scheduler:
         # 事件表（§2.2）：agent_started/ended 产生者 = scheduler（调度器的观察）
         self.events.append("agent_ended", payload, "scheduler",
                            experiment_id=getattr(self, "_cur_exp_id", None))
-        # 基础设施熔断检查（0-token 失败 = 认证/配额/供应商级故障的稳定信号
-        # ——真实验失败都烧 token；0-token 秒退只能是 agent 从未真正起跑）。
-        breaker = int(self.conf.get("agent_failure_breaker", 8) or 0)
-        if breaker > 0:
-            total_tokens = float((result.usage or {}).get("total_tokens") or 0)
-            if not result.valid and total_tokens <= 0.0:
-                self._consec_zero_token_fails += 1
-            elif result.valid or total_tokens > 0.0:
-                self._consec_zero_token_fails = 0
-            if self._consec_zero_token_fails >= breaker \
-                    and not self._infra_failure:
-                self._infra_failure = True
-                self.stop_requested = True
-                self.events.append("infra_failure_concluded", {
-                    "consecutive_zero_token_fails": self._consec_zero_token_fails,
-                    "threshold": breaker,
-                    "diagnosis": "连续 %d 次 agent 0-token 失败——认证/配额/"
-                                  "供应商级故障（非实验失败）。调度器优雅停机；"
-                                  "修复凭据后 rick super start 续跑（工作区状态"
-                                  "全持久）。" % self._consec_zero_token_fails,
-                }, "scheduler")
-
-        # task56 D 段：API 断连检测（连续 N 次 agent 空回 + 快速秒退）
-        # 与基础设施熔断（breaker=8）互补：断连检测更灵敏（阈值 3），
-        # 先暂停 + 周期重试，仍空回才让熔断接管。
-        outage_thr = int(self.conf.get("api_outage_threshold", 3) or 0)
-        if outage_thr > 0:
-            is_empty = (total_tokens <= 0.0 and result.exit_code == 0
-                        and int(result.wall_ms or 0) < 10000)
-            if is_empty:
-                self._consec_api_empty += 1
-            else:
-                self._consec_api_empty = 0
-            if self._consec_api_empty >= outage_thr \
-                    and not self._api_outage_active:
-                self._api_outage_active = True
-                retry_s = int(self.conf.get("api_outage_retry_s", 60) or 60)
-                self.events.append("api_outage_detected", {
-                    "consecutive_empty": self._consec_api_empty,
-                    "threshold": outage_thr,
-                    "retry_s": retry_s,
-                    "diagnosis": "连续 %d 次 agent 空回（tok=0/exit=0/wall<10s）——"
-                                "疑似 API 断连/配额耗尽。暂停 %ds 后重试一次。"
-                                % (self._consec_api_empty, retry_s),
-                }, "scheduler")
-                # 暂停 + 重试（在此 sleep 会阻塞事件流；用 stop_requested
-                # 软暂停不可靠——改为直接 sleep，简单可靠）
-                time.sleep(min(retry_s, 10))  # 实际休眠 ≤10s（防死等）
-                self._api_outage_active = False  # 重试后重置（仍空回 → 熔断接管）
+        # task57 R1：infra 计数 + 断连熔断 + 0-token 后备（factor 自原内联块；
+        # 熔断后的暂停/探活在循环层 _probe_api_recovery——不再内联 sleep
+        # 阻塞事件流与心跳）
+        self._track_infra_failure(result)
 
         # task56 A 段：turn_warn 连续告警——中控/human 感知后裁决
         if getattr(result, "turn_warn", False):

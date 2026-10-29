@@ -43,6 +43,15 @@ TERM_GRACE_S = 5.0
 USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read",
               "cache_write", "total_tokens", "cost_usd")
 
+# 配额/额度报错标记（task57 R1：env_11 实测配额耗尽时 pi 正常退出 0、
+# 回复是额度报错文案、usage 全零——识别后标 infra_failure，不再 resume）
+_QUOTA_MARKERS = ("额度", "配额", "credit-hub", "credit-mgmt",
+                  "quota", "exceeded")
+
+# 候选产物命名契约（task57 R2 产物抢救：solution.*/candidate.* 源文件）
+_ARTIFACT_SUFFIXES = (".py", ".cpp", ".cc", ".cxx", ".c")
+_ARTIFACT_PREFIXES = ("solution", "candidate")
+
 
 def _zero_usage():
     return {k: 0 for k in USAGE_KEYS}
@@ -65,6 +74,12 @@ class AgentResult:
         1=第一次无 JSON → resume 一次后修复成功）。
     session_id：pi session id（task56 B 段：JSON 修复/失败恢复用
         --session-id 恢复同一会话）。
+    infra_failure：基础设施级失败（task57 R1：配额/断连形态——0-token +
+        额度报错文案）。真实验失败都烧 token；此标记让调度器把
+        infra 空转与实验失败分开计量（iteration_ended.outcome=infra_noop）。
+    artifact_path：agent 本轮新落盘的候选产物（task57 R2：workdir 里
+        mtime ≥ 运行起点的 solution.*/candidate.* 源文件——「做完了但没说」
+        的物证，空串 = 无）。
     """
     role: str
     valid: bool = False
@@ -84,6 +99,8 @@ class AgentResult:
     turn_warn: bool = False
     json_repair: int = 0
     session_id: str = ""
+    infra_failure: bool = False
+    artifact_path: str = ""
 
     def to_payload(self) -> Dict:
         """事件 payload 形态（agent_ended 事件的载荷）。"""
@@ -104,6 +121,8 @@ class AgentResult:
             "turn_warn": self.turn_warn,
             "json_repair": self.json_repair,
             "session_id": self.session_id,
+            "infra_failure": self.infra_failure,
+            "artifact_path": self.artifact_path,
         }
 
 
@@ -387,15 +406,27 @@ class PiAgentClient:
 
         task56 B 段：JSON 修复 + 失败恢复
         - 首次跑完后：JSON 缺失/不合规 → --session-id 恢复同一会话 +
-          追加「请只输出约定 JSON」→ 再解析（json_repair=1）
+          追加「请只输出约定 JSON」→ 再解析（json_repair=1）。
+          task57 R2 修正：不再要求 final_message 非空——截断/空回时
+          final_message 可能为空但产物已落盘 workdir，同样要给一次
+          补发 JSON 的机会。
         - 首次因网络/超时/异常终止（exit!=0 或 tok=0）→ resume 一次
           （「你被中断了，请继续完成任务」）；仍失败才返回失败结果
+
+        task57 R1：配额/额度报错（0-token + 报错文案）→ infra_failure=True
+        直接返回（不 resume——同一凭据重试只会再失败一次，白烧一次派发）。
         """
         import uuid
         session_id = "superopt-%s-%s" % (role, uuid.uuid4().hex[:12])
+        t_start = time.time()  # 产物新鲜度基线（含 resume 内的写入）
 
         result = self._run_once(role, prompt_path, workdir, timeout_s,
                                 model, max_turns, session_id, turn_soft_warn)
+
+        # 配额/额度报错（task57 R1）：infra 级故障，不 resume、不修复
+        if self._is_quota_error(result):
+            result.infra_failure = True
+            return result
 
         # 失败恢复（空回/异常退出 → resume 一次）
         if self._needs_failure_resume(result):
@@ -404,8 +435,9 @@ class PiAgentClient:
                 session_id, turn_soft_warn, result,
                 "你刚才被中断了。请继续完成任务，最终回复输出约定 JSON 代码块。")
 
-        # JSON 修复（有 final_message 但无 JSON → resume 一次）
-        if not result.valid and not result.data and result.final_message \
+        # JSON 修复（无 JSON 输出 → resume 一次；task57 R2 去掉 final_message
+        # 非空的前置——截断时 final_message 可能为 None 但产物在 workdir）
+        if not result.valid and not result.data \
                 and result.json_repair == 0:
             result = self._resume_session(
                 role, prompt_path, workdir, timeout_s, model, max_turns,
@@ -414,7 +446,55 @@ class PiAgentClient:
                 "输出契约，只输出那个 JSON 代码块（```json ... ```），"
                 "不要任何其它内容。")
 
+        # 产物定位（task57 R2）：本轮新落盘的候选（client 侧可观测物证；
+        # 调度器另有 mtime 同规的 _rescue_artifact 扫描，两处同一契约）
+        result.artifact_path = self._find_fresh_artifact(workdir, t_start)
         return result
+
+    @staticmethod
+    def _is_quota_error(result: "AgentResult") -> bool:
+        """task57 R1：配额/额度报错识别（env_11 实测形态）。
+
+        判据：0-token + 回复文本含额度报错标记（额度/credit-hub/quota/
+        exceeded）。0-token 是硬门槛——回合截断标记 [turn-budget-exceeded]
+        含 exceeded 字样但截断都烧 token，不会误中（再叠加显式排除）。
+        """
+        usage = result.usage or {}
+        if _num(usage.get("total_tokens")) > 0:
+            return False
+        text = "%s\n%s" % (result.final_message or "", result.summary or "")
+        if "[turn-budget-exceeded" in text:
+            return False
+        low = text.lower()
+        return any(m in low for m in _QUOTA_MARKERS)
+
+    @staticmethod
+    def _find_fresh_artifact(workdir: str, since_epoch: float) -> str:
+        """task57 R2：找本轮新落盘的候选产物（空串 = 无）。
+
+        契约：solution.*/candidate.* 源文件、非空、mtime ≥ 运行起点——
+        种子父本（copy2 保留源 mtime）天然被排除，只有 agent 本轮
+        写的才算「做完了但没说」的物证。
+        """
+        try:
+            names = sorted(os.listdir(workdir))
+        except OSError:
+            return ""
+        for name in names:
+            if not name.startswith(_ARTIFACT_PREFIXES):
+                continue
+            if not name.endswith(_ARTIFACT_SUFFIXES):
+                continue
+            p = os.path.join(workdir, name)
+            try:
+                if not os.path.isfile(p) or os.path.getsize(p) <= 0:
+                    continue
+                if os.path.getmtime(p) < since_epoch:
+                    continue
+            except OSError:
+                continue
+            return p
+        return ""
 
     def _needs_failure_resume(self, result: AgentResult) -> bool:
         """task56 B 段：是否需要失败恢复（空回/异常终止）。"""

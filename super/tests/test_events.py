@@ -58,6 +58,9 @@ class TestConstants(unittest.TestCase):
         "cell_limit_reached",
         "infra_failure_concluded",
         "self_check_skip_debug",
+        # 迭代13/task57：熔断探活恢复 + 产物抢救
+        "api_outage_recovered",
+        "artifact_rescued",
             "adjust_decision",   # task19：adjust 决策轨迹事件
             "cell_created",      # 迭代8：adjust new_cell（特征格新建）
             "cell_modified",     # 迭代8：adjust modify_cell（特征格描述改进）
@@ -415,6 +418,72 @@ class TestExperimentDimension(unittest.TestCase):
             with self.assertRaises(ValueError):
                 w.append("heartbeat", {}, "scheduler", experiment_id="")
         self.assertEqual(EventWriter(self.path).read_all(), [])
+
+
+class TestTask57EventContracts(unittest.TestCase):
+    """task57（R1+R2）：新事件 schema 与发射方载荷对齐。
+
+    env_11 实测教训：schema 必填字段与 loop.py 实际发射载荷不一致时，
+    事件在触发路径上直接扙 ValueError 炸掉调度器（seq 18117 同型崩溃）。
+    这里用「发射方真实载荷形态」逐一 append——过不了校验 = 契约破了。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "events.jsonl")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_new_event_types_present(self):
+        # task57 新事件类型齐备（EVENT_TYPES + EVENT_SCHEMAS 双登记）
+        for etype in ("api_outage_recovered", "artifact_rescued"):
+            self.assertIn(etype, EVENT_TYPES)
+            self.assertIn(etype, EVENT_SCHEMAS)
+
+    def test_api_outage_recovered_accepts_emitter_payload(self):
+        with EventWriter(self.path) as w:
+            w.append("api_outage_recovered", {
+                "consecutive_infra": 3, "probes": 2,
+                "diagnosis": "探活成功——API 恢复，继续迭代推进",
+            }, "scheduler")
+        evs = EventWriter(self.path).read_all()
+        self.assertEqual(evs[-1]["type"], "api_outage_recovered")
+
+    def test_artifact_rescued_accepts_emitter_payload(self):
+        with EventWriter(self.path) as w:
+            w.append("artifact_rescued", {
+                "iteration_id": 7, "cell_id": "impl=naive|mem=row",
+                "role": "coding", "code_path": "/ws/codes/iter007-x/solution.py",
+                "reason": "agent_completed_but_no_json",
+                "agent_valid": False, "agent_truncated": True,
+            }, "scheduler", experiment_id="impl_naive_mem_row#iter7")
+        evs = EventWriter(self.path).read_all()
+        self.assertEqual(evs[-1]["payload"]["reason"],
+                         "agent_completed_but_no_json")
+
+    def test_fixed_schemas_match_loop_emitters(self):
+        """task57 对齐修复的三个事件：发射方真实载荷必须过校验。
+
+        - infra_failure_concluded：consecutive_zero_token_fails/diagnosis
+          （旧 schema 要求 consecutive_empty/detail——发射方没有，触发即炸）
+        - turn_budget_alert：role/soft_warn（旧 schema 要求 avg_turns）
+        - new_cell_rejected：reason（旧 schema 要求 target_cell）
+        """
+        with EventWriter(self.path) as w:
+            w.append("infra_failure_concluded", {
+                "consecutive_zero_token_fails": 8, "threshold": 8,
+                "diagnosis": "连续 8 次 agent 0-token 失败",
+            }, "scheduler")
+            w.append("turn_budget_alert", {
+                "role": "coding", "consecutive": 3, "soft_warn": 20,
+                "avg_turns_hint": "agent 回合数连续达软告警阈值",
+            }, "scheduler")
+            w.append("new_cell_rejected", {
+                "reason": "empty_method", "detail": "new_cell 必须带 method",
+                "descriptor": {},
+            }, "agent:adjust")
+        self.assertEqual(len(EventWriter(self.path).read_all()), 3)
 
 
 if __name__ == "__main__":

@@ -72,11 +72,15 @@ DEFAULTS: Dict[str, Any] = {
     # ---- 回合软告警（task56 A 段）----
     # 达到 turn_soft_warn → AgentResult.turn_warn=True（agent_ended 事件可观测）
     "turn_soft_warn": 20,
-    # ---- API 断连检测（task56 D 段）----
-    # 连续 N 次 agent 空回（tok=0, exit=0, wall<10s）→ api_outage_detected
-    # 事件 + 暂停 retry_s 后重试；仍空回 → 暂停等 human
+    # ---- API 断连检测（task56 D 段；task57 R1 升级为熔断+探活） ----
+    # 连续 N 次 agent 空回/配额报错（infra 形态）→ api_outage_detected 事件
+    # + 熔断暂停（不推进 cursor、不建 iterNNN 目录、不写空壳决策）。
+    # 暂停期间每 api_outage_retry_s 探活一次（极小 agent「回复 OK」，
+    # 超时 api_outage_probe_timeout_s）→ 成功 → api_outage_recovered 续跑；
+    # 持续失败走 0-token 熔断后备（agent_failure_breaker → 停机等 human）。
     "api_outage_threshold": 3,
     "api_outage_retry_s": 60,
+    "api_outage_probe_timeout_s": 30,
     # ---- 特征空间总量软约束（task56 E 段）----
     # expand_cell 后格子总数 > max_cells → 拒绝 + cell_limit_reached 事件
     "max_cells": 100,

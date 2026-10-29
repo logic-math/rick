@@ -2,7 +2,7 @@
   "version": 1,
   "job": "superopt 重构为 rick super 模式（RFC 实现）",
   "created_at": "2026-10-17T10:30:00+08:00",
-  "updated_at": "2026-10-29T13:03:40.835Z",
+  "updated_at": "2026-10-30T08:00:00+08:00",
   "tasks": [
     {
       "task_id": "task1",
@@ -694,6 +694,44 @@
       "dependencies": [],
       "task_file": "plan/task56.md",
       "commit_hash": "ae2c2c92464fdebf070488c96000e9d3b42e3363"
+    },
+    {
+      "task_id": "task57",
+      "task_name": "R1 基础设施熔断（三态失败/配额归 infra/暂停+探活恢复）+ R2 产物落盘抢救（agent 完成但没 JSON → 从 workdir 产物入格）",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-30T08:00:00+08:00",
+      "dependencies": [],
+      "task_file": "plan/task57.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task58",
+      "task_name": "R3 幻影 elite 拒绝（md5 等价 → measurement_refresh 非 replaced）+ R4 elite_replaced 自动标记 method_stale",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-30T08:00:00+08:00",
+      "dependencies": [
+        "task57"
+      ],
+      "task_file": "plan/task58.md",
+      "commit_hash": ""
+    },
+    {
+      "task_id": "task59",
+      "task_name": "R5 同码双测噪声标定 + 停止判据（top3_spread < noise_band）+ cost_report 按 outcome 分类",
+      "status": "pending",
+      "attempts": 0,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-30T08:00:00+08:00",
+      "dependencies": [
+        "task57",
+        "task58"
+      ],
+      "task_file": "plan/task59.md",
+      "commit_hash": ""
     }
   ]
 }

@@ -110,6 +110,9 @@ EVENT_TYPES = frozenset({
     "new_cell_rejected",          # reason（空 method）
     # ---- 迭代9：基础设施熔断 ----
     "infra_failure_concluded",    # consecutive_zero_token_fails/diagnosis
+    # ---- 迭代13/task57：熔断暂停的探活恢复 + 产物抢救 ----
+    "api_outage_recovered",       # consecutive_infra/probes/diagnosis（探活成功 → 恢复迭代）
+    "artifact_rescued",           # code_path/reason（agent 无 JSON 但产物落盘 → 抢救）
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -152,11 +155,16 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "heartbeat": (),
     "env_failure_concluded": ("returncode", "stderr_tail", "cause"),
     "api_outage_detected": ("consecutive_empty", "retry_s"),
+    # task57 对齐：schema 必填字段必须与 loop.py 实际发射载荷一致——
+    # env_11 实测 schema/载荷不一致会在事件触发时直接炸掉调度器
+    # （invalid event: payload missing required field → ValueError 未捕获）。
+    "api_outage_recovered": ("consecutive_infra", "diagnosis"),
+    "artifact_rescued": ("code_path", "reason"),
     "self_check_skip_debug": ("reason",),
-    "infra_failure_concluded": ("consecutive_empty", "detail"),
+    "infra_failure_concluded": ("consecutive_zero_token_fails", "diagnosis"),
     "cell_limit_reached": ("current_cells", "max_cells"),
-    "new_cell_rejected": ("reason", "target_cell"),
-    "turn_budget_alert": ("role", "avg_turns", "soft_warn"),
+    "new_cell_rejected": ("reason",),
+    "turn_budget_alert": ("role", "soft_warn"),
 }
 
 # 事件来源域（设计树 §2.2）
