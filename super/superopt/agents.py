@@ -538,6 +538,10 @@ class PiAgentClient:
         env = os.environ.copy()
         if self.agent_dir:
             env["PI_CODING_AGENT_DIR"] = self.agent_dir
+        # task57 补遗（pi hook 真实验证版）：激活 superopt-json-guard 扩展
+        # （agent_end 时检查最终回复缺 JSON → sendUserMessage(followUp) 续跑
+        # 修复轮，同进程同会话；实测见 job_47 迭代13 验证记录）
+        env["SUPEROPT_JSON_GUARD"] = "1"
 
         cmd = self._build_cmd(prompt_path, model, session_id, message, resume)
         state = _StreamState()
