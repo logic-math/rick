@@ -84,3 +84,6 @@ GATE gate26 pass=true (迭代10 L4: task52 e2e/成本对比 + task53 文档；ru
 
 GATE gate27 pass=true (迭代11: task54 adjust 饥饿 + task55 进程树收割；红黑树 env 实跑发现)
 迭代11 全 2 task success（a65a5d99）
+
+GATE gate28 pass=true (迭代12: task56 JSON修复resume+session失败恢复+软监控+API断连+self_check语义+空间约束)
+迭代12 task56 success（ae2c2c92）
