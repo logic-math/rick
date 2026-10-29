@@ -60,14 +60,34 @@ DEFAULTS: Dict[str, Any] = {
     # （截断=根因没定位完就死 → 下次重派从头再来）。改为不限回合，配合
     # 「一次性根因定位」协议（super/prompts/debug.md：复现→三假设→一次
     # 跑完验证→单次修复），兜底改由 agent_timeout_s（默认 900s）+ wall budget。
-    "builder_max_turns": 20,
-    "coding_max_turns": 24,
+    # **全部 max_turns=0（不截断）——human 裁决（迭代12/task56）**：
+    # env_11 红黑树实测 coding 99% invalid（72% turn_budget 截断）= 236M token
+    # 纯浪费。回合预算改为**软告警**：turn_soft_warn=20 达到即 turn_warn 标记
+    # + 连续 3 次同角色 turn_budget_alert 事件（中控/human 感知后裁决是否提
+    # 预算或介入排查）。硬截断仅在 max_turns>0 且超 max_turns*3 时触发（紧急防护）。
+    "builder_max_turns": 0,
+    "coding_max_turns": 0,
     "debug_max_turns": 0,
     "adjust_max_turns": 0,
+    # ---- 回合软告警（task56 A 段）----
+    # 达到 turn_soft_warn → AgentResult.turn_warn=True（agent_ended 事件可观测）
+    "turn_soft_warn": 20,
+    # ---- API 断连检测（task56 D 段）----
+    # 连续 N 次 agent 空回（tok=0, exit=0, wall<10s）→ api_outage_detected
+    # 事件 + 暂停 retry_s 后重试；仍空回 → 暂停等 human
+    "api_outage_threshold": 3,
+    "api_outage_retry_s": 60,
+    # ---- 特征空间总量软约束（task56 E 段）----
+    # expand_cell 后格子总数 > max_cells → 拒绝 + cell_limit_reached 事件
+    "max_cells": 100,
     # ---- 事件落盘 fsync 开关（迭代10/task49+51）----
     # True（保守）=每事件 fsync；False=仅 flush（高频/并发实验时省 IO，
     # 崩溃可能丢尾行——events 读取有截断容错）。
     "event_fsync": True,
+    # ---- 基础设施熔断（env_11 三连坑修复）：连续 N 次 agent 0-token 失败
+    # → 优雅停 + infra_failure_concluded 事件（0=关闭）。0-token 秒退是认证/
+    # 配额/供应商级故障的稳定信号；真实验失败都烧 token。
+    "agent_failure_breaker": 8,
     # ---- 格级互斥与并发实验（迭代9/task45，human fix 2）----
     # 实验 = 一次特征格上的迭代；**同一格同时只有一个实验**（builder/coding/
     # debug 在该格上顺序协作），不同格可并行。互斥由 CellLocks 双保险实现

@@ -2432,13 +2432,14 @@ class TestCostReduction(LoopTestBase):
                           "debug 派发不得带回合上限（截断=浪费主因）")
 
     def test_other_roles_keep_turn_caps(self):
-        """builder/coding 仍保留回合预算（只有 debug 放开）。"""
+        """task56 A 段：所有角色默认 0（不限），软告警由 turn_soft_warn 承担。"""
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
-        self.assertEqual(sched._role_max_turns("builder"),
-                         sched.conf.get("builder_max_turns"))
-        self.assertEqual(sched._role_max_turns("coding"),
-                         sched.conf.get("coding_max_turns"))
-        self.assertGreater(sched._role_max_turns("builder") or 0, 0)
+        # 默认 0 = 不限（_role_max_turns 返回 None）
+        self.assertIsNone(sched._role_max_turns("builder"))
+        self.assertIsNone(sched._role_max_turns("coding"))
+        self.assertIsNone(sched._role_max_turns("adjust"))
+        # turn_soft_warn 有默认值
+        self.assertGreater(int(sched.conf.get("turn_soft_warn", 0) or 0), 0)
 
     def test_neighbor_samples_are_digest_only(self):
         """相邻格样本：给路径+摘要，**不内联代码正文**（builder 上下文降本）。"""

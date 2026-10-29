@@ -95,7 +95,7 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 
 1. **权重调控**（软动作，自主生效）：`soft_weight`
 2. **改进现有格**（硬动作，走裁决）：`modify_cell`——改该格的 `method` 描述（把 research/SENSE 得到的洞察写进方法描述，让 builder 下一步拿到更准的方向）
-3. **新建格**（硬动作，走裁决）：`new_cell`——必须给 `name` / `method` / `source_refs` / **`orthogonality_rationale`（正交性论证：新维度未被现有格覆盖）**
+3. **新建格**（硬动作，走裁决）：`new_cell`——必须给 `name` / `method`（**必填，空 method 会被拒绝**：没有方向描述的格无法被 builder 理解） / `source_refs` / **`orthogonality_rationale`（正交性论证：新维度未被现有格覆盖）**
 4. **收手建议**（建议动作）：`terminate_recommend`
 
 ## 权重语义（核心——直接决定采样分布）

@@ -75,6 +75,8 @@ EVENT_TYPES = frozenset({
     "proposal",                   # proposal_id/type/证据引用（硬动作提案）
     "adjudicated",                # proposal_id/decision（外置裁决结果）
     "adjust_decision",            # iteration/proposals 摘要（task19：adjust 决策轨迹事件）
+    "infra_failure_concluded",    # 基础设施熔断：连续 N 次 agent 0-token 失败 →
+                                  # 优雅停机（认证/配额/供应商级故障，非实验失败）
     "cell_created",               # cell_id/descriptor/name/method（迭代8：adjust new_cell）
     "cell_modified",              # cell_id/method/source_refs/rationale（迭代8：modify_cell）
     "invalidation",               # cell_id/code_path/reason（出档）
@@ -96,6 +98,18 @@ EVENT_TYPES = frozenset({
     "experiment_failed",          # slot/iteration_id/cell_id/error（实验异常）
     # ---- 迭代11/task54：adjust 饥饿修复可观测 ----
     "adjust_dispatched",          # iteration/window_since（跨边界触发证据）
+    # ---- 迭代12/task56：软监控 + 断连 + 约束 ----
+    "turn_budget_alert",          # role/consecutive/soft_warn（连续软告警）
+    "api_outage_detected",
+    "turn_budget_alert",
+    "new_cell_rejected",
+    "cell_limit_reached",
+    "infra_failure_concluded",
+    "self_check_skip_debug",      # iteration_id/reason（空 metrics 跳 debug）
+    "cell_limit_reached",         # current_cells/max_cells/reason
+    "new_cell_rejected",          # reason（空 method）
+    # ---- 迭代9：基础设施熔断 ----
+    "infra_failure_concluded",    # consecutive_zero_token_fails/diagnosis
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -137,6 +151,12 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "intervention": ("text", "category"),
     "heartbeat": (),
     "env_failure_concluded": ("returncode", "stderr_tail", "cause"),
+    "api_outage_detected": ("consecutive_empty", "retry_s"),
+    "self_check_skip_debug": ("reason",),
+    "infra_failure_concluded": ("consecutive_empty", "detail"),
+    "cell_limit_reached": ("current_cells", "max_cells"),
+    "new_cell_rejected": ("reason", "target_cell"),
+    "turn_budget_alert": ("role", "avg_turns", "soft_warn"),
 }
 
 # 事件来源域（设计树 §2.2）

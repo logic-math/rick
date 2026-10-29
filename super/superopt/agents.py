@@ -60,6 +60,11 @@ class AgentResult:
     truncated：回合预算耗尽被终止（env_8 实测成本失控治理：pi 无 max-turns
         flag，客户端在 NDJSON 流中计数 assistant message_end；截断不等于无产出——
         final_message/usage/tool_calls/六字段全部保留）。
+    turn_warn：回合数达到软告警阈值（task56 A 段：不截断，只告警）。
+    json_repair：JSON 输出修复次数（task56 B 段：0=首次即合规；
+        1=第一次无 JSON → resume 一次后修复成功）。
+    session_id：pi session id（task56 B 段：JSON 修复/失败恢复用
+        --session-id 恢复同一会话）。
     """
     role: str
     valid: bool = False
@@ -76,9 +81,12 @@ class AgentResult:
     exit_code: int = 0
     model: str = ""
     truncated: bool = False
+    turn_warn: bool = False
+    json_repair: int = 0
+    session_id: str = ""
 
     def to_payload(self) -> Dict:
-        """事件 payload 形态（agent_ended 事件的载荷，含六字段 + usage + 计时 + 模型）。"""
+        """事件 payload 形态（agent_ended 事件的载荷）。"""
         return {
             "role": self.role,
             "valid": self.valid,
@@ -93,6 +101,9 @@ class AgentResult:
             "tool_calls": list(self.tool_calls),
             "model": self.model,
             "truncated": self.truncated,
+            "turn_warn": self.turn_warn,
+            "json_repair": self.json_repair,
+            "session_id": self.session_id,
         }
 
 
@@ -242,6 +253,8 @@ class _StreamState:
         self.last_update = None       # 最后一次非零 message_update（兜底）
         self.bad_lines = 0
         self.assistant_turns = 0      # assistant message_end 回合计数（回合预算）
+        self.model_changes = []       # model_change 序列（provider 回退可观测：
+                                      # env_11 实测 catpaw→deepseek 静默回退 60 轮无人知）
 
     def feed(self, line: str):
         line = line.strip()
@@ -256,7 +269,15 @@ class _StreamState:
             return
         etype = ev.get("type")
 
-        if etype == "message_end":
+        if etype == "model_change":
+            # provider/model 解析链（回退检测）：记录全部变更
+            provider = ev.get("provider")
+            model_id = ev.get("modelId")
+            if isinstance(provider, str) or isinstance(model_id, str):
+                self.model_changes.append(
+                    "%s/%s" % (provider or "?", model_id or "?"))
+
+        elif etype == "message_end":
             msg = ev.get("message")
             if not isinstance(msg, dict) or msg.get("role") != "assistant":
                 return  # user echo 跳过（bugs.md：两轮都发 message_end）
@@ -326,37 +347,107 @@ class PiAgentClient:
         self.pi_path = pi_path
         self.agent_dir = agent_dir
 
-    def _build_cmd(self, prompt_path: str, model: Optional[str] = None):
-        # 实测（pi --help + rick runtime.go buildArgs 先例）：
-        # pi 无 --cwd flag——workdir 经 subprocess cwd 锚定（与 rick cmd.Dir 同型）。
-        # --model <pattern>（pi 实测 flag 名）：per-role 模型档位（空 = 默认模型）。
-        cmd = [
-            self.pi_path,
-            "--mode", "json",
-            "--append-system-prompt", prompt_path,
-            "-p", BOOTSTRAP_MESSAGE,
-        ]
+    def _build_cmd(self, prompt_path: str, model: Optional[str] = None,
+                   session_id: Optional[str] = None,
+                   message: Optional[str] = None,
+                   resume: bool = False):
+        """构建 pi CLI 命令。
+
+        prompt_path：系统提示词文件路径。
+        model：per-role 模型档位（空 = 默认）。
+        session_id：pi session id（task56 B 段：JSON 修复/失败恢复用
+            --session-id 在同一 cwd 恢复会话）。
+        message：用户消息（None = BOOTSTRAP_MESSAGE；resume 时传入修复/续跑指令）。
+        resume：True = 用 --session-id 恢复已有会话（不传 --append-system-prompt，
+            保留原系统提示词的上下文）。
+        """
+        cmd = [self.pi_path, "--mode", "json"]
+        if session_id:
+            cmd += ["--session-id", session_id]
+        if not resume:
+            cmd += ["--append-system-prompt", prompt_path]
+        cmd += ["-p", message or BOOTSTRAP_MESSAGE]
         if model:
             cmd += ["--model", model]
         return cmd
 
     def run(self, role: str, prompt_path: str, workdir: str,
             timeout_s: int = 1800, model: Optional[str] = None,
-            max_turns: Optional[int] = None) -> AgentResult:
-        """派发一个 agent 运行并解析其 NDJSON 事件流。
+            max_turns: Optional[int] = None,
+            turn_soft_warn: int = 0) -> AgentResult:
+        """派发一个 agent 运行并解析其 NDJSON 事件流（task56 B 段含 resume）。
 
         prompt_path：预渲染的系统提示词文件（绝对化）。
         workdir：agent 的工作目录（须已存在；codes/{uuid}/ 由调用方建好）。
         timeout_s：墙钟超时——超时走 kill 梯 SIGTERM→grace→SIGKILL。
-        model：可选模型档位（pi --model 参数；None/空 = 默认模型）。回填
-            AgentResult.model 供事件观测。
-        max_turns：assistant 回合上限（None/<=0 = 不限）。pi 无 max-turns
-            flag（env_8 实测：builder 单次极值 1575s/2101k token ≈ 23 回合，
-            每回合重算完整 input 是成本主因）——故在 NDJSON 流中计数
-            assistant message_end 回合数，达上限即走 kill 梯终止；
-            AgentResult.truncated=True，已产出内容（final_message/usage/
-            tool_calls/六字段）全部保留——截断不等于无产出。
+        model：可选模型档位（pi --model 参数；None/空 = 默认模型）。
+        max_turns：紧急硬杀（task56 A 段：0/None=不限；非零时真正杀线
+            是 max_turns*3——极端防护；软告警由 turn_soft_warn 承担）。
+        turn_soft_warn：软告警阈值（达到 → turn_warn=True，不截断）。
+
+        task56 B 段：JSON 修复 + 失败恢复
+        - 首次跑完后：JSON 缺失/不合规 → --session-id 恢复同一会话 +
+          追加「请只输出约定 JSON」→ 再解析（json_repair=1）
+        - 首次因网络/超时/异常终止（exit!=0 或 tok=0）→ resume 一次
+          （「你被中断了，请继续完成任务」）；仍失败才返回失败结果
         """
+        import uuid
+        session_id = "superopt-%s-%s" % (role, uuid.uuid4().hex[:12])
+
+        result = self._run_once(role, prompt_path, workdir, timeout_s,
+                                model, max_turns, session_id, turn_soft_warn)
+
+        # 失败恢复（空回/异常退出 → resume 一次）
+        if self._needs_failure_resume(result):
+            result = self._resume_session(
+                role, prompt_path, workdir, timeout_s, model, max_turns,
+                session_id, turn_soft_warn, result,
+                "你刚才被中断了。请继续完成任务，最终回复输出约定 JSON 代码块。")
+
+        # JSON 修复（有 final_message 但无 JSON → resume 一次）
+        if not result.valid and not result.data and result.final_message \
+                and result.json_repair == 0:
+            result = self._resume_session(
+                role, prompt_path, workdir, timeout_s, model, max_turns,
+                session_id, turn_soft_warn, result,
+                "你的最终回复缺少必需的 JSON 输出块。请按系统提示词的"
+                "输出契约，只输出那个 JSON 代码块（```json ... ```），"
+                "不要任何其它内容。")
+
+        return result
+
+    def _needs_failure_resume(self, result: AgentResult) -> bool:
+        """task56 B 段：是否需要失败恢复（空回/异常终止）。"""
+        if (result.usage or {}).get("total_tokens", 0) == 0 \
+                and result.exit_code == 0 and result.wall_ms < 10000:
+            return True
+        if result.exit_code not in (0, None) and not result.truncated:
+            return True
+        return False
+
+    def _resume_session(self, role: str, prompt_path: str, workdir: str,
+                        timeout_s: int, model: Optional[str],
+                        max_turns: Optional[int], session_id: str,
+                        turn_soft_warn: int, prev: AgentResult,
+                        message: str) -> AgentResult:
+        """用 --session-id 恢复同一会话，追加一条用户消息让 agent 继续完成。"""
+        resumed = self._run_once(role, prompt_path, workdir, timeout_s,
+                                 model, max_turns, session_id, turn_soft_warn,
+                                 resume=True, message=message)
+        # 保留首次的 usage/wall（cost 归因到真实总消耗）
+        if (resumed.usage or {}).get("total_tokens", 0) == 0:
+            resumed.usage = dict(prev.usage)
+        resumed.wall_ms = resumed.wall_ms + prev.wall_ms
+        resumed.json_repair = prev.json_repair + 1
+        return resumed
+
+    def _run_once(self, role: str, prompt_path: str, workdir: str,
+                  timeout_s: int, model: Optional[str],
+                  max_turns: Optional[int], session_id: str,
+                  turn_soft_warn: int = 0,
+                  resume: bool = False,
+                  message: Optional[str] = None) -> AgentResult:
+        """单次 pi 子进程运行（首次 or resume），解析事件流。"""
         prompt_path = os.path.abspath(prompt_path)
         workdir = os.path.abspath(workdir)
         if not os.path.isfile(prompt_path):
@@ -368,31 +459,30 @@ class PiAgentClient:
         if self.agent_dir:
             env["PI_CODING_AGENT_DIR"] = self.agent_dir
 
-        budget = int(max_turns) if isinstance(max_turns, int) and max_turns > 0 else 0
-        budget_hit = threading.Event()
-
-        cmd = self._build_cmd(prompt_path, model)
+        cmd = self._build_cmd(prompt_path, model, session_id, message, resume)
         state = _StreamState()
         stderr_tail = []
         t0 = time.monotonic()
 
+        # 回合预算（兼容旧行为：max_turns>0 时达上限即 kill；默认 0 = 不限，
+        # 软告警由 turn_soft_warn 承担）
+        budget = int(max_turns) if isinstance(max_turns, int) and max_turns > 0 else 0
+        budget_hit = threading.Event()
+
         proc = subprocess.Popen(
             cmd, cwd=workdir, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True,  # 文本模式 + universal newlines
+            text=True,
         )
 
-        # 读线程防死锁（实现要点：macOS 下线程读 stdout/stderr 最稳）
         def pump_stdout():
             try:
                 for line in proc.stdout:
                     state.feed(line)
-                    # 回合预算：达上限置位（主线程负责 kill 梯）；不 break——
-                    # 继续读到 EOF，保留终止前全部已产出内容
                     if budget and state.assistant_turns >= budget \
                             and not budget_hit.is_set():
                         budget_hit.set()
-            except Exception:  # noqa: BLE001 读线程绝不向上抛
+            except Exception:  # noqa: BLE001
                 pass
             finally:
                 try:
@@ -445,10 +535,16 @@ class PiAgentClient:
         usage = state.resolved_usage()
         six, data = _extract_six_fields(state.final_message)
 
+        effective_model = model or ""
+        if state.model_changes:
+            effective_model = " ".join(state.model_changes[-2:])
+
+        turn_warn = bool(turn_soft_warn and state.assistant_turns >= turn_soft_warn)
+
         result = AgentResult(
             role=role,
             valid=bool(six["valid"]) and not timed_out
-            and (proc.returncode == 0 or truncated),
+            and (proc.returncode == 0),
             score=six["score"],
             perf_value=six["perf_value"],
             perf_type=six["perf_type"],
@@ -460,10 +556,11 @@ class PiAgentClient:
             tool_calls=state.tool_calls,
             wall_ms=wall_ms,
             exit_code=proc.returncode if proc.returncode is not None else -1,
-            model=model or "",
+            model=effective_model,
             truncated=truncated,
+            turn_warn=turn_warn,
+            session_id=session_id,
         )
-        # 超时/回合截断/非零退出的诊断信息附进 summary（保 final_message 原文在字段里）
         if timed_out:
             marker = "[timeout after %ss]" % timeout_s
             if not result.summary:
@@ -471,8 +568,6 @@ class PiAgentClient:
             elif marker not in result.summary:
                 result.summary = (result.summary[:180] + " " + marker)[:200]
         elif truncated:
-            # 前缀标注（spec："[turn-budget-exceeded: N] "），六字段与
-            # final_message 原样保留供上层 fallback 解析
             marker = "[turn-budget-exceeded: %d]" % budget
             result.summary = (marker + " " + (result.summary or "")).strip()[:200]
         elif proc.returncode not in (0, None):

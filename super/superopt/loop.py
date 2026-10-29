@@ -405,6 +405,16 @@ class Scheduler:
             self._fs_mtime = None
         # 预算耗尽标注（session_ended.budget_exhausted：task16 接线）
         self._budget_exhausted = False
+        # 基础设施熔断（env_11 实测三连坑：配额耗尽→agent 0-token 秒退→
+        # 调度器无熔断空转烧迭代号与冷格——最重一次 18 分钟 2108 次失败、
+        # 386 个迭代号、全部未访格被烧毁）。连续 N 次「0-token 失败」→
+        # 优雅停 + infra_failure_concluded 事件（human/中控据此换号/修号）。
+        self._consec_zero_token_fails = 0
+        self._infra_failure = False
+        # task56 D 段：API 断连检测 / task56 A 段：turn_warn 连续告警
+        self._consec_api_empty = 0
+        self._api_outage_active = False
+        self._turn_warn_streak = {}
         # ---- 饱和信号状态（task23 E 段）----
         # _best_perf：历史最优 perf（方向感知）；_stale_iters：自上次刷新的
         # 完成迭代数；_champion_misses：冠军格连续采样未刷新次数；
@@ -482,7 +492,8 @@ class Scheduler:
             self._restore_signal_handlers()
         self.events.append("session_ended",
                            {"iteration_cursor": self.iteration_cursor,
-                            "budget_exhausted": bool(self._budget_exhausted)},
+                            "budget_exhausted": bool(self._budget_exhausted),
+                            "infra_failure": bool(self._infra_failure)},
                            "scheduler")
         self._set_super_state("stopped")
         self._write_heartbeat(force=True, state="stopped")
@@ -1205,6 +1216,19 @@ class Scheduler:
         if self_check.get("passed"):
             return candidate
 
+        # task56 C 段：self_check 空 metrics 不触发 debug——agent 被截断/没
+        # 跑完自检（不是实验失败），触发 debug 只会浪费 token。直接返回
+        # candidate 让框架 gate_check 做终验（终验才是真判据）。
+        if not self_check.get("passed") and not self_check.get("metrics") \
+                and not self_check.get("stage"):
+            self.events.append("self_check_skip_debug", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "reason": "empty_metrics_no_debug",
+                "detail": "agent 未完成自检（截断/中断）——跳过 debug 循环，"
+                          "候选直接交框架 gate_check 终验",
+            }, "scheduler", experiment_id=self._cur_exp_id)
+            return candidate
+
         # ---- debug 循环（≤M 次；每次一条 fix_report 载体事件） ----
         m = int(self.conf.get("debug_max_attempts") or 0)
         last_err = json.dumps(self_check, ensure_ascii=False)
@@ -1774,6 +1798,16 @@ class Scheduler:
             }, "agent:adjust")
             return
         if ptype == "new_cell":
+            # task56 F 段：method 必填（空 method → 拒绝，不建没有方向描述的格）
+            method = str(p.get("method") or "").strip()
+            if not method:
+                self.events.append("new_cell_rejected", {
+                    "reason": "empty_method",
+                    "detail": "new_cell 必须带 method（方法描述）——"
+                              "没有方向描述的格无法被 builder 理解",
+                    "descriptor": p.get("descriptor"),
+                }, "agent:adjust")
+                return
             # 新格（迭代8/KR2+KR3）：descriptor → feature_space 热重载加值
             # （复用 expand_cell 的 add_cell 链）+ 格描述落档 + cell_created 事件
             descriptor = p.get("descriptor")
@@ -2791,12 +2825,22 @@ class Scheduler:
     def _apply_expand_cell(self, proposal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """approve 的 expand_cell → 写回 ws/env/feature_space.json。
 
-        - add_axis_value：向既有 axes[].values 追加值（去重；轴缺失/值已在
-          → 不改文件，返回 None——裁决侧本已校验，这里是应用侧防御）
-        - add_cell：descriptor 每个值补进对应轴（新值追加，已存在的跳过）
-        原子写（tmp+rename）；返回 applied 摘要（{action, axis, value} 或
-        {action, added_values}），失败/无变化返回 None。
+        task56 E 段：先检查格子总量软约束（> max_cells=100 → 拒绝 +
+        cell_limit_reached 事件）——红黑树 env_11 实测 135 格使 adjust
+        prompt 膨胀到 88KB。
         """
+        max_cells = int(self.conf.get("max_cells", 100) or 0)
+        if max_cells > 0 and len(self.fs.all_cells()) >= max_cells:
+            self.events.append("cell_limit_reached", {
+                "current_cells": len(self.fs.all_cells()),
+                "max_cells": max_cells,
+                "action": proposal.get("action"),
+                "reason": "格子总数已达上限——红黑树 env_11 实测 135 格使 "
+                          "adjust prompt 膨胀。建议先灭绝无效格（weight=0）"
+                          "或收敛轴。",
+            }, "scheduler")
+            return None
+
         path = os.path.join(self.env_dir, "feature_space.json")
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -3048,24 +3092,28 @@ class Scheduler:
 
     def _call_client(self, role: str, prompt_path: str, workdir: str,
                      timeout_s: int, model: Optional[str],
-                     max_turns: Optional[int]) -> Any:
-        """调 client.run，按签名能力选择是否传 max_turns。
+                     max_turns: Optional[int],
+                     turn_soft_warn: int = 0) -> Any:
+        """调 client.run，按签名能力选择传参。
 
-        注入的客户端（测试 fake / 第三方实现）可能没有 max_turns 形参——
-        用签名探测而不是 try/except TypeError（后者会吞掉 client 内部错误）。
+        注入的客户端（测试 fake / 第三方实现）可能没有新形参——
+        用签名探测逐个尝试（task56 的 turn_soft_warn 也要兼容旧 fake）。
         """
-        accepts = False
+        kwargs = {"model": model}
         try:
             params = inspect.signature(self.client.run).parameters
-            accepts = "max_turns" in params or any(
+            has_var_kw = any(
                 p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+            if "max_turns" in params or has_var_kw:
+                kwargs["max_turns"] = max_turns
+            if turn_soft_warn and ("turn_soft_warn" in params or has_var_kw):
+                kwargs["turn_soft_warn"] = turn_soft_warn
         except (TypeError, ValueError):
-            accepts = False
-        if accepts:
-            return self.client.run(role, prompt_path, workdir, timeout_s,
-                                   model=model, max_turns=max_turns)
-        return self.client.run(role, prompt_path, workdir, timeout_s,
-                               model=model)
+            # 签名探测失败 → 尝试传全部（旧客户端若有 **kwargs 则能接）
+            kwargs["max_turns"] = max_turns
+            if turn_soft_warn:
+                kwargs["turn_soft_warn"] = turn_soft_warn
+        return self.client.run(role, prompt_path, workdir, timeout_s, **kwargs)
 
     def _dispatch_agent(self, role: str, prompt_path: str, workdir: str,
                         iteration_id: int) -> Any:
@@ -3076,11 +3124,13 @@ class Scheduler:
         timeout_s = int(self.conf.get("agent_timeout_s", 1800))
         # per-role 模型档位（优化空间①：builder 等角色可降档省 token）
         model = (self.conf.get("agent_models") or {}).get(role)
-        # per-role 回合预算（task23 H 段：env_8 实测 builder 极值 23 回合）
+        # per-role 回合预算（task56 A 段：默认 0=不限，软告警在 client 层）
         max_turns = self._role_max_turns(role)
+        turn_soft_warn = int(self.conf.get("turn_soft_warn", 20) or 0)
         try:
             result = self._call_client(role, prompt_path, workdir, timeout_s,
-                                       model, max_turns)
+                                       model, max_turns,
+                                       turn_soft_warn=turn_soft_warn)
         except Exception as exc:  # agent 超时/崩溃 → 记失败继续（spec）
             from superopt.agents import AgentResult as _AR
             result = _AR(role=role, valid=False, summary="agent error: %s" % exc)
@@ -3117,6 +3167,74 @@ class Scheduler:
         # 事件表（§2.2）：agent_started/ended 产生者 = scheduler（调度器的观察）
         self.events.append("agent_ended", payload, "scheduler",
                            experiment_id=getattr(self, "_cur_exp_id", None))
+        # 基础设施熔断检查（0-token 失败 = 认证/配额/供应商级故障的稳定信号
+        # ——真实验失败都烧 token；0-token 秒退只能是 agent 从未真正起跑）。
+        breaker = int(self.conf.get("agent_failure_breaker", 8) or 0)
+        if breaker > 0:
+            total_tokens = float((result.usage or {}).get("total_tokens") or 0)
+            if not result.valid and total_tokens <= 0.0:
+                self._consec_zero_token_fails += 1
+            elif result.valid or total_tokens > 0.0:
+                self._consec_zero_token_fails = 0
+            if self._consec_zero_token_fails >= breaker \
+                    and not self._infra_failure:
+                self._infra_failure = True
+                self.stop_requested = True
+                self.events.append("infra_failure_concluded", {
+                    "consecutive_zero_token_fails": self._consec_zero_token_fails,
+                    "threshold": breaker,
+                    "diagnosis": "连续 %d 次 agent 0-token 失败——认证/配额/"
+                                  "供应商级故障（非实验失败）。调度器优雅停机；"
+                                  "修复凭据后 rick super start 续跑（工作区状态"
+                                  "全持久）。" % self._consec_zero_token_fails,
+                }, "scheduler")
+
+        # task56 D 段：API 断连检测（连续 N 次 agent 空回 + 快速秒退）
+        # 与基础设施熔断（breaker=8）互补：断连检测更灵敏（阈值 3），
+        # 先暂停 + 周期重试，仍空回才让熔断接管。
+        outage_thr = int(self.conf.get("api_outage_threshold", 3) or 0)
+        if outage_thr > 0:
+            is_empty = (total_tokens <= 0.0 and result.exit_code == 0
+                        and int(result.wall_ms or 0) < 10000)
+            if is_empty:
+                self._consec_api_empty += 1
+            else:
+                self._consec_api_empty = 0
+            if self._consec_api_empty >= outage_thr \
+                    and not self._api_outage_active:
+                self._api_outage_active = True
+                retry_s = int(self.conf.get("api_outage_retry_s", 60) or 60)
+                self.events.append("api_outage_detected", {
+                    "consecutive_empty": self._consec_api_empty,
+                    "threshold": outage_thr,
+                    "retry_s": retry_s,
+                    "diagnosis": "连续 %d 次 agent 空回（tok=0/exit=0/wall<10s）——"
+                                "疑似 API 断连/配额耗尽。暂停 %ds 后重试一次。"
+                                % (self._consec_api_empty, retry_s),
+                }, "scheduler")
+                # 暂停 + 重试（在此 sleep 会阻塞事件流；用 stop_requested
+                # 软暂停不可靠——改为直接 sleep，简单可靠）
+                time.sleep(min(retry_s, 10))  # 实际休眠 ≤10s（防死等）
+                self._api_outage_active = False  # 重试后重置（仍空回 → 熔断接管）
+
+        # task56 A 段：turn_warn 连续告警——中控/human 感知后裁决
+        if getattr(result, "turn_warn", False):
+            self._turn_warn_streak[role] = \
+                self._turn_warn_streak.get(role, 0) + 1
+            if self._turn_warn_streak[role] >= 3:
+                soft = int(self.conf.get("turn_soft_warn", 20) or 20)
+                self.events.append("turn_budget_alert", {
+                    "role": role,
+                    "consecutive": self._turn_warn_streak[role],
+                    "soft_warn": soft,
+                    "avg_turns_hint": "agent 回合数连续 ≥%d 达软告警阈值"
+                                      "——中控/human 裁决是否提高预算或介入排查"
+                                      % soft,
+                }, "scheduler")
+                self._turn_warn_streak[role] = 0  # 重置（告警一次即可）
+        else:
+            self._turn_warn_streak[role] = 0
+
         # 迭代物证：agent final 落盘
         try:
             with open(os.path.join(workdir, "agent_%s.json" % role), "w",
