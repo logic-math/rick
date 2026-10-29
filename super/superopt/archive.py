@@ -35,10 +35,13 @@ _TZ = timezone(timedelta(hours=8))
 # pending reason 合法集（L2-Q6 延迟入库三判定）
 PENDING_REASONS = frozenset({"new_cell", "tolerance_band", "low_weight_src"})
 
-# 精英字段（六字段基座 + lineage/置信度）
+# 精英字段（六字段基座 + lineage/置信度 + ref_runtime_ms 测量上下文）
+# ref_runtime_ms（task58/R3）：该精英入档时基准实现在同一会话的实测耗时——
+# 同码重测/漂移检测的比较锚（格子 elite 携带，历史条目一并保留）。
 _ELITE_FIELDS = (
     "code_path", "perf_value", "perf_type", "perf_desc",
     "score", "lineage", "confidence", "admitted_at", "gen",
+    "ref_runtime_ms",
 )
 
 HISTORY_LIMIT = 20
@@ -143,6 +146,9 @@ class Archive:
             # 迭代9/五要素兼容：旧档无精英代码路径与实验记录关联 → 补 None
             cell.setdefault("elite_code_path", None)
             cell.setdefault("elite_record_path", None)
+            # 迭代13/task58 兼容：旧档无同码哈希/方法过期标记 → 补默认
+            cell.setdefault("elite_code_hash", None)
+            cell.setdefault("method_stale", False)
         with self._lock:
             self._data = data
 
@@ -202,6 +208,75 @@ class Archive:
             p = cell.get("elite_record_path")
             return p if isinstance(p, str) and p else None
 
+    def get_code_hash(self, cell_id: str) -> Optional[str]:
+        """task58/R3：该格当前精英的代码内容哈希（同码重测判别的锚）。
+
+        admit 时由调度器计算并传入（内容 md5）；无精英/旧档/未计算 → None。
+        调度器用它拦截「阴性结果 keep_original 的同码重测被当成新纪录」——
+        幻影 elite 防线（env_11 iter552 实测判例）。
+        """
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if not cell:
+                return None
+            h = cell.get("elite_code_hash")
+            return h if isinstance(h, str) and h else None
+
+    def is_stale(self, cell_id: str) -> bool:
+        """task58/R4：该格 method 基座是否落后于当前精英（相位差标记）。
+
+        elite_replaced 时调度器置 True；adjust 的 modify_cell 更新 method 后
+        清除。stale 期间 builder 以 elite_code_path 实际代码为第一事实源。
+        """
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            return bool(cell.get("method_stale")) if cell else False
+
+    def set_stale(self, cell_id: str, stale: bool) -> None:
+        """task58/R4：设置/清除 method_stale 标记（相位差显式化）。
+
+        未知格：创建格骨架（同 set_weight 语义——保持档案变更的全函数性）。
+        """
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if cell is None:
+                cell = {
+                    "descriptor": {},
+                    "description": {},
+                    "elite": None,
+                    "history": [],
+                    "weight": 1.0,
+                    "visit": 0,
+                    "sample_count": 0,
+                    "last_sampled_at": None,
+                    "elite_code_path": None,
+                    "elite_record_path": None,
+                    "elite_code_hash": None,
+                    "method_stale": False,
+                }
+                self._data["cells"][cell_id] = cell
+            cell["method_stale"] = bool(stale)
+
+    def refresh_measurement(self, cell_id: str, perf_value,
+                            ref_runtime_ms=None) -> bool:
+        """task58/R3：同码重测的测量值刷新（不动 gen/位次/方法基座）。
+
+        env_11 实测：阴性结果（keep_original）的同码在更有利机器态下读数
+        更优 → 被 gate 当作「新纪录」入账（幻影 elite）。正确语义：同码 =
+        同解，只更新测量值（perf_value/ref_runtime_ms），gen/位次/方法基座/
+        method_stale 全部不动；历史最优（饱和信号）也不刷新。
+
+        无该格/无精英 → False（调用方走正常 admit 路径）。
+        """
+        with self._lock:
+            cell = self._data["cells"].get(cell_id)
+            if not cell or cell.get("elite") is None:
+                return False
+            cell["elite"]["perf_value"] = perf_value
+            if ref_runtime_ms is not None:
+                cell["elite"]["ref_runtime_ms"] = ref_runtime_ms
+            return True
+
     # ---- 变更（内存） ----
 
     def _descriptor_from_entry(self, entry: dict) -> dict:
@@ -209,12 +284,16 @@ class Archive:
         return copy.deepcopy(d) if isinstance(d, dict) else {}
 
     def admit(self, cell_id: str, entry: dict,
-              record_path: Optional[str] = None) -> bool:
+              record_path: Optional[str] = None,
+              code_hash: Optional[str] = None) -> bool:
         """同格替换条件：新 perf_value 严格优于旧（perf_desc 方向感知），或旧格为空。
 
         entry 形态：{"descriptor": {...}, "elite": {perf_value, code_path, ...}}
         （兼容顶层扁平携带精英字段）。
         record_path：该精英对应迭代的 experiment_record.md（五要素关联，可选）。
+        code_hash（task58/R3）：候选代码内容 md5——同码重测判别的锚；
+        调度器在调本方法前已做过等价检查（等价路径走 refresh_measurement），
+        走到这里的一定是新代码，直接落格。
 
         - 新格 / 无精英格 → 入档（True）
         - 更优 → 替换：旧精英入 history（上限 HISTORY_LIMIT，最旧挤出）（True）
@@ -237,6 +316,8 @@ class Archive:
                     "visit": 0,
                     "sample_count": 0,
                     "last_sampled_at": None,
+                    "elite_code_hash": None,
+                    "method_stale": False,
                 }
                 self._data["cells"][cell_id] = cell
                 admitted = True
@@ -264,6 +345,10 @@ class Archive:
                 cell["elite_record_path"] = (
                     record_path if isinstance(record_path, str) and record_path
                     else None)
+                # task58/R3：同码判别锚（调度器计算的内容 md5）
+                cell["elite_code_hash"] = (
+                    code_hash if isinstance(code_hash, str) and code_hash
+                    else None)
             return admitted
 
     def set_visit(self, cell_id: str, visit: int) -> None:
@@ -286,6 +371,8 @@ class Archive:
                     "last_sampled_at": None,
                     "elite_code_path": None,
                     "elite_record_path": None,
+                    "elite_code_hash": None,
+                    "method_stale": False,
                 }
                 self._data["cells"][cell_id] = cell
             cell["visit"] = int(visit)
@@ -321,6 +408,8 @@ class Archive:
                     "last_sampled_at": None,
                     "elite_code_path": None,
                     "elite_record_path": None,
+                    "elite_code_hash": None,
+                    "method_stale": False,
                 }
                 self._data["cells"][cell_id] = cell
             cell["weight"] = weight
@@ -366,6 +455,8 @@ class Archive:
                     "last_sampled_at": None,
                     "elite_code_path": None,
                     "elite_record_path": None,
+                    "elite_code_hash": None,
+                    "method_stale": False,
                 }
                 self._data["cells"][cell_id] = cell
             cell["description"] = normalized

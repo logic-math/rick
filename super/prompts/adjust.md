@@ -94,7 +94,7 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 读 `super_cell_management` skill 并按它执行。四类动作（按「先软后硬」顺序考虑）：
 
 1. **权重调控**（软动作，自主生效）：`soft_weight`
-2. **改进现有格**（硬动作，走裁决）：`modify_cell`——改该格的 `method` 描述（把 research/SENSE 得到的洞察写进方法描述，让 builder 下一步拿到更准的方向）
+2. **改进现有格**（硬动作，走裁决）：`modify_cell`——改该格的 `method` 描述（把 research/SENSE 得到的洞察写进方法描述，让 builder 下一步拿到更准的方向）。**清除 [STALE]**：`cell_descriptions` 中带 `[STALE]` 前缀/`"stale": true` 的格 = method 基座已落后于当前精英（精英换代后描述未回写）——用 `modify_cell` 写入基于当前精英代码的新 method 即自动解除标记；只改 `source_refs`/`name` 不解除（方法本体没更新）。[STALE] 的格是高优先级改进对象：builder 按过期处方做实验会白烧预算。
 3. **新建格**（硬动作，走裁决）：`new_cell`——必须给 `name` / `method`（**必填，空 method 会被拒绝**：没有方向描述的格无法被 builder 理解） / `source_refs` / **`orthogonality_rationale`（正交性论证：新维度未被现有格覆盖）**
 4. **收手建议**（建议动作）：`terminate_recommend`
 
@@ -198,6 +198,6 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 
 - `type` 取值 ∈ `soft_weight` | `new_cell` | `modify_cell` | `expand_cell` | `hard_delete_cell` | `hard_modify_cell` | `hard_modify_gate` | `terminate_recommend`。
 - `soft_weight` 的 `action` 格式为 `weight=<非负数>`（如 `weight=2.0`、`weight=0.0`）。
-- `new_cell` 必带 `name` / `method` / `orthogonality_rationale`；`modify_cell` 必带 `target_cell` / `method`。
+- `new_cell` 必带 `name` / `method` / `orthogonality_rationale`；`modify_cell` 必带 `target_cell` / `method`（带 `method` 即清除该格的 [STALE] 标记）。
 - 六字段基座与框架的 AgentResult 提取对齐；本角色不产代码，`score`/`perf_*` 填 `null`。
 - `valid` 表示你完成了四步回路（哪怕结论是「无需调整」）。

@@ -671,11 +671,17 @@ class TestDelayedEntry(LoopTestBase):
                               {"cell_id": cid, "old_weight": 1.0,
                                "new_weight": 0.0, "reason": "test isolate"},
                               "scheduler")
-        # 同格更优解（value 更小）→ elite_replaced、无新 pending
+        # 同格更优解（value 更小）→ elite_replaced、无新 pending。
+        # 注意 fixture 必须是**不同代码**：同码重测在 task58/R3 下走
+        # elite_measurement_refresh（非 elite_replaced）——同码入账正是本防线
+        # 要拦的 bug，这里用第二份不同内容的候选保证测的是「真替换」路径。
+        cand_file2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand_file2, "w", encoding="utf-8") as f:
+            f.write("# mock candidate v2 (different content)\n")
         self.gate.queue(_gate_pass(value=50.0))
         client2 = FakeAgentClient()
         client2.queue("builder", [_builder_result()])
-        client2.queue("coding", [_coding_result(diff_path=self.cand_file)])
+        client2.queue("coding", [_coding_result(diff_path=cand_file2)])
         s2 = self.make_scheduler(cfg_overrides={"max_iterations": 2},
                                  client=client2)
         s2.run()
@@ -3140,3 +3146,252 @@ class TestIterationOutcome(LoopTestBase):
         sched.run()
         ended = self.events_of("iteration_ended")
         self.assertEqual(ended[0]["payload"]["outcome"], "no_output")
+
+
+class TestPhantomEliteGuard(LoopTestBase):
+    """task58 R3+R4：幻影 elite 拒绝（同码重测不入账）+ method_stale 相位差。
+
+    env_11 判例：iter552 阴性结果（keep_original，交付形态=elite 等价零回归）
+    的同码在更有利机器态下重测 4.729ms → 被入账为全场新纪录 4.734——
+    同码重测不是新纪录，只刷测量值。
+    """
+
+    def _isolate_to_sampled_cell(self, ref_value: float = 5000.0) -> str:
+        """跑 1 迭代 → 其余格经事件灭绝 → 返回被采样格 id（确定性同格）。
+
+        ref_value：入档精英的基准实测耗时（R3 ref 漂移检测的锚）。
+        """
+        first = GateResult(passed=True, failure_stage=None,
+                           metrics={"perf": {"value": 100.0, "score": 0.9,
+                                             "perf_type": "runtime_ms",
+                                             "perf_desc": "low", "k": 3,
+                                             "timings": [100] * 3,
+                                             "ref_value": ref_value},
+                                    "soft": {"tolerance_band": False,
+                                             "verdict": "better"}},
+                           details="fake pass")
+        self.gate.queue(first)
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        sampled = self.events_of("cell_sampled")[0]["payload"]["cell_id"]
+        from superopt.events import EventWriter as _EW
+        with _EW(self.events_path) as _w:
+            for cid in self.fs_all_cells():
+                if cid != sampled:
+                    _w.append("weight_changed",
+                              {"cell_id": cid, "old_weight": 1.0,
+                               "new_weight": 0.0, "reason": "test isolate"},
+                              "scheduler")
+        return sampled
+
+    def _run_second(self, cand_path: str, value: float):
+        """第 2 次跑（1 迭代）：coding 交付 cand_path、gate 读数 value。"""
+        self.gate.queue(_gate_pass(value=value))
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=cand_path)])
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 2},
+                                 client=client2)
+        s2.run()
+
+    def test_same_code_remeasure_is_measurement_refresh(self):
+        """①同码入格：md5 相同 → elite_measurement_refresh（非 elite_replaced），gen 不变。"""
+        sampled = self._isolate_to_sampled_cell()
+        # 同一候选文件（同码）重测：读数更优（50 < 100）
+        self._run_second(self.cand_file, value=50.0)
+        # elite_replaced 不发生（幻影防线：同码重测不是新纪录）
+        self.assertEqual(self.events_of("elite_replaced"), [])
+        refresh = self.events_of("elite_measurement_refresh")
+        self.assertEqual(len(refresh), 1)
+        payload = refresh[0]["payload"]
+        self.assertEqual(payload["cell_id"], sampled)
+        self.assertEqual(payload["new_perf"], 50.0)
+        self.assertEqual(payload["old_perf"], 100.0)
+        self.assertTrue(payload["code_hash"])
+        # 档案：测量值刷新、gen 不变、不进 history、无相位差标记
+        cell = self.read_archive()["cells"][sampled]
+        self.assertEqual(cell["elite"]["perf_value"], 50.0)
+        self.assertEqual(cell["elite"]["gen"], 1)
+        self.assertEqual(cell["history"], [])
+        self.assertFalse(cell.get("method_stale"))
+        self.assertTrue(cell.get("elite_code_hash"))
+
+    def test_different_code_replaces_and_marks_stale(self):
+        """②不同码入格 → elite_replaced + method_stale=True（相位差显式化）。"""
+        from superopt.loop import _code_digest
+        sampled = self._isolate_to_sampled_cell()
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        self._run_second(cand2, value=50.0)
+        replaced = self.events_of("elite_replaced")
+        self.assertEqual(len(replaced), 1)
+        self.assertEqual(replaced[0]["payload"]["cell_id"], sampled)
+        # 精英换代 → method 基座可能落后（相位差标记）
+        cell = self.read_archive()["cells"][sampled]
+        self.assertTrue(cell.get("method_stale"))
+        self.assertEqual(cell.get("elite_code_hash"), _code_digest(cand2))
+        # measurement_refresh 不发生（不同码 = 真替换）
+        self.assertEqual(self.events_of("elite_measurement_refresh"), [])
+
+    def test_builder_prompt_contains_stale_marker(self):
+        """③method_stale 格 → builder prompt 含 [STALE] 标注（以精英代码为第一事实源）。"""
+        from superopt.loop import _code_digest
+        sampled = self._isolate_to_sampled_cell()
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        self._run_second(cand2, value=50.0)
+        # 第 3 次跑：builder prompt 注入 [STALE] + 第一事实源指令；
+        # adjust（interval=1）在迭代边界触发 → cell_descriptions 带 [STALE]
+        self.gate.queue(_gate_pass(value=45.0))
+        cand3 = os.path.join(self.cand_dir, "solution_v3.py")
+        with open(cand3, "w", encoding="utf-8") as f:
+            f.write("# third content\n")
+        client3 = FakeAgentClient()
+        client3.queue("builder", [_builder_result()])
+        client3.queue("coding", [_coding_result(diff_path=cand3)])
+        client3.queue("adjust", [_adjust_result([])])
+        s3 = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                "adjust_interval": 1},
+                                 client=client3)
+        s3.run()
+        iter_dirs = sorted(d for d in os.listdir(
+            os.path.join(self.ws, "codes")) if d.startswith("iter"))
+        # 第 3 迭代的 builder prompt：cell_elite 带 [STALE] + 事实源指令
+        bprompt = open(os.path.join(self.ws, "codes", iter_dirs[-1],
+                                    "prompt_builder.md"),
+                       encoding="utf-8").read()
+        self.assertIn("[STALE]", bprompt)
+        self.assertIn("第一事实源", bprompt)
+        # adjust 侧：cell_descriptions 的 method_brief 也带 [STALE] 前缀
+        adjust_dirs = sorted(os.listdir(os.path.join(
+            self.ws, "codes", "adjust")))
+        aprompt = open(os.path.join(
+            self.ws, "codes", "adjust", adjust_dirs[-1],
+            "prompt_adjust.md"), encoding="utf-8").read()
+        self.assertIn("[STALE]", aprompt)
+
+    def test_ref_drift_over_threshold_warns(self):
+        """④ref 漂移超阈值 → ref_drift_warning + gate_result 标注 measurement_degraded。"""
+        sampled = self._isolate_to_sampled_cell()
+        # 第 1 迭代入档时 ref=5000；第 2 次跑读数 ref=6500（漂移 30% > 15%）
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        drifted = GateResult(passed=True, failure_stage=None,
+                             metrics={"perf": {"value": 50.0, "score": 0.9,
+                                               "perf_type": "runtime_ms",
+                                               "perf_desc": "low", "k": 3,
+                                               "timings": [50] * 3,
+                                               "ref_value": 6500.0},
+                                      "soft": {"tolerance_band": False,
+                                               "verdict": "better"}},
+                             details="fake pass with drifted ref")
+        self.gate.queue(drifted)
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=cand2)])
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 2},
+                                 client=client2)
+        s2.run()
+        warns = self.events_of("ref_drift_warning")
+        self.assertEqual(len(warns), 1)
+        payload = warns[0]["payload"]
+        self.assertEqual(payload["old_ref"], 5000.0)
+        self.assertEqual(payload["new_ref"], 6500.0)
+        self.assertAlmostEqual(payload["drift_pct"], 0.3, places=3)
+        # gate_result 标注测量降级（不硬拒——按 env tolerance 处置）
+        results = self.events_of("gate_result")
+        self.assertTrue(results[-1]["payload"].get("measurement_degraded"))
+
+    def test_ref_drift_within_threshold_no_warning(self):
+        """④补：带内漂移（< 阈值）不告警——正常测量噪声不打扰。"""
+        self._isolate_to_sampled_cell()
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        within = GateResult(passed=True, failure_stage=None,
+                            metrics={"perf": {"value": 50.0, "score": 0.9,
+                                              "perf_type": "runtime_ms",
+                                              "perf_desc": "low", "k": 3,
+                                              "timings": [50] * 3,
+                                              "ref_value": 5300.0},
+                                     "soft": {"tolerance_band": False,
+                                              "verdict": "better"}},
+                            details="fake pass")
+        self.gate.queue(within)
+        client2 = FakeAgentClient()
+        client2.queue("builder", [_builder_result()])
+        client2.queue("coding", [_coding_result(diff_path=cand2)])
+        s2 = self.make_scheduler(cfg_overrides={"max_iterations": 2},
+                                 client=client2)
+        s2.run()
+        self.assertEqual(self.events_of("ref_drift_warning"), [])
+        results = self.events_of("gate_result")
+        self.assertNotIn("measurement_degraded", results[-1]["payload"])
+
+    def test_modify_cell_clears_stale(self):
+        """⑤adjust modify_cell（带 method）→ method_stale 清除。"""
+        from superopt.loop import _code_digest
+        sampled = self._isolate_to_sampled_cell()
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        self._run_second(cand2, value=50.0)
+        self.assertTrue(self.read_archive()["cells"][sampled]
+                        .get("method_stale"))
+        # 第 3 轮：adjust modify_cell 更新 method → stale 解除
+        self.gate.queue(_gate_pass(value=45.0))
+        cand3 = os.path.join(self.cand_dir, "solution_v3.py")
+        with open(cand3, "w", encoding="utf-8") as f:
+            f.write("# third content\n")
+        client3 = FakeAgentClient()
+        client3.queue("builder", [_builder_result()])
+        client3.queue("coding", [_coding_result(diff_path=cand3)])
+        client3.queue("adjust", [_adjust_result([
+            {"type": "modify_cell", "target_cell": sampled,
+             "method": "基于 gen2 精英的新方法描述（相位差回写）",
+             "rationale": "精英换代后 method 基座滞后",
+             "rule_id": "stale_clear"}])])
+        s3 = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                "adjust_interval": 1},
+                                 client=client3)
+        s3.run()
+        # cell_modified 事件带 stale_cleared
+        mods = self.events_of("cell_modified")
+        self.assertEqual(len(mods), 1)
+        self.assertTrue(mods[0]["payload"].get("stale_cleared"))
+        # 档案：stale 已清除 + method 已更新
+        cell = self.read_archive()["cells"][sampled]
+        self.assertFalse(cell.get("method_stale"))
+        self.assertIn("新方法描述", cell["description"]["method"])
+
+    def test_modify_cell_without_method_keeps_stale(self):
+        """⑤补：只改 source_refs（不动 method）→ stale 保留（相位差未解除）。"""
+        sampled = self._isolate_to_sampled_cell()
+        cand2 = os.path.join(self.cand_dir, "solution_v2.py")
+        with open(cand2, "w", encoding="utf-8") as f:
+            f.write("# different content\n")
+        self._run_second(cand2, value=50.0)
+        self.gate.queue(_gate_pass(value=45.0))
+        cand3 = os.path.join(self.cand_dir, "solution_v3.py")
+        with open(cand3, "w", encoding="utf-8") as f:
+            f.write("# third content\n")
+        client3 = FakeAgentClient()
+        client3.queue("builder", [_builder_result()])
+        client3.queue("coding", [_coding_result(diff_path=cand3)])
+        client3.queue("adjust", [_adjust_result([
+            {"type": "modify_cell", "target_cell": sampled,
+             "source_refs": ["arxiv:2402.00002"],
+             "rationale": "只补引用",
+             "rule_id": "refs_only"}])])
+        s3 = self.make_scheduler(cfg_overrides={"max_iterations": 3,
+                                                "adjust_interval": 1},
+                                 client=client3)
+        s3.run()
+        cell = self.read_archive()["cells"][sampled]
+        self.assertTrue(cell.get("method_stale"),
+                        "只改 source_refs 不该解除相位差标记")
+        mods = self.events_of("cell_modified")
+        self.assertFalse(mods[0]["payload"].get("stale_cleared"))

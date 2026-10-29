@@ -113,6 +113,9 @@ EVENT_TYPES = frozenset({
     # ---- 迭代13/task57：熔断暂停的探活恢复 + 产物抢救 ----
     "api_outage_recovered",       # consecutive_infra/probes/diagnosis（探活成功 → 恢复迭代）
     "artifact_rescued",           # code_path/reason（agent 无 JSON 但产物落盘 → 抢救）
+    # ---- 迭代13/task58：幻影 elite 防线 + 处方-基座相位差 ----
+    "elite_measurement_refresh",  # cell_id/code_hash/new_perf/old_perf（同码重测 → 只刷测量值）
+    "ref_drift_warning",          # old_ref/new_ref/drift_pct（基准漂移超阈 → 测量分辨率告警）
 })
 
 # 各事件类型 payload 的必填字段（设计树 §2.2「载荷要点」的最小契约化）。
@@ -165,6 +168,9 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "cell_limit_reached": ("current_cells", "max_cells"),
     "new_cell_rejected": ("reason",),
     "turn_budget_alert": ("role", "soft_warn"),
+    # 迭代13/task58：幻影 elite 防线（同码重测）/ ref 漂移告警
+    "elite_measurement_refresh": ("cell_id", "code_hash", "new_perf", "old_perf"),
+    "ref_drift_warning": ("old_ref", "new_ref", "drift_pct"),
 }
 
 # 事件来源域（设计树 §2.2）

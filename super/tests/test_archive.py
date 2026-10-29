@@ -530,3 +530,118 @@ class TestFiveElements(unittest.TestCase):
         b = Archive(self.path, perf_desc="low")
         b.load()  # 合法 JSON（未半写）
         self.assertEqual(len(b.cells), 6)
+
+
+class TestCodeHashAndStale(unittest.TestCase):
+    """task58/R3+R4：elite_code_hash（同码判别锚）+ method_stale（相位差标记）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="archive-task58-")
+        self.path = os.path.join(self.tmp, "archive.json")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_admit_stores_code_hash_and_replaces_on_new(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(9.0, code_path="codes/i1/s"), code_hash="h1")
+        self.assertEqual(a.get_code_hash("c1"), "h1")
+        # 换代（不同码）→ 新哈希落格
+        a.admit("c1", entry(5.0, code_path="codes/i2/s"), code_hash="h2")
+        self.assertEqual(a.get_code_hash("c1"), "h2")
+
+    def test_admit_without_code_hash_keeps_none(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(5.0))
+        self.assertIsNone(a.get_code_hash("c1"))
+        self.assertFalse(a.is_stale("c1"))
+
+    def test_get_code_hash_unknown_cell_none(self):
+        a = Archive(self.path, perf_desc="low")
+        self.assertIsNone(a.get_code_hash("nope"))
+
+    def test_set_stale_roundtrip_and_unknown_cell(self):
+        a = Archive(self.path, perf_desc="low")
+        self.assertFalse(a.is_stale("c1"))   # 未知格 → False（不炸）
+        a.set_stale("c1", True)
+        self.assertTrue(a.is_stale("c1"))
+        self.assertIn("c1", a.cells)          # 骨架创建（同 set_weight 语义）
+        a.set_stale("c1", False)
+        self.assertFalse(a.is_stale("c1"))
+
+    def test_refresh_measurement_updates_value_not_gen(self):
+        """同码重测：只刷测量值（gen/位次/方法基座/history 全不动）。"""
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(5.0, code_path="codes/i1/s", gen=4),
+                code_hash="h1")
+        a.set_stale("c1", False)
+        ok = a.refresh_measurement("c1", 4.7, ref_runtime_ms=5200.0)
+        self.assertTrue(ok)
+        el = a.get_elite("c1")
+        self.assertEqual(el["perf_value"], 4.7)          # 测量值刷新
+        self.assertEqual(el["gen"], 4)                    # gen 不动
+        self.assertEqual(el["code_path"], "codes/i1/s")  # 位次/代码不动
+        self.assertEqual(el["ref_runtime_ms"], 5200.0)   # ref 一并刷新
+        self.assertEqual(a.cells["c1"]["history"], [])    # 不进 history
+        self.assertEqual(a.get_code_hash("c1"), "h1")     # 哈希锚不动
+        self.assertFalse(a.is_stale("c1"))                # 不触发相位差
+
+    def test_refresh_measurement_unknown_cell_false(self):
+        a = Archive(self.path, perf_desc="low")
+        self.assertFalse(a.refresh_measurement("nope", 1.0))
+
+    def test_refresh_measurement_without_ref_keeps_old(self):
+        a = Archive(self.path, perf_desc="low")
+        e = entry(5.0)
+        e["elite"]["ref_runtime_ms"] = 5000.0
+        a.admit("c1", e)
+        a.refresh_measurement("c1", 4.8)   # 不带 ref
+        el = a.get_elite("c1")
+        self.assertEqual(el["perf_value"], 4.8)
+        self.assertEqual(el["ref_runtime_ms"], 5000.0)  # 旧 ref 保留
+
+    def test_ref_runtime_ms_carried_in_elite_and_history(self):
+        """R3：ref_runtime_ms 属精英字段——admit 携带、换代后旧值入 history。"""
+        a = Archive(self.path, perf_desc="low")
+        e1 = entry(9.0, code_path="codes/i1/s", gen=1)
+        e1["elite"]["ref_runtime_ms"] = 5000.0
+        a.admit("c1", e1)
+        e2 = entry(5.0, code_path="codes/i2/s", gen=2)
+        e2["elite"]["ref_runtime_ms"] = 5300.0
+        a.admit("c1", e2)
+        el = a.get_elite("c1")
+        self.assertEqual(el["ref_runtime_ms"], 5300.0)
+        self.assertEqual(a.cells["c1"]["history"][0]["ref_runtime_ms"], 5000.0)
+
+    def test_old_archive_without_task58_fields_backfilled(self):
+        """旧档格无 elite_code_hash/method_stale → load 后补默认。"""
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({
+                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
+                         "updated_at": "2026-10-01T00:00:00+08:00"},
+                "cells": {"c1": {"descriptor": {"a": "x"},
+                                 "elite": {"code_path": "codes/old/s.py",
+                                           "perf_value": 5.0},
+                                 "history": [], "weight": 1.0, "visit": 1}},
+                "pending": [],
+            }, f)
+        a = Archive(self.path, perf_desc="low")
+        a.load()
+        cell = a.cells["c1"]
+        self.assertIn("elite_code_hash", cell)
+        self.assertIsNone(cell["elite_code_hash"])
+        self.assertIn("method_stale", cell)
+        self.assertFalse(cell["method_stale"])
+        self.assertIsNone(a.get_code_hash("c1"))
+        self.assertFalse(a.is_stale("c1"))
+
+    def test_set_stale_persisted_and_restored(self):
+        a = Archive(self.path, perf_desc="low")
+        a.admit("c1", entry(5.0), code_hash="h1")
+        a.set_stale("c1", True)
+        a.save()
+        b = Archive(self.path, perf_desc="low")
+        b.load()
+        self.assertTrue(b.is_stale("c1"))
+        self.assertEqual(b.get_code_hash("c1"), "h1")

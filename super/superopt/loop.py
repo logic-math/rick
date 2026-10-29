@@ -43,6 +43,7 @@
 stdlib-only，Python >=3.9（禁 PEP604 X|Y）。
 """
 import copy
+import hashlib
 import inspect
 import json
 import os
@@ -228,6 +229,35 @@ def _cells_snapshot(archive: Any) -> Dict[str, Any]:
     if callable(c):
         return c()
     return c or {}
+
+
+def _code_digest(path: str) -> Optional[str]:
+    """候选代码的内容摘要（md5，task58/R3 幻影 elite 判别的锚）。
+
+    - 文件 → 内容 md5；
+    - 目录 → 有序文件树摘要（相对路径 + 内容，dirs/files 排序——确定性）；
+    - 不存在 / 读不可 → None（调用方视为无可比锚，走正常入格路径）。
+    语义：同一 digest = 同一解（同码重测不是新纪录——env_11 iter552 实测
+    阴性结果 keep_original 的同码在更有利机器态下被当新纪录入账）。
+    """
+    if not path or not os.path.exists(path):
+        return None
+    h = hashlib.md5()
+    if os.path.isfile(path):
+        with open(path, "rb") as f:
+            h.update(f.read())
+        return h.hexdigest()
+    for root, dirs, files in os.walk(path):
+        dirs.sort()
+        for name in sorted(files):
+            fp = os.path.join(root, name)
+            h.update(os.path.relpath(fp, path).encode("utf-8"))
+            try:
+                with open(fp, "rb") as f:
+                    h.update(f.read())
+            except OSError:
+                continue
+    return h.hexdigest()
 
 
 # --------------------------------------------------------------------------- #
@@ -1187,6 +1217,17 @@ class Scheduler:
     def _run_builder(self, cell_id: str, cursor: int, iter_dir: str) -> Dict[str, Any]:
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite") or {}
+        # task58/R4：处方-基座相位差注入——method_stale 的格，builder 的
+        # 方法描述落后于当前精英（env_11 实测滞后 1-2 代 → 按过期处方做
+        # 实验，30-60min 级空转）。[STALE] 标注 + 强制以 elite_code_path
+        # 实际代码为第一事实源（描述只作历史参考）。
+        elite_ctx = dict(elite) if elite else {}
+        if self.archive.is_stale(cell_id):
+            elite_ctx["method_stale"] = True
+            elite_ctx["stale_note"] = (
+                "[STALE] 本格 method 描述落后于当前精英（精英已换代）——"
+                "以 elite_code_path 的实际代码为第一事实源，method 描述"
+                "仅作历史参考")
         cmds = self._self_check_and_profile_cmds()
         elems = self._element_cmds()
         # 三要素之「现状」（迭代6）：每迭代 builder 前自动采集 profile 归档——
@@ -1199,7 +1240,7 @@ class Scheduler:
             "iteration_id": cursor,
             "cell_id": cell_id,
             "cell_descriptor": self.fs.describe_cell(cell_id) or {},
-            "cell_elite": self._or_default(elite or None, "（无精英——本格首访）"),
+            "cell_elite": self._or_default(elite_ctx or None, "（无精英——本格首访）"),
             "cell_visit": entry.get("visit", 0),
             "cell_weight": entry.get("weight", 1.0),
             "neighbor_elites": self._neighbor_elites(cell_id),
@@ -1800,13 +1841,46 @@ class Scheduler:
         # codes/iter{N}/experiment_record.md）——builder 后续读「精英代码 + 其实验记录」
         record_path = experiment_record.path_for(
             os.path.dirname(os.path.abspath(candidate)))
-        admitted = self.archive.admit(cell_id, entry, record_path=record_path)
+
+        # ---- task58/R3：同码等价检查（幻影 elite 防线）----
+        # env_11 实测判例：阴性结果（keep_original，交付形态=elite 等价零回归）
+        # 的同码在更有利机器态下重测读数更优 → gate 入账为全场新纪录。
+        # 正确语义：同码 = 同解 → 拒绝 elite_replaced，只刷新测量值，
+        # gen/位次/方法基座/历史最优（饱和信号）全部不动。
+        new_hash = _code_digest(candidate)
+        old_hash = self.archive.get_code_hash(cell_id)
+        if had_elite and new_hash and old_hash == new_hash:
+            self.archive.refresh_measurement(
+                cell_id, perf_value, ref_runtime_ms=perf.get("ref_value"))
+            self._last_admit_verdict = "measurement_refresh"
+            self._last_reject_reason = None
+            self.events.append("elite_measurement_refresh", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "code_hash": new_hash,
+                "new_perf": perf_value,
+                "old_perf": parent_elite.get("perf_value"),
+                "ref_runtime_ms": perf.get("ref_value"),
+                "gen": int(parent_elite.get("gen") or 0),
+                "reason": "same_code_remeasure",
+            }, "scheduler",
+                experiment_id=getattr(self, "_cur_exp_id", None))
+            self.archive.save()
+            return
+
+        entry["elite"]["ref_runtime_ms"] = perf.get("ref_value")
+        admitted = self.archive.admit(cell_id, entry, record_path=record_path,
+                                      code_hash=new_hash)
         if not admitted:
             # 更差解：同格替换条件不满足（事件流无 elite_*——诚实记录）
             self._last_admit_verdict = "reject"
             self._last_reject_reason = "worse_than_elite"
             return
         self._last_admit_verdict = "replace" if had_elite else "admit"
+        # task58/R4：精英换代 → method 基座可能落后于新精英（处方-基座相位差）。
+        # env_11 实测 3 格在案：method 基座滞后 elite 1-2 代 → 高份额格按过期
+        # 处方做实验（30-60min 级空转）。adjust 的 modify_cell 更新 method 后清除。
+        if had_elite:
+            self.archive.set_stale(cell_id, True)
         # 饱和状态：历史最优刷新（方向感知）
         self._note_perf_record(perf_value)
 
@@ -2128,13 +2202,22 @@ class Scheduler:
                 merged["name"] = name.strip()
             if not merged:
                 return
+            method_updated = isinstance(method, str) and bool(method.strip())
             self.archive.set_description(target, merged)
+            # task58/R4：modify_cell 更新了 method → 处方-基座相位差解除
+            # （method 是描述基座的本体；只改 source_refs/name 不解除——
+            # [STALE] 会持续提示 adjust 补上真正的方法更新）
+            stale_cleared = False
+            if method_updated:
+                stale_cleared = self.archive.is_stale(target)
+                self.archive.set_stale(target, False)
             self.events.append("cell_modified", {
                 "cell_id": target,
                 "method": str(merged.get("method") or "")[:400],
                 "source_refs": merged.get("source_refs") or [],
                 "rationale": str(p.get("rationale") or "")[:300],
                 "rule_id": p.get("rule_id"),
+                "stale_cleared": stale_cleared,
             }, "agent:adjust")
             self.archive.save()
             return
@@ -2790,19 +2873,34 @@ class Scheduler:
 
         红黑树 env_11 实测：完整 description JSON 使 prompt 达 88KB → input
         膨胀 → 截断。精简到 200 字后仍能支撑「改进 method」的判断（方向在，
-        细节靠 archive.json 自查）。"""
+        细节靠 archive.json 自查）。
+
+        task58/R4：method_stale 的格带 [STALE] 标注（处方-基座相位差警示）——
+        adjust 看到 [STALE] → 用 modify_cell 更新 method（更新即清除标记）。
+        """
         out = {}  # type: Dict[str, Any]
         for cid in self.fs.all_cells():
-            desc = self._cell_entry(cid).get("description")
+            entry = self._cell_entry(cid)
+            stale = bool(entry.get("method_stale"))
+            desc = entry.get("description")
             if not isinstance(desc, dict):
-                out[cid] = {}
+                if stale:
+                    out[cid] = {"stale": True}
+                else:
+                    out[cid] = {}
                 continue
             method = str(desc.get("method") or "")
+            brief = method[:200] + ("…" if len(method) > 200 else "")
+            if stale:
+                # [STALE] 前缀：method 基座落后于当前精英——需 modify_cell 更新
+                brief = "[STALE] " + brief
             out[cid] = {
                 "name": desc.get("name") or "",
-                "method_brief": method[:200] + ("…" if len(method) > 200 else ""),
+                "method_brief": brief,
                 "source_refs": desc.get("source_refs") or [],
             }
+            if stale:
+                out[cid]["stale"] = True
         return out
 
     def _ensure_decision_file(self, iteration_id: int,
@@ -2946,6 +3044,29 @@ class Scheduler:
             "metrics": getattr(gr, "metrics", None) or {},
             "details": (getattr(gr, "details", "") or "")[-400:],
         }
+        # ---- task58/R3：ref 漂移防线（测量分辨率告警，不硬拒）----
+        # env_11 实测：ref_runtime_ms 跨会话摆动 4999→6028（+20.6%），大于
+        # 头三名候选间 4.4% 差异 → 排序键分辨率不足。本迭代基准与该格精英
+        # 入档基准偏差超阈 → 告警 + 本条 gate_result 标注 measurement_degraded
+        # （消费方按 env tolerance 处置；不阻断入格）。
+        perf = ((getattr(gr, "metrics", None) or {}).get("perf") or {})
+        new_ref = perf.get("ref_value") if isinstance(perf, dict) else None
+        old_ref = ((self._cell_entry(cell_id).get("elite") or {})
+                   .get("ref_runtime_ms"))
+        if isinstance(new_ref, (int, float)) and not isinstance(new_ref, bool) \
+                and isinstance(old_ref, (int, float)) \
+                and not isinstance(old_ref, bool) and float(old_ref) != 0.0:
+            drift = abs(float(new_ref) - float(old_ref)) / abs(float(old_ref))
+            threshold = float(self.conf.get("ref_drift_threshold", 0.15) or 0.15)
+            if drift > threshold:
+                payload["measurement_degraded"] = True
+                self.events.append("ref_drift_warning", {
+                    "iteration_id": cursor, "cell_id": cell_id,
+                    "old_ref": float(old_ref), "new_ref": float(new_ref),
+                    "drift_pct": round(drift, 4),
+                    "threshold": threshold,
+                }, "gate",
+                    experiment_id=getattr(self, "_cur_exp_id", None))
         if recheck:
             payload["recheck"] = True
         self.events.append("gate_result", payload, "gate",

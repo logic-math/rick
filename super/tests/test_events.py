@@ -61,6 +61,9 @@ class TestConstants(unittest.TestCase):
         # 迭代13/task57：熔断探活恢复 + 产物抢救
         "api_outage_recovered",
         "artifact_rescued",
+        # 迭代13/task58：幻影 elite 防线 + ref 漂移告警
+        "elite_measurement_refresh",
+        "ref_drift_warning",
             "adjust_decision",   # task19：adjust 决策轨迹事件
             "cell_created",      # 迭代8：adjust new_cell（特征格新建）
             "cell_modified",     # 迭代8：adjust modify_cell（特征格描述改进）
@@ -438,6 +441,10 @@ class TestTask57EventContracts(unittest.TestCase):
     def test_new_event_types_present(self):
         # task57 新事件类型齐备（EVENT_TYPES + EVENT_SCHEMAS 双登记）
         for etype in ("api_outage_recovered", "artifact_rescued"):
+            self.assertIn(etype, EVENT_TYPES)
+            self.assertIn(etype, EVENT_SCHEMAS)
+        # task58 新事件类型齐备（幻影 elite 防线 + ref 漂移告警）
+        for etype in ("elite_measurement_refresh", "ref_drift_warning"):
             self.assertIn(etype, EVENT_TYPES)
             self.assertIn(etype, EVENT_SCHEMAS)
 
