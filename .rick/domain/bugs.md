@@ -770,3 +770,35 @@ go test ./internal/env/release/ -run TestRestartRefusesToKillCwdSquatterInProdTr
 ```
 
 **首次发现**: job_49 / S2 门禁设计（安全实验发现）  **验证状态**: ✅ 已修复并 release（2026-10-30 复跑防线测试通过）
+### pi 扩展导出形态错误：`export function` → loader 报 "does not export a valid factory function"
+
+**根因**: pi 扩展 loader（`dist/core/extensions/loader.js`）加载模块后取**默认导出**作为 factory（`const factory = await loadExtensionModule(...)`，`factory` 为空即报错）。写成 `export function activate(...)` 产生的是命名导出，默认导出为 undefined → 扩展完全不加载，但进程不崩溃，stderr 只有一行 `Failed to load extension ...: does not export a valid factory function`——不跑真实进程根本发现不了。
+
+**精确解决步骤**:
+```bash
+# 正确形态（照已知能跑的 rick-gates/index.ts 样例写）:
+export default async function activate(api: ExtensionAPI): Promise<void> { ... }
+
+# 验证（加载关）: 起隔离 agent home 跑一次真实 pi，stderr 无 Failed to load extension:
+SUPEROPT_JSON_GUARD=1 PI_CODING_AGENT_DIR=<隔离目录> pi --mode json -p '...' 2>&1 | grep -i "failed to load"
+# （无输出 = 加载成功）
+```
+
+**首次发现**: job_47 / 迭代13 后 pi hook 真实验证（commit 9667d13→e2bfd6f）  **验证状态**: ✅ 已修复（e2bfd6f 三测通过：修复路径/gate 隔离/上限防死循环）
+
+### agent_settled handler 内 sendUserMessage 撞 stale-ctx 重入限制（嵌套运行死在半路）
+
+**根因**: 在 `agent_settled` 扩展 handler 里调 `api.sendUserMessage(...)` 会触发嵌套 `_runAgentPrompt`——实测嵌套运行死在半路（NDJSON 事件流只到第二个 `agent_start`，无 turn_start/无 user 消息/无 assistant 回复/无 settled），随后第二次调用报 `This extension ctx is stale after session replacement or reload`。pi 运行时设计内的消息续跑通道是 **agent_end + followUp 队列**（`agent-loop.js` 主循环结尾 `getFollowUpMessages() 非空 → continue 续跑`；`_handlePostAgentRun` 注释明示 "Any messages here were queued by agent_end extension handlers and need a continuation"）。
+
+**精确解决步骤**:
+```bash
+# 正确模式: hook 挂 agent_end（agent 尚在运行 isStreaming=true）+ deliverAs:"followUp":
+api.on("agent_end", async () => {
+  await api.sendUserMessage("修复指令…", { deliverAs: "followUp" });
+});
+# 消息进 followUp 队列 → agent-loop 主循环 continue 续跑修复轮（同一次 _runAgentPrompt 内完成）
+# → print 模式的 prompt() 等 agent_settled 才 resolve（进程不会提前退出丢失修复轮）
+# 验证（行为关）: --mode json 事件流出现「agent_end → turn_start → user 修复消息 → assistant JSON → agent_settled」完整时间序
+```
+
+**首次发现**: job_47 / 迭代13 后 pi hook 真实验证（commit 9667d13→e2bfd6f，superopt-json-guard 扩展）  **验证状态**: ✅ 已修复（e2bfd6f：run5 事件流完整修复链 + gate 隔离 + 2 次上限不死循环）

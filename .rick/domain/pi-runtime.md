@@ -39,6 +39,15 @@ pi 启动时 loader 找扩展入口：
 
 `pi install npm:<pkg>` 装到 `~/.pi/agent/npm/node_modules/`，注册到 settings.json packages 数组。`pi list` 列出已装扩展。
 
+## pi 扩展编写事实（job_47 superopt-json-guard 实证）
+
+- **消息续跑的官方模式 = agent_end + deliverAs:"followUp"**：`agent-loop.js` 主循环结尾（`getFollowUpMessages() 非空 → pendingMessages = followUp; continue`）+ `_handlePostAgentRun` 的注释（"Any messages here were queued by **agent_end** extension handlers and need a continuation"）。在 `agent_settled` handler 里 sendUserMessage 会撞 stale-ctx 重入限制（嵌套运行死在半路，见 bugs.md job_47 条目）。
+- **API 边界**：`sendUserMessage` 只在 `ExtensionAPI` 上（事件 handler 的 `ctx: ExtensionContext` 上**没有**）——在 `activate(api)` closure 里捕获 `api` 才能调用。
+- **消息追踪**：`ExtensionContext` 无 `session.messages` 属性（不存在）；追踪最后一条 assistant 消息走 `api.on("message_end", event => event.message.role === "assistant")`，或 `ctx.sessionManager.getEntries()` 读 SessionMessageEntry。
+- **handler 签名**：`ExtensionHandler<E> = (event: E, ctx: ExtensionContext) => Promise<R | void> | R | void`——async handler 会被 `await`（emit 阻塞到 handler 完成，print 模式因此等它）。
+- **导出形态**：loader 只认**默认导出** factory——`export default async function activate(api: ExtensionAPI)`；`export function` 报 "does not export a valid factory function"。
+- **激活门控**：影响面控制用**环境变量**（如 `SUPEROPT_JSON_GUARD=1`，派发方注入 env，扩展内 `process.env.X === "1"` 判定）优于「定义了激活检查函数但从未调用」——后者是死代码，扩展会对所有会话生效（误伤）。
+
 ## pi `--mode json` 事件流
 
 pi json 模式输出 JSONL（每行一事件）。关键字段：

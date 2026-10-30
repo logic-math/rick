@@ -106,3 +106,12 @@ git commit -m "chore(taskX): rebuild bin/rick"
 - **导入**：257,255 工作区文件 + 24,997 状态文件 + 3,778 pi 会话文件 / 耗时约 8 分钟（含 sha256 校验 + 重映射 + header 重写）
 - **验收**：11 个子工作区 id 全保留（连接键不断）、会话目录全重转义、resume 后 pi 加载 9962 tokens 历史正常应答
 - **dump 产物**：`<name>.tar.gz` + `.sha256` 边车；manifest 记录 marker id / origin 主机 / 23 项排除留痕（platform-elf / regenerable / cache / external / custom / unreadable）
+
+## pi 扩展激活门控模式 + rsi 契约位置复现（job_47）
+
+- **pi 扩展激活门控：环境变量优于死代码激活函数**：影响面控制在扩展内用 `process.env.<GUARD> === "1"` 判定（派发方注入 env）——首版 superopt-json-guard 定义了 `isSuperoptAgent()` 但**从未调用**（死代码），扩展会对所有 pi 会话生效（对普通会话误注入 JSON 修复消息）。环境变量门控实测干净：无 env 的普通 pi 单轮不受影响（user=1 assistant=1）。
+  - 验证命令: `SUPEROPT_JSON_GUARD=1 PI_CODING_AGENT_DIR=<隔离目录> pi --mode json -p '...'`（gate 隔离对照：不带 env 跑同样命令，事件流只有单轮）
+  - 来源: job_47 / 迭代13 后 pi hook 真实验证（e2bfd6f）  状态: ✅ 已确认
+- **rsi 契约字段位置敏感（第三次复现，本 job 引用既有条目）**：`rick tools rsi_check` 从 release.md 取**首个** `version=` 匹配行——权威版本行必须置首（头部三行契约）。job_44 首发现、job_49 S3 复现并升级 rick-rsi-loop.md 第 5 条；job_47 的 release.md 沿用头部契约通过校验（复现实证其跨 job 稳定性）。规则细节见 bugs.md job_44 条目，此处只留复现计数。
+  - 验证命令: `rick tools rsi_check job_47`（version= 行置首即通过）
+  - 来源: job_47 / S3+S5 release 流程  状态: ✅ 已确认（第三次复现，行为稳定）

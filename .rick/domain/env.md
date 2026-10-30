@@ -91,3 +91,8 @@
 - **`lsof -F` 结构化输出字段语义**：p=pid、c=comm（进程名）、n=name（文件路径）——批量 cwd/txt 采集用 `-F pn`；把 c 当路径会让 Snapshot.Cwd 恒为进程名（见 bugs.md job_49 procfs Snapshot 条目）
   - 验证命令: `lsof -w -F pc -d cwd | head`（c 行=进程名）vs `lsof -w -F pn -d cwd | head`（n 行=路径）
   - 来源: job_49  状态: ✅ 已确认
+## darwin procfs Environ 不可用——进程所有权断言的 env 兜底在 macOS 恒失效（job_47 实证）
+
+- **`darwinInfo.Environ(pid)` 返回 `ErrUnsupported`**（`internal/env/procfs/procfs_darwin.go:113`：darwin 无 `/proc/<pid>/environ` 等价物，KERN_PROCARGS2 的 env 部分不可靠）→ `ownedByProd` 三重断言（cwd/exe/HOME env）在 macOS 上 **HOME env 断言永远不生效**（`err != nil` 即跳过该断言）——进程所有权只剩 cwd/exe 两条腿。job_47 release 事故链一环：生产实例从 `~/bin/rick`（裸构建，cwd=家目录）启动时 cwd/exe 都不在生产树 → 三断言全不命中 → stopProd 跳过不杀 → 新实例被 web.lock 挡住（job_49 P0-3 以「持生产 web.lock/占生产端口即认领」根治；此处记录事实本身）。
+  - 验证命令: `grep -n "Environ" internal/env/procfs/procfs_darwin.go`（返回 ErrUnsupported 的注释即事实源）
+  - 来源: job_47 / release 跨机事故分析 + wiki/handover-2026-10-30-web-start-macos.md  状态: ✅ 已确认（job_49 P0-3 另行根治认领逻辑）
