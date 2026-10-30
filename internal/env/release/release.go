@@ -20,6 +20,7 @@
 package release
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -218,6 +220,10 @@ func (p Plan) OverlayPrev() string { return p.OverlayDist() + ".prev" }
 // ProdPidPath 返回生产 singleton pid 文件路径。
 func (p Plan) ProdPidPath() string { return filepath.Join(p.StateDirPath(), "web.pid") }
 
+// ProdLockPath 返回生产 singleton 锁文件路径（web.lock；内核 flock 是权威，
+// 文件内 pid 是持有者诊断记录——P0-3 单例认领的依据）。
+func (p Plan) ProdLockPath() string { return filepath.Join(p.StateDirPath(), "web.lock") }
+
 // LogPath 返回生产日志追加路径。
 func (p Plan) LogPath() string { return filepath.Join(p.StateDirPath(), "web.log") }
 
@@ -298,16 +304,19 @@ type SuspendSummary struct {
 
 // RestartResult 是一次生产重启的结果。
 type RestartResult struct {
-	Version  string         `json:"version"`
-	PID      int            `json:"pid"`
-	HealthMS int64          `json:"health_ms"`
-	BuildID  string         `json:"build_id"`
-	Matches  bool           `json:"build_id_matches"`
-	Stopped  []int          `json:"stopped"`
-	Skipped  []int          `json:"skipped"`
-	Overlay  string         `json:"overlay,omitempty"`
-	Recovery SuspendSummary `json:"recovery"`
-	LogTail  []string       `json:"log_tail,omitempty"`
+	Version  string `json:"version"`
+	PID      int    `json:"pid"`
+	HealthMS int64  `json:"health_ms"`
+	BuildID  string `json:"build_id"`
+	Matches  bool   `json:"build_id_matches"`
+	Stopped  []int  `json:"stopped"`
+	Skipped  []int  `json:"skipped"`
+	// SkippedWhy 是拒杀清单的逐条诊断（P0-4：skipped 不再是裸 pid——
+	// “cwd 不可读”/“非 rick 进程”/“停止失败”必须能解释，否则排障又要靠猜）。
+	SkippedWhy []string       `json:"skipped_why,omitempty"`
+	Overlay    string         `json:"overlay,omitempty"`
+	Recovery   SuspendSummary `json:"recovery"`
+	LogTail    []string       `json:"log_tail,omitempty"`
 }
 
 // Result 是提升/回滚的结果（一行真相 + 给 AI 会话解析的结构）。
@@ -563,6 +572,79 @@ func smokeCheck(bin string) error {
 	return nil
 }
 
+// verifyRunnable 在**切链/重启之前**校验目标二进制在本机真的可执行
+// （P0-1/P0-2，job_49）。背景（F1/R1/R3）：跨机投放的 linux/amd64 ELF 在
+// darwin 上 exec 报「cannot execute binary file / Undefined error: 0」，
+// 伪装成权限问题；promote/rollback 一旦换链到这种产物，生产彻底起不来
+// （11:53 事故：自动回滚切到坏 ELF）。校验两层：
+//
+//	① 文件头 magic（平台对表：darwin 拒 ELF，linux 拒 Mach-O）
+//	② `<bin> --version` 冒烟（5s 超时；脚本类 fake 二进制（#! 开头）
+//	   不命中任何 magic → 天然通过，冒烟走 --version 分支）
+func verifyRunnable(bin string) error {
+	fi, err := os.Stat(bin)
+	if err != nil || fi.IsDir() {
+		return fmt.Errorf("二进制不存在: %s", bin)
+	}
+	f, err := os.Open(bin)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", bin, err)
+	}
+	head := make([]byte, 4)
+	n, _ := f.Read(head)
+	_ = f.Close()
+	if wrongPlatformMagic(head[:n]) {
+		return fmt.Errorf("二进制与当前平台不匹配（%s 是外平台产物，本机 %s/%s 无法执行）", bin, runtime.GOOS, runtime.GOARCH)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "--version")
+	cmd.Env = []string{"HOME=" + os.TempDir(), "PATH=" + os.Getenv("PATH")}
+	raw, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("冒烟超时（%s --version > 5s）", bin)
+	}
+	if err != nil {
+		return fmt.Errorf("冒烟失败（%s --version）: %v\n%s", bin, err, tail(string(raw), 256))
+	}
+	return nil
+}
+
+// wrongPlatformMagic 与 internal/env/relocate 的 wrongPlatformBinary 同一逻辑
+// （那边只护 rg 且未导出；此处为 release 链路独立实现，避免 env 层反向耦合
+// relocat e → release 的依赖方向）。判据：macho=0xfeedface/facf 或 0xcafebabe
+// （fat）；elf=0x7f'ELF'；linux→macho 即错、darwin→elf 即错、其他→任一即错。
+func wrongPlatformMagic(head []byte) bool {
+	macho := len(head) >= 4 && (head[0] == 0xfe && head[1] == 0xed && (head[2] == 0xfa || head[2] == 0xce) ||
+		head[0] == 0xca && head[1] == 0xfe && head[2] == 0xba && head[3] == 0xbe)
+	elf := len(head) >= 4 && head[0] == 0x7f && head[1] == 'E' && head[2] == 'L' && head[3] == 'F'
+	switch runtime.GOOS {
+	case "linux":
+		return macho
+	case "darwin":
+		return elf
+	default:
+		return macho || elf
+	}
+}
+
+// portOwner 返回监听该端口的 pid（lsof；无监听/工具缺失返回 0）。
+// P0-4：health 失败时的「端口占用者」诊断；P0-3：端口占用人认领依据。
+func portOwner(port int) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	raw, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP:"+strconv.Itoa(port), "-sTCP:LISTEN", "-t").Output()
+	if err != nil {
+		return 0
+	}
+	for _, field := range strings.Fields(string(raw)) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 0 {
+			return pid
+		}
+	}
+	return 0
+}
+
 // ---- 提升 ----
 
 // Promote 把已构建好的 Release 原子提升为生产：
@@ -576,6 +658,13 @@ func (p Plan) Promote(rel Release) (Result, error) {
 	}
 	if fi, err := os.Stat(rel.Dir); err != nil || !fi.IsDir() {
 		return res, stageErr("promote", "版本目录不存在: %s", rel.Dir)
+	}
+	// P0-1（job_49）：切链前校验目标二进制本机可执行。跨机投放的 ELF
+	//（R1）在 promote 阶段拦下，而不是等 restart exec 失败把生产打翻。
+	// 定 stage=build（产物质量缺陷，退出码 3）：门禁/构建语义都是“产物
+	// 本身有问题”，运维侧可按构建失败处置；current 不动、零进程被杀。
+	if err := verifyRunnable(rel.Bin); err != nil {
+		return res, stageErr("build", "提升中止：目标二进制不可执行: %v（current 未动、未杀任何进程）", err)
 	}
 	prev, err := p.CurrentVersion()
 	if err != nil {
@@ -763,17 +852,17 @@ func (p Plan) gcReleases() ([]string, error) {
 // 期望版本** → 汇总挂起清单。任一步失败都返回对应阶段错误，供调用方决定回滚。
 func (p Plan) Restart(expectedVersion string) (RestartResult, error) {
 	res := RestartResult{Version: expectedVersion}
-	stopped, skipped := p.stopProd()
-	res.Stopped, res.Skipped = stopped, skipped
+	stopped, skipped, why := p.stopProd()
+	res.Stopped, res.Skipped, res.SkippedWhy = stopped, skipped, why
 
 	if err := p.startProd(); err != nil {
 		res.LogTail = p.logTail()
-		return res, &StageError{Stage: "restart", Err: err}
+		return res, &StageError{Stage: "restart", Err: fmt.Errorf("%w\n%s", err, p.portDiagnose())}
 	}
 	pid, healthMS, buildID, err := p.waitHealthy()
 	if err != nil {
 		res.LogTail = p.logTail()
-		return res, &StageError{Stage: "health", Err: err}
+		return res, &StageError{Stage: "health", Err: fmt.Errorf("%w\n%s", err, p.portDiagnose())}
 	}
 	res.PID, res.HealthMS, res.BuildID = pid, healthMS, buildID
 	if expectedVersion != "" {
@@ -781,7 +870,8 @@ func (p Plan) Restart(expectedVersion string) (RestartResult, error) {
 		if !res.Matches {
 			res.LogTail = p.logTail()
 			return res, stageErr("health",
-				"运行中的 build_id=%q 与本次提升版本 %q 不一致（新构建没生效？）", buildID, expectedVersion)
+				"运行中的 build_id=%q 与本次提升版本 %q 不一致：端口 %d 上服务的仍是旧实例 pid=%d（新构建没生效——旧进程未被替换/新进程被单实例锁或端口挡住）\n%s",
+				buildID, expectedVersion, p.Port, pid, p.portDiagnose())
 		}
 	}
 	res.Recovery = p.readRecovery()
@@ -789,10 +879,39 @@ func (p Plan) Restart(expectedVersion string) (RestartResult, error) {
 	return res, nil
 }
 
+// portDiagnose 报告生产端口现状（P0-4：health 失败要能直接定位——区分
+// 「新进程没起来」与「旧进程占端口」两种成因，并点名占用者 pid 与其
+// build_id；本案旧文案「新构建没生效？」在 11135 漏杀场景下纯属误导）。
+func (p Plan) portDiagnose() string {
+	owner := portOwner(p.Port)
+	if owner == 0 {
+		return fmt.Sprintf("诊断: 端口 %d 无监听 → 新进程没起来（查 web.log 尾部）", p.Port)
+	}
+	part := fmt.Sprintf("诊断: 端口 %d 被 pid=%d 占用", p.Port, owner)
+	if body, err := p.getJSON(p.BaseURL() + "/api/health"); err == nil {
+		var payload struct {
+			Status  string `json:"status"`
+			BuildID string `json:"build_id"`
+		}
+		if json.Unmarshal(body, &payload) == nil {
+			part += fmt.Sprintf("（其 /api/health: status=%q build_id=%q → 旧进程挡住新实例，先解决 skipped 清单里的拒杀进程）", payload.Status, payload.BuildID)
+			return part
+		}
+	}
+	part += "（其 /api/health 不可读）"
+	return part
+}
+
 // stopProd 停掉生产实例：pid 文件 + 系统进程枚举（经 internal/env/procfs，
 // linux/darwin 均可用），逐个做所有权断言；
-// 断言不通过的进程记录在 skipped（宁可不杀，也绝不误杀）。
-func (p Plan) stopProd() (stopped, skipped []int) {
+// 断言不通过的进程记录在 skipped（宁可不杀，也绝不误杀），并附带诊断
+// （P0-4：拒杀必须可解释——cwd/exe 不可读、非 rick 进程都要说清楚）。
+//
+// P0-3（job_49，human 裁决 J2 B 方案）：ownedByProd 断言失配时补一道
+// 「单例认领」——持生产 web.lock 或监听生产端口、且进程名义是 rick 的，
+// 即使 cwd/exe 都不在生产形态（裸构建 build_id=dev 的实例，本案 11135
+// 漏杀）也认领停止；非 rick 进程一律保持宁可不杀。
+func (p Plan) stopProd() (stopped, skipped []int, why []string) {
 	seen := map[int]bool{}
 	var candidates []int
 	if data, err := os.ReadFile(p.ProdPidPath()); err == nil {
@@ -807,25 +926,53 @@ func (p Plan) stopProd() (stopped, skipped []int) {
 			seen[pid] = true
 		}
 	}
+	// P0-3（场景②）：端口占用的裸 rick 用自己的 state-dir——不写生产
+	// web.pid、不持生产锁、cwd/exe 不在生产形态，两个既有来源都发现不了它
+	//（本案实测：skipped_why=[] 空，新进程绑不上端口）。补两个来源：
+	// ③ 生产端口占用者 ④ web.lock 记录的持有者（进入 claimBySingleton 判定）。
+	if owner := portOwner(p.Port); owner > 0 && !seen[owner] {
+		candidates = append(candidates, owner)
+		seen[owner] = true
+	}
+	if data, err := os.ReadFile(p.ProdLockPath()); err == nil {
+		if holder, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && holder > 0 && !seen[holder] {
+			candidates = append(candidates, holder)
+			seen[holder] = true
+		}
+	}
 	for _, pid := range candidates {
 		if pid == os.Getpid() || !alive(pid) {
 			continue
 		}
-		if !ownedByProd(p, pid) {
-			skipped = append(skipped, pid)
+		owned, diag := ownedByProdDiag(p, pid)
+		claim := ""
+		if owned {
+			if terminate(pid, p.stopGrace()) {
+				stopped = append(stopped, pid)
+			} else {
+				skipped = append(skipped, pid)
+				why = append(why, fmt.Sprintf("%d: 所有权断言通过但停止失败（TERM+KILL 后仍存活）", pid))
+			}
 			continue
 		}
-		if terminate(pid, p.stopGrace()) {
-			stopped = append(stopped, pid)
-		} else {
+		if c, ok := claimBySingleton(p, pid); ok {
+			claim = c
+			if terminate(pid, p.stopGrace()) {
+				stopped = append(stopped, pid)
+				continue
+			}
 			skipped = append(skipped, pid)
+			why = append(why, fmt.Sprintf("%d: 单例认领（%s）后停止失败", pid, claim))
+			continue
 		}
+		skipped = append(skipped, pid)
+		why = append(why, fmt.Sprintf("%d: %s", pid, diag))
 	}
 	// 进程已消失但 pid 文件还在 → 清理，否则新实例会被 singleton 门禁拒绝
 	if !alivePIDFile(p.ProdPidPath()) {
 		_ = os.Remove(p.ProdPidPath())
 	}
-	return stopped, skipped
+	return stopped, skipped, why
 }
 
 // startProd 拉起生产：优先用部署脚本（研究实测它就是「生产如何被拉起」的事实
@@ -988,8 +1135,10 @@ func (p Plan) logTail() []string {
 		return nil
 	}
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(lines) > 12 {
-		lines = lines[len(lines)-12:]
+	// P0-4（job_49）：12 → 20 行——失败诊断需要足够上下文
+	//（交接单 §6 P0-4 验收：新进程日志最后 20 行）。
+	if len(lines) > 20 {
+		lines = lines[len(lines)-20:]
 	}
 	return lines
 }
@@ -1008,6 +1157,17 @@ func (p Plan) Rollback() (Result, error) {
 	}
 	if !dirExists(p.VersionDir(last)) {
 		return res, stageErr("promote", "回滚点 %s 的版本目录已不存在: %s", last, p.VersionDir(last))
+	}
+	// P0-2（job_49）：回滚点也必须可执行——自动回滚切到坏 ELF 是 R3 根因
+	//（「发布失败」升级成「生产彻底起不来」）。不可执行则拒绝切链、
+	// 保留现场、点名回滚点，并提示可用的健康版本。
+	if err := verifyRunnable(filepath.Join(p.VersionDir(last), "rick")); err != nil {
+		cur, _ := p.CurrentVersion()
+		healthy := "（无）"
+		if cur != "" && dirExists(p.VersionDir(cur)) {
+			healthy = cur
+		}
+		return res, stageErr("promote", "回滚点不可执行，拒绝切链（current 保持 %q 不变、生产未被重启）: %v；当前链上版本: %s", cur, err, healthy)
 	}
 	cur, _ := p.CurrentVersion()
 	res.Version = last
@@ -1146,9 +1306,15 @@ func (p Plan) Rollout(rel Release, out io.Writer) (Result, error) {
 }
 
 // forceSwitch 把 current 链与覆盖层切到指定版本（自动回滚用；不读 .last）。
+// P0-2（job_49）：自动回滚路径同样校验可执行性——否则 Rollout 失败后的
+// 救命绳会把 current 切到另一份坏 ELF（本案 11:53 实发）。校验失败时
+// 不切链，错误点名回滚点，交调用方把原始失败如实上报。
 func (p Plan) forceSwitch(version string) error {
 	if !dirExists(p.VersionDir(version)) {
 		return fmt.Errorf("版本目录不存在: %s", p.VersionDir(version))
+	}
+	if err := verifyRunnable(filepath.Join(p.VersionDir(version), "rick")); err != nil {
+		return fmt.Errorf("回滚点不可执行（拒绝切链，current 保持不变）: %w", err)
 	}
 	if err := p.switchCurrent(version); err != nil {
 		return err
@@ -1274,6 +1440,14 @@ func (p Plan) LastVersion() (string, error) {
 // darwin 无 /proc/<pid>/environ 等价物（procfs.ErrUnsupported）→ env 断言跳过，
 // 靠 cwd+exe 双断言（linux 下三者全可用）。
 func ownedByProd(p Plan, pid int) bool {
+	ok, _ := ownedByProdDiag(p, pid)
+	return ok
+}
+
+// ownedByProdDiag = ownedByProd + 失败诊断（P0-4：断言失配不再静默 false——
+// 哪些断言可用、哪个不匹配要说清楚，否则「宁可不杀」退化成「永远不杀」
+// 时无人能解释）。断言通过时诊断为空。
+func ownedByProdDiag(p Plan, pid int) (bool, string) {
 	// macOS：路径断言统一 EvalSymlinks 后比较——t.TempDir()/cwd 常见 /var ↔
 	// /private/var 双形（lsof 给物理路径，Plan 持逻辑路径），不归一会让所有权
 	// 断言全部失配→stopProd 跳过→旧进程残留端口→重启后 build_id 不一致
@@ -1286,20 +1460,92 @@ func ownedByProd(p Plan, pid int) bool {
 	}
 	prodRepo := norm(p.ProdRepo)
 	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
-	if cwd, err := proc.Cwd(pid); err == nil && norm(cwd) == prodRepo {
-		return true
+	var parts []string
+	if cwd, err := proc.Cwd(pid); err == nil {
+		if norm(cwd) == prodRepo {
+			// cwd 单独成立**不足以**判死刑（job_49 发现）：生产树根 = git 仓库根，
+		// 开发会话/终端/human 的 shell 都在那里工作——cwd 断言的本意是
+		// 「start-web.sh cd 进 prodRepo 后 exec 的实例」，必须再加名义佐证
+		//（argv[0] basename 含 rick）才认领；否则只记录候选，交 claim 链判定。
+			if rickNamedProcess(pid) {
+				return true, ""
+			}
+			parts = append(parts, fmt.Sprintf("cwd=%s（生产树内但名义非 rick——不认领，待单例链判定）", cwd))
+		} else {
+			parts = append(parts, fmt.Sprintf("cwd=%s（非生产树）", cwd))
+		}
+	} else {
+		parts = append(parts, "cwd 不可读: "+err.Error())
 	}
 	if exe, err := proc.Exe(pid); err == nil {
 		if strings.HasPrefix(norm(exe), prodBin) {
-			return true
+			return true, ""
 		}
+		parts = append(parts, fmt.Sprintf("exe=%s（非 prod/bin 前缀）", exe))
+	} else {
+		parts = append(parts, "exe 不可读: "+err.Error())
 	}
 	if envMap, err := proc.Environ(pid); err == nil {
 		if envMap["HOME"] == p.ProdHome {
+			return true, ""
+		}
+		parts = append(parts, "environ HOME 非生产 HOME")
+	} else {
+		// darwin 恒为此错误：不是缺陷，是平台事实
+		parts = append(parts, "environ 不可用: "+err.Error())
+	}
+	return false, "所有权断言未通过（" + strings.Join(parts, "; ") + "）"
+}
+
+// rickNamedProcess 判断 pid 是否「名义上是 rick」（认不出就 false——
+// 调用方对 false 的处置永远是宁可不杀）：
+// ① exe basename 含 rick（真实二进制：release 产物/裸 go build——本案 11135）
+// ② argv 任一段 basename 含 rick（shebang 解释器形态：argv[0] 是解释器，
+//    脚本路径在 argv[1]——只看 argv[0] 会漏；procfs.Command 取完整命令行）
+// ③ comm 含 rick（批量快照进程名，最后弱佐证）
+func rickNamedProcess(pid int) bool {
+	exe, _ := proc.Exe(pid)
+	if strings.Contains(strings.ToLower(filepath.Base(exe)), "rick") {
+		return true
+	}
+	if cmdline, err := proc.Command(pid); err == nil {
+		for _, f := range strings.Fields(cmdline) {
+			if strings.Contains(strings.ToLower(filepath.Base(f)), "rick") {
+				return true
+			}
+		}
+	}
+	if snaps, err := proc.Snapshot(); err == nil {
+		if s, ok := snaps[pid]; ok && strings.Contains(strings.ToLower(s.Comm), "rick") {
 			return true
 		}
 	}
 	return false
+}
+
+// claimBySingleton 是 P0-3 的兜底认领（human 裁决 J2 B 方案）：
+// ownedByProd 断言失配、但进程**持有生产单例锁**（web.lock 记录的持有者）
+// 或**监听生产端口**，且进程名义是 rick（exe/comm 名含 rick）→ 认领停止。
+// 本案 11135：裸构建（build_id=dev）实例占着生产锁/端口，cwd/exe 都不在
+// 生产形态，旧断言按设计拒认领 → skipped → 新进程被锁/端口挡住 → health
+// 读到旧实例 → 「新构建没生效」误报。认不出的（非 rick）进程仍宁可不杀。
+func claimBySingleton(p Plan, pid int) (string, bool) {
+	// rick 进程认定（三级链，认不出就绝不杀）：exe → argv（shebang 解释器
+	// 形态 argv[0] 是解释器，脚本路径在 argv[1]，扫全 argv）→ comm。
+	if !rickNamedProcess(pid) {
+		return "", false
+	}
+	// ① 持有生产单例锁（web.lock 记录的持有者 pid）
+	if data, err := os.ReadFile(p.ProdLockPath()); err == nil {
+		if holder, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && holder == pid {
+			return fmt.Sprintf("持生产单例锁 web.lock（pid=%d，非 release 形态的 rick 进程——按 J2 裁决认领停止）", pid), true
+		}
+	}
+	// ② 监听生产端口（且是 rick 进程）
+	if owner := portOwner(p.Port); owner == pid {
+		return fmt.Sprintf("监听生产端口 %d（pid=%d，rick 进程——按 J2 裁决认领停止）", p.Port, pid), true
+	}
+	return "", false
 }
 
 // findProdPIDs 枚举系统进程里属于该生产部署的（pid 文件缺失/陈旧时的兜底；
@@ -1350,7 +1596,12 @@ func ownedByProdSnapshot(p Plan, s procfs.ProcSnapshot) bool {
 	prodRepo := norm(p.ProdRepo)
 	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
 	if s.Cwd != "" && norm(s.Cwd) == prodRepo {
-		return true
+		// cwd 单独成立不足以判死刑（与 ownedByProdDiag 同一纪律）：生产树根
+		// 是 git 仓库根，开发会话/终端都在那工作。快照无 argv——退 comm 佐证
+		//（release 二进制进程 comm="rick"；开发 shell/node 是 "zsh"/"node"）。
+		// comm 非 rick 的 cwd 匹配进程不进快照断言候选（进 stopProd 后由
+		// claim 链按锁/端口判定）。
+		return strings.Contains(strings.ToLower(s.Comm), "rick")
 	}
 	if s.Exe != "" && strings.HasPrefix(norm(s.Exe), prodBin) {
 		return true

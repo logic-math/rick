@@ -97,6 +97,19 @@ func (darwinInfo) Cwd(pid int) (string, error) {
 	return path, nil
 }
 
+func (darwinInfo) Command(pid int) (string, error) {
+	// ps -ww 解除宽度截断；command= 是完整 argv（含 shebang 脚本路径）。
+	out, err := runCommand("ps", "-ww", "-o", "command=", "-p", strconv.Itoa(pid))
+	if err != nil {
+		return "", fmt.Errorf("ps command %d: %w", pid, err)
+	}
+	cmd := strings.TrimSpace(out)
+	if cmd == "" {
+		return "", fmt.Errorf("ps command %d: empty output", pid)
+	}
+	return cmd, nil
+}
+
 func (darwinInfo) Environ(int) (map[string]string, error) {
 	// darwin 无 /proc/<pid>/environ 等价物（KERN_PROCARGS2 的 env 部分不可靠）。
 	// 调用方必须降级到 cwd/exe 断言，不得把 ErrUnsupported 视为「进程不存在」。
@@ -168,8 +181,12 @@ func (darwinInfo) Snapshot() (map[int]ProcSnapshot, error) {
 		}
 		return res
 	}
-	if o, err := runCommand("lsof", "-w", "-F", "pc", "-d", "cwd"); err == nil {
-		for pid, cwd := range parseLSOFBlocks(o, 'c') {
+	if o, err := runCommand("lsof", "-w", "-F", "pn", "-d", "cwd"); err == nil {
+		// 历史笔误（job_49 发现）：曾是 -F pc + parse 'c'——把 comm 名当 cwd 路径
+		// 解析，快照 Cwd 恒为进程名（"sleep"/"node"）而非路径 → ownedByProdSnapshot
+		// 全失配 → findProdPIDs/findDevPIDs 空转（dev-web status 误报 down、快照断言
+		// 形同虚设）。正确字段：p=pid n=name(path)。
+		for pid, cwd := range parseLSOFBlocks(o, 'n') {
 			s := out[pid]
 			s.PID, s.Cwd = pid, cwd
 			out[pid] = s

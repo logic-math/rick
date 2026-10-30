@@ -546,3 +546,83 @@ func TestImportSubWorkspaceInsidePackedTree(t *testing.T) {
 		t.Error("parent tree content missing")
 	}
 }
+
+// ─── P1-2: wrong-platform state bin/rick refused (job_49 F6) ───────────────
+
+// TestImportSkipsWrongPlatformStateRick：dump 的 state 树携带外平台 bin/rick
+// （F6：跨机导入把它原样落到目标 ~/.rick/bin/rick → exec 必失败且报错伪装成
+// 权限问题）。import 必须拒装——目标机的正确平台 rick 由 adaptPlatform 的
+// rick-import-<goos>-<goarch> 通道负责。
+func TestImportSkipsWrongPlatformStateRick(t *testing.T) {
+	tmp := t.TempDir()
+	ws := fixtureWS(t, tmp)
+	state := fixtureState(t, tmp, ws)
+	// 状态树里的「旧机 rick 本体」：本机跑不了的格式
+	wrongHead := "\x7fELF\x02\x01\x01\x00" + strings.Repeat("0", 64)
+	if hostGOOS == "linux" {
+		wrongHead = "\xfe\xed\xfa\xcf" + strings.Repeat("0", 64)
+	}
+	mustMk(t, filepath.Join(state, "bin"))
+	if err := os.WriteFile(filepath.Join(state, "bin", "rick"), []byte(wrongHead), 0o755); err != nil {
+		t.Fatalf("write state bin/rick: %v", err)
+	}
+	archive := dumpFixture(t, tmp, ws, state, nil)
+
+	home := t.TempDir()
+	target := filepath.Join(home, "new-ws")
+	stateDir := filepath.Join(home, "state")
+	res, err := Import(ImportOptions{
+		Archive:  archive,
+		Target:   target,
+		StateDir: stateDir,
+		AgentDir: filepath.Join(stateDir, "pi", "agent"),
+		Now:      time.Date(2026, 10, 30, 22, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if fileExists(filepath.Join(stateDir, "bin", "rick")) {
+		t.Fatal("❌ 错平台的 bin/rick 被装进了目标 StateDir（F6 复发）")
+	}
+	if len(res.WrongPlatformDropped) == 0 || res.WrongPlatformDropped[0] != "bin/rick" {
+		t.Fatalf("未报告拒装的错平台二进制: %+v", res.WrongPlatformDropped)
+	}
+	dropped := false
+	for _, s := range res.NextSteps {
+		if strings.Contains(s, "错平台") {
+			dropped = true
+		}
+	}
+	if !dropped {
+		t.Fatalf("NextSteps 未提示拒装: %v", res.NextSteps)
+	}
+}
+
+// TestImportPlacesNativePlatformStateRick：本机平台的 bin/rick 照常落位
+// （拒装只针对外平台产物——不能把合法迁移也拦了）。
+func TestImportPlacesNativePlatformStateRick(t *testing.T) {
+	tmp := t.TempDir()
+	ws := fixtureWS(t, tmp)
+	state := fixtureState(t, tmp, ws)
+	nativeHead := "#!/bin/sh\necho rick\n" // 脚本类：不命中任何平台 magic
+	mustMk(t, filepath.Join(state, "bin"))
+	if err := os.WriteFile(filepath.Join(state, "bin", "rick"), []byte(nativeHead), 0o755); err != nil {
+		t.Fatalf("write state bin/rick: %v", err)
+	}
+	archive := dumpFixture(t, tmp, ws, state, nil)
+
+	home := t.TempDir()
+	stateDir := filepath.Join(home, "state")
+	if _, err := Import(ImportOptions{
+		Archive:  archive,
+		Target:   filepath.Join(home, "new-ws"),
+		StateDir: stateDir,
+		AgentDir: filepath.Join(stateDir, "pi", "agent"),
+		Now:      time.Date(2026, 10, 30, 22, 0, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if !fileExists(filepath.Join(stateDir, "bin", "rick")) {
+		t.Fatal("本机可执行的 bin/rick 应照常落位")
+	}
+}

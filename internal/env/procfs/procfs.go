@@ -37,6 +37,13 @@ type Info interface {
 	// Cwd 返回进程工作目录。
 	Cwd(pid int) (string, error)
 
+	// Command 返回进程完整命令行（argv 以空格连接的展示形态；
+	// linux: /proc/<pid>/cmdline；darwin: ps -ww -o command=）。
+	// 用于 shebang 解释器形态下的名义认定——Exe 返回解释器路径时，
+	// argv[0]（脚本路径）才是进程的名义可执行名（job_49 P0-3）。
+	// 错误容忍：拿不到就降级其他断言，不得视为进程不存在。
+	Command(pid int) (string, error)
+
 	// Environ 返回进程环境变量。darwin 返回 ErrUnsupported（无等价物）。
 	Environ(pid int) (map[string]string, error)
 
@@ -70,6 +77,7 @@ func (unsupportedInfo) PPID(int) (int, error)                  { return 0, ErrUn
 func (unsupportedInfo) Exe(int) (string, error)                { return "", ErrUnsupported }
 func (unsupportedInfo) ExeHashPath(int) (string, error)        { return "", ErrUnsupported }
 func (unsupportedInfo) Cwd(int) (string, error)                { return "", ErrUnsupported }
+func (unsupportedInfo) Command(int) (string, error)            { return "", ErrUnsupported }
 func (unsupportedInfo) Environ(int) (map[string]string, error) { return nil, ErrUnsupported }
 func (unsupportedInfo) Enumerate() ([]int, error)              { return nil, ErrUnsupported }
 func (unsupportedInfo) Snapshot() (map[int]ProcSnapshot, error) {

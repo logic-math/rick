@@ -67,6 +67,11 @@ type ImportResult struct {
 	Checks              []CheckResult
 	InstallHint         string // how to install the embedded native rick binary
 	NextSteps           []string
+	// WrongPlatformDropped lists state-tree binaries refused because
+	// they cannot run on this machine (P1-2, job_49: the dump's state
+	// bin/rick is machine-bound — placing it recreates F6, a ~/.rick/bin/rick
+	// that exec-fails with "cannot execute binary file").
+	WrongPlatformDropped []string
 
 	nowStamp string // backup suffix timestamp (one per import run)
 }
@@ -388,6 +393,22 @@ func mergeState(staging string, opts ImportOptions, pm *PathMap, res *ImportResu
 		}
 	}
 	_ = pm // (pm kept for signature symmetry / future merges)
+
+	// P1-2（job_49）：状态树里的 bin/rick 是机器绑定产物——错平台的（linux ELF
+	// 搬到 darwin）拒装，否则目标机会得到一个 exec 必失败、报错还伪装成权限
+	// 问题的 ~/.rick/bin/rick（F6 实锤：跨机导入后 10-15 的 ELF 至今躺在那）。
+	// 正确平台的 rick 本来就由 adaptPlatform 暂存为 bin/rick-import-<goos>-<goarch>
+	// 并在 InstallHint 里给出 cp 指引——状态树里的这份只是历史遗留。
+	for _, rel := range []string{"bin/rick"} {
+		p := filepath.Join(src, filepath.FromSlash(rel))
+		if data, err := os.ReadFile(p); err == nil && wrongPlatformBinary(data) {
+			if err := os.Remove(p); err != nil {
+				return fmt.Errorf("拒装错平台二进制 %s: %w", rel, err)
+			}
+			res.WrongPlatformDropped = append(res.WrongPlatformDropped, rel)
+			res.StateFilesSkipped++
+		}
+	}
 
 	// The pi-agent subtree routes to AgentDir, not StateDir/pi/agent.
 	return mergeTreeSkip(src, dst, []string{"pi-agent"}, &res.StateFilesPlaced, &res.StateFilesSkipped, res)
@@ -975,6 +996,9 @@ func nextSteps(opts ImportOptions, manifest *Manifest, res *ImportResult) []stri
 	if len(res.OrphanSessionDirs) > 0 {
 		steps = append(steps, fmt.Sprintf("注意：%d 个会话目录属于未随迁工作区（--sessions=all 带来），其 cwd 已不存在，仅可按 session id 全局检索",
 			len(res.OrphanSessionDirs)))
+	}
+	if len(res.WrongPlatformDropped) > 0 {
+		steps = append(steps, fmt.Sprintf("已拒装错平台二进制: %v（本机无法执行；正确平台的 rick 见 InstallHint）", res.WrongPlatformDropped))
 	}
 	return steps
 }

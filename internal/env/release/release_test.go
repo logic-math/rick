@@ -6,12 +6,16 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/user"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sunquan/rick/internal/env/procfs"
 )
 
 // fakeServerPy 是「模拟生产二进制」：一个最小 HTTP 服务，把自己所在**版本目录名**
@@ -31,6 +35,13 @@ def opt(name, default=None):
 
 if "--help" in args:
     print("fake rick web (test double)")
+    sys.exit(0)
+
+# P0-1/P0-2（job_49）：release 链路现在用 --version 做可执行性冒烟
+#（verifyRunnable）——fake 必须能应答，否则所有 promote/rollback 用例会被
+# 新校验误伤。
+if "--version" in args:
+    print("fake rick (test double) version=fake")
     sys.exit(0)
 
 state = opt("--state-dir") or os.path.join(os.environ.get("HOME", "."), ".rick")
@@ -391,6 +402,43 @@ exec %s web --listen 127.0.0.1 --port %d --state-dir %s --token %s
 	}
 	if !strings.Contains(err.Error(), v1.Version) {
 		t.Fatalf("错误信息未指出实际运行的旧版本: %v", err)
+	}
+}
+
+// TestRestartRefusesToKillCwdSquatterInProdTree job_49 发现的误杀防线：
+// 生产树根 = git 仓库根，开发会话/human 终端/agent 都在那里工作（cwd 匹配
+// 「start-web.sh cd 进 prodRepo」的断言本意，但断言过宽）。cwd 在生产树的
+// 非 rick 进程（sleep/开发 shell）绝不能被 stopProd 认领——否则 release 一跑
+// 就把承载它的 agent 会话全杀了。
+func TestRestartRefusesToKillCwdSquatterInProdTree(t *testing.T) {
+	p := newFakeProd(t)
+	// 旁观进程：cwd 就在生产树根（比 ForeignProcess 更危险的形态）
+	foreign := exec.Command("sleep", "300")
+	foreign.Dir = p.ProdRepo
+	foreign.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH")}
+	if err := foreign.Start(); err != nil {
+		t.Fatalf("start foreign: %v", err)
+	}
+	defer func() { _ = foreign.Process.Kill() }()
+
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+	res, err := p.Restart(v1.Version)
+	if err != nil {
+		t.Fatalf("Restart: %v\nskipped_why=%v", err, res.SkippedWhy)
+	}
+	if !res.Matches {
+		t.Fatalf("重启未生效: %+v", res)
+	}
+	if !alive(foreign.Process.Pid) {
+		t.Fatal("❌ 生产树 cwd 的非 rick 进程被误杀——cwd 断言过宽（会杀开发会话）")
+	}
+	for _, pid := range res.Stopped {
+		if pid == foreign.Process.Pid {
+			t.Fatal("❌ 旁观进程进了 stopped 清单")
+		}
 	}
 }
 
@@ -843,5 +891,432 @@ func TestExitCodeForStage(t *testing.T) {
 		if got := ExitCodeForStage(stage); got != want {
 			t.Errorf("ExitCodeForStage(%q) = %d，期望 %d", stage, got, want)
 		}
+	}
+}
+
+// ─── P0 修复用例（job_49）──────────────────────────────────────────────────
+
+// fakeELF 写一份「本机不可执行」的二进制（ELF 头；linux 主机上则写 Mach-O 头，
+// 两平台都能构造出 wrongPlatformMagic 命中的产物）。
+func fakeELF(t *testing.T, path string) {
+	t.Helper()
+	head := "\x7fELF\x02\x01\x01\x00" + strings.Repeat("0", 64) // ELF 64-bit LSB
+	if runtime.GOOS == "linux" {
+		// linux 上 ELF 是本机格式 → 用 Mach-O 头构造「外平台产物」
+		head = "\xfe\xed\xfa\xcf" + strings.Repeat("0", 64)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir parent of %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(head), 0o755); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// TestPromoteRejectsNonExecutableTarget P0-1：版本目录里躺着外平台 ELF 时，
+// Promote 必须在切链前拒绝（stage=build），current 不动、零进程被杀。
+// （11:53 事故的自动回滚切到 eb8048c ELF → 生产彻底起不来——R1/R3 链头。）
+func TestPromoteRejectsNonExecutableTarget(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+
+	// 构造坏版本目录：releases/<badver>/rick 是 ELF
+	bad := "badbad0-261030120000"
+	fakeELF(t, filepath.Join(p.VersionDir(bad), "rick"))
+	mustWrite(t, filepath.Join(p.VersionDir(bad), "dist", "index.html"), "<html>bad</html>")
+
+	_, err := p.Promote(Release{Version: bad, Dir: p.VersionDir(bad), Bin: filepath.Join(p.VersionDir(bad), "rick")})
+	if err == nil {
+		t.Fatal("Promote 竟然接受了不可执行的版本目录")
+	}
+	if got := stageOf(t, err); got != "build" {
+		t.Fatalf("失败阶段 = %q，期望 build（产物质量缺陷）", got)
+	}
+	if cur, _ := p.CurrentVersion(); cur != v1.Version {
+		t.Fatalf("current 被动过: %q，期望保持 %q", cur, v1.Version)
+	}
+	if fileExists(p.LastRecord()) {
+		t.Fatal("被拒绝的提升不该写回滚点")
+	}
+}
+
+// TestRollbackRejectsNonExecutableTarget P0-2：.last 指向 ELF 版本时 Rollback
+// 必须拒绝切链（点名「回滚点不可执行」），current 不变、服务继续在跑。
+func TestRollbackRejectsNonExecutableTarget(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+	if _, err := p.Restart(v1.Version); err != nil {
+		t.Fatalf("Restart v1: %v", err)
+	}
+
+	// 坏回滚点：.last 指向 ELF 版本目录
+	bad := "badbad0-261030120001"
+	fakeELF(t, filepath.Join(p.VersionDir(bad), "rick"))
+	mustWrite(t, p.LastRecord(), bad+"\n")
+
+	_, err := p.Rollback()
+	if err == nil {
+		t.Fatal("Rollback 竟然切到了不可执行的回滚点")
+	}
+	if got := stageOf(t, err); got != "promote" {
+		t.Fatalf("失败阶段 = %q，期望 promote", got)
+	}
+	if !strings.Contains(err.Error(), "回滚点不可执行") {
+		t.Fatalf("错误未点名回滚点不可执行: %v", err)
+	}
+	if cur, _ := p.CurrentVersion(); cur != v1.Version {
+		t.Fatalf("current 被切走: %q，期望保持 %q", cur, v1.Version)
+	}
+	// 服务未受影响：旧实例仍在服务
+	st := p.Status()
+	if !st.Healthy || st.RunningBuildID != v1.Version {
+		t.Fatalf("拒绝回滚后生产不可用: %+v", st)
+	}
+}
+
+// TestReleaseAutorollbackRefusesBadRollbackTarget P0-2 自动回滚路径：
+// 新版重启失败 + .last 是坏 ELF → forceSwitch 拒绝切链，把真实原因
+// （回滚点不可执行）返回而不是默默切到另一份坏产物。
+func TestReleaseAutorollbackRefusesBadRollbackTarget(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+	if _, err := p.Restart(v1.Version); err != nil {
+		t.Fatalf("Restart v1: %v", err)
+	}
+
+	// 11:53 事故精确复现：PrevVersion（自动回滚目标）本身是坏产物（EBF）。
+	// 运行中的 v1 进程不受磁盘文件替换影响，但下一轮 release 的 startProd
+	// 与 autorollback 都会碰到坏二进制 → 回滚必须拒绝切链并点名，而不是把
+	// current 切到不可执行版本（R3 根因：回滚把「发布失败」升级成「起不来」）。
+	fakeELF(t, filepath.Join(p.VersionDir(v1.Version), "rick"))
+
+	// 部署脚本钉死 v1（模拟新版起不来）→ Release 失败 → 自动回滚 → 拒绝坏点
+	mustWrite(t, p.StartScript, fmt.Sprintf(`#!/bin/bash
+cd %s
+exec %s web --listen 127.0.0.1 --port %d --state-dir %s --token %s
+`, p.ProdRepo, filepath.Join(p.VersionDir(v1.Version), "rick"), p.Port, p.StateDir, p.Token))
+
+	time.Sleep(1100 * time.Millisecond) // 版本号防同秒撞号
+	var buf strings.Builder
+	res, err := p.Release(&buf)
+	if err == nil {
+		t.Fatal("钉死旧版 + 坏回滚点，Release 必须失败")
+	}
+	if !strings.Contains(err.Error(), "回滚点不可执行") {
+		t.Fatalf("自动回滚失败未点名坏回滚点: %v", err)
+	}
+	if !strings.Contains(buf.String(), "RELEASE_AUTOROLLBACK") {
+		t.Fatalf("缺少自动回滚标记:\n%s", buf.String())
+	}
+	if cur, _ := p.CurrentVersion(); cur != res.Version {
+		t.Fatalf("自动回滚被拒后 current 应保持新版本 %q，实际 %q", res.Version, cur)
+	}
+}
+
+// TestStopProdClaimsBareBuildHoldingLock P0-3 锁持有者认领（本案 11135 场景）：
+// 裸构建的 rick web（cwd/exe 都不在生产形态）占着生产单例锁 → 必须被认领停止，
+// skipped 为空——否则新进程被锁挡住、health 读到旧实例、报「新构建没生效」。
+func TestStopProdClaimsBareBuildHoldingLock(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+
+	// 裸构建实例：exe 在生产树之外（baredir/rick），cwd 也在外面；
+	// 用 prod 的 state-dir（会写 web.pid）+ 自己的端口——正是 11135 形态。
+	bareDir := t.TempDir()
+	bareBin := filepath.Join(bareDir, "rick")
+	mustWrite(t, bareBin, fakeServerPy)
+	if err := os.Chmod(bareBin, 0o755); err != nil {
+		t.Fatalf("chmod bare: %v", err)
+	}
+	bare := exec.Command(bareBin, "web", "--listen", "127.0.0.1", "--port", strconv.Itoa(freePort(t)), "--state-dir", p.StateDirPath())
+	bare.Dir = bareDir // cwd 不在生产树
+	bare.Env = []string{"HOME=" + bareDir, "PATH=" + os.Getenv("PATH")}
+	if err := bare.Start(); err != nil {
+		t.Fatalf("start bare: %v", err)
+	}
+	defer func() { _ = bare.Process.Kill() }()
+	waitFor := func(cond string) {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if data, err := os.ReadFile(p.ProdPidPath()); err == nil {
+				if pid, _ := strconv.Atoi(strings.TrimSpace(string(data))); pid == bare.Process.Pid {
+					return
+				}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Fatalf("裸实例未就绪（web.pid 未变成其 pid）: %s", cond)
+	}
+	waitFor("web.pid")
+
+	// 模拟它持有生产单例锁（内核 flock 的持有者诊断记录）
+	mustWrite(t, p.ProdLockPath(), fmt.Sprintf("%d\n", bare.Process.Pid))
+
+	res, err := p.Restart(v1.Version)
+	if err != nil {
+		t.Fatalf("Restart: %v\nskipped_why=%v", err, res.SkippedWhy)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("裸实例仍被拒杀: %v（why=%v）", res.Skipped, res.SkippedWhy)
+	}
+	found := false
+	for _, pid := range res.Stopped {
+		if pid == bare.Process.Pid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("裸实例未被认领停止: stopped=%v skipped=%v why=%v", res.Stopped, res.Skipped, res.SkippedWhy)
+	}
+	if alive(bare.Process.Pid) {
+		t.Fatal("裸实例仍存活（锁持有者认领失败）")
+	}
+	if !res.Matches {
+		t.Fatalf("重启后 build_id 不匹配: %+v", res)
+	}
+}
+
+// stubProcInfo 覆写个别查询（cwd 失败 / exe 修正），其余委托真实实现
+// （Alive 必须⊥真实：terminate 的收尸轮询依赖它）。
+type stubProcInfo struct {
+	inner  procfs.Info
+	cwdErr map[int]bool // 这些 pid 的 Cwd 返回错误（模拟 lsof 受限）
+	exeFix map[int]string
+}
+
+func (s stubProcInfo) Alive(pid int) bool        { return s.inner.Alive(pid) }
+func (s stubProcInfo) PPID(pid int) (int, error) { return s.inner.PPID(pid) }
+func (s stubProcInfo) Exe(pid int) (string, error) {
+	if p, ok := s.exeFix[pid]; ok {
+		return p, nil
+	}
+	return s.inner.Exe(pid)
+}
+func (s stubProcInfo) ExeHashPath(pid int) (string, error) { return s.inner.ExeHashPath(pid) }
+func (s stubProcInfo) Cwd(pid int) (string, error) {
+	if s.cwdErr[pid] {
+		return "", fmt.Errorf("lsof: permission denied (simulated)")
+	}
+	return s.inner.Cwd(pid)
+}
+func (s stubProcInfo) Command(pid int) (string, error) {
+	return s.inner.Command(pid)
+}
+func (s stubProcInfo) Environ(pid int) (map[string]string, error)     { return s.inner.Environ(pid) }
+func (s stubProcInfo) Enumerate() ([]int, error)                      { return s.inner.Enumerate() }
+func (s stubProcInfo) Snapshot() (map[int]procfs.ProcSnapshot, error) { return s.inner.Snapshot() }
+
+// withStubProc 注入 stub 并在测试结束时还原。
+func withStubProc(t *testing.T, s stubProcInfo) {
+	t.Helper()
+	old := proc
+	proc = s
+	t.Cleanup(func() { proc = old })
+}
+
+// TestStopProdFallsBackToExeWhenCwdUnreadable P0-3 场景①：cwd 取不到
+// （lsof 受限）时所有权断言应回退 exe 前缀断言认领进程，而不是静默判 false。
+func TestStopProdFallsBackToExeWhenCwdUnreadable(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+
+	// 旁观进程（pid 文件指向它）：cwd 不可读，但 exe 在 prod/bin 下
+	foreign := exec.Command("sleep", "300")
+	foreign.Dir = t.TempDir()
+	foreign.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH")}
+	if err := foreign.Start(); err != nil {
+		t.Fatalf("start foreign: %v", err)
+	}
+	defer func() { _ = foreign.Process.Kill() }()
+	mustWrite(t, p.ProdPidPath(), fmt.Sprintf("%d\n", foreign.Process.Pid))
+
+	withStubProc(t, stubProcInfo{
+		inner:  procfs.New(),
+		cwdErr: map[int]bool{foreign.Process.Pid: true},
+		exeFix: map[int]string{foreign.Process.Pid: p.ProdBinLink()},
+	})
+
+	stopped, skipped, why := p.stopProd()
+	if len(skipped) != 0 {
+		t.Fatalf("cwd 不可读时不应拒杀（应回退 exe 断言）: skipped=%v why=%v", skipped, why)
+	}
+	found := false
+	for _, pid := range stopped {
+		if pid == foreign.Process.Pid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("exe 断言未认领进程: stopped=%v why=%v", stopped, why)
+	}
+	if alive(foreign.Process.Pid) {
+		t.Fatal("被认领的进程未被停止")
+	}
+}
+
+// TestStopProdClaimsPortSquatterRickProcess P0-3 场景②端口认领：裸 rick 实例
+// 监听生产端口（未持锁、cwd/exe 均不在生产形态）→ 认领停止；否则新进程
+// 永远绑不上端口。
+func TestStopProdClaimsPortSquatterRickProcess(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+
+	// 裸 rick 直接监听生产端口，state-dir 用自己的（不写 prod 的 web.pid）
+	bareDir := t.TempDir()
+	bareBin := filepath.Join(bareDir, "rick")
+	mustWrite(t, bareBin, fakeServerPy)
+	if err := os.Chmod(bareBin, 0o755); err != nil {
+		t.Fatalf("chmod bare: %v", err)
+	}
+	bareState := filepath.Join(bareDir, "state")
+	bare := exec.Command(bareBin, "web", "--listen", "127.0.0.1", "--port", strconv.Itoa(p.Port), "--state-dir", bareState)
+	bare.Dir = bareDir
+	bare.Env = []string{"HOME=" + bareDir, "PATH=" + os.Getenv("PATH")}
+	if err := bare.Start(); err != nil {
+		t.Fatalf("start bare: %v", err)
+	}
+	defer func() { _ = bare.Process.Kill() }()
+
+	// 等它真的监听上端口（端口认靠 lsof 必须能看到 LISTEN）
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if portOwner(p.Port) == bare.Process.Pid {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := portOwner(p.Port); got != bare.Process.Pid {
+		t.Fatalf("裸实例未监听生产端口（lsof=%d want=%d）", got, bare.Process.Pid)
+	}
+
+	res, err := p.Restart(v1.Version)
+	if err != nil {
+		t.Fatalf("Restart: %v\nskipped_why=%v", err, res.SkippedWhy)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("端口占用的裸 rick 仍被拒杀: %v（why=%v）", res.Skipped, res.SkippedWhy)
+	}
+	found := false
+	for _, pid := range res.Stopped {
+		if pid == bare.Process.Pid {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("端口占用者未被认领: stopped=%v skipped=%v why=%v", res.Stopped, res.Skipped, res.SkippedWhy)
+	}
+	if alive(bare.Process.Pid) {
+		t.Fatal("端口占用的裸 rick 仍存活")
+	}
+	if !res.Matches {
+		t.Fatalf("重启后 build_id 不匹配: %+v", res)
+	}
+}
+
+// TestStopProdNeverClaimsForeignPortSquatter P0-3 场景③不误杀：非 rick 进程
+// 占用生产端口 → 宁可不杀（它根本不进 stopped/skipped——不是 candidate）；
+// 失败显式报「端口被 pid=X 占用」，绝不误杀 python/其他服务。
+func TestStopProdNeverClaimsForeignPortSquatter(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+
+	// 非 rick 的端口占用者：python http.server（cwd/exe 与 rick 无关）
+	squatter := exec.Command("python3", "-m", "http.server", strconv.Itoa(p.Port), "--bind", "127.0.0.1")
+	squatter.Dir = t.TempDir()
+	squatter.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH")}
+	if err := squatter.Start(); err != nil {
+		t.Fatalf("start squatter: %v", err)
+	}
+	defer func() { _ = squatter.Process.Kill() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if portOwner(p.Port) == squatter.Process.Pid {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := portOwner(p.Port); got != squatter.Process.Pid {
+		t.Fatalf("squatter 未监听（lsof=%d want=%d）", got, squatter.Process.Pid)
+	}
+
+	_, err := p.Restart(v1.Version)
+	if err == nil {
+		t.Fatal("端口被非 rick 进程占着，Restart 必须失败")
+	}
+	if !alive(squatter.Process.Pid) {
+		t.Fatal("❌ 非 rick 进程被误杀——认领断言越界")
+	}
+	// P0-4：错误必须点名端口占用者 pid
+	if !strings.Contains(err.Error(), fmt.Sprintf("pid=%d", squatter.Process.Pid)) {
+		t.Fatalf("错误未点名端口占用者: %v", err)
+	}
+}
+
+// TestRestartMismatchNamesOldInstance P0-4：build_id 不一致时，错误必须含
+// old_pid 与 old_build_id（旧实例是誰一目了然——本案旧文案「新构建没生效？」
+// 在 11135 漏杀场景下是误导）。
+func TestRestartMismatchNamesOldInstance(t *testing.T) {
+	p := newFakeProd(t)
+	v1 := buildAndCheck(t, p)
+	if _, err := p.Promote(v1); err != nil {
+		t.Fatalf("Promote v1: %v", err)
+	}
+	if _, err := p.Restart(v1.Version); err != nil {
+		t.Fatalf("Restart v1: %v", err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	v2 := buildAndCheck(t, p)
+
+	// 部署脚本钉死 v1：重启后仍是 v1 实例 → mismatch
+	mustWrite(t, p.StartScript, fmt.Sprintf(`#!/bin/bash
+cd %s
+exec %s web --listen 127.0.0.1 --port %d --state-dir %s --token %s
+`, p.ProdRepo, filepath.Join(p.VersionDir(v1.Version), "rick"), p.Port, p.StateDir, p.Token))
+	if _, err := p.Promote(v2); err != nil {
+		t.Fatalf("Promote v2: %v", err)
+	}
+	res, err := p.Restart(v2.Version)
+	if got := stageOf(t, err); got != "health" {
+		t.Fatalf("失败阶段 = %q，期望 health", got)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, v1.Version) {
+		t.Fatalf("错误未含旧 build_id: %v", msg)
+	}
+	if !strings.Contains(msg, fmt.Sprintf("端口 %d", p.Port)) {
+		t.Fatalf("错误未含生产端口: %v", msg)
+	}
+	if !strings.Contains(msg, "pid=") {
+		t.Fatalf("错误未含旧实例 pid: %v", msg)
+	}
+	// 诊断两分支文案
+	if !strings.Contains(msg, "诊断: 端口") {
+		t.Fatalf("错误缺端口诊断: %v", msg)
+	}
+	// 留痕带 20 行日志尾（P0-4）——重启失败信息可定位
+	if len(res.LogTail) == 0 {
+		t.Fatal("失败未附日志尾部")
 	}
 }
