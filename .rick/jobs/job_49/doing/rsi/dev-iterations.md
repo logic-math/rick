@@ -1,0 +1,9 @@
+# RSI 证据：dev-iterations
+
+通过标准：至少记录一条构建指纹（`rick.dev.<sha7>-<ts>` 或 `build_id=<sha7>-<ts>`）。
+示例：`DEV_UP bin=... build_id=c539c60-260921192330 port=8414`
+
+迭代1（worker，2026-10-30 21:00-21:50） build_id=（未复核 dev-web restart，证据缺） 改动=release.go P0-1 verifyRunnable + P0-2 Rollback 校验 + P0-3 claimBySingleton 框架 + P0-4 SkippedWhy 诊断 + import.go P1-2 拒绝 ELF 测试=新增 438 行 结论=3 红收敛未完成（shebang 名义认定/候选集缺口/回滚点名）
+迭代2（worker，2026-10-30 21:55-22:00） 改动=无代码（分析定位三处修法，输出截断） 结论=无进展，parent 接手
+迭代3（parent 接手 S1 收口，2026-10-30 22:00-22:15） 改动=procfs +Command(pid)（darwin ps -ww -o command= / linux /proc/cmdline）；release.go claimBySingleton 三级名义链（exe→argv 全扫→comm）；stopProd 候选集+端口占用者+web.lock 持有者；TestReleaseAutorollbackRefusesBadRollbackTarget 语义修正（11:53 事故精确复现：PrevVersion 坏产物→forceSwitch 拒绝点名「回滚点不可执行」→current 保持新版） 测试=internal/env/... 全绿 + 全仓 16 包全绿（go test ./... count=1，env 清洗 RICK_*） DEV_UP build_id=4fa5dd8-261030220551 port=8414 health=ok（dev-web restart 复核新构建在跑） 结论=S1 出口达标：改动可见/可验证/dev 侧不自欺
+迭代4（parent，2026-10-30 22:20-22:35）S2 门禁设计+执行中发现既有 bug 链：①procfs_darwin Snapshot ② cwd 批量采集字段错误（lsof -F pc + parse 'c'——把 comm 名当 cwd 路径，快照 Cwd 恒失效）→ findProdPIDs/findDevPIDs 快照断言空转（dev-web status 恒 state=down 的根因）→ 修复：-F pn + parse 'n'；②ownedByProd cwd 断言过宽（cwd==prodRepo 单独成立即认领——生产树根是 git 仓库根，会误杀 agent 会话/开发 shell）→ 收紧：cwd 匹配须加名义佐证（rickNamedProcess：exe→argv→comm），快照路径退 comm 佐证；抽取 rickNamedProcess 共享（ownedByProdDiag/claimBySingleton 复用）；③新增 TestRestartRefusesToKillCwdSquatterInProdTree（生产树 cwd 非 rick 进程不误杀——防 release 杀承载会话）。验证：全仓 16 包绿；gate1 重跑绿；gate2 重跑绿（含探针残留进程 54979 被端口认领链正确收割的实证）；dev-web restart 后 DEV_STATUS state=up fingerprint=ok（Snapshot 修复连带治好 status 误报 down）。build_id=4fa5dd8-261030222736
