@@ -2037,3 +2037,236 @@ func seedClosedSession(t *testing.T, m *SessionManager, wsID string) string {
 	}
 	return id
 }
+
+// ---- super 中控会话（job_48/task2） ----
+
+// seedSuperAssets 在 rickDir 落盘 super 会话严格加载所需的两份资产
+// （super-loop.md 与 gen_env_skill/skill.md；内容带可断言的关键词）。
+func seedSuperAssets(t *testing.T, rickDir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(rickDir, "loops"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(rickDir, "skills", "gen_env_skill"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	loop := "---\nname: super-loop\ntrigger: \"当启动或操作 rick super 模式时触发\"\nscope: \"super 会话（全局）\"\n---\n\n# Loop: super 中控（测试替身）\n\nenv 建设 / 启停监控 / 干预投递。\n"
+	if err := os.WriteFile(filepath.Join(rickDir, "loops", "super-loop.md"), []byte(loop), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skill := "# skill:gen-env（super 进化 env 生成器）\n\n## 触发场景\n\nenv 缺失或升级时加载。\n\n## 预期效果\n\n产出可运行 env。\n\n## 核心内容\n\n访谈式流程：任务定义 → 评分方向 → 门禁系统设计引导 → 参考实现 → 初始特征轴。\n"
+	if err := os.WriteFile(filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"), []byte(skill), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
+	env := newTestEnv(t)
+	seedSuperAssets(t, env.rickDir)
+	m := env.managerWith(t, nil, nil)
+
+	coll := startCollector(env.hub)
+	defer coll.stop()
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "优化 512×512 矩阵乘，从纯 Python 三重循环起点进化"})
+	if code != http.StatusCreated {
+		t.Fatalf("create super session: status %d body %v", code, body)
+	}
+
+	entry, ok := env.sessions.Get(id)
+	if !ok {
+		t.Fatal("session not persisted in registry")
+	}
+	if entry.Title != "super env_1" {
+		t.Fatalf("entry.Title = %q, want %q", entry.Title, "super env_1")
+	}
+
+	// prompt 严格加载断言：gen_env skill 全文（关键词）+ super 工作区路径 +
+	// super-loop 内容 inline + 使命/三步工作流/grilling skill。
+	pf := paramString(entry.Params, "_prompt_file")
+	if pf == "" {
+		t.Fatal("_prompt_file missing")
+	}
+	data, err := os.ReadFile(pf)
+	if err != nil {
+		t.Fatalf("read prompt file %s: %v", pf, err)
+	}
+	prompt := string(data)
+	superWS := filepath.Join(env.rickDir, "super", "env_1")
+	for _, want := range []string{
+		"门禁系统设计引导",                  // gen_env skill 全文 inline（严格加载）
+		"super 中控（测试替身）",            // super-loop 全文 inline
+		superWS,                          // 工作区速查段含 super/env_1 绝对路径
+		"优化 512×512 矩阵乘，从纯 Python 三重循环起点进化", // requirement 使命注入
+		filepath.Join(superWS, "requirement.md"), // 使命锚点路径
+		"Skill: grilling",                // grilling skill embedded inline
+		"设计树",                          // grilling 协议关键词
+		"## 工作流程（三步，按序推进）",        // 三步工作流（grilling→gen_env→运行）
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("super prompt missing %q (len=%d)", want, len(prompt))
+		}
+	}
+	if strings.Contains(prompt, "{{") {
+		t.Fatal("prompt 含未替换 {{...}} 变量（grilling_workdir 替换失败？）")
+	}
+
+	// 工作区骨架已 init：requirement.md / super.json / events.jsonl / archive.json
+	for _, f := range []string{"requirement.md", "super.json", "events.jsonl", "archive.json", "interventions", "codes"} {
+		if _, err := os.Stat(filepath.Join(superWS, f)); err != nil {
+			t.Fatalf("super workspace skeleton missing %s: %v", f, err)
+		}
+	}
+	// requirement.md 内容 = 需求原文
+	reqData, err := os.ReadFile(filepath.Join(superWS, "requirement.md"))
+	if err != nil || !strings.Contains(string(reqData), "优化 512×512 矩阵乘") {
+		t.Fatalf("requirement.md 内容异常：%q err=%v", string(reqData), err)
+	}
+
+	// CLI-compat：session_id 落在 <ws>/sessions/<uuid>/（BuildSuperPrompt 产物
+	// 目录；createSessionLocked 覆写为真实 piID）。
+	sessIDFile := filepath.Join(filepath.Dir(pf), "session_id")
+	sid, err := os.ReadFile(sessIDFile)
+	if err != nil || strings.TrimSpace(string(sid)) != entry.PISessionID {
+		t.Fatalf("super session_id CLI-compat: got %q err=%v, want %q", string(sid), err, entry.PISessionID)
+	}
+
+	// fake pi 收到 bootstrap 且 worker 存活（交互 spawn 接线）。
+	if w := env.sup.Get(id); w == nil || w.IsDead() {
+		t.Fatal("no live worker registered for the super session")
+	}
+	_ = waitLog(t, env.piLog, "开始：按系统提示词中的 rick 协议立即执行你的职责")
+}
+
+func TestSessionCreateSuper_EnvAutoNumberingAndTitle(t *testing.T) {
+	env := newTestEnv(t)
+	seedSuperAssets(t, env.rickDir)
+	m := env.managerWith(t, nil, nil)
+
+	// 第一个会话：env_1（自动编号，title 默认）
+	id1, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "需求一"})
+	if code != http.StatusCreated {
+		t.Fatalf("create super 1: status %d", code)
+	}
+	entry1, _ := env.sessions.Get(id1)
+	if entry1.Title != "super env_1" {
+		t.Fatalf("title1 = %q, want %q", entry1.Title, "super env_1")
+	}
+	if _, err := os.Stat(filepath.Join(env.rickDir, "super", "env_1", "super.json")); err != nil {
+		t.Fatalf("env_1 workspace not initialized: %v", err)
+	}
+
+	// 第二个会话：env_2（自动递增；用户自定义 title 优先）
+	rec := post(t, m.CreateSession, "/api/sessions", map[string]any{
+		"workspace_id": env.wsEntry.ID,
+		"type":         SessionTypeSuper,
+		"params":       map[string]any{"requirement": "需求二"},
+		"title":        "矩阵乘进化",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create super 2: status %d body %s", rec.Code, rec.Body.String())
+	}
+	var body2 map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body2)
+	id2, _ := body2["id"].(string)
+	entry2, _ := env.sessions.Get(id2)
+	if entry2.Title != "矩阵乘进化" {
+		t.Fatalf("title2 = %q, want 用户自定义 title", entry2.Title)
+	}
+	if _, err := os.Stat(filepath.Join(env.rickDir, "super", "env_2", "super.json")); err != nil {
+		t.Fatalf("env_2 workspace not initialized: %v", err)
+	}
+
+	// 编号跳跃：预建 env_1/env_3 后下一个是 env_4（scanNextEnvID 取 max+1）
+	env4 := filepath.Join(env.rickDir, "super", "env_3")
+	if err := os.MkdirAll(env4, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	id3, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "需求三"})
+	if code != http.StatusCreated {
+		t.Fatalf("create super 3: status %d", code)
+	}
+	entry3, _ := env.sessions.Get(id3)
+	if entry3.Title != "super env_4" {
+		t.Fatalf("title3 = %q, want super env_4（max+1 跳号）", entry3.Title)
+	}
+}
+
+func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
+	env := newTestEnv(t)
+	seedSuperAssets(t, env.rickDir)
+	m := env.managerWith(t, nil, nil)
+
+	// 缺 gen_env skill → 400 invalid_params，错误含缺失路径（严格加载，
+	// 不静默降级）。
+	if err := os.Remove(filepath.Join(env.rickDir, "skills", "gen_env_skill", "skill.md")); err != nil {
+		t.Fatal(err)
+	}
+	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "优化矩阵乘"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing gen_env skill: status %d body %v, want 400", code, body)
+	}
+	errMsg, _ := body["error"].(map[string]any)
+	msg, _ := errMsg["message"].(string)
+	if !strings.Contains(msg, "gen_env_skill") {
+		if !strings.Contains(msg, filepath.Join(env.rickDir, "skills", "gen_env_skill", "skill.md")) {
+			t.Fatalf("error message lacks missing-file path: %q", msg)
+		}
+	}
+
+	// 缺 super-loop.md 同样拒绝。
+	seedSuperAssets(t, env.rickDir)
+	if err := os.Remove(filepath.Join(env.rickDir, "loops", "super-loop.md")); err != nil {
+		t.Fatal(err)
+	}
+	_, code, body = createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "优化矩阵乘"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing super-loop.md: status %d body %v, want 400", code, body)
+	}
+
+	// 工作区未创建（严格失败不留半成品 super/——预检在 scan/init 之前，
+	// 失败也不消耗编号）。
+	if _, err := os.Stat(filepath.Join(env.rickDir, "super")); !os.IsNotExist(err) {
+		t.Fatalf("super/ must not be created when assets missing: %v", err)
+	}
+}
+
+// TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName：参数校验
+//（requirement 必填；旧 name 出现即拒——目录模型 v2）。
+func TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName(t *testing.T) {
+	env := newTestEnv(t)
+	seedSuperAssets(t, env.rickDir)
+	m := env.managerWith(t, nil, nil)
+
+	// 缺 requirement → 400
+	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper, map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("missing requirement: status %d body %v, want 400", code, body)
+	}
+	errMsg, _ := body["error"].(map[string]any)
+	msg, _ := errMsg["message"].(string)
+	if !strings.Contains(msg, "requirement") {
+		t.Fatalf("error should mention requirement: %q", msg)
+	}
+
+	// 旧 name 参数（即使带 requirement）→ 400（防前端旧残留）
+	_, code, body = createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "x", "name": "legacy"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("legacy name: status %d body %v, want 400", code, body)
+	}
+	errMsg, _ = body["error"].(map[string]any)
+	msg, _ = errMsg["message"].(string)
+	if !strings.Contains(msg, "name") {
+		t.Fatalf("error should mention name: %q", msg)
+	}
+
+	// 两次失败都不消耗编号、不留工作区
+	if _, err := os.Stat(filepath.Join(env.rickDir, "super")); !os.IsNotExist(err) {
+		t.Fatalf("failed creates must not leave super/ dir: %v", err)
+	}
+}

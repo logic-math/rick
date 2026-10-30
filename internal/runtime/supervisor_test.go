@@ -769,8 +769,19 @@ func TestSupervisor_SpawnDirAndEnv(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if gotDir != dir {
-		t.Errorf("subprocess cwd: want %q, got %q", dir, gotDir)
+	// macOS: t.TempDir() 返回逻辑路径（/var/folders/...），而 sh 的 pwd 解析
+	// symlink 后返回物理路径（/private/var/folders/...）——两边都归一到物理路径再比较
+	// （跨机 linux→macOS 搬迁后首个暴露的既有兼容缺陷，job_47 release gate 发现）。
+	wantDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		wantDir = dir
+	}
+	gotDirNorm, err := filepath.EvalSymlinks(gotDir)
+	if err != nil {
+		gotDirNorm = gotDir
+	}
+	if gotDirNorm != wantDir {
+		t.Errorf("subprocess cwd: want %q, got %q", wantDir, gotDirNorm)
 	}
 	if gotEnv != agentDir {
 		t.Errorf("PI_CODING_AGENT_DIR: want %q, got %q", agentDir, gotEnv)

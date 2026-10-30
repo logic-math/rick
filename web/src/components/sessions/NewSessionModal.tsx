@@ -8,6 +8,8 @@
  * - ctrl/learning/doing: job（下拉，取该工作区 jobs 列表）
  * - human-loop: topic
  * - dream:      job_num（数字，默认 5）+ mode（interactive/background 单选）
+ * - super:      requirement（多行必填，进化使命——先经 grilling 追问理清）+ title 可选；
+ *               目录自动编号 .rick/super/env_N/（无工作区名概念）
  * 必填缺失时禁用提交；提交成功跳转 /session/:id。
  */
 
@@ -117,6 +119,21 @@ const CMD_META: CmdMeta[] = [
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M17 4h4M19 2v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    type: "super",
+    label: "super",
+    desc: "进化中控：env 生成/启停/观察/干预",
+    icon: (a) => (
+      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
+        {/* 进化分叉树：主干向上 + 三支末端节点——super 多 agent 并行进化 */}
+        <path d="M12 21v-6M12 15l-4-4M12 15l4-4M12 15v-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="21" r="1.4" fill="currentColor" />
+        <circle cx="8" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="16" cy="9" r="1.8" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.5" />
       </svg>
     ),
   },
@@ -274,7 +291,7 @@ export default function NewSessionModal({
   const missing: string[] = [];
   if (!workspaceId) missing.push("工作区");
   if (!cmdType) missing.push("命令类型");
-  if (cmdType === "plan" || cmdType === "easy") {
+  if (cmdType === "plan" || cmdType === "easy" || cmdType === "super") {
     if (!requirement.trim()) missing.push("需求描述");
   }
   if (cmdType === "human-loop" && !topic.trim()) missing.push("主题");
@@ -391,14 +408,18 @@ export default function NewSessionModal({
               参数（{cmdType}）
             </span>
 
-            {(cmdType === "plan" || cmdType === "easy") && (
+            {(cmdType === "plan" || cmdType === "easy" || cmdType === "super") && (
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm text-ink-2">
                   需求描述 <span className="text-portal">*</span>
                 </span>
                 <textarea
                   className={`${FIELD_CLS} min-h-24 resize-y`}
-                  placeholder="描述本次要完成的需求（plan：将分解为 jobs/tasks；easy：直接执行）"
+                  placeholder={
+                    cmdType === "super"
+                      ? "优化 512×512 矩阵乘的性能，从纯 Python 三重循环起点开始进化"
+                      : "描述本次要完成的需求（plan：将分解为 jobs/tasks；easy：直接执行）"
+                  }
                   value={requirement}
                   onChange={(e) => setRequirement(e.target.value)}
                 />
@@ -441,6 +462,15 @@ export default function NewSessionModal({
                   onChange={(e) => setTopic(e.target.value)}
                 />
               </label>
+            )}
+
+            {cmdType === "super" && (
+              <p className="rounded-md border border-line bg-space/40 px-2.5 py-1.5 text-[11px] leading-relaxed text-ink-3">
+                需求将先经设计树追问（grilling）理清，再生成 env 并启动进化（
+                <code className="rounded bg-white/5 px-1">.rick/super/env_N/</code>
+                ——自动编号，无工作区名）。super 中控会话严格加载 super-loop + gen_env
+                skill，会话内可启动/观察/干预 super 运行。
+              </p>
             )}
 
             {needsJob(cmdType) && (
@@ -570,7 +600,7 @@ export default function NewSessionModal({
               <span className="text-sm text-ink-2">会话标题（可选）</span>
               <input
                 className={FIELD_CLS}
-                placeholder="留空自动生成"
+                placeholder={cmdType === "super" ? "会话标题（默认 super env_N）" : "留空自动生成"}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
@@ -638,6 +668,12 @@ function buildParams(input: {
       return { job: input.jobId };
     case "human-loop":
       return { topic: input.topic.trim() };
+    case "super":
+      // 目录模型 v2：requirement 必填（进化使命，后端落盘 requirement.md 并注入
+      // prompt）；无 name 概念——目录由后端自动编号 env_N；title 走会话通用字段
+      return {
+        requirement: input.requirement.trim(),
+      };
     case "dream": {
       // web UI 只保留交互模式（后台模式移除：无进度反馈、与交互语义重复；
       // CLI 侧后台 dream 不受影响）。

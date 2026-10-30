@@ -8,6 +8,7 @@ coverage.out
 coverage.html
 coverage_git.out
 debug.md
+!super/prompts/debug.md
 
 # pi config (contains auth tokens — never commit)
 .pi/
@@ -15,3 +16,6 @@ debug.md
 .idea/
 # 会话原始日志含敏感配置（config dump），不入库
 raw_session_coding.log
+
+# super 运行时工作区（env/codes/events/archive/.venv）——不随源码版本化
+.rick/super/

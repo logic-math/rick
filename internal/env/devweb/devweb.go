@@ -900,6 +900,28 @@ func StopOld(l Layout) (stopped, skipped []int) {
 // RICK_STATE_DIR=<dev state dir> 或 HOME=<dev home>，或 cwd 恰好是 dev 树
 // （darwin 无 environ 等价物 → 只靠 cwd/exe 断言）。
 func findDevPIDs(l Layout) []int {
+	// 快路径：批量快照（darwin：3 次子进程调用；linux：ErrUnsupported →
+	// 走原逐 pid 路径）。快照匹配 = cwd 断言（darwin 本就无 environ，
+	// HOME/RICK_STATE_DIR 标记断言仅原路径的 linux 有）。
+	if snaps, err := proc.Snapshot(); err == nil {
+		norm := func(p string) string {
+			if r, err := filepath.EvalSymlinks(p); err == nil {
+				return r
+			}
+			return p
+		}
+		tree := norm(l.Tree)
+		var out []int
+		for pid, s := range snaps {
+			if pid == os.Getpid() || s.Cwd == "" {
+				continue
+			}
+			if norm(s.Cwd) == tree {
+				out = append(out, pid)
+		}
+		}
+		return out
+	}
 	pids, err := proc.Enumerate()
 	if err != nil {
 		return nil

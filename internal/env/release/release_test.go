@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/user"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -690,12 +691,16 @@ func TestDefaultPlanReadsPortFromDeploymentScript(t *testing.T) {
 // realHomeOf 复刻 realHomeDir 的解析（测试内独立实现，避免与实现共享同一 bug）。
 func realHomeOf(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("/etc/passwd")
-	if err == nil {
-		uid := fmt.Sprintf("%d", os.Getuid())
+	// 与生产 RealHomeDir 同序：user.LookupId（macOS 走 DirectoryService、Linux 走
+	// /etc/passwd）→ 环境回退。原实现只读 /etc/passwd：macOS 本地用户不在该文件
+	// → 回退到测试被覆盖的 $HOME（tmpdir）→ 与生产解析不一致（job_47 跨机后暴露）。
+	if u, err := user.LookupId(fmt.Sprintf("%d", os.Getuid())); err == nil && u.HomeDir != "" {
+		return u.HomeDir
+	}
+	if data, err := os.ReadFile("/etc/passwd"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			parts := strings.Split(line, ":")
-			if len(parts) >= 6 && parts[2] == uid {
+			if len(parts) >= 6 && parts[2] == fmt.Sprintf("%d", os.Getuid()) {
 				return parts[5]
 			}
 		}

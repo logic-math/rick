@@ -21,6 +21,12 @@ type Config struct {
 	// the server lifetime (idle reaping disabled), so a generous default is
 	// intentional.
 	WebMaxActive int `json:"web_max_active,omitempty"`
+
+	// Super carries `rick super` mode settings (job_47/task11): the super
+	// workspace root plus the PySupervisor cadence defaults. Zero fields
+	// fall back to DefaultSuperConfig() at the call site (loader.go needs no
+	// change: json round-trips omitempty-transparently, same as WebToken).
+	Super SuperConfig `json:"super"`
 }
 
 // GitConfig represents Git-related configuration
@@ -36,4 +42,40 @@ type HumanLoopConfig struct {
 	ThinkTopN             int                `json:"think_top_n,omitempty"`
 	SenseMaxBackflows     int                `json:"sense_max_backflows,omitempty"`
 	ThinkMinAssumptions   int                `json:"think_min_assumptions,omitempty"`
+}
+
+// SuperConfig carries `rick super` mode settings (job_47/task11). Every
+// value mirrors the py-side super/superopt/config.py DEFAULTS so Go (writer
+// of super.json) and py (loader) agree unless explicitly overridden — the
+// cross-language default parity is asserted in handler/super_test.go and
+// gate2/gate4.
+type SuperConfig struct {
+	// DefaultSuperDir is the root directory holding one super workspace per
+	// --name (default ~/.rick/super/<name>/).
+	DefaultSuperDir string `json:"default_super_dir,omitempty"`
+	// PythonPath launches the py scheduler (default "python3").
+	PythonPath string `json:"python_path,omitempty"`
+	// HeartbeatIntervalMs / HeartbeatTimeoutMs / TermGraceMs parameterize the
+	// Go-side PySupervisor (defaults 30000/90000/5000).
+	HeartbeatIntervalMs int `json:"heartbeat_interval_ms,omitempty"`
+	HeartbeatTimeoutMs int `json:"heartbeat_timeout_ms,omitempty"`
+	TermGraceMs        int `json:"term_grace_ms,omitempty"`
+	// AdjustInterval is the adjust-agent cadence in iterations (default 5).
+	AdjustInterval int `json:"adjust_interval,omitempty"`
+	// DebugMaxAttempts is the debug agent retry budget M (default 3).
+	DebugMaxAttempts int `json:"debug_max_attempts,omitempty"`
+}
+
+// DefaultSuperConfig returns the built-in super defaults (mirror of the py
+// DEFAULTS in super/superopt/config.py).
+func DefaultSuperConfig() SuperConfig {
+	return SuperConfig{
+		DefaultSuperDir:    "",
+		PythonPath:         "python3",
+		HeartbeatIntervalMs: 30000,
+		HeartbeatTimeoutMs: 90000,
+		TermGraceMs:        5000,
+		AdjustInterval:     5,
+		DebugMaxAttempts:   3,
+	}
 }

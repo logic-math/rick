@@ -1,0 +1,4 @@
+# matmul env 依赖（装到 env/.venv，不污染系统 python）
+# 建法：python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# gates 调 data/ 脚本时优先用 .venv/bin/python（解释器选择在框架侧，模板只声明依赖）
+numpy>=1.24

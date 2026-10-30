@@ -1,0 +1,737 @@
+{
+  "version": 1,
+  "job": "superopt 重构为 rick super 模式（RFC 实现）",
+  "created_at": "2026-10-17T10:30:00+08:00",
+  "updated_at": "2026-10-29T15:35:39.897Z",
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "events.py 单写者真相源（EventWriter：append-only+seq 单调+fsync+游标重放）+ test_events",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task1.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "archive.py 精英格档案（load/save+admit 同格替换+pending 延迟入库）+ test_archive",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task2.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "feature_space.py + sampler.py（UCB visit 真实递增+冷启动先验加权随机）+ test_sampler",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task3.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "config.py（super.json 读写+CLI 合并）+ budget.py（时间/token 双轨账本）+ lineage.py（事件流重建）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task4.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "agents.py pi 池客户端（subprocess pi --mode json+NDJSON+token 计量聚合+兜底链）+ mock_pi.py + test_agents",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task5.md",
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
+    },
+    {
+      "task_id": "task6",
+      "task_name": "prompts.py 渲染器 + 4-agent prompt 模板（adjust/builder/coding/debug）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task6.md",
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
+    },
+    {
+      "task_id": "task7",
+      "task_name": "gates.py 级联门框架（stage1 环境健康→stage2 正确性→stage3 性能+软门禁多计时中位数；preverify_red 门先证红；读 env 门禁定义零硬编码）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
+      "dependencies": [
+        "task1",
+        "task2",
+        "task3",
+        "task4"
+      ],
+      "task_file": "plan/task7.md",
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
+    },
+    {
+      "task_id": "task8",
+      "task_name": "loop.py 四状态循环 Scheduler（adjust→UCB 采样→builder→coding→debug→框架验证→MAP-Elites 入格；_recover 游标重放）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:00:21.150Z",
+      "dependencies": [
+        "task5",
+        "task6",
+        "task7"
+      ],
+      "task_file": "plan/task8.md",
+      "commit_hash": "b44a6e0b86bcec9fc53903f88b338b9f951ccc31"
+    },
+    {
+      "task_id": "task9",
+      "task_name": "adjudicator.py 外置裁决独立进程 + intervention.py 干预队列摄取 + __main__.py/__init__.py 入口",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:00:21.150Z",
+      "dependencies": [
+        "task5",
+        "task6",
+        "task7"
+      ],
+      "task_file": "plan/task9.md",
+      "commit_hash": "b44a6e0b86bcec9fc53903f88b338b9f951ccc31"
+    },
+    {
+      "task_id": "task10",
+      "task_name": "Go PySupervisor（Setpgid/文件心跳/kill 梯/OnDead 游标重启）+ supervisor_test（fake py 脚本）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task10.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task11",
+      "task_name": "Go 命令面 internal/cmd/super.go + handler/super.go + super/session.go（BuildSuperPrompt inline super-loop+gen_env）+ root.go/config.go 修改",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T09:16:38.501Z",
+      "dependencies": [
+        "task10"
+      ],
+      "task_file": "plan/task11.md",
+      "commit_hash": "065db93ed3b38f683715878af17e35390779501a"
+    },
+    {
+      "task_id": "task12",
+      "task_name": "super-loop.md（中控 loop）+ gen_env_skill/skill.md（env 生成器，含门禁系统设计引导）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task12.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task13",
+      "task_name": "matmul env 模板（env.json/feature_space.json 2 轴/code naive+numpy 参考/skills/data/domain_knowledge.md）+ super/README.md",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T07:43:06.384Z",
+      "dependencies": [],
+      "task_file": "plan/task13.md",
+      "commit_hash": "063ac42281f37125f2723f83aa2215c8f20fb540"
+    },
+    {
+      "task_id": "task14",
+      "task_name": "e2e_test.py 全链 mock 验收 + 双回归 harness（elite_replay/exploit_regression）+ 污染注入演练 + realpi 冒烟（≥3 真迭代，RICK_REAL_PI_ARGS 门控）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-17T10:30:00+08:00",
+      "updated_at": "2026-10-17T10:38:13.416Z",
+      "dependencies": [
+        "task8",
+        "task9",
+        "task11",
+        "task12",
+        "task13"
+      ],
+      "task_file": "plan/task14.md",
+      "commit_hash": "0e14b439316c235e9b46a811121c55a0ef4144cd"
+    },
+    {
+      "task_id": "task15",
+      "task_name": "sampler 纯加权随机重构（删 UCB；概率∝权重；分殖优先保留；ucb_score→weight_share）+ test_sampler 重写",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
+      "dependencies": [],
+      "task_file": "plan/task15.md",
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
+    },
+    {
+      "task_id": "task16",
+      "task_name": "budget token 上限（max_total_tokens 优雅停 + session_ended 原因）+ config DEFAULTS 键 + test_budget",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
+      "dependencies": [],
+      "task_file": "plan/task16.md",
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
+    },
+    {
+      "task_id": "task17",
+      "task_name": "matmul 模板格手术：feature_space 225→6（BLAS 族为中心 2 轴×3 值）+ domain_knowledge/自检对齐",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
+      "dependencies": [],
+      "task_file": "plan/task17.md",
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
+    },
+    {
+      "task_id": "task18",
+      "task_name": "adjust.md 重写：权重=相对采样份额语义（>1 允许/证据纪律/防震荡）+ expand_cell 提案 schema",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:26:29.590Z",
+      "dependencies": [],
+      "task_file": "plan/task18.md",
+      "commit_hash": "eb36fd9dc421e516044a09b237209cc04b2a0f47"
+    },
+    {
+      "task_id": "task19",
+      "task_name": "loop 块：expand_cell 应用链+裁决规则+feature_space 热重载+adjust 快照 iter_N 归档+adjust_decision 事件+测试适配",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T06:46:30.718Z",
+      "dependencies": [
+        "task15",
+        "task18"
+      ],
+      "task_file": "plan/task19.md",
+      "commit_hash": "36fe59e2d78d4854171ac9564170500bdd6877aa"
+    },
+    {
+      "task_id": "task20",
+      "task_name": "adjust_trace.py 决策-效果对照工具 + e2e 断言适配（weight_share 字段等）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T07:20:06.765Z",
+      "dependencies": [
+        "task19"
+      ],
+      "task_file": "plan/task20.md",
+      "commit_hash": "24680521f34a9e0104d9f18e23beae61cc32d33f"
+    },
+    {
+      "task_id": "task21",
+      "task_name": "gen_env skill 轨迹→prompt 进化流程（四角色可进化+PROMPTS_LOG 约定+模型分配引导）+ super-loop 自改进 SOP",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-20T16:30:00+08:00",
+      "updated_at": "2026-10-21T07:20:06.765Z",
+      "dependencies": [
+        "task19"
+      ],
+      "task_file": "plan/task21.md",
+      "commit_hash": "24680521f34a9e0104d9f18e23beae61cc32d33f"
+    },
+    {
+      "task_id": "task22",
+      "task_name": "agents.py 回合预算（run(max_turns) NDJSON 计数 assistant 回合→超限优雅终止+截断标记）+ config DEFAULTS 四角色回合上限 + test_agents",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T17:18:28.521Z",
+      "dependencies": [],
+      "task_file": "plan/task22.md",
+      "commit_hash": "dde493d07f4bf38b6ace1998511ea677660e16e6"
+    },
+    {
+      "task_id": "task23",
+      "task_name": "loop.py 全面 ctx 增强（recent_events 真值/perf 时间线/预算/门禁定义/domain 摘要/父本清单/干预/saturation/env_dir）+ gate 失败接 debug + ledger 接线 + max_turns 传参",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T17:25:59.717Z",
+      "dependencies": [
+        "task22",
+        "task26"
+      ],
+      "task_file": "plan/task23.md",
+      "commit_hash": "a0e114507c83455c422521fb94889fcdb2d422ca"
+    },
+    {
+      "task_id": "task24",
+      "task_name": "四模板升级（builder/adjust/coding/debug：saturation/terminate/门禁定义/台账/可移植占位符）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-21T17:25:59.717Z",
+      "dependencies": [
+        "task22"
+      ],
+      "task_file": "plan/task24.md",
+      "commit_hash": "a0e114507c83455c422521fb94889fcdb2d422ca"
+    },
+    {
+      "task_id": "task25",
+      "task_name": "gen_env skill + super-loop：可移植性纪律 + 饱和/认输/台账解读 + gate→debug 说明",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-21T23:30:00+08:00",
+      "updated_at": "2026-10-23T08:34:30.565Z",
+      "dependencies": [
+        "task23",
+        "task24"
+      ],
+      "task_file": "plan/task25.md",
+      "commit_hash": "7016d912a6f891622c824d6b1d2b40708fdaf3bd"
+    },
+    {
+      "task_id": "task26",
+      "task_name": "ledger.py 实验台账模块（append/read/brief：iter/cell/idea/parents/gate/verdict/perf_delta/reject_reason）+ test_ledger",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-22T00:30:00+08:00",
+      "updated_at": "2026-10-21T17:18:28.521Z",
+      "dependencies": [],
+      "task_file": "plan/task26.md",
+      "commit_hash": "dde493d07f4bf38b6ace1998511ea677660e16e6"
+    },
+    {
+      "task_id": "task27",
+      "task_name": "gates.py 三要素门禁（gate_check 优先+legacy 回退+stage1 四件检查）+ test_gates",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:39:14.118Z",
+      "dependencies": [],
+      "task_file": "plan/task27.md",
+      "commit_hash": "884e77bfe301a06b39c955fdb3f2cdeba1388008"
+    },
+    {
+      "task_id": "task30",
+      "task_name": "gen_env skill 三要素追问（human 亲自描述目标/约束/现状，判据=可转脚本）+ gate_check 契约 + super-loop 轨迹读取",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:39:14.118Z",
+      "dependencies": [],
+      "task_file": "plan/task30.md",
+      "commit_hash": "884e77bfe301a06b39c955fdb3f2cdeba1388008"
+    },
+    {
+      "task_id": "task28",
+      "task_name": "loop.py 三要素命令注入 b/c/d + profile 历史采集/注入 + builder 决策落盘 designs/ + test_loop",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
+      "dependencies": [
+        "task27",
+        "task30"
+      ],
+      "task_file": "plan/task28.md",
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
+    },
+    {
+      "task_id": "task29",
+      "task_name": "四模板：三要素使用纪律 + builder（profile 历史+arXiv 检索+决策落盘）+ coding/debug 三要素",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
+      "dependencies": [
+        "task30"
+      ],
+      "task_file": "plan/task29.md",
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
+    },
+    {
+      "task_id": "task31",
+      "task_name": "matmul env 模板三要素化（skills/{profile,benchmark,verify,gate_check} + 删 self_check + data 薄转发）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T01:00:00+08:00",
+      "updated_at": "2026-10-23T08:44:27.526Z",
+      "dependencies": [
+        "task27"
+      ],
+      "task_file": "plan/task31.md",
+      "commit_hash": "8adec1fd23b2b2d406ed9edcc68319cbb5efdce9"
+    },
+    {
+      "task_id": "task32",
+      "task_name": "env 模板 research.py（检索三要素：方法/信源/关注点，四角色默认三元组）+ README/domain_knowledge",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T23:30:00+08:00",
+      "updated_at": "2026-10-23T17:15:22.945Z",
+      "dependencies": [],
+      "task_file": "plan/task32.md",
+      "commit_hash": "3a9e6699b473c9fbfc24e7d444675d42a906ddba"
+    },
+    {
+      "task_id": "task35",
+      "task_name": "gen_env 检索三问（第四类资产五件）+ super-loop 检索定位（突破局部最优）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T23:30:00+08:00",
+      "updated_at": "2026-10-23T17:15:22.945Z",
+      "dependencies": [],
+      "task_file": "plan/task35.md",
+      "commit_hash": "3a9e6699b473c9fbfc24e7d444675d42a906ddba"
+    },
+    {
+      "task_id": "task33",
+      "task_name": "loop.py 注入 research_cmd/research_brief 到四角色（预生成省回合）+ test_loop",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T23:30:00+08:00",
+      "updated_at": "2026-10-23T17:18:27.054Z",
+      "dependencies": [
+        "task32"
+      ],
+      "task_file": "plan/task33.md",
+      "commit_hash": "7c7bed7beee737e54fe826dbf935bdaaa9681840"
+    },
+    {
+      "task_id": "task34",
+      "task_name": "四模板检索纪律（按 brief 三元组检索 + 关注点对齐格 + 产出落可实现动作）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-23T23:30:00+08:00",
+      "updated_at": "2026-10-25T18:09:28.451Z",
+      "dependencies": [
+        "task33"
+      ],
+      "task_file": "plan/task34.md",
+      "commit_hash": "6c273d5e8fbc612790b2ded2d70555a6a247f220"
+    },
+    {
+      "task_id": "task36",
+      "task_name": "仓级 super_* skill 五件（实验分析/SENSE/格管理/实验设计/debug 协议，引用 rick canon）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
+      "dependencies": [],
+      "task_file": "plan/task36.md",
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
+    },
+    {
+      "task_id": "task37",
+      "task_name": "gen_env skill 流程修复（重排/职责/前置输入/键一致性/preverify 自动化）+ 优化幅度阈值追问",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
+      "dependencies": [],
+      "task_file": "plan/task37.md",
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
+    },
+    {
+      "task_id": "task38",
+      "task_name": "特征格四要素模型（description）+ experiment_record 模块 + 相邻格随机抽样",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
+      "dependencies": [],
+      "task_file": "plan/task38.md",
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
+    },
+    {
+      "task_id": "task40",
+      "task_name": "四模板重写（实验驱动 loop + skill 声明路径与触发条件）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:15:45.404Z",
+      "dependencies": [],
+      "task_file": "plan/task40.md",
+      "commit_hash": "44e8bdb1cdc3d3ca4715f9c065b0e8e186c22486"
+    },
+    {
+      "task_id": "task39",
+      "task_name": "loop 接线：adjust 四步 ctx/决策记录/new_cell/modify_cell + builder 相邻格与调研 + coding TDD ctx + debug 三类触发 + 实验记录注入",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-25T18:22:28.407Z",
+      "dependencies": [
+        "task38"
+      ],
+      "task_file": "plan/task39.md",
+      "commit_hash": "9884a6dfb55590ea1ae4878c945bb7eedd1084b8"
+    },
+    {
+      "task_id": "task41",
+      "task_name": "super-loop 更新（四 agent loop/skill 加载规范/实验记录与决策记录）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-26T03:40:48.871Z",
+      "dependencies": [
+        "task39",
+        "task40"
+      ],
+      "task_file": "plan/task41.md",
+      "commit_hash": "9fa5ae1794a387df8e97f00e24905b9582341d48"
+    },
+    {
+      "task_id": "task42",
+      "task_name": "测试与 e2e 适配（新 ctx/实验记录/TDD 痕迹/三类 debug 触发）+ mock 场景扩展",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-24T01:00:00+08:00",
+      "updated_at": "2026-10-26T03:40:48.871Z",
+      "dependencies": [
+        "task39"
+      ],
+      "task_file": "plan/task42.md",
+      "commit_hash": "9fa5ae1794a387df8e97f00e24905b9582341d48"
+    },
+    {
+      "task_id": "task44",
+      "task_name": "特征格五要素（+elite_code_path/record_path）+ archive 线程安全",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:51:49.995Z",
+      "dependencies": [],
+      "task_file": "plan/task44.md",
+      "commit_hash": "1380e3d3395b982eb7993067c475fcc686ac165e"
+    },
+    {
+      "task_id": "task45",
+      "task_name": "格级互斥 + 并发实验（一格一实验，异格并行，单写者保序）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T04:11:46.033Z",
+      "dependencies": [
+        "task44",
+        "task46"
+      ],
+      "task_file": "plan/task45.md",
+      "commit_hash": "7c41c1f3550877999322f0eddf9403ac1284087a"
+    },
+    {
+      "task_id": "task46",
+      "task_name": "token 成本监控 skill（super_cost_analysis）+ cost_report 工具 + iteration_ended.by_role",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T03:54:58.697Z",
+      "dependencies": [
+        "task44"
+      ],
+      "task_file": "plan/task46.md",
+      "commit_hash": "799fc0a9eddf3c87e32f9f657dc9c3229dc7fb41"
+    },
+    {
+      "task_id": "task47",
+      "task_name": "文档：五要素/并发约束/成本复盘",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T04:25:25.909Z",
+      "dependencies": [
+        "task44",
+        "task45",
+        "task46"
+      ],
+      "task_file": "plan/task47.md",
+      "commit_hash": "c20a48781d7b9b29964e4ab3b982bdb6b3ad1f0b"
+    },
+    {
+      "task_id": "task48",
+      "task_name": "测试与 e2e 适配（五要素/并发/成本）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T03:30:00+08:00",
+      "updated_at": "2026-10-26T04:25:25.909Z",
+      "dependencies": [
+        "task45"
+      ],
+      "task_file": "plan/task48.md",
+      "commit_hash": "c20a48781d7b9b29964e4ab3b982bdb6b3ad1f0b"
+    },
+    {
+      "task_id": "task49",
+      "task_name": "事件日志并行化（experiment_id=格#迭代 / experiment_seq / read_experiment / 并行 append / project_state 适配）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T13:30:00+08:00",
+      "updated_at": "2026-10-26T12:43:59.600Z",
+      "dependencies": [],
+      "task_file": "plan/task49.md",
+      "commit_hash": "e1ff8e2e5034a3c8b1a6c94e33599348c243ca47"
+    },
+    {
+      "task_id": "task51",
+      "task_name": "成本优化（debug 不截断 max_turns=0 + 一次性根因协议 + builder 相邻格摘要 + event_fsync）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T13:30:00+08:00",
+      "updated_at": "2026-10-26T12:48:09.274Z",
+      "dependencies": [
+        "task49"
+      ],
+      "task_file": "plan/task51.md",
+      "commit_hash": "06a3c20a825009e02147102c6cfa15dacd81aef4"
+    },
+    {
+      "task_id": "task50",
+      "task_name": "并发槽池（max_parallel_experiments=2，异格并行，格锁+并行事件）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T13:30:00+08:00",
+      "updated_at": "2026-10-26T12:59:47.948Z",
+      "dependencies": [
+        "task49",
+        "task51"
+      ],
+      "task_file": "plan/task50.md",
+      "commit_hash": "bb263bef3aa440ec53dad5479b3a59b74c42bb9e"
+    },
+    {
+      "task_id": "task52",
+      "task_name": "测试/e2e 适配 + 真实成本对比（env_9 2 迭代 vs 基线 2.18M/迭代）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T13:30:00+08:00",
+      "updated_at": "2026-10-26T14:05:17.409Z",
+      "dependencies": [
+        "task50"
+      ],
+      "task_file": "plan/task52.md",
+      "commit_hash": "887fdf982364cd06c872e40e97b9cf1f89c05ea8"
+    },
+    {
+      "task_id": "task53",
+      "task_name": "文档（并行事件/并发实验/一次性根因/成本策略）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T13:30:00+08:00",
+      "updated_at": "2026-10-26T14:05:17.409Z",
+      "dependencies": [
+        "task49",
+        "task50",
+        "task51"
+      ],
+      "task_file": "plan/task53.md",
+      "commit_hash": "887fdf982364cd06c872e40e97b9cf1f89c05ea8"
+    },
+    {
+      "task_id": "task54",
+      "task_name": "adjust 并发饥饿修复（移出 if not slots + 跨边界触发 + 并发回归断言）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T19:00:00+08:00",
+      "updated_at": "2026-10-27T12:12:20.270Z",
+      "dependencies": [],
+      "task_file": "plan/task54.md",
+      "commit_hash": "a65a5d999fdd67e5291511cb825f4d3f40b2ffd7"
+    },
+    {
+      "task_id": "task55",
+      "task_name": "super stop 进程树收割修复（kill 进程组 + worker_pid 兜底 + 杀后验证）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-26T19:00:00+08:00",
+      "updated_at": "2026-10-27T12:12:20.270Z",
+      "dependencies": [],
+      "task_file": "plan/task55.md",
+      "commit_hash": "a65a5d999fdd67e5291511cb825f4d3f40b2ffd7"
+    },
+    {
+      "task_id": "task56",
+      "task_name": "agent 确定性输出 + session resume 失败恢复 + 回合软监控 + API 断连检测 + self_check 语义修正 + 特征空间约束",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-29T15:30:00+08:00",
+      "updated_at": "2026-10-29T13:03:40.835Z",
+      "dependencies": [],
+      "task_file": "plan/task56.md",
+      "commit_hash": "ae2c2c92464fdebf070488c96000e9d3b42e3363"
+    },
+    {
+      "task_id": "task57",
+      "task_name": "R1 基础设施熔断（三态失败/配额归 infra/暂停+探活恢复）+ R2 产物落盘抢救（agent 完成但没 JSON → 从 workdir 产物入格）",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-29T14:56:59.918Z",
+      "dependencies": [],
+      "task_file": "plan/task57.md",
+      "commit_hash": "c3be5e8d8f59e953cceb57a977beb56bc50af033"
+    },
+    {
+      "task_id": "task58",
+      "task_name": "R3 幻影 elite 拒绝（md5 等价 → measurement_refresh 非 replaced）+ R4 elite_replaced 自动标记 method_stale",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-29T15:13:00.223Z",
+      "dependencies": [
+        "task57"
+      ],
+      "task_file": "plan/task58.md",
+      "commit_hash": "e277fe5ee9dfde10a6f8bd16be167a2b042198a8"
+    },
+    {
+      "task_id": "task59",
+      "task_name": "R5 同码双测噪声标定 + 停止判据（top3_spread < noise_band）+ cost_report 按 outcome 分类",
+      "status": "success",
+      "attempts": 1,
+      "created_at": "2026-10-30T08:00:00+08:00",
+      "updated_at": "2026-10-29T15:35:39.897Z",
+      "dependencies": [
+        "task57",
+        "task58"
+      ],
+      "task_file": "plan/task59.md",
+      "commit_hash": "3359679c6f790e99be0edfd45cb4d18dbd1bd8c7"
+    }
+  ]
+}

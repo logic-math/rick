@@ -102,8 +102,18 @@ func (p Plan) MergeSource() (MergeResult, error) {
 		return res, nil
 	}
 
+	// 身份注入（两处共用）：macOS 的 git 在 merge --no-ff --no-commit 阶段就要求
+	// committer 身份（Linux 不要求——跨机差异，job_47 在 mac 上暴露）；生产仓库
+	// 缺身份时补中性身份：release 不该因缺 user.email 停在半路。
+	identityArgs := []string{}
+	if email, err := gitOut(p.ProdRepo, "config", "user.email"); err != nil || strings.TrimSpace(email) == "" {
+		identityArgs = []string{"-c", "user.name=rick release", "-c", "user.email=rick-release@localhost"}
+	}
+
 	// --no-commit：先把合并结果摆好，冲突时才能干净地 abort 而不留半成品提交
-	if out, err := gitCombined(p.ProdRepo, "merge", "--no-ff", "--no-commit", devBranch); err != nil {
+	// （-c 身份参数必须在子命令 merge 之前——git 全局选项位置）
+	mergeArgs := append(append([]string{}, identityArgs...), "merge", "--no-ff", "--no-commit", devBranch)
+	if out, err := gitCombined(p.ProdRepo, mergeArgs...); err != nil {
 		conflicts, _ := gitOut(p.ProdRepo, "diff", "--name-only", "--diff-filter=U")
 		abortErr := gitAbortMerge(p.ProdRepo)
 		after, _ := gitOut(p.ProdRepo, "status", "--porcelain")
@@ -132,11 +142,7 @@ func (p Plan) MergeSource() (MergeResult, error) {
 
 	// 无冲突：提交合并
 	msg := fmt.Sprintf("chore(release): merge %s → %s (version=%s)", devBranch, mainBranch, p.mergeVersionOrNew())
-	commitArgs := []string{"commit", "-m", msg}
-	if email, err := gitOut(p.ProdRepo, "config", "user.email"); err != nil || strings.TrimSpace(email) == "" {
-		// 生产仓库没配 git 身份时补一个中性身份：release 不该因为缺 user.email 而停在半路
-		commitArgs = append([]string{"-c", "user.name=rick release", "-c", "user.email=rick-release@localhost"}, commitArgs...)
-	}
+	commitArgs := append(append([]string{}, identityArgs...), "commit", "-m", msg)
 	if out, err := gitCombined(p.ProdRepo, commitArgs...); err != nil {
 		// 提交失败时把合并现场留给人（不回滚：合并结果本身是好的，只是没提交）
 		return res, mergeErrf(

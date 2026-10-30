@@ -386,6 +386,16 @@ func TestRegistryValidateSessionMatrix(t *testing.T) {
 		{"dream string job_num", SessionTypeDream, map[string]any{"job_num": "five"}, "job_num"},
 		{"dream bad mode", SessionTypeDream, map[string]any{"mode": "both"}, "mode"},
 		{"dream non-string mode", SessionTypeDream, map[string]any{"mode": 1}, "mode"},
+		// super（目录模型 v2：requirement 必填 + title 可选 + 旧 name 拒收）
+		{"super ok with requirement", SessionTypeSuper, map[string]any{"requirement": "优化矩阵乘"}, ""},
+		{"super ok with title", SessionTypeSuper, map[string]any{"requirement": "x", "title": "我的进化"}, ""},
+		{"super ok empty title", SessionTypeSuper, map[string]any{"requirement": "x", "title": ""}, ""},
+		{"super missing requirement", SessionTypeSuper, map[string]any{}, "requirement"},
+		{"super empty requirement", SessionTypeSuper, map[string]any{"requirement": ""}, "requirement"},
+		{"super non-string requirement", SessionTypeSuper, map[string]any{"requirement": 42}, "requirement"},
+		{"super non-string title", SessionTypeSuper, map[string]any{"requirement": "x", "title": 7}, "title"},
+		{"super legacy name rejected", SessionTypeSuper, map[string]any{"requirement": "x", "name": "foo"}, "name"},
+		{"super legacy name alone rejected", SessionTypeSuper, map[string]any{"name": "foo"}, "name"},
 		// unknown type
 		{"unknown type", "tdd", map[string]any{}, "unknown session type"},
 	}

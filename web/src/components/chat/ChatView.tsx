@@ -53,6 +53,7 @@ const TYPE_LABEL: Record<SessionType, string> = {
   learning: "LEARNING",
   dream: "DREAM",
   doing: "DOING",
+  super: "SUPER",
 };
 
 const TYPE_TONE: Record<SessionType, string> = {
@@ -63,6 +64,7 @@ const TYPE_TONE: Record<SessionType, string> = {
   learning: "border-rick/50 bg-rick/10 text-rick",
   dream: "border-nebula/60 bg-nebula/15 text-ink",
   doing: "border-morty/50 bg-morty/10 text-morty",
+  super: "border-morty/60 bg-morty/15 text-morty",
 };
 
 /** 会话头状态文案（挂起说「已挂起」而不是原始英文状态——用户看不出 suspended 是啥） */
@@ -123,6 +125,7 @@ const PROMPT_SOURCE: Record<SessionType, string> = {
   learning: "<job>/learning/prompts/learning_prompt.md",
   dream: ".rick/dream/（跨 job 反思，扫描已完成 jobs）",
   doing: "<job>/doing/prompts/doing_prompt.md（parent 编排协议）",
+  super: "<ws>/.rick/super_env/<name>/：super-loop + gen_env skill 中控（进化运行/观察/干预）",
 };
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {

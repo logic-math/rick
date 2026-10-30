@@ -43,6 +43,22 @@ type Info interface {
 	// Enumerate 枚举系统全部 pid（>0；按平台自然顺序，不排序——
 	// 与原 os.ReadDir("/proc") 的名字序保持一致）。getpid 的过滤在调用方。
 	Enumerate() ([]int, error)
+
+	// Snapshot 批量采集全系统进程的关键字段（pid → cwd/exe/comm）。
+	// 动机：darwin 上逐 pid 的 Cwd/Exe 各要一次 lsof（~0.1-0.3s/次），
+	// findProdPIDs/findDevPIDs 的全进程扫描会耗时分钟级（跨机后实测）；
+	// 批量形态下一平台仅 1-3 次子进程调用。语义与逐 pid 查询一致；
+	// 不可采集的进程不出现在结果里（调用方与逐 pid 查询的"查询失败"路径
+	// 同等处理）。单 pid 查询（重启恢复链等）仍用上面的逐条 API。
+	Snapshot() (map[int]ProcSnapshot, error)
+}
+
+// ProcSnapshot 是 Snapshot 的单进程记录。
+type ProcSnapshot struct {
+	PID  int
+	Cwd  string // 空表示未采集到
+	Exe  string // 空表示未采集到
+	Comm string // 进程名（无路径；空表示未采集到）
 }
 
 // unsupportedInfo 是未知平台的降级实现：所有查询失败但不 panic
@@ -56,3 +72,6 @@ func (unsupportedInfo) ExeHashPath(int) (string, error)        { return "", ErrU
 func (unsupportedInfo) Cwd(int) (string, error)                { return "", ErrUnsupported }
 func (unsupportedInfo) Environ(int) (map[string]string, error) { return nil, ErrUnsupported }
 func (unsupportedInfo) Enumerate() ([]int, error)              { return nil, ErrUnsupported }
+func (unsupportedInfo) Snapshot() (map[int]ProcSnapshot, error) {
+	return nil, ErrUnsupported
+}

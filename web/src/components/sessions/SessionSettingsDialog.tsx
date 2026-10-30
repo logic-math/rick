@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<SessionType, string> = {
   learning: "LEARNING",
   dream: "DREAM",
   doing: "DOING",
+  super: "SUPER",
 };
 
 const TYPE_TONE: Record<SessionType, string> = {
@@ -32,6 +33,7 @@ const TYPE_TONE: Record<SessionType, string> = {
   learning: "border-portal/40 bg-portal-soft text-portal",
   dream: "border-nebula/50 bg-nebula/10 text-nebula",
   doing: "border-rick/40 bg-rick/10 text-rick",
+  super: "border-morty/60 bg-morty/15 text-morty",
 };
 
 export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNode {

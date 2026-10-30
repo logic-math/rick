@@ -81,7 +81,7 @@ const (
 	DefaultKeepVersions = 3
 	defaultHealthWait   = 25 * time.Second
 	defaultStopGrace    = 14 * time.Second
-	defaultGateTimeout  = 1800 * time.Second
+	defaultGateTimeout  = 3600 * time.Second
 )
 
 // versionRe 匹配 `<sha7>-<YYMMDDHHMMSS>`（防止 GC 误删非版本目录）。
@@ -454,7 +454,17 @@ func runGates(p Plan, out io.Writer) (GateResult, error) {
 		timeout = defaultGateTimeout
 	}
 
-	goCmd := exec.Command("go", "test", "./...", "-timeout", "900s")
+	// 内层 go test 超时与外层门禁预算对齐（1800s 默认）：macOS 上
+	// env/release 的真构建用例单次 ~90s×5，900s 会环境性截断（job_47 跨机后实测）
+	goTestTimeout := int(timeout.Seconds())
+	if goTestTimeout <= 0 {
+		goTestTimeout = int(defaultGateTimeout.Seconds())
+	}
+	// -p 1：包间串行——避免 env/release 真构建用例与 web 等时敏包并发争 CPU
+	// 造成环境性 flaky（job_47 S3 演练在 mac 上实测：并行时 internal/web 超时、
+	// 单独跑绿）
+	goCmd := exec.Command("go", "test", "./...", "-p", "1", "-timeout",
+		fmt.Sprintf("%ds", goTestTimeout))
 	goCmd.Dir = p.DevTree
 	goCmd.Env = p.buildEnv()
 	raw, err := goCmd.CombinedOutput()
@@ -1264,11 +1274,23 @@ func (p Plan) LastVersion() (string, error) {
 // darwin 无 /proc/<pid>/environ 等价物（procfs.ErrUnsupported）→ env 断言跳过，
 // 靠 cwd+exe 双断言（linux 下三者全可用）。
 func ownedByProd(p Plan, pid int) bool {
-	if cwd, err := proc.Cwd(pid); err == nil && cwd == p.ProdRepo {
+	// macOS：路径断言统一 EvalSymlinks 后比较——t.TempDir()/cwd 常见 /var ↔
+	// /private/var 双形（lsof 给物理路径，Plan 持逻辑路径），不归一会让所有权
+	// 断言全部失配→stopProd 跳过→旧进程残留端口→重启后 build_id 不一致
+	// （跨机 linux→macOS 暴露，job_47 release S3 演练发现）。
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	prodRepo := norm(p.ProdRepo)
+	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
+	if cwd, err := proc.Cwd(pid); err == nil && norm(cwd) == prodRepo {
 		return true
 	}
 	if exe, err := proc.Exe(pid); err == nil {
-		if strings.HasPrefix(exe, filepath.Join(p.ProdRepo, "bin")+string(filepath.Separator)) {
+		if strings.HasPrefix(norm(exe), prodBin) {
 			return true
 		}
 	}
@@ -1281,8 +1303,24 @@ func ownedByProd(p Plan, pid int) bool {
 }
 
 // findProdPIDs 枚举系统进程里属于该生产部署的（pid 文件缺失/陈旧时的兜底；
-// 枚举经 internal/env/procfs，linux/darwin 均可用）。
+// 枚举经 internal/env/procfs 的**批量快照**——darwin 上逐 pid 的 lsof 是分钟级
+// （每 pid ~0.1-0.3s × 全进程），批量一次 1-3 次子进程调用；跨机后实测修复）。
 func findProdPIDs(p Plan) []int {
+	// 快路径：批量快照（darwin：3 次子进程调用覆盖全进程；linux 返回
+	// ErrUnsupported → 走下方原路径——逐 pid /proc 读已是 µs 级）。
+	if snaps, err := proc.Snapshot(); err == nil {
+		var out []int
+		for pid := range snaps {
+			if pid == os.Getpid() {
+				continue
+			}
+			if ownedByProdSnapshot(p, snaps[pid]) {
+				out = append(out, pid)
+			}
+		}
+		return out
+	}
+	// 原路径（linux）：逐 pid 全量断言（cwd/exe/env 三重）
 	pids, err := proc.Enumerate()
 	if err != nil {
 		return nil
@@ -1297,6 +1335,27 @@ func findProdPIDs(p Plan) []int {
 		}
 	}
 	return out
+}
+
+// ownedByProdSnapshot 与 ownedByProd 同语义（cwd/exe 断言；darwin 批量快照
+// 无 environ，HOME 断言仅存在于原逐 pid 路径——cwd/exe 是主断言，覆盖
+// 生产实例的全部实际形态：start-web.sh cd 进 prodRepo + 二进制在 bin/ 下）。
+func ownedByProdSnapshot(p Plan, s procfs.ProcSnapshot) bool {
+	norm := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	prodRepo := norm(p.ProdRepo)
+	prodBin := norm(filepath.Join(p.ProdRepo, "bin")) + string(filepath.Separator)
+	if s.Cwd != "" && norm(s.Cwd) == prodRepo {
+		return true
+	}
+	if s.Exe != "" && strings.HasPrefix(norm(s.Exe), prodBin) {
+		return true
+	}
+	return false
 }
 
 // alive 报告 pid 是否仍存在（收尸轮询；僵尸态视为已退出）。跨平台抽象见
