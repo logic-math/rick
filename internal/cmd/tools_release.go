@@ -411,7 +411,14 @@ func spawnDetached(cmd *cobra.Command, p release.Plan) error {
 	if !containsFlag(args, "--yes") {
 		args = append(args, "--yes")
 	}
-	child := exec.Command(os.Args[0], args...)
+	// os.Args[0] 可能是相对路径（如 ./bin/rick），而 child.Dir 换到了生产树——
+	// 相对路径在那边解析不到（S5 实测 exec format error/exec format error）。
+	// 先转成绝对路径再启动。
+	selfPath, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return releaseFail(cmd, "restart", fmt.Errorf("解析自身路径 %s: %w", os.Args[0], err))
+	}
+	child := exec.Command(selfPath, args...)
 	child.Env = append(os.Environ(), releaseDetachEnv+"=1")
 	child.Dir = p.ProdRepo
 	child.Stdout = logf
