@@ -725,3 +725,48 @@ git diff --cached --stat | tail -1
 ```
 
 **首次发现**: job_44  **验证状态**: ✅ 已恢复（921 条救回）；防再犯见 rick_release_ops_skill 第 7 条
+
+### web worker 模型连接全灭：proxy 环境反转（mcli.sankuai.com 内网直达而 proxy 不转发）
+
+**根因**: start-web.sh 按老机器经验 export proxy 三件套（注释写「丢了会全部 Connection error」）；跨机迁移后 mcli.sankuai.com（pi catpaw-proxy 模型网关 baseUrl）在本机成**内网直达域名**，proxy 10.229.18.27:8412 能转发外网（github 实测 200）但不转发它（实测 HTTP 000）→ web worker 继承 web 进程 env 的 proxy，全部模型调用 `Connection error.`；CLI 会话无 proxy 变量直连正常——「同一模型 CLI 好 web 坏」即此根因的对照特征。
+
+**精确解决步骤**:
+```bash
+# ① start-web.sh 的 no_proxy 追加网关域名（已落地 ~/.rick/start-web.sh）+ 重启 web:
+#    no_proxy=localhost,127.0.0.1,mcli.sankuai.com
+# ② worker 同款 env 实测（应输出「通」）:
+pi --provider catpaw-proxy --model glm-5.3 --print "通"
+# 遗留（未修）: release.go prodEnv 透传调用方 proxy 变量——release 从旧 no_proxy 的 shell
+#   执行会让生产实例复发（job_49 S5 起的实例中招过，被 start-web.sh 重启覆盖）；
+#   候选源码级修复：catpaw-proxy.ts 扩展用 no-proxy dispatcher（pi 侧定制层，非 rick 树）
+```
+
+**首次发现**: job_49 / P5 追加排查（doing/debug/bug1-web-worker-model-connection.md）  **验证状态**: ✅ 环境级修复已落地（2026-10-30 实测「通」）；源码级未修
+
+### procfs Snapshot cwd 批量采集字段错误（`lsof -F pc` 把 comm 当路径）
+
+**根因**: darwin Snapshot 批量 cwd 采集曾用 `lsof -w -F pc -d cwd` 并解析 `c` 字段——lsof -F 的 c 是 comm（进程名）不是文件路径 → Snapshot.Cwd 恒为 "sleep"/"node" 等进程名 → ownedByProdSnapshot 快照断言全失配 → findProdPIDs 空转、dev-web status 恒报 state=down（Running 判定盲区）。正确字段：p=pid、n=name（路径）。
+
+**精确解决步骤**:
+```bash
+# 改 -F pn + parse 'n'（internal/env/procfs/procfs_darwin.go:184；txt 同理 :196 用 -F pn -d txt）:
+lsof -w -F pn -d cwd
+# 验证: go test ./internal/env/procfs/ ；修复后 dev-web status: state=up fingerprint=ok
+# commit 47befe6（version=47befe6-261030233503 已 release，生产 web 实测运行该版本）
+```
+
+**首次发现**: job_49 / S2 门禁设计（安全实验发现）  **验证状态**: ✅ 已修复并 release（2026-10-30 复跑 go test ./internal/env/procfs/ 通过）
+
+### ownedByProd cwd 断言过宽——release stopProd 误杀生产树上的会话/终端
+
+**根因**: cwd==prodRepo 单独成立即认领停止——但生产树根 = git 仓库根，agent 会话/human 终端的 cwd 都在那里工作 → release stopProd 按 cwd 认领会误杀它们（S2 安全探针实验实证）。cwd 断言的本意是「start-web.sh cd 进 prodRepo 后 exec 的实例」，须加名义佐证才认领。
+
+**精确解决步骤**:
+```bash
+# cwd 匹配须加 rickNamedProcess 名义佐证（exe→argv→comm 三级链，
+# internal/env/release/release.go:1470）+ 防线测试（release_test.go:413）:
+go test ./internal/env/release/ -run TestRestartRefusesToKillCwdSquatterInProdTree
+# 同 commit 47befe6（version=47befe6-261030233503 已 release）
+```
+
+**首次发现**: job_49 / S2 门禁设计（安全实验发现）  **验证状态**: ✅ 已修复并 release（2026-10-30 复跑防线测试通过）

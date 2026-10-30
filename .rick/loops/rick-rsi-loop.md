@@ -167,3 +167,19 @@ S7 留痕校验
   · release 健康/`build_id` 校验失败且自动回滚后生产仍异常
 - **人类否决**：S4 未获批准 → 停止（dev 侧产物保留，生产**不变**）
 - **优雅退出**：保留 dev 工作区与 `bin/releases/.last` 回滚点；生产保持上一个可用版本；不得留中间态
+
+---
+
+## doing 型 job 的适配（job_49 实测，2026-10-30）
+
+**场景**：job 由 `rick doing`/CLI 直接创建（无 plan/tasks.json/plan 树），却需要走 RSI 修改源码并送达生产。本 loop 主体按 plan 型 job 的路径写死了几处位置，doing 型 job 按下表适配，**S0→S7 状态机本身不变**：
+
+| # | 适配要点 | 做法 |
+|---|---|---|
+| 1 | 门禁位置 | 用 `doing/tests/gate{N}.py` 代替 `plan/gates/gate{N}.py`（rsi_check 只校验 gates.md 证据行 `GATE gateN pass=true`，**不检查门禁脚本位置**——实测可过；门禁脚本本身仍写「生产零触碰」断言） |
+| 2 | job 记录位置 | 保持在 **main 树** `.rick/jobs/<job>/`（代替 S1 ⚠️「job 数据只写 dev 树」那条——那是为 plan 型 双树同文件场景防冲突；doing 型 job 的记录在 dev 树**不存在**，dev→main 合并方向上天然不冲突，job_49 S5 实测零冲突）；rsi_check 从 **main cwd** 跑（job 按 `<cwd>/.rick/jobs/` 解析，代替 S7「在 dev 工作区执行」那条） |
+| 3 | 干预阶梯（worker 截断处置） | 回执**中途思考截断**×1 → 缩小任务粒度 fresh 重派；同模式截断×2 且第二轮零代码产出 → parent **直接接手**关键部分（job_49：doing worker 两轮同构截断，parent 接手后一轮收口；避免第三轮确定性空转） |
+| 4 | 证据骨架 | 仍用 `rick tools rsi_check --job <job> --init`（从 main 树 cwd 执行）生成 `doing/rsi/` 五项骨架，随后逐项补证据 |
+| 5 | release.md 头部三行契约 | `version=` 行**置首**（rsi_check 从 release.md 取**首个** `version=` 匹配行做生产 build_id 校验——历史演练记录若在前会抢先命中；domain bugs.md 已知坑，job_49 S3 复现过） |
+
+> 出处：job_49（doing/debug 型，无 plan 树）走完整 RSI 链实测——S1 两轮 worker 同构截断后 parent 接手、S2 门禁落 doing/tests/、S5 合并零冲突、rsi_check 6/6 绿。本节为追加适配层，不改上方 S0-S7 主体。

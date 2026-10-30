@@ -75,3 +75,19 @@
 - 生产树 `.rick/jobs/**` 属主 sankuai 且 agent 无写权 → 发布载荷必须排除 base 中不存在的新 job 路径（job_44/45）；job 记录以 dev 树为准
 - `.git/info/exclude` 本地忽略相应新 job 路径（三条），以保证 merge 干净性检查通过
   - 来源: job_44  状态: ✅ 已确认
+
+## 模型网关路由（job_49 实测，Mac 主机）
+
+- **mcli.sankuai.com 是内网直达域名**：pi catpaw-proxy provider 的 baseUrl（key 在 `~/.config/mcopilot-cli/.config.yaml` 的 AUTHORIZATION 行）。本机 proxy `10.229.18.27:8412` 能转发外网（github 200）但**不转发它**（HTTP 000）——带 proxy env 访问模型网关必 `Connection error`，no_proxy 必须含 mcli.sankuai.com（已写入 ~/.rick/start-web.sh）。与上方 job_46「模型 API 经代理可达」为目标机 Linux 实测——机器不同结论相反，部署环境迁移后网络假设须实测校准（同域名在本机与在 Linux 目标机路由性质可反转）
+  - 验证命令: `no_proxy=localhost,127.0.0.1,mcli.sankuai.com pi --provider catpaw-proxy --model glm-5.3 --print "通"`（带 proxy env 时对照实验复现 Connection error）
+  - 来源: job_49  状态: ✅ 已确认
+
+## darwin 进程探测字段语义（job_49 实测）
+
+- **macOS shebang 进程的 `ps -ww -o command=` 输出**：argv[0] 是解释器路径（如 `/bin/sh`、`/Library/.../Python`），脚本路径在 argv[1]——名义判定要扫全 argv（只看 argv[0] 会漏）；`ps -o comm=` 同样是解释器名（如 `/bin/sh`），不是脚本名
+  - 验证命令: `printf '#!/bin/sh\nsleep 20\n' > /tmp/sb.sh && chmod +x /tmp/sb.sh && /tmp/sb.sh & sleep 1; ps -ww -o command= -p $!; ps -o comm= -p $!`
+  - 来源: job_49  状态: ✅ 已确认
+
+- **`lsof -F` 结构化输出字段语义**：p=pid、c=comm（进程名）、n=name（文件路径）——批量 cwd/txt 采集用 `-F pn`；把 c 当路径会让 Snapshot.Cwd 恒为进程名（见 bugs.md job_49 procfs Snapshot 条目）
+  - 验证命令: `lsof -w -F pc -d cwd | head`（c 行=进程名）vs `lsof -w -F pn -d cwd | head`（n 行=路径）
+  - 来源: job_49  状态: ✅ 已确认

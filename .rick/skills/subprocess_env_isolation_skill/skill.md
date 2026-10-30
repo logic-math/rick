@@ -118,3 +118,9 @@ subprocess.run(["go", "test", "./internal/web/"], env=clean_env, ...)
 env -u RICK_STATE_DIR -u RICK_PI_AGENT_DIR -u PI_CODING_AGENT_DIR rick tools release --dry-run ...
 ```
 **产品级修复点**（待做）：release.go `runGates` 构造 `exec.Cmd.Env` 时剔除 `RICK_*` 前缀全家（Step 5 的通用原则同样适用于 rick 自己派生的测试子进程）。
+
+### Step 7：proxy 环境反转案例（job_49 沉淀）
+
+**根因**：worker 子进程全量继承父进程 env（含 `http_proxy/https_proxy/no_proxy`）——老机器「模型网关必须走 proxy」的经验在跨机迁移后反转（内网域名变直达，proxy 反而转发不了），带 proxy 的 web/子进程全量 `Connection error`，而 env 干净的 CLI 会话正常。隔离测试时要**造**干净 env，排查生产时反过来要**审**继承链，二者互为镜像。
+**信号词**：「Connection error 但 CLI 正常」「历史经验失效」「环境反转」。
+**定位手法**（逐变量对照实验 + proxy 差异排除）与修复落点（部署脚本 `no_proxy` 追加内网域名，非源码大改）见 `.rick/skills/env_drift_probe_skill/skill.md`。
