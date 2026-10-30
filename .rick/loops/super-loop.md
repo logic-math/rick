@@ -168,6 +168,7 @@ scope: "super 会话（全局）"
 - **检索三问（第四类资产，与三要素同级）**：按 gen_env skill 第 0.5 节追问 human——**搜索方法**（web_search 关键词 / 官方文档站内 / GitHub 代码搜索 / arXiv 站内与 API）、**搜索信源**（按角色分：coding/debug=使用手册与代码样例，builder/adjust=论文站）、**关注点**（**必须与特征格绑定**）。判据 = 能写成 `skills/research.py` 的 `ROLE_PROFILES`（四角色三元组非空）；human 亲自描述，AI 只追问确认。**定位**：检索是语义空间进化的「**认知注入**」通道——agent 在同一格以小角度反复微调（局部最优征兆）时，检索能引入外部新原理；关注点绑定到格才能收敛探索、避免泛读无关资料。
 - 加载 **gen_env skill** 走访谈式流程：任务定义 → 评分方向 → **门禁系统设计引导**（把三要素落成四件 skill：`profile/verify/benchmark/gate_check`；exploit 注册表 / 金样例——门禁阈值属 env 设计范畴，由 human 决策，本 loop 不代答）→ 初始特征空间（2-4 轴，轴间正交）→ 初始解。
 - matmul 类任务可从 `super/env_templates/matmul/` 模板起步，在模板上做门禁定制。
+- **观测性先于治理（job_47 教训：V1 最低配清单）**：env 验收自检额外确认调度器配置带「回合/token/时长三维实时计数 + 软告警事件」——①回合计数与 `turn_soft_warn` 软告警（不截断，达阈发 `turn_budget_alert` 事件）②每迭代的 token/wall 已入 `iteration_ended.by_role`（可归因）③成本异常有事件信号（`api_outage_detected` 等）。**缺观测性先补观测再跑**：job_47 里 25M token 失控发生在「跑的当时」但只能事后从统计发现（观测迟到 4 个迭代）；事后统计是兑底不是主力。
 - 验收自检（gen_env 的收尾清单）：五件 skill 各自独立可跑 ✓（三要素四件 + `research.py` 四角色三元组非空）gate_check 对参考实现融合 pass ✓ exploit 样本被拒识 ✓（这是 Step 2 门先证红的地基）。
 - **完成后立即推进 Step 2 启动——不得停在 env 生成后**（env_9 实测教训：gen_env 完成后未 start，工作区零轨迹 `events.jsonl`=0 行，等于白做）。若 human 明确要求先停，在会话记录里写明原因与计划启动时间。
 
@@ -179,7 +180,7 @@ scope: "super 会话（全局）"
 **Step 3 监控**
 - `rick super status --name <n>`（或 `--json` 给机器可读）：心跳/迭代游标/预算墙（--max-wall-time）/北极星（入格数、各格最优 perf、token 分 role 成本）+ 事件尾摘要（最近迭代的 gate_result / elite_admitted / env_failure_concluded）。
 - 巡检关注三类信号：① env_failure_concluded 连发 → env 或 pi 环境问题（回依赖准备排查，别让调度器空转）；② 长时间零入格 → 看 gate_result 失败分布（正确性门过严？软门禁容差带？）与 adjust 的 weight_changed 轨迹；③ token 成本异常 → 干预降频（weight）或停机复盘。
-- **token / cost 分布（成本可解释性的读法）**：① `status --json` 的北极星含总 token 成本；② 逐迭代归因看 `events.jsonl` 的 `iteration_ended.by_role`（各角色的 tokens/wall_ms/tool_calls）；③ 需要分布视图时跑 `python3 super/tools/cost_report.py --workdir <ws>`（按角色/迭代的成本表 + Top-N 昂贵迭代 + 上下文膨胀 + cache 命中率）——发现「单角色占比异常」或「截断（`truncated=true`）频发」时按 `super_cost_analysis` skill 的浪费模式清单定位。
+- **事件流健康巡检（例行化，job_47 教训：浪费的证据早就有了，缺的是「看」的动作）**：Step 3 监控期间每轮巡检固定跑一条 `python3 super/tools/cost_report.py --workdir <ws>`（含 outcome 五态分列：delivered/agent_failed/turn_truncated/infra_noop/no_output）——把「浪费可见化」从专项 task 变成例行动作；发现 infra_noop 占比高 → 查配额/断网（熔断与探活恢复是框架内置）；turn_truncated 频发 → 回合预算校准（用产物复杂度反推：典型任务的文件×动作数 ÷ 每回合动作数 = 预算下界，再给实测余量——拍脑袋的预算值实测后必 tune，不如先算）。
 - **轨迹证据直读**（比 status 聚合更细，看清 agent 到底在干什么）：`decisions/`（**adjust 每轮决策记录**：区间实验摘要 → 主要矛盾判定 → research 引用 → 格动作与依据，决策可解释性的主证据）、`codes/iter{N}-{uuid}/experiment_record.md`（**实验记录全文**：假设/验证逻辑/步骤/执行与结论——四 agent 共享的恒常上下文）、`codes/iter{N}-{uuid}/research_report.md`（builder 调研报告）与 `coding_plan.md`/`test_solution.py`（coding 的编码计划与 TDD 痕迹）、`designs/`（builder 每迭代决策落盘：引用的 arXiv 论文/灵感来源/推理/实验计划）、`profile_history/<cell_id>/`（每格 profile 时间序列——看现状如何变化）、`ledger.jsonl`（跨迭代实验台账）、`prompt_{role}.md` 快照（三要素/检索命令是否被真调用）。
 - **单实验维度巡检（迭代10；并发槽下首选口径）**：一次实验 = `(cell_id, iteration_id)` → `experiment_id`。
   - 列出当前在飞/近期实验：`grep '"type":"experiment_started"' events.jsonl | tail -5`（带 `slot`/`experiment_id`）；收口核对 `experiment_finished`。
@@ -209,6 +210,7 @@ scope: "super 会话（全局）"
 
 跑完一轮后，进化不该止于解——**搜索算法本身用这轮的轨迹证据迭代**。本步是标准收尾动作（长跑后必走；短跑可跳过但要在 PROMPTS_LOG 或会话记录里注明「样本不足，不评估」）：
 
+- **环境结束/跑挂后固定派 researcher 深读事件流（job_47 实证：全 job ROI 最高的单一实践，硬性环节）**：派独立 researcher（fresh 上下文，不复用中控会话——立场偏见）按 `super_event_autopsy` skill 深读：重校准度量口径（infra 与真实失败分开）→ 失败分类代价 → 结构性根因（预算×协议失配 / 触发条件对着想象写 / 台账完整性 / 相位差 / 停止判据锚点）→ 修复优先级。env_11 实例：一次深读挖出 5 项根因，其中 R1 一项占 68% 迭代空转；没这一步，表面统计（20% 产出率）会把基础设施故障当 agent 失败治。
 - **轨迹复盘**：加载 **gen_env skill 第 7 节（轨迹分析 → 提示词进化）** 走五步流程——
   ① 取证：跑 `python3 super/tools/adjust_trace.py --workdir <ws>` 得决策-效果对照表；
      并读工作区 `decisions/`（**adjust 决策记录全文**：每轮的主要矛盾判定/research 引用/格动作与
