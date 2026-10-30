@@ -95,6 +95,18 @@ func (linuxInfo) Environ(pid int) (map[string]string, error) {
 	return out, nil
 }
 
+func (linuxInfo) Command(pid int) (string, error) {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return "", err
+	}
+	cmd := strings.ReplaceAll(strings.TrimSuffix(string(data), "\x00"), "\x00", " ")
+	if cmd == "" {
+		return "", fmt.Errorf("/proc/%d/cmdline: empty", pid)
+	}
+	return cmd, nil
+}
+
 func (linuxInfo) Enumerate() ([]int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
