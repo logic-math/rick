@@ -4,7 +4,8 @@
 
 ## 角色定位
 
-- **范围**：仅允许修改 `.rick/loops/`（`/workdir/sunquan20/AI_CODING/rick/.rick/loops`）、`.rick/skills/`（`/workdir/sunquan20/AI_CODING/rick/.rick/skills`）和 `.rick/domain/`（`/workdir/sunquan20/AI_CODING/rick/.rick/domain`）
+- **范围**：仅允许修改 `.rick/loops/`（`/Users/logic/workdir/AI_CODING/rick/.rick/loops`）、`.rick/skills/`（`/Users/logic/workdir/AI_CODING/rick/.rick/skills`）和 `.rick/domain/`（`/Users/logic/workdir/AI_CODING/rick/.rick/domain`）
+- **domain 是核心产出**：跨 job 的共性事实（反复出现的坑及其精确解法、构建/环境事实的演进）只能由 dream 发现——单 job 的 learning 只看到当次视角。**发现未跑 learning 的 job 时，先向 human 报告**（该 job 的执行记录未被沉淀，domain 可能缺事实），由 human 决定补跑 `rick learning <job_id>` 还是直接跳过
 - **禁止**：修改任何业务源代码及其他 `.rick/` 目录
 - **输出**：更新 loops/skills/domain；每个处理的 job 写入 `dream_run_{job_id}_log.md`
 
@@ -14,19 +15,35 @@
 
 ## 可用的项目 Loops
 
-- **do-check-mark-success-loop**："当 doing_check 报错 task status != success 或 commit_hash 缺失时触发"
+- **agent-runtime-bootstrap-loop**："当需要初始化/迁移/重装 rick 的 agent runtime（pi）及其扩展时触发（如 rick tools init-pi、版本升级、runtime 迁移）"
+- **go-refactor-migration-loop**："当需要把 Go 包整体迁移/重命名/删除，或大规模改动 import 路径并让 build+test 收敛到绿时触发"
 - **protocol-redesign-loop**："当需要重构 AI agent 的多阶段协议(如人机协作流程、任务执行流程),涉及阶段合并/拆分/反向回流/批判层重设计时触发"
 - **readme-wiki-sync-loop**："当需要编写或重构 README.md、wiki/（用户面向文档）等描述性资料时触发"
+- **rick-rsi-loop**："当需要修改 rick 自身（源码 cmd/ internal/ web/、prompt 模板、或 .rick 知识库/loop）并让它生效到生产时触发——「让 rick 自己改进自己」的任务加载本 loop"
 - **tdd-red-green-refactor-loop**："当测试已存在且处于 FAIL 状态，需要通过迭代实现让其变绿时触发（前提：先写测试、当前测试 FAIL、目标是收敛到绿）"
+- **web-feedback-iteration-loop**："当 human 在 web UI（生产或 dev）验收后提出反馈——bug、体验问题、小功能、或对既有设计的裁决性推翻——需要快速组织一轮增量修复并安全送达生产时触发；本 loop 编排反馈轮次，每轮的执行机制（dev 树隔离/层门禁/release/RSI 证据）复用 rick-rsi-loop"
+- **workspace-relocation-loop**："当需要把 rick 工作区（含 job 历史/pi 会话/配置状态）迁移到另一台机器并使其正常工作时触发（Linux→Mac 搬迁、A 机分发工作区到 B 机、机器换代整环境搬家）"
 
 
 ## 待处理 Jobs
 
+- job_43.locked
 - job_24
 - job_25
 - job_26
 - job_27
 - job_28
+- job_29
+- job_30
+- job_32
+- job_33
+- job_34
+- job_35
+- job_36
+- job_37
+- job_43
+- job_44
+- job_46
 
 
 ## 已有 Run Logs
@@ -446,10 +463,14 @@
 2. **RFC-001 驱动**：task1 首先读取 `RFC-001-context-architecture.md`，确认了 RFC 前置读取模式的普遍性。
 3. **doing.md 模板变量注入（task4/5）**：将 `{{job_okr_content}}` 替换为 `## 可用的项目 Loops
 
-- **do-check-mark-success-loop**："当 doing_check 报错 task status != success 或 commit_hash 缺失时触发"
+- **agent-runtime-bootstrap-loop**："当需要初始化/迁移/重装 rick 的 agent runtime（pi）及其扩展时触发（如 rick tools init-pi、版本升级、runtime 迁移）"
+- **go-refactor-migration-loop**："当需要把 Go 包整体迁移/重命名/删除，或大规模改动 import 路径并让 build+test 收敛到绿时触发"
 - **protocol-redesign-loop**："当需要重构 AI agent 的多阶段协议(如人机协作流程、任务执行流程),涉及阶段合并/拆分/反向回流/批判层重设计时触发"
 - **readme-wiki-sync-loop**："当需要编写或重构 README.md、wiki/（用户面向文档）等描述性资料时触发"
+- **rick-rsi-loop**："当需要修改 rick 自身（源码 cmd/ internal/ web/、prompt 模板、或 .rick 知识库/loop）并让它生效到生产时触发——「让 rick 自己改进自己」的任务加载本 loop"
 - **tdd-red-green-refactor-loop**："当测试已存在且处于 FAIL 状态，需要通过迭代实现让其变绿时触发（前提：先写测试、当前测试 FAIL、目标是收敛到绿）"
+- **web-feedback-iteration-loop**："当 human 在 web UI（生产或 dev）验收后提出反馈——bug、体验问题、小功能、或对既有设计的裁决性推翻——需要快速组织一轮增量修复并安全送达生产时触发；本 loop 编排反馈轮次，每轮的执行机制（dev 树隔离/层门禁/release/RSI 证据）复用 rick-rsi-loop"
+- **workspace-relocation-loop**："当需要把 rick 工作区（含 job 历史/pi 会话/配置状态）迁移到另一台机器并使其正常工作时触发（Linux→Mac 搬迁、A 机分发工作区到 B 机、机器换代整环境搬家）"
 `，属于全局变量名迁移，3 次报错均在模板变量同步阶段。`global_ref_sync_skill` 和 `template_injection_skill` 的触发场景直接来源于此。
 4. **task1~3 零报错**：创建静态目录/文件 + README 任务全部一次成功，验证了零重试任务设计的"单一职责+明确路径"原则。
 5. **embed.FS 涉及模板变更后必须 build**：task5/6/7 涉及 doing.md/plan.md 模板修改，每次修改后需 `./scripts/build.sh` 才能生效，这在 `verify_go_changes_skill` 中已明确。
@@ -591,7 +612,8 @@
 
 1. 扫描 `.rick/dream/dream_run_*_log.md`，确认已处理的 job 列表
 2. 确认本次处理的 job 列表（见上方"待处理 Jobs"）
-3. 输出处理清单
+3. **learning 完整性检查**：逐个检查待处理 job 是否有 `learning/SUMMARY.md`——缺失意味着该 job 的执行经验未被沉淀（domain 可能缺事实、skills/loops 可能漏模式）。**缺失清单向 human 报告**，由 human 决定：补跑 `rick learning <job_id>` 后再来 dream，还是接受缺失直接处理
+4. 输出处理清单（含 learning 完整性标注：✅ 已沉淀 / ⚠️ 缺 learning）
 
 ---
 
@@ -599,13 +621,14 @@
 
 对每个待处理 job，按优先级加载数据（文件不存在则跳过）：
 
-| 文件 | 说明 |
+| 数据源 | 说明 |
 |------|------|
+| `<cwd>/.pi/subagents/artifacts/*_{meta.json, transcript.jsonl, output.md}` | **原生行为轨迹**（无任何提取/摘要层）：meta.json 含 task/exitCode/durationMs/usage/error；transcript.jsonl 是 worker 完整轨迹；output.md 是产出 |
 | `jobs/{job_id}/doing/debug/bug*.md` | 调试记录（frontmatter 摘要） |
-| `jobs/{job_id}/doing/tasks/*/act-path.md` | 工具调用轨迹 |
 | `jobs/{job_id}/learning/SUMMARY.md` | learning 阶段摘要 |
 
-**降级策略**：act-path 缺失时以 SUMMARY.md 为主要信号源；三者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。
+**读取方式**：`ls -t <cwd>/.pi/subagents/artifacts/*_meta.json | head -20` 建立全量 run 清单（agent 名含 task{N}-test/task{N}-impl），按耗时/报错/重试次数排序选重点 run，深入读其 transcript（工具调用模式、失败-修复循环）。
+**降级策略**：artifacts 缺失时以 SUMMARY.md 为主要信号源；两者均缺失则基于已有 loops/skills 进行全局反思，不得跳过。**让模型从原始行为轨迹学习，不做摘要依赖。**
 
 ---
 
@@ -613,7 +636,7 @@
 
 YOU MUST declare: `"I will use skill:sense for reflection."`
 
-读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_sense.md`，基于所有 job 数据深度反思：
+读取 `/Users/logic/workdir/AI_CODING/rick/.rick/dream/prompts/skill_sense.md`，基于所有 job 数据深度反思：
 
 1. **跨 job 共性问题**：相同类型错误在 ≥ 2 个 job 中出现 → 候选新 skill
 2. **跨 job 重复工作流**：≥ 2 个 job 执行了相同的步骤序列 → 候选新 loop 或升级已有 loop
@@ -628,19 +651,19 @@ YOU MUST declare: `"I will use skill:sense for reflection."`
 
 YOU MUST declare: `"I will use skill:gen-loop."`
 
-读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_loop.md`，针对 Step 3 识别的 loop 相关信号：
+读取 `/Users/logic/workdir/AI_CODING/rick/.rick/dream/prompts/skill_gen_loop.md`，针对 Step 3 识别的 loop 相关信号：
 
 **升级已有 loop（优先）**：
-- 检查 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/` 中是否有功能相似的已有 loop
+- 检查 `/Users/logic/workdir/AI_CODING/rick/.rick/loops/` 中是否有功能相似的已有 loop
 - 有相似 → 直接升级（补充依赖准备、完善步骤、更新 skill 引用）
 - 无相似 → 按 gen-loop 格式创建新的 `{name}-loop.md`
 
 **写入规范**：
-- 新建：直接命名 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/{name}-loop.md`（无 `candidate_` 前缀，dream 产出经人类审核后直接生效）
+- 新建：直接命名 `/Users/logic/workdir/AI_CODING/rick/.rick/loops/{name}-loop.md`（无 `candidate_` 前缀，dream 产出经人类审核后直接生效）
 - 升级：原地修改已有文件
 
 **淘汰过时 loop**：
-- 连续 3 次 dream 未被任何 job 匹配的 loop → 移至 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/deprecated/`
+- 连续 3 次 dream 未被任何 job 匹配的 loop → 移至 `/Users/logic/workdir/AI_CODING/rick/.rick/loops/deprecated/`
 
 ---
 
@@ -648,14 +671,14 @@ YOU MUST declare: `"I will use skill:gen-loop."`
 
 YOU MUST declare: `"I will use skill:gen-domain."`
 
-读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_domain.md`，基于所有 job 的执行记录提炼跨 job 的事实性知识：
+读取 `/Users/logic/workdir/AI_CODING/rick/.rick/dream/prompts/skill_gen_domain.md`，基于所有 job 的执行记录提炼跨 job 的事实性知识：
 
 1. 读取各 job 的 `debug/bug*.md` 和 `learning/SUMMARY.md`，提取已确认的事实
-2. 将**跨 job 共性的已知问题与解法**追加到 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/bugs.md`
+2. 将**跨 job 共性的已知问题与解法**追加到 `/Users/logic/workdir/AI_CODING/rick/.rick/domain/bugs.md`
 3. 更新环境配置、构建命令等事实到对应文件
 4. 淘汰已不再适用的过时事实（注明淘汰原因）
 
-**父 Agent 验收**：`ls /workdir/sunquan20/AI_CODING/rick/.rick/domain/` 确认文件已更新。
+**parent 验收**：`ls /Users/logic/workdir/AI_CODING/rick/.rick/domain/` 确认文件已更新。
 
 ---
 
@@ -663,54 +686,61 @@ YOU MUST declare: `"I will use skill:gen-domain."`
 
 YOU MUST declare: `"I will use skill:evolve-skills."`
 
-读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_evolve_skills.md`，结合 Step 3 信号执行进化决策：
+读取 `/Users/logic/workdir/AI_CODING/rick/.rick/dream/prompts/skill_evolve_skills.md`，结合 Step 3 信号执行进化决策：
 
 **升级已有 skill（优先）**：
 - 有相似 skill → 直接升级（补充触发场景、完善核心内容、更新辅助脚本）
 - 升级时同步更新 `{name}_skill/skill.md`，如有 .py 脚本也一并更新
 
 **新增 skill**：
-- 按 gen-skill 格式创建 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
+- 按 gen-skill 格式创建 `/Users/logic/workdir/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
 
 YOU MUST declare: `"I will use skill:gen-skill."`
 
-读取 `/workdir/sunquan20/AI_CODING/rick/.rick/dream/prompts/skill_gen_skill.md`，按其格式（触发场景 / 预期效果 / 核心内容）创建新 skill。
+读取 `/Users/logic/workdir/AI_CODING/rick/.rick/dream/prompts/skill_gen_skill.md`，按其格式（触发场景 / 预期效果 / 核心内容）创建新 skill。
 
 **淘汰过时 skill**：
-- 触发次数 = 0（连续 3 次 dream 未被引用）→ 移至 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/deprecated/`
+- 触发次数 = 0（连续 3 次 dream 未被引用）→ 移至 `/Users/logic/workdir/AI_CODING/rick/.rick/skills/deprecated/`
 - 出错次数 ≥ 触发次数 / 2 → 评估是否删除或重写
 
 ---
 
-### Step 7：质量验证（4 个子 Agent 串行）
+### Step 7：质量验证（4 个验证 agent 串行）
 
-**每个子 Agent 完成后，父 Agent 根据结论修正，再启动下一个。**
+**每个验证 agent 完成后，你（parent）根据结论修正，再启动下一个。**
 
-#### subagent_1：Loops/Skills 格式校验
+触发语法（串行验证；单写者——只有你（parent）与 domain 一致性 worker 写文件，其余 reviewer 只读）：
+
+**全局派发规范**：所有 `subagent({ workflowScript: ... })` 派发必须带 `timeoutMs: 3600000`（上游模型单轮 TTFB 慢，pi 默认 30 分钟超时会掐死长验证链）。
+```text
+subagent({ workflowScript: "const a = await runs.run('verify1', { agent: 'reviewer', task: 'Loops/Skills 格式校验' }); const b = await runs.run('verify2', { agent: 'reviewer', task: '重复与合并检查' }); const c = await runs.run('verify3', { agent: 'reviewer', task: '可用性仿真' }); const d = await runs.run('verify4', { agent: 'worker', task: 'Code↔Domain 一致性检查' }); return { a: a.output, b: b.output, c: c.output, d: d.output }", timeoutMs: 3600000 })
+```
+
+#### agent:'reviewer' #1：Loops/Skills 格式校验
 
 检查本次新增或修改的所有文件：
 
 1. **Loop 文件**（Step 0-5 结构）：
    - frontmatter 含 name / trigger / scope
    - 有 Step 0（环境确认 + domain 搜索）
-   - 有 Step 1（Main Agent 确认全局目标）
-   - 有 Step 2（Main Agent 读取上下文）
-   - 有 Step 3（Sub Agent 工作流，且每个子步骤写明精确命令 + skill 引用）
-   - 有 Step 4（Main Agent 产出评估，含验证表格）
+   - 有 Step 1（parent 确认全局目标）
+   - 有 Step 2（parent 读取上下文）
+   - 有 Step 3（child 工作流，且每个子步骤写明精确命令 + skill 引用）
+   - 有 Step 4（parent 产出评估，含验证表格）
    - 有 Step 5（停止标准，成功退出 + 优雅退出条件）
 2. **Skill 目录**：`{name}_skill/` 目录存在；`skill.md` 含触发场景 / 预期效果 / 核心内容三节
 
 **输出**：格式问题列表；全部合规则输出 ✅
 
-#### subagent_2：重复与合并检查
+#### agent:'reviewer' #2：重复与合并检查
 
-1. 扫描 `/workdir/sunquan20/AI_CODING/rick/.rick/loops/` 所有 loop 文件，识别 trigger 相似度 > 80% 的条目
-2. 扫描 `/workdir/sunquan20/AI_CODING/rick/.rick/skills/` 所有 skill 目录，识别触发场景重叠的条目
+1. 扫描 `/Users/logic/workdir/AI_CODING/rick/.rick/loops/` 所有 loop 文件，识别 trigger 相似度 > 80% 的条目
+2. 扫描 `/Users/logic/workdir/AI_CODING/rick/.rick/skills/` 所有 skill 目录，识别触发场景重叠的条目
 3. 对重复条目给出合并方案
 
 **输出**：合并候选列表；无重复则输出 ✅
 
-#### subagent_3：可用性仿真
+#### agent:'reviewer' #3：可用性仿真
 
 选取 Step 3 中识别的**最典型跨 job 场景**，仿真验证：
 > 如果 agent 面对该场景，能否从当前 loops/skills 中找到正确的 loop 或 skill 并成功执行？
@@ -721,11 +751,11 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：仿真结果（✅/❌）+ 盲区列表；若有盲区则补充对应 loop/skill 条目
 
-#### subagent_4：Code ↔ Domain 一致性检查（持续轮询）
+#### agent:'worker' #4：Code ↔ Domain 一致性检查（持续轮询）
 
-检查业务代码与 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/` 中记录的事实是否一致：
+检查业务代码与 `/Users/logic/workdir/AI_CODING/rick/.rick/domain/` 中记录的事实是否一致：
 
-1. 读取 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/` 所有文件，提取所有事实条目（命令、路径、版本、API）
+1. 读取 `/Users/logic/workdir/AI_CODING/rick/.rick/domain/` 所有文件，提取所有事实条目（命令、路径、版本、API）
 2. 用 Read/Grep/Glob **主动查阅源码**，逐条验证事实是否仍然成立：
    - 命令是否仍然有效（与源码/Makefile/scripts 一致）
    - 路径是否仍然存在
@@ -736,7 +766,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 
 **输出**：一致性报告（✅ 一致 / ⚠️ 已更新的条目列表）
 
-⚠️ **允许**：Read/Grep/Glob 查阅源码，写入 `/workdir/sunquan20/AI_CODING/rick/.rick/domain/`  
+⚠️ **允许**：Read/Grep/Glob 查阅源码，写入 `/Users/logic/workdir/AI_CODING/rick/.rick/domain/`  
 ⚠️ **禁止**：修改业务源代码
 
 ---
@@ -744,7 +774,7 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 ### Step 8：运行 dream_check
 
 ```bash
-/workdir/sunquan20/AI_CODING/rick/bin/rick tools dream_check
+/Users/logic/bin/rick tools dream_check
 ```
 
 - ✅ 通过 → 继续下一步
@@ -786,25 +816,71 @@ YOU MUST declare: `"I will use skill:gen-skill."`
 {1-3 条建议}
 ```
 
-汇总报告输出：处理的 jobs、loops/skills 变更清单、subagent 验证结果、下次重点。
+汇总报告输出：处理的 jobs、loops/skills 变更清单、验证 agent 结果、下次重点。
 
 ---
 
 ## 行为约束
 
-1. **严禁修改业务代码**：仅允许修改 `/workdir/sunquan20/AI_CODING/rick/.rick/loops`、`/workdir/sunquan20/AI_CODING/rick/.rick/skills` 和 `/workdir/sunquan20/AI_CODING/rick/.rick/domain`
+1. **严禁修改业务代码**：仅允许修改 `/Users/logic/workdir/AI_CODING/rick/.rick/loops`、`/Users/logic/workdir/AI_CODING/rick/.rick/skills` 和 `/Users/logic/workdir/AI_CODING/rick/.rick/domain`
 2. **升级优先于新建**：有相似 loop/skill 时，优先升级，不重复创建
 3. **直接命名，无 candidate 前缀**：dream 产出经人类审核后直接生效
-4. **skill 目录结构**：`/workdir/sunquan20/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
-5. **loop 文件**：`/workdir/sunquan20/AI_CODING/rick/.rick/loops/{name}-loop.md`
+4. **skill 目录结构**：`/Users/logic/workdir/AI_CODING/rick/.rick/skills/{name}_skill/skill.md`
+5. **loop 文件**：`/Users/logic/workdir/AI_CODING/rick/.rick/loops/{name}-loop.md`
 6. **domain 追加不覆盖**：domain 文件只追加新事实，不删除已确认的历史事实
 7. **必须写 dream log**：每个处理的 job 都必须生成 `dream_run_{job_id}_log.md`
-8. **四个子 Agent 串行**：Step 7 的四个子 Agent 串行执行，每个完成后修正再启动下一个
+8. **四个验证 agent 串行**：Step 7 的四个验证 agent（3 个 `agent:'reviewer'` + 1 个 `agent:'worker'`）串行执行，每个完成后修正再启动下一个
 
 
-## 行为轨迹文件路径（按需读取）
+## 原生行为轨迹数据源（按需读取；无摘要层，直接读原始轨迹）
 
-- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task1/act-path.md`
-- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task2/act-path.md`
-- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task3/act-path.md`
-- `/workdir/sunquan20/AI_CODING/rick/.rick/jobs/job_26/doing/tasks/task4/act-path.md`
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`a436afbe-85bd-44fd-9e4d-0399300d7cd2`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`fe10ae40-b391-4c13-8318-7e94290bd937`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`5b33a9eb-0fad-4558-ab72-8c7924606289`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`0b82daed-e0f0-44d8-a92e-137c617ab884`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`d7631f7c-bfd1-4a4f-a16f-c424d91efe42`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`76ccbf02-e6c5-44c5-988f-a7a2ae803b53`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`51636ee5-183e-4a29-a68b-4f13b06fd01f`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`ac0ac627-f630-4878-96c4-6587c13a175c`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`0407560e-f2c0-4c10-af25-ded79cfb5282`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`d91b4e0b-acb0-4ea1-bdf6-a7d9099e6f2e`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`c5c14e43-fa42-4d46-a5ed-37d9a0febf6a`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`d2cba1bf-d190-4a1f-8130-04d4b6f3ce61`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`a436afbe-85bd-44fd-9e4d-0399300d7cd2`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.rick/jobs/job_43/doing/debug`（2 条调试记录）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`f4356d56-a061-481c-b4af-1f88b37f8aec`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_meta.json`（74 个 run 的元数据：agent/task/exitCode/durationMs/error）
+- `/Users/logic/workdir/AI_CODING/rick/.pi/subagents/artifacts/*_transcript.jsonl`（worker 完整行为轨迹）
+- doing parent 会话 ID：`e5f53bc1-e825-485d-b740-1ceb017362b4`（jsonl 位于 ~/.rick/pi/agent/sessions/--<cwd>--/）
