@@ -34,12 +34,6 @@ var (
 	//go:embed templates/sense_loop.md
 	senseLoopTemplate string
 
-	//go:embed templates/teach.md
-	teachTemplate string
-
-	//go:embed templates/research.md
-	researchTemplate string
-
 	//go:embed templates/dream.md
 	dreamTemplate string
 
@@ -130,10 +124,6 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 		return testPythonTemplate
 	case "sense_loop":
 		return senseLoopTemplate
-	case "teach":
-		return teachTemplate
-	case "research":
-		return researchTemplate
 	case "dream":
 		return dreamTemplate
 	case "easy":

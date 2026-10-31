@@ -579,15 +579,21 @@ func TestCheckRickHooks_Missing(t *testing.T) {
 
 // TestCheckRickAgents_Missing verifies the not-ready boundary: with no agents
 // deployed yet, CheckRickAgents reports all required agents missing.
+// v7（job_50）：六 agent 清单（research + 五个教学 agent；teach 已下线）。
 func TestCheckRickAgents_Missing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := CheckRickAgents()
-	if len(m) != 2 {
-		t.Errorf("CheckRickAgents should report 2 missing agents, got %v", m)
+	if len(m) != 6 {
+		t.Errorf("CheckRickAgents should report 6 missing agents, got %v", m)
 	}
-	for _, name := range []string{"teach", "research"} {
+	for _, name := range requiredRickAgents {
 		if !containsString(m, name) {
 			t.Errorf("CheckRickAgents missing %q in report %v", name, m)
+		}
+	}
+	for _, gone := range []string{"teach"} {
+		if containsString(m, gone) {
+			t.Errorf("CheckRickAgents should no longer require %q (v7 下线)", gone)
 		}
 	}
 }
@@ -604,22 +610,23 @@ func TestCheckRickAgents_Ready(t *testing.T) {
 	}
 }
 
-// TestDeployRickAgents verifies 职责 3 的 agent 定制：2 文件落盘 + frontmatter
-// 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义。
+// TestDeployRickAgents verifies 职责 3 的 agent 定制：六文件落盘 + frontmatter
+// 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义（v7：teach 下线、新增五教学
+// agent；agent 名连字符、skill 源文件名下划线由 skill 字段映射）。
 func TestDeployRickAgents(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
 
-	// 正常路径：2 文件落盘 + frontmatter + 非空正文。
+	// 正常路径：六文件落盘 + frontmatter + 非空正文。
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents: %v", err)
 	}
-	// v4.1.1：两 agent 工具全量开放（含 subagent 保 fanout；不含 intercom/
+	// v4.1.1：agent 工具全量开放（含 subagent 保 fanout；不含 intercom/
 	// contact_supervisor——launcher 按需注入，显式列 intercom 会触发 strict 校验硬失败）。
-	wantTools := map[string][]string{
-		"teach":    {"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"},
-		"research": {"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"},
+	wantTools := map[string][]string{}
+	for _, name := range requiredRickAgents {
+		wantTools[name] = []string{"read", "grep", "find", "ls", "bash", "write", "edit", "web_search", "fetch_content", "subagent"}
 	}
 	noTools := []string{"intercom", "contact_supervisor"}
 	for name, tools := range wantTools {
@@ -671,17 +678,17 @@ func TestDeployRickAgents(t *testing.T) {
 		}
 	}
 
-	// 覆盖语义：无 rick 标记的同名文件不被覆盖。
-	teachPath := filepath.Join(agentsDir, "teach.md")
-	userContent := "---\nname: teach\ndescription: user custom agent\ntools: read\n---\nUSER CUSTOM BODY\n"
-	if err := os.WriteFile(teachPath, []byte(userContent), 0644); err != nil {
+	// 覆盖语义：无 rick 标记的同名文件不被覆盖（用 v7 新 agent 验证，teach 已下线）。
+	zpdPath := filepath.Join(agentsDir, "zpd-assessor.md")
+	userContent := "---\nname: zpd-assessor\ndescription: user custom agent\ntools: read\n---\nUSER CUSTOM BODY\n"
+	if err := os.WriteFile(zpdPath, []byte(userContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents (no-marker): %v", err)
 	}
-	if got, _ := os.ReadFile(teachPath); string(got) != userContent {
-		t.Errorf("teach.md without rick-managed: true should not be overwritten")
+	if got, _ := os.ReadFile(zpdPath); string(got) != userContent {
+		t.Errorf("zpd-assessor.md without rick-managed: true should not be overwritten")
 	}
 
 	// 覆盖语义：含 rick 标记的陈旧文件被覆盖为最新 wiki 正文。

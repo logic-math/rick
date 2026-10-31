@@ -11,10 +11,12 @@ import (
 )
 
 // rickAgentSpec 描述一个 rick 自定义 agent：frontmatter 字段 + system prompt
-// 来源（embedded templates/skills/{name}.md，即对应源码 skill 的 wiki 内容）。
+// 来源（embedded templates/skills/{skill}.md，即对应源码 skill 的 wiki 内容；
+// 默认等于 name——skill 文件名用下划线、agent 名用连字符时显式指定）。
 type rickAgentSpec struct {
 	name           string
 	description    string
+	skill          string // system prompt 源 skill 文件名（templates/skills/{skill}.md）；空则用 name
 	tools          string // 逗号分隔的 pi 工具名（与 pi-subagents tools 字段对齐）
 	defaultContext string
 	thinking       string // pi-subagents thinking 等级（可选；空则不写入 frontmatter，继承默认）
@@ -32,20 +34,11 @@ type rickAgentSpec struct {
 const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_content, subagent"
 
 // rickAgents 是 rick 经 env 职责 3 注册为 pi 自定义 agent 的清单
-// （teach/research）。system prompt = 对应源码 skill 的 wiki 正文。
-// v4.1.1 起两 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
+// （human-loop v7 六 agent）。system prompt = 对应源码 skill 的 wiki 正文。
+// v4.1.1 起各 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
+// v7（job_50）：teach 下线（被 syllabus-builder/lesson-writer 取代）；新增五个
+// 教学 agent——agent 名用连字符、skill 文件名用下划线（skill 字段显式映射）。
 var rickAgents = []rickAgentSpec{
-	{
-		name:           "teach",
-		description:    "SENSE 思考 + 教学产出（范式五步：事实还原/构建视角/洞察矛盾/辩证逆转/良质批判；syllabus/lesson/syllabus-update/assess 四模式，引导 human 做 SENSE 思考）",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		// 递归外包 + 自落盘：teach 自己落盘课程节（write 首块 + bash cat >> 分批追加），
-		// 重载思考可拆解为叶子外包（pi maxSubagentDepth=2 封底）。inline 交付降级为 parent
-		// 侧安全网（连续失败时 resume 让其直接回复全文，parent 代写）。
-		thinking:  "high",
-		timeoutMs: 3600000, // 60min：glm-5.3 慢 TTFB + 思考外包等待，默认 30min 会掐死交付前一刻
-	},
 	{
 		name:           "research",
 		description:    "尽调树 + 信源加权方法论（澄清事实模糊性到极限；预估内容过多时拆叶子 worker 递归尽调）",
@@ -55,6 +48,51 @@ var rickAgents = []rickAgentSpec{
 		// 追加），预估内容过多时拆叶子各写各的叶子文件；bash 支撑「运行时行为」信源验证。
 		thinking:  "high",
 		timeoutMs: 3600000, // 60min：实测 E 阶段 research（首轮 8.5min + 叶子扇出 14.4min）≈27-35min，默认 30min 超时恰在落盘前掐死
+	},
+	{
+		name:           "zpd-assessor",
+		description:    "ZPD 探针与掌握度判定（复习探针 probe + 费曼判揃 assess；强中弱 rubric + 二次探针误差吸收；独写 zpd.md 学习知识记录）",
+		skill:          "zpd_assessor",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
+	},
+	{
+		name:           "syllabus-builder",
+		description:    "教学大纲生成（SENSE 问题还原留痕 + 教学序列与每块判据；独写 syllabus.md；syllabus/syllabus-update 两模式）",
+		skill:          "syllabus_builder",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
+	},
+	{
+		name:           "lesson-writer",
+		description:    "课程内容生成（ZPD 详略呈现：弱少而精/强加速；先判图/文；事实层给满推导层留白；一课一事；独写 lessons/teach_N.md）",
+		skill:          "lesson_writer",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
+	},
+	{
+		name:           "originality-sparker",
+		description:    "原创性启发（真实异质性检索 + 更优替代 + 跨领域结构类比；差异化启发：部分违背非否定；独写 lessons/spark_N.md）",
+		skill:          "originality_sparker",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
+	},
+	{
+		name:           "recall-review",
+		description:    "收口复习与可重访锚蒸馏（每课≤5 条关键词+卡点原话+未解矛盾；独写 anchors.md；下次探针的原料）",
+		skill:          "recall_review",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
 	},
 }
 
@@ -74,6 +112,14 @@ func deployRickAgents() error {
 	return nil
 }
 
+// skillSource 返回 system prompt 的源 skill 文件名；未显式指定时与 agent 名一致。
+func (s rickAgentSpec) skillSource() string {
+	if s.skill == "" {
+		return s.name
+	}
+	return s.skill
+}
+
 // deployRickAgent 写入单个 agent 文件（幂等 + rick 标记覆盖语义）。
 func deployRickAgent(agentsDir string, spec rickAgentSpec) error {
 	target := filepath.Join(agentsDir, spec.name+".md")
@@ -85,9 +131,9 @@ func deployRickAgent(agentsDir string, spec rickAgentSpec) error {
 		return fmt.Errorf("read %s: %w", target, err)
 	}
 
-	body := prompt.LoadCoreSkills([]string{spec.name})
+	body := prompt.LoadCoreSkills([]string{spec.skillSource()})
 	if body == "" {
-		return fmt.Errorf("embedded skill %q not found for agent %q", spec.name, spec.name)
+		return fmt.Errorf("embedded skill %q not found for agent %q", spec.skillSource(), spec.name)
 	}
 	content := renderRickAgentFile(spec, body)
 	if err := os.WriteFile(target, []byte(content), 0644); err != nil {

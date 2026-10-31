@@ -8,9 +8,16 @@ import (
 )
 
 // requiredRickAgents 是 rick 自定义 agent 的清单（对应 AgentDir()/agents/<name>.md）。
-// teach/research 由 env 职责 3 落盘（task9）并在此注册为就绪 check 的
-// 必需项：任一文件缺失即报未就绪。
-var requiredRickAgents = []string{"teach", "research"}
+// human-loop v7 六 agent 由 env 职责 3 落盘（task9 机制）并在此注册为就绪
+// check 的必需项：任一文件缺失即报未就绪。v7：teach 下线，新增五个教学 agent。
+var requiredRickAgents = []string{
+	"research",
+	"zpd-assessor",
+	"syllabus-builder",
+	"lesson-writer",
+	"originality-sparker",
+	"recall-review",
+}
 
 // IsPIReady 汇总所有功能点就绪判定，返回 (ok, missing)。ok=true 且 missing 为空
 // 表示 pi 环境就绪。纯「功能点就绪」，不含任何 session 校验（session 归 runtime）。
@@ -47,8 +54,9 @@ func CheckEcosystemExtensions() []string {
 	return VerifyExtensions()
 }
 
-// CheckRickAgents 检查 rick 自定义 agent（teach/research）是否落盘到
-// AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回缺失 agent 名。
+// CheckRickAgents 检查 rick 自定义 agent（v7 六 agent：research + 五个教学
+// agent）是否落盘到 AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回
+// 缺失 agent 名。
 func CheckRickAgents() []string {
 	var missing []string
 	for _, name := range requiredRickAgents {

@@ -39,7 +39,7 @@ func (p *PIBuilder) manager() *prompt.PromptManager {
 func (p *PIBuilder) Name() string { return "pi" }
 
 // BuildAgents implements RuntimeBuilder. pi 当前不注册额外自定义 agent
-// （teach/research 在 task9 经 env 职责 3 落盘），返回空列表。
+// （六 agent 在 task9 经 env 职责 3 落盘），返回空列表。
 func (p *PIBuilder) BuildAgents(method []Method) ([]AgentDef, error) {
 	return []AgentDef{}, nil
 }
@@ -90,7 +90,7 @@ func commandMethod(cmd string) string {
 	case "easy":
 		sop = "Easy 方法：grilling 追问澄清需求 → 按 doing_loop 执行 → 格式检查（easy_check）→ 等待人类指令后执行 learning loop。"
 	case "human-loop":
-		sop = "SENSE 思考范式（非流程）：事实还原（research 递归调研至常识性置信信息源，价值性信息上报 human 裁决）→ 构建视角 → 洞察矛盾 → 辩证逆转 → 良质批判（teach 执行）；parent 编排回合、呈报原文、考核演练通过后终止。"
+		sop = "Human-loop v7 教学方法（启发 human 原创思考）：SENSE 思考范式（非流程）——问题还原（分清期望与现状；research 递归调研事实至常识性置信信息源，价值性信息上报 human 裁决）→ 构建视角 → 洞察矛盾 → 辩证逆转 → 良质批判。六 agent 编排（research/zpd-assessor/syllabus-builder/lesson-writer/originality-sparker/recall-review）；核心循环=调研与呈现（ZPD 详略）→ 费曼学习与记录（human 反讲，判档写 zpd.md）→ 原创性启发（真实异质性差异化知识）；节奏按档位推进/复测/回退；收口蒸馏 anchors.md。"
 	case "ctrl":
 		sop = "Ctrl 方法：监控 doing 进度，读取 tasks.json 与 raw_session_coding.log 汇报状态，接受人类干预指令（展示计划后征得确认再写文件）。"
 	case "dream":
@@ -615,13 +615,15 @@ func (p *PIBuilder) SaveEasyPrompt(jobID, requirement, rickDir, ctxPath string) 
 	return promptFile, commandMethod("easy"), skillFiles, nil
 }
 
-// SaveHumanLoopPrompt writes sense_loop/teach/research + skills to loopDir/prompts/.
-func (p *PIBuilder) SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir string) (mainFile, teachFile, researchFile, method string, err error) {
-	mainFile, teachFile, researchFile, err = prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, p.manager())
+// SaveHumanLoopPrompt writes the v7 sense_loop prompt + 7 skill files to
+// loopDir/prompts/ (task prompts are composed by the parent at dispatch time;
+// agent contracts live in the deployed agent system prompts).
+func (p *PIBuilder) SaveHumanLoopPrompt(topic, rfcDir, draftDir, loopDir string) (mainFile, method string, err error) {
+	mainFile, err = prompt.GenerateHumanLoopPromptFile(topic, rfcDir, draftDir, loopDir, p.manager())
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", err
 	}
-	return mainFile, teachFile, researchFile, commandMethod("human-loop"), nil
+	return mainFile, commandMethod("human-loop"), nil
 }
 
 // SaveCtrlPrompt writes ctrl_prompt.md to doingDir/prompts/.

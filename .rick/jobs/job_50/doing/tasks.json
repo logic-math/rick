@@ -1,0 +1,17 @@
+{
+  "created_at": "2026-10-31T09:35:17+08:00",
+  "tasks": [
+    {
+      "attempts": 1,
+      "created_at": "2026-10-31T09:35:17+08:00",
+      "dependencies": [],
+      "status": "success",
+      "task_file": "",
+      "task_id": "easy_session",
+      "task_name": "Grilling 完成（16 问全裁决，门禁通过）",
+      "updated_at": "2026-10-31T09:35:17+08:00"
+    }
+  ],
+  "updated_at": "2026-10-31T11:00:00+08:00",
+  "version": "1.0"
+}

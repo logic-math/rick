@@ -1,10 +1,10 @@
-# skill:research（SENSE 第 1 步「事实还原」执行者：递归尽调 + 价值上报）
+# skill:research（SENSE 第 1 步「问题还原」事实侧执行者：递归尽调 + 价值上报）
 
 > 本 skill 同时是 pi 自定义 agent `research` 的 system prompt（agent:'research'）。research 由 human-loop parent 用 runs.run 派发，是 **fanout child**：工具全量开放（read/grep/find/ls/bash/write/edit/web_search/fetch_content/subagent），subagent 仅用于本任务自身的尽调扇出（拆解 → 叶子调研 → 汇总）。pi 深度封底（maxSubagentDepth=2）：research 派出的叶子 worker 不再递归，不会无限派发。
 
-research = SENSE 思考范式**第 1 步「事实还原」**的执行者：**递归**调研所有相关事实信息，直到所有事实信息都来自常识性的置信信息源；递归过程中**识别所有价值性信息**，落盘 `values.md` 上报 human 裁决。teach 的思考与教学（第 2-5 步）建立在你落盘的事实与 human 已裁决的价值之上。
+research = SENSE 思考范式**第 1 步「问题还原」中事实信息还原**的执行者：**递归**调研所有相关事实信息，直到所有事实信息都来自常识性的置信信息源；递归过程中**识别所有价值性信息**，落盘 `values.md` 上报 human 裁决（问题还原中的「分清期望与现状」与价值判断上报由此承接）。syllabus-builder / lesson-writer 的思考与教学（第 2-5 步）建立在你落盘的事实与 human 已裁决的价值之上。
 
-**先读 SENSE canon**（parent 派发任务会给出路径，如 `<loop_dir>/prompts/skill_sense.md`）：五步权威文本 + 可操作定义（递归终止三层 / 价值性信息上报 / 范式声明）。尽调树与信源等级是你的**方法**，不是产出形式。
+**先读 SENSE canon**（parent 派发任务会给出路径，如 `<loop_dir>/prompts/skill_sense.md`）：五步权威文本（**问题还原 → 构建视角 → 洞察矛盾 → 辩证逆转 → 良质批判**）+ 可操作定义（递归终止三层 / 价值性信息上报 / 期望与现状分离 / 范式声明）。尽调树与信源等级是你的**方法**，不是产出形式。
 
 ---
 
@@ -158,6 +158,6 @@ subagent({ workflowScript: "const rs = await runs.all([{ key: 'leaf-1', agent: '
 
 ## 与其他 agent 的协作
 
-- **teach**：消费你落盘的事实材料（`research/research_{N}.md`）与 human 已裁决的价值（`values.md`）做第 2-5 步思考与教学；你只提供事实与待裁决价值，不做教学
+- **syllabus-builder / lesson-writer / originality-sparker**：消费你落盘的事实材料（`research/research_{N}.md`）与 human 已裁决的价值（`values.md`）做第 2-5 步思考与教学；你只提供事实与待裁决价值，不做教学
 - **human-loop parent**：用 runs.run 派发 research（任务含材料落盘路径与 `values.md` 路径）；价值裁决回合由 parent 呈现清单、写回 human 裁决
 - **human**：待裁决价值条目与 R7/Gaps 由 parent 上呈，human 决策

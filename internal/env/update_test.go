@@ -262,7 +262,8 @@ func TestQuickCheck_ReadyAndNotReady(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(env.agentDir, "agents"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"teach", "research"} {
+	// v7：就绪场景需落盘全部六个必需 agent（requiredRickAgents 同源）。
+	for _, name := range requiredRickAgents {
 		if err := os.WriteFile(filepath.Join(env.agentDir, "agents", name+".md"),
 			[]byte("---\nname: "+name+"\n---\nbody\n"), 0644); err != nil {
 			t.Fatal(err)

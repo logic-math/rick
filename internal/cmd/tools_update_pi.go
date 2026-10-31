@@ -51,7 +51,7 @@ The managed pi runtime (~/.rick/pi/agent/runtime) is updated via rick's own
 npm --prefix install (same as init-pi). Extensions are updated via 'pi update'
 against rick's managed agent dir only — the user's own ~/.pi is never touched.
 
-After updating, rick redeploys its customizations (teach/research agents,
+After updating, rick redeploys its customizations (human-loop v7 agents,
 rick-gates hook, skills) and runs quick checks (pi version, extension
 registration, agent deployment, gates helper syntax, prompt render smoke test).
 
