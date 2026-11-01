@@ -14,7 +14,7 @@ func TestDeployV7AgentsSmoke(t *testing.T) {
 		t.Fatalf("deployRickAgents: %v", err)
 	}
 	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
-	for _, name := range []string{"research", "zpd-assessor", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
+	for _, name := range []string{"research", "zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
 		data, err := os.ReadFile(filepath.Join(agentsDir, name+".md"))
 		if err != nil {
 			t.Fatalf("%s.md not deployed: %v", name, err)

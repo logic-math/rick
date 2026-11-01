@@ -96,3 +96,11 @@
 - **`darwinInfo.Environ(pid)` 返回 `ErrUnsupported`**（`internal/env/procfs/procfs_darwin.go:113`：darwin 无 `/proc/<pid>/environ` 等价物，KERN_PROCARGS2 的 env 部分不可靠）→ `ownedByProd` 三重断言（cwd/exe/HOME env）在 macOS 上 **HOME env 断言永远不生效**（`err != nil` 即跳过该断言）——进程所有权只剩 cwd/exe 两条腿。job_47 release 事故链一环：生产实例从 `~/bin/rick`（裸构建，cwd=家目录）启动时 cwd/exe 都不在生产树 → 三断言全不命中 → stopProd 跳过不杀 → 新实例被 web.lock 挡住（job_49 P0-3 以「持生产 web.lock/占生产端口即认领」根治；此处记录事实本身）。
   - 验证命令: `grep -n "Environ" internal/env/procfs/procfs_darwin.go`（返回 ErrUnsupported 的注释即事实源）
   - 来源: job_47 / release 跨机事故分析 + wiki/handover-2026-10-30-web-start-macos.md  状态: ✅ 已确认（job_49 P0-3 另行根治认领逻辑）
+
+## 2026-11-01 网络出口变更（human 裁决：搜索/出网一律直连）
+
+- **事实**：`10.229.18.27:8412` = hk02-llm-spider-proxy37.mt 的 Squid 3.1.23；对本机源 IP（11.3.4.158 / utun4 VPN）一律 `403 ERR_ACCESS_DENIED`（ACL 拒绝）——npm、web_search provider fetch、fetch_content 全挂；同时本机**直连外网完全正常**（google/baidu/bing 200、api.exa.ai API 端点可达）。旧结论「机器无直连外网、模型 API 经代理可达」已过时（环境漂移：代理 ACL 变了 + 本机直连恢复）。
+- **裁决与落地**：`~/.rick/start-web.sh` 已删 http_proxy/https_proxy export（保留 mcli 的 no_proxy）；dev web 已带干净 env 重启。生产 web 重启后生效。
+- **回滚条件**：若未来需要恢复代理（如直连被掐），先 `curl -x http://10.229.18.27:8412 -sI https://github.com` 验证 ACL 放行再 export。
+- **单点**：api.search.brave.com 直连超时（000）——Brave provider 受影响，pi auto 选路走 Exa/OpenAI 等可用通道，不阻塞 web_search。
+- **排查方法**（环境漂移通用）：① `env | grep -i proxy` 找出口配置 → ② `curl -x <proxy> -sI https://github.com` vs `curl --noproxy '*' -sI https://github.com` 对照（代理 vs 直连）→ ③ 代理 403 时看 Squid 错误页（`curl -s http://x/ 2>/dev/null | grep -oE "ERR_[A-Z_]+"`）拿代理身份与拒绝原因 → ④ 顺藤找 env 来源（grep shell profile / 启动脚本 / launchctl getenv / ps eww <pid>）。

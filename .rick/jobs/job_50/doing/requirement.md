@@ -17,3 +17,10 @@
 - 调研依据：research-L1.md（生产级 LLM 导师操作化：AutoTutor 判级/提示梯度、teach-back 二不过、ALEKS/MemGPT 锚形态、ReConcile 异构共识、ASCII CJK 陷阱）+ ADR 引用的 research_1–4；R7 残留项 doing 开工前网验
 
 **实现范围（叶子层四维度已落实）**：改 sense_loop.md / skills/sense.md（问题还原）；新建 5 个 skill 模板；删 teach 模板×2 + research task 模板；改 agents.go（rickAgents）/check.go/manager.go/human_loop_prompt.go/pibuilder.go；更新 4 组测试；go build+test；部署 update-pi；dry-run 冒烟；human 实跑验收。
+
+## v7 增量裁决（2026-11-01，human 实跑前反馈）
+
+- **② ZPD 生成重写**：不要突兀地问 human 价值判断；流程=research 调研（领域核心概念）→ zpd-assessor 选 3–5 个回忆点/关键概念 → 对每个概念跑费曼演绎（human 讲解→挑战模糊/事实不符/价值判断错误处→逼问修正→最简话语呈现）→ 按讲解与事实符合性推断 ZPD → 生成 **ZPD 档案**（记录会什么/不会什么，随 loop 展开逐次完善）
+- **ZPD 与费曼演绎抽为可复用 skill**：feynman=新 agent（费曼技巧执行者：挑战逼问+判定）；zpd-assessor 演化（select 选点 + consolidate 档案管理，去掉原 probe 回忆写出/assess 费曼判断）
+- **① 学习目标对齐**：结构化提问即可（固定字段一次成表，非开放式面试）
+- **④ 费曼环节**复用 feynman skill 保持一致

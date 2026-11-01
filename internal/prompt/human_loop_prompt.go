@@ -5,9 +5,10 @@ import (
 	"os"
 )
 
-// humanLoopSkills 是 human-loop v7 会话需要复制到 loop 目录 prompts/ 的 skill 清单
-// （SENSE canon + research + 五个 v7 教学 agent 的 system prompt 副本，供会话内
+// humanLoopSkills 是 human-loop v7.x 会话需要复制到 loop 目录 prompts/ 的 skill 清单
+// （SENSE canon + research + 六个教学 agent 的 system prompt 副本，供会话内
 // 按需读取与留痕）。skill 文件名（下划线）与 pi agent 名（连字符）不同源部署。
+// v7.1：新增 feynman（费曼演绎）。
 var humanLoopSkills = []struct {
 	filename  string
 	skillName string
@@ -15,6 +16,7 @@ var humanLoopSkills = []struct {
 	{"skill_sense.md", "sense"},
 	{"skill_research.md", "research"},
 	{"skill_zpd_assessor.md", "zpd_assessor"},
+	{"skill_feynman.md", "feynman"},
 	{"skill_syllabus_builder.md", "syllabus_builder"},
 	{"skill_lesson_writer.md", "lesson_writer"},
 	{"skill_originality_sparker.md", "originality_sparker"},

@@ -34,10 +34,12 @@ type rickAgentSpec struct {
 const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_content, subagent"
 
 // rickAgents 是 rick 经 env 职责 3 注册为 pi 自定义 agent 的清单
-// （human-loop v7 六 agent）。system prompt = 对应源码 skill 的 wiki 正文。
+// （human-loop v7.x 七 agent）。system prompt = 对应源码 skill 的 wiki 正文。
 // v4.1.1 起各 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
 // v7（job_50）：teach 下线（被 syllabus-builder/lesson-writer 取代）；新增五个
 // 教学 agent——agent 名用连字符、skill 文件名用下划线（skill 字段显式映射）。
+// v7.1（job_50 增量）：新增 feynman（费曼演绎：挑战逼问+终判），
+// zpd-assessor 改为 select/consolidate 双模式管理 ZPD 档案。
 var rickAgents = []rickAgentSpec{
 	{
 		name:           "research",
@@ -51,8 +53,17 @@ var rickAgents = []rickAgentSpec{
 	},
 	{
 		name:           "zpd-assessor",
-		description:    "ZPD 探针与掌握度判定（复习探针 probe + 费曼判断 assess；强中弱 rubric + 二次探针误差吸收；独写 zpd.md 学习知识记录）",
+		description:    "ZPD 档案管理者（select 选回忆点/关键概念 + consolidate 汇总费曼判定更新档案：会/边缘/不会；独写 zpd.md 档案）",
 		skill:          "zpd_assessor",
+		tools:          fullTools,
+		defaultContext: "fresh",
+		thinking:       "high",
+		timeoutMs:      3600000,
+	},
+	{
+		name:           "feynman",
+		description:    "费曼演绎：挑战模糊/事实不符/价值判断错误+逼问修正+最简呈现判定（challenge 逼问清单 / verdict 终判；独写 lessons/feynman_N.md）",
+		skill:          "feynman",
 		tools:          fullTools,
 		defaultContext: "fresh",
 		thinking:       "high",

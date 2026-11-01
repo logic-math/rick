@@ -25,7 +25,7 @@ func TestRenderHumanLoopPrompt(t *testing.T) {
 		}
 	}
 	// 六 agent 名（连字符 pi agent 名）。
-	for _, agent := range []string{"zpd-assessor", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
+	for _, agent := range []string{"zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
 		if !strings.Contains(content, agent) {
 			t.Errorf("rendered prompt should reference v7 agent %q", agent)
 		}

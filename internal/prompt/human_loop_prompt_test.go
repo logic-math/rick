@@ -54,6 +54,7 @@ func TestGenerateHumanLoopPromptFileWritesV7FileSet(t *testing.T) {
 		"skill_sense.md",
 		"skill_research.md",
 		"skill_zpd_assessor.md",
+		"skill_feynman.md",
 		"skill_syllabus_builder.md",
 		"skill_lesson_writer.md",
 		"skill_originality_sparker.md",
@@ -85,10 +86,10 @@ func TestGenerateHumanLoopPromptFileWritesV7FileSet(t *testing.T) {
 		}
 	}
 
-	// 主 prompt 引用 v7 学习材料路径约定（zpd/anchors/spark）。
+	// 主 prompt 引用 v7.x 学习材料路径约定（zpd/anchors/spark/feynman）。
 	for _, want := range []string{
-		"zpd.md", "anchors.md", "spark_{N}.md", "skill_sense.md",
-		"zpd-assessor", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
+		"zpd.md", "anchors.md", "spark_{N}.md", "feynman_{N}.md", "skill_sense.md",
+		"zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("main prompt missing v7 path/agent reference %q", want)
@@ -121,8 +122,12 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 			t.Errorf("dry-run output missing SENSE step name %q", want)
 		}
 	}
-	// v7 核心循环关键词。
-	for _, want := range []string{"费曼", "原创", "ZPD", "详略"} {
+	// v7 核心循环关键词 + v7.1（ZPD 生成重写）关键锚词。
+	for _, want := range []string{
+		"费曼", "原创", "ZPD", "详略",
+		"结构化提问", "ZPD 生成", "ZPD 档案", "费曼演绎", "select", "consolidate",
+		"challenge", "verdict", "feynman", "会什么", "随 loop 展开逐次完善",
+	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing v7 core-loop keyword %q", want)
 		}
@@ -139,24 +144,27 @@ func TestSenseLoopTemplateIsV7TeachingSession(t *testing.T) {
 		t.Fatalf("LoadTemplate(sense_loop) error = %v", err)
 	}
 
-	// v7 协议关键词：六 agent + 学习材料路径 + 文件状态机 + 核心循环 + 交付门禁。
+	// v7.x 协议关键词：七 agent + 学习材料路径 + 文件状态机 + 核心循环 + 交付门禁。
 	for _, kw := range []string{
-		"research", "zpd-assessor", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
+		"research", "zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
 		"mission.md", "syllabus", "教学大纲", "lessons", "judgment.md", "zpd.md", "anchors.md",
 		"文件状态机", "学习目标", "考核标准", "退出准则",
 		"values_path", "价值裁决", "changelog", "大纲动态变更",
 		"sense_skill_path",
 		"问题还原", "构建视角", "洞察矛盾", "辩证逆转", "良质批判",
-		"费曼", "原创思考", "详略", "核心循环", "ZPD 初始化", "认知强制", "节奏规则",
+		"费曼", "原创思考", "详略", "核心循环", "ZPD 生成", "认知强制", "节奏规则",
 		"三次同类", "无能力", "二次探针",
+		// v7.1（ZPD 生成重写）：结构化提问 + 档案 + 费曼演绎 + feynman agent。
+		"结构化提问", "ZPD 档案", "费曼演绎", "select", "consolidate", "challenge", "verdict",
+		"feynman_{N}", "会什么", "随 loop 展开逐次完善",
 	} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing v7 keyword %q", kw)
 		}
 	}
 
-	// v6 遗留机制不得回流：teach agent、旧 SENSE 第一步名、exporter。
-	for _, gone := range []string{"agent:'teach'", "teach_agent_path", "事实还原", "exporter", "阶段 1:S", "N1:", "反向回流", "三维打分", "系统论描述符", "max_retries", "max_backflows", "think_agent_path", "domain-survey", "module-facts"} {
+	// v6/v7.0 遗留机制不得回流：teach agent、旧 SENSE 第一步名、旧 ZPD 初始化/probe-assess 机制。
+	for _, gone := range []string{"agent:'teach'", "teach_agent_path", "事实还原", "exporter", "阶段 1:S", "N1:", "反向回流", "三维打分", "系统论描述符", "max_retries", "max_backflows", "think_agent_path", "domain-survey", "module-facts", "ZPD 初始化", "任务模式 `probe`", "任务模式 `assess`"} {
 		if strings.Contains(tpl.Content, gone) {
 			t.Errorf("sense_loop.md should not contain removed mechanism %q", gone)
 		}
@@ -169,8 +177,8 @@ func TestSenseLoopTemplateIsV7TeachingSession(t *testing.T) {
 		}
 	}
 
-	// 单写者按文件隔离：六 agent 各自的独写文件。
-	for _, kw := range []string{"独写", "spark_{N}.md", "teach_{N}.md"} {
+	// 单写者按文件隔离：七 agent 各自的独写文件。
+	for _, kw := range []string{"独写", "spark_{N}.md", "teach_{N}.md", "feynman_{N}.md"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing single-writer keyword %q", kw)
 		}
@@ -191,8 +199,8 @@ func TestSenseLoopJudgmentIsHumanOnly(t *testing.T) {
 	}
 }
 
-// TestV7SkillsCoreContracts 验证五个 v7 教学 skill 的核心契约关键词
-//（判级 rubric / 误差吸收 / 独写文件 / 交付契约）。
+// TestV7SkillsCoreContracts 验证六个 v7.x 教学 skill 的核心契约关键词
+//（select/consolidate、challenge/verdict、档案格式、独写文件、交付契约）。
 func TestV7SkillsCoreContracts(t *testing.T) {
 	cases := []struct {
 		skill    string
@@ -202,12 +210,27 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 		{
 			skill: "zpd_assessor",
 			required: []string{
-				"zpd-assessor", "probe", "assess", "强", "中", "弱",
-				"无错误断言", "错误断言", "二次探针", "部分线索", "换措辞",
-				"两轮不过", "无能力", "仅本模式", "zpd.md", "独写", "学习知识记录",
-				"费曼", "关键概念清单", "期望", "现状", "rubric", "禁止百分比",
+				"zpd-assessor", "select", "consolidate", "3–5 个概念清单",
+				"ZPD 档案", "会什么", "不会什么", "边缘区", "随 loop 展开逐次完善",
+				"概念掌握表", "状态（会/边缘/不会）", "当前结论", "详略建议", "节奏建议",
+				"无错误断言", "错误断言", "feynman", "feynman_{N}",
+				"不问 human 价值判断", "无能力", "仅本模式", "zpd.md", "独写",
+				"400 字", "300 字", "rubric", "证据",
 			},
-			forbid: nil,
+			forbid: []string{"任务模式 `probe`", "任务模式 `assess`", "学习知识记录"},
+		},
+		{
+			skill: "feynman",
+			required: []string{
+				"feynman", "challenge", "verdict", "费曼技巧执行者",
+				"对 / 模糊 / 错", "逼问清单", "模糊处", "事实不符处", "价值判断错误处",
+				"正确答案应包含的要点", "过关判据", "最简呈现要求",
+				"最终对错条目", "最简呈现评价", "建议状态", "会 / 边缘 / 不会",
+				"feynman_{N}", "全局递增", "与 teach_N 编号无关",
+				"禁止替 human 讲解", "需补事实", "不得编造", "≤800 字", "独写",
+				"episode", "事实源",
+			},
+			forbid: []string{},
 		},
 		{
 			skill: "syllabus_builder",

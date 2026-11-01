@@ -8,10 +8,11 @@
       "status": "success",
       "task_file": "",
       "task_id": "easy_session",
-      "task_name": "Grilling 完成（16 问全裁决，门禁通过）",
-      "updated_at": "2026-10-31T09:35:17+08:00"
+      "task_name": "human-loop v7 实现（easy session：grilling 16 问→doing→build/test/dry-run 全绿）",
+      "updated_at": "2026-10-31T09:35:17+08:00",
+      "commit_hash": "bb2a23e"
     }
   ],
-  "updated_at": "2026-10-31T11:00:00+08:00",
+  "updated_at": "2026-10-31T23:59:41+08:00",
   "version": "1.0"
 }
