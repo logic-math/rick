@@ -51,7 +51,7 @@ var rickAgents = []rickAgentSpec{
 	},
 	{
 		name:           "zpd-assessor",
-		description:    "ZPD 探针与掌握度判定（复习探针 probe + 费曼判揃 assess；强中弱 rubric + 二次探针误差吸收；独写 zpd.md 学习知识记录）",
+		description:    "ZPD 探针与掌握度判定（复习探针 probe + 费曼判断 assess；强中弱 rubric + 二次探针误差吸收；独写 zpd.md 学习知识记录）",
 		skill:          "zpd_assessor",
 		tools:          fullTools,
 		defaultContext: "fresh",
