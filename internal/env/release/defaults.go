@@ -135,8 +135,26 @@ func parseScriptFlag(script, name string) string {
 		regexp.MustCompile(`--` + regexp.QuoteMeta(name) + `[=\s]+'([^']+)'`),
 	}
 	for _, re := range patterns {
-		if m := re.FindStringSubmatch(script); len(m) == 2 && strings.TrimSpace(m[1]) != "" {
-			return strings.TrimSpace(m[1])
+		if m := re.FindStringSubmatch(script); len(m) == 2 {
+			v := strings.TrimSpace(m[1])
+			// "$PORT" 是未解析的 shell 变量引用：不能当字面量返回（job_49 P1-1
+			// 加固后的部署脚本用 `PORT=6137` + `--port $PORT`，字面量匹配会先
+			// 命中 $PORT 导致 DefaultPlan 报「无法确定生产端口」）→ 落入下方
+			// 变量赋值回退继续解。
+			if v != "" && !strings.HasPrefix(v, "$") {
+				return v
+			}
+		}
+	}
+	// 部署脚本加固（job_49 P1-1）后常见写法：`PORT=6137` + `--port $PORT`——
+	// 字面量匹配拿到的是 "$PORT"，回退到「同名大写变量赋值」解析（端口仍是
+	// 部署事实，只是换了写法；按 flag 名大写找同名变量）。
+	for _, m := range regexp.MustCompile(`(?m)^\s*([A-Z_][A-Z0-9_]*)=("([^"]*)"|'([^']*)'|(\S+))\s*(?:#|$)`).FindAllStringSubmatch(script, -1) {
+		if strings.EqualFold(m[1], strings.ToUpper(name)) {
+			v := firstNonEmpty(m[3], m[4], strings.Trim(m[2], `"'`))
+			if v != "" && !strings.HasPrefix(v, "$") {
+				return v
+			}
 		}
 	}
 	return ""
