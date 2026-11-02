@@ -20,7 +20,7 @@
 ### Step 0：前置事实（launchd 与终端环境的三个差异）
 
 1. **launchd 不继承 shell 的 PATH**：homebrew 的 `/opt/homebrew/bin` 是 shell 配置（zshrc）注入的——plist 里必须显式列出。漏了 → supervisor 拉起 pi worker 报 `env: node: No such file or directory`（exit 127，pi 脚本 shebang `#!/usr/bin/env node` 找不到 node）
-2. **proxy 环境不继承**：模型网关连接所需 env（http_proxy/https_proxy/no_proxy）要在 plist 里注入——**no_proxy 必须含 mcli.sankuai.com**（内网直达域名，proxy 转发不了它；见 env_drift_probe_skill）
+2. **proxy 不注入（2026-11-02 job_51 反转 job_49 旧约定）**：本机出网一律直连（human 裁决）、模型网关 mcli.sankuai.com 内网直达——plist 里**只注入 no_proxy**（含 mcli.sankuai.com 防未来代理误伤内网），**不注入 http_proxy/https_proxy**。⚠ 教训实证：job_49 时代按「模型连接需要 proxy」注入了 http_proxy/https_proxy 三件套——后来环境反转（直连通、代理 403）时，**plist 硬编码的 proxy 变成杀不死的毒源**：kill web → launchd KeepAlive ≤5s 拉回**带旧 proxy 的新实例** → 整个 web/pi worker/git 全被灌失效代理（github CONNECT 403），换了 start-web.sh/release prodEnv 都治不好（每次都被 launchd 复活盖掉）。见 env_drift_probe_skill
 3. **launchd 直接持有前台进程**：`--daemon` 的 setsid 脱离会让 launchd 追踪失效（KeepAlive 监控不到真实 web 进程）
 
 ### Step 1：写 plist（完整可用模板）
@@ -61,10 +61,8 @@
     <dict>
         <key>PATH</key>
         <string>/Users/<user>/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-        <key>http_proxy</key>
-        <string>http://<proxy-host>:<port></string>
-        <key>https_proxy</key>
-        <string>http://<proxy-host>:<port></string>
+        <!-- ⚠ 不要注入 http_proxy/https_proxy（job_51 反转：直连时代硬编码 proxy =
+             KeepAlive 复活的毒源，kill 后 5s 内带毒重生；见 Step 0 第 2 条） -->
         <key>no_proxy</key>
         <string>localhost,127.0.0.1,mcli.sankuai.com</string>
     </dict>
@@ -102,7 +100,6 @@ curl -s http://127.0.0.1:6137/api/health && launchctl list | grep com.rick.web
 # ③ pi worker 链路（launchd 纯净 env 模拟——最关键的探针）
 env -i HOME=$HOME \
   PATH="/Users/$USER/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
-  http_proxy=http://<proxy-host>:<port> https_proxy=http://<proxy-host>:<port> \
   no_proxy="localhost,127.0.0.1,mcli.sankuai.com" \
   PI_CODING_AGENT_DIR=$HOME/.rick/pi/agent \
   $HOME/.rick/pi/agent/runtime/node_modules/.bin/pi --provider catpaw-proxy --model glm-5.3 --print "回复一个字：通"
@@ -119,6 +116,8 @@ env -i HOME=$HOME \
 | 改了 plist 不生效 | 没重载 | **launchctl unload + load 成对执行**（只 load 不生效） |
 | KeepAlive 不复活 | 用了 --daemon 或幂等脚本做入口 | 改为直接前台持有（见 Step 1 设计要点） |
 | web.log 无 launchd 实例日志 | 忘了 `--log-file` | ProgramArguments 里带上（launchd 前台模式 stdout 默认进 launchd-web.log，rick 日志仍进 web.log） |
+| **实例杀不死：kill 后 5s 内带旧 env 复活** | KeepAlive+ThrottleInterval 在拉，**带的是 plist EnvironmentVariables 里硬编码的旧值** | `launchctl list \| grep com.rick.web` 确认归属 → 改 plist（删坏变量）→ **`launchctl bootout gui/$(id -u)/com.rick.web && launchctl bootstrap gui/$(id -u) <plist>` 成对重载**（job_51 实证：plist 硬编码 proxy 是 launchd 复活型污染的根因，改 start-web.sh/release 都无效） |
+| 改了 plist 但 `ps eww <pid>` 显示 env 还是旧的 | plist 没重载 **或 ps eww 截断假象** | 先重载；再用**进程内自证**交叉验证：`ps eww` 在 macOS 有输出截断（pi 进程曾显示无 proxy 而其子 bash 实际有）——让可疑进程自己跑 `env \| grep -i proxy`，别只信 ps |
 
 ### Step 5：手工兜底（launchd 失效时）
 
@@ -130,4 +129,5 @@ start-web.sh 保留不删（加固版自带架构自检 + 幂等 + health 校验
 ## 出处
 
 - job_49 追加沉淀（2026-11-02）：web 两次睡眠唤醒死亡（同签名）→ launchd 守护实战验证（kill 复活 77314→77391）→ PATH 缺口翻车修复（pi exit 127 → 补 /opt/homebrew/bin → 纯净 env 探针「通」）
+- job_51 修订（2026-11-02）：**反转 proxy 注入约定**——plist 硬编码 proxy 在环境直连化后变成 KeepAlive 复活的毒源（kill→5s 带毒重生，start-web.sh/prodEnv 修复均被盖掉，5 轮重启才破案）；补「复活实例查 plist + bootout/bootstrap 重载」与「ps eww 截断假象」两行排查表
 - 关联：env_drift_probe_skill（no_proxy 坑的根因方法论）、debug/bug2-web-sleep-death-launchd.md（死亡根因链）

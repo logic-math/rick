@@ -110,4 +110,15 @@
 - **launchd 拉起的进程不继承 shell PATH**（homebrew `/opt/homebrew/bin` 是 zshrc 注入）——plist 必须显式注入 PATH，否则 pi worker 报 `env: node: No such file or directory`（exit 127，pi shebang 依赖 PATH 里的 node）
 - **macOS 睡眠/唤醒周期会向后台 daemon 发 SIGTERM**——`--daemon`（setsid+nohup）防 SIGHUP 防不了它；web 两次同签名死亡实证（worker exit 143 → `graceful shutdown: context deadline exceeded`）。根治 = launchd KeepAlive 守护
 - **launchd 正确持有方式 = 前台直跑**（不带 --daemon：setsid 脱离让 KeepAlive 追踪失效；不用幂等脚本入口：秒退 exit 0 会让 launchd 误判成功、旧实例死透后无人再拉）
-- 完整操作模板与排障速查：`mac_launchd_web_skill/skill.md`（当前生产 plist：`~/Library/LaunchAgents/com.rick.web.plist`，KeepAlive+RunAtLoad+ThrottleInterval=5，env 注入 proxy 三件套含 no_proxy=mcli.sankuai.com）
+- 完整操作模板与排障速查：`mac_launchd_web_skill/skill.md`（当前生产 plist：`~/Library/LaunchAgents/com.rick.web.plist`，KeepAlive+RunAtLoad+ThrottleInterval=5；**job_51 修订：env 只注入 no_proxy（含 mcli.sankuai.com），不注入 http_proxy/https_proxy**——旧「proxy 三件套」约定已反转，硬编码 proxy 会成 KeepAlive 复活的毒源）
+
+## macOS 排查工具陷阱（job_51 实证，2026-11-02）
+
+- **`ps eww <pid>` 有输出截断假象**：pi 进程显示无 proxy、其子 bash 实际带 proxy（pi 85393 显示 0 个 proxy 变量、子 bash `env` 里 http/https 都在）。排查 env 继承链时不可只信 ps——让可疑进程自己执行 `env | grep -i proxy`（进程内自证）交叉验证。
+- **macOS 无 `setsid` 命令**（Linux 常用）：需要脱离进程组时用 Go 侧 `--daemon`（rick web --daemon 内部 syscall setsid，re-exec 子进程完全脱离）或 `nohup ... & disown`（父死后被 launchd 收养继续跑）。
+- **「杀不死的进程」第一反应查 launchd**：`launchctl list | grep <label>`——KeepAlive=true 会 ≤ThrottleInterval 秒自动复活，**复活实例带的是 plist EnvironmentVariables 硬编码值**（改 start-web.sh / release prodEnv / 手动干净重启都会被下次复活盖掉）。修法 = 改 plist + `launchctl bootout gui/$(id -u)/<label> && launchctl bootstrap gui/$(id -u) <plist>` 成对重载。
+
+## rick 二进制链回退（job_51，superopt 跨 workspace 解析）
+
+- **`resolveRepoRoot` 两级查找（internal/super/supervisor.go）**：①进程 cwd 逐级上溯找 `super/superopt/__main__.py`（dev 树内/测试用）；②**fallback：rick 二进制自身位置**（`os.Executable` + `EvalSymlinks` 穿 `bin/rick → releases/current/rick` symlink 链到真实 repo）。外部 workspace（如 MT_INFER）的 web super session 里 pi worker cwd=ws.Path，①必失败——superopt 调度器全靠②救（曾实测 `rick super start` 报 `No module named superopt`）。
+- **super session 资产是逐 workspace 的**：web 侧 `rickDir = <workspace>/.rick`，创建 super session 前置检查 `<ws>/.rick/loops/super-loop.md` + `<ws>/.rick/skills/gen_env_skill/skill.md`；运行还要 super 七件套（experiment_analysis/sense/experiment_design/debug_protocol/cell_management/cost_analysis）+ super_event_autopsy。外部 workspace 上 super 前必须整套部署（job_51 已部署 MT_INFER 9 件）。
