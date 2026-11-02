@@ -492,22 +492,62 @@ func exitReason(err error, closed bool) string {
 
 // --- repo-root resolution & env ---
 
-// resolveRepoRoot walks up from the process cwd looking for the repo that
-// contains super/superopt/__main__.py (the module we spawn); falls back to
-// the process cwd when the package is not found (tests, external installs).
+// resolveRepoRoot finds the repo containing super/superopt/__main__.py (the
+// module we spawn). Lookup order:
+//  1. walk up from the process cwd (repo-internal usage: dev tree, tests);
+//  2. **fallback: the rick binary's own repo** via the executable path —
+//     production deploys run `rick` from <repo>/bin/rick (a symlink chain
+//     through bin/releases/current/rick); when a web super session spawns
+//     `rick super start` from an *external workspace* (cwd=MT_INFER etc.)
+//     the cwd walk finds nothing and the scheduler used to die with
+//     "No module named superopt" (job_47 field report 2026-10-31). The
+//     executable chain is the natural fallback: the binary was *built from*
+//     a repo that ships super/superopt.
+//  3. final fallback: the process cwd (legacy behavior for external installs).
 func resolveRepoRoot() string {
 	start, err := os.Getwd()
 	if err != nil {
 		return "."
 	}
-	dir := start
+	if root := findSuperRoot(start); root != "" {
+		return root
+	}
+	if exe, err := os.Executable(); err == nil {
+		if root := findSuperRoot(exe); root != "" {
+			return root
+		}
+	}
+	return start
+}
+
+// findSuperRoot walks up from `from` (a dir or file path) looking for the
+// super/superopt/__main__.py marker; empty string when not found. Symlinks
+// in the path (bin/rick → releases/current/rick) are evaluated per hop so
+// the chain resolves into the real repo.
+func findSuperRoot(from string) string {
+	dir := from
+	if st, err := os.Stat(dir); err == nil && !st.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+	// Resolve the starting point through symlink chains (bin/rick case).
+	for {
+		next, err := filepath.EvalSymlinks(dir)
+		if err == nil {
+			if next != dir {
+				dir = next
+				continue
+			}
+			break
+		}
+		break
+	}
 	for {
 		if st, err := os.Stat(filepath.Join(dir, "super", "superopt", "__main__.py")); err == nil && !st.IsDir() {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return start // filesystem root: fall back to the process cwd
+			return "" // filesystem root: not found
 		}
 		dir = parent
 	}
