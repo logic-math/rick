@@ -104,3 +104,10 @@
 - **回滚条件**：若未来需要恢复代理（如直连被掐），先 `curl -x http://10.229.18.27:8412 -sI https://github.com` 验证 ACL 放行再 export。
 - **单点**：api.search.brave.com 直连超时（000）——Brave provider 受影响，pi auto 选路走 Exa/OpenAI 等可用通道，不阻塞 web_search。
 - **排查方法**（环境漂移通用）：① `env | grep -i proxy` 找出口配置 → ② `curl -x <proxy> -sI https://github.com` vs `curl --noproxy '*' -sI https://github.com` 对照（代理 vs 直连）→ ③ 代理 403 时看 Squid 错误页（`curl -s http://x/ 2>/dev/null | grep -oE "ERR_[A-Z_]+"`）拿代理身份与拒绝原因 → ④ 顺藤找 env 来源（grep shell profile / 启动脚本 / launchctl getenv / ps eww <pid>）。
+
+## macOS launchd 守护环境（job_49 追加沉淀，2026-11-02）
+
+- **launchd 拉起的进程不继承 shell PATH**（homebrew `/opt/homebrew/bin` 是 zshrc 注入）——plist 必须显式注入 PATH，否则 pi worker 报 `env: node: No such file or directory`（exit 127，pi shebang 依赖 PATH 里的 node）
+- **macOS 睡眠/唤醒周期会向后台 daemon 发 SIGTERM**——`--daemon`（setsid+nohup）防 SIGHUP 防不了它；web 两次同签名死亡实证（worker exit 143 → `graceful shutdown: context deadline exceeded`）。根治 = launchd KeepAlive 守护
+- **launchd 正确持有方式 = 前台直跑**（不带 --daemon：setsid 脱离让 KeepAlive 追踪失效；不用幂等脚本入口：秒退 exit 0 会让 launchd 误判成功、旧实例死透后无人再拉）
+- 完整操作模板与排障速查：`mac_launchd_web_skill/skill.md`（当前生产 plist：`~/Library/LaunchAgents/com.rick.web.plist`，KeepAlive+RunAtLoad+ThrottleInterval=5，env 注入 proxy 三件套含 no_proxy=mcli.sankuai.com）
