@@ -34,12 +34,13 @@ type rickAgentSpec struct {
 const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_content, subagent"
 
 // rickAgents 是 rick 经 env 职责 3 注册为 pi 自定义 agent 的清单
-// （human-loop v7.x 七 agent）。system prompt = 对应源码 skill 的 wiki 正文。
+// （human-loop v7.x 四 agent：重生型）。system prompt = 对应源码 skill 的 wiki 正文。
 // v4.1.1 起各 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
-// v7（job_50）：teach 下线（被 syllabus-builder/lesson-writer 取代）；新增五个
-// 教学 agent——agent 名用连字符、skill 文件名用下划线（skill 字段显式映射）。
-// v7.1（job_50 增量）：新增 feynman（费曼演绎：挑战逼问+终判），
-// zpd-assessor 改为 select/consolidate 双模式管理 ZPD 档案。
+// v7（job_50）：teach 下线；v7.1 加 feynman；**v7.2：交互型环节收回 parent 内联
+// 执行（费曼演绎/ZPD 档案/探索流），agent 收缩为 4 个重生型**
+// （research/syllabus-builder/lesson-writer/recall-review）；
+// zpd-assessor、feynman、originality-sparker 三 agent 移除，
+// 对应 skill 改为 parent 会话内联方法论（skills/{zpd,feynman,exploration_stream}.md）。
 var rickAgents = []rickAgentSpec{
 	{
 		name:           "research",
@@ -50,24 +51,6 @@ var rickAgents = []rickAgentSpec{
 		// 追加），预估内容过多时拆叶子各写各的叶子文件；bash 支撑「运行时行为」信源验证。
 		thinking:  "high",
 		timeoutMs: 3600000, // 60min：实测 E 阶段 research（首轮 8.5min + 叶子扇出 14.4min）≈27-35min，默认 30min 超时恰在落盘前掐死
-	},
-	{
-		name:           "zpd-assessor",
-		description:    "ZPD 档案管理者（select 选回忆点/关键概念 + consolidate 汇总费曼判定更新档案：会/边缘/不会；独写 zpd.md 档案）",
-		skill:          "zpd_assessor",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
-	},
-	{
-		name:           "feynman",
-		description:    "费曼演绎：挑战模糊/事实不符/价值判断错误+逼问修正+最简呈现判定（challenge 逼问清单 / verdict 终判；独写 lessons/feynman_N.md）",
-		skill:          "feynman",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
 	},
 	{
 		name:           "syllabus-builder",
@@ -82,15 +65,6 @@ var rickAgents = []rickAgentSpec{
 		name:           "lesson-writer",
 		description:    "课程内容生成（ZPD 详略呈现：弱少而精/强加速；先判图/文；事实层给满推导层留白；一课一事；独写 lessons/teach_N.md）",
 		skill:          "lesson_writer",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
-	},
-	{
-		name:           "originality-sparker",
-		description:    "原创性启发（真实异质性检索 + 更优替代 + 跨领域结构类比；差异化启发：部分违背非否定；独写 lessons/spark_N.md）",
-		skill:          "originality_sparker",
 		tools:          fullTools,
 		defaultContext: "fresh",
 		thinking:       "high",

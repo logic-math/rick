@@ -13,9 +13,10 @@ import (
 //
 //   - rick-gates hook 扩展：<repo>/.rick/skills/rick-gates/ → AgentDir()/extensions/rick-gates/
 //   - rick skills：<repo>/.rick/skills/*_skill/            → AgentDir()/skills/<name>/
-//   - rick agents：embedded templates/skills/{research,zpd_assessor,feynman,
-//     syllabus_builder,lesson_writer,originality_sparker,recall_review}.md
-//     → AgentDir()/agents/{name}.md（task9 机制，frontmatter + wiki 正文；v7：teach 下线）
+//   - rick agents：embedded templates/skills/{research,syllabus_builder,
+//     lesson_writer,recall_review}.md
+//     → AgentDir()/agents/{name}.md（task9 机制，frontmatter + wiki 正文；
+//     v7.2：四 agent；费曼/ZPD/探索流为 parent 内联 skill，不部署为 agent）
 //
 // 幂等：重复运行会重写目标文件（内容一致），不产生重复项。
 func DeployRickCustomizations() error {

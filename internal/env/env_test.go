@@ -579,21 +579,21 @@ func TestCheckRickHooks_Missing(t *testing.T) {
 
 // TestCheckRickAgents_Missing verifies the not-ready boundary: with no agents
 // deployed yet, CheckRickAgents reports all required agents missing.
-// v7.x（job_50）：七 agent 清单（research + 六个教学 agent；teach 已下线）。
+// v7.2（job_50）：四 agent 清单（research + 三个重生型教学 agent；交互型环节收回 parent 内联）。
 func TestCheckRickAgents_Missing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := CheckRickAgents()
-	if len(m) != 7 {
-		t.Errorf("CheckRickAgents should report 7 missing agents, got %v", m)
+	if len(m) != 4 {
+		t.Errorf("CheckRickAgents should report 4 missing agents, got %v", m)
 	}
 	for _, name := range requiredRickAgents {
 		if !containsString(m, name) {
 			t.Errorf("CheckRickAgents missing %q in report %v", name, m)
 		}
 	}
-	for _, gone := range []string{"teach"} {
+	for _, gone := range []string{"teach", "zpd-assessor", "feynman", "originality-sparker"} {
 		if containsString(m, gone) {
-			t.Errorf("CheckRickAgents should no longer require %q (v7 下线)", gone)
+			t.Errorf("CheckRickAgents should no longer require %q (v7.2 收回 parent 内联)", gone)
 		}
 	}
 }
@@ -610,7 +610,7 @@ func TestCheckRickAgents_Ready(t *testing.T) {
 	}
 }
 
-// TestDeployRickAgents verifies 职责 3 的 agent 定制：七文件落盘 + frontmatter
+// TestDeployRickAgents verifies 职责 3 的 agent 定制：四文件落盘（v7.2）+ frontmatter
 // 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义（v7：teach 下线、新增五教学
 // agent；agent 名连字符、skill 源文件名下划线由 skill 字段映射）。
 func TestDeployRickAgents(t *testing.T) {
@@ -618,7 +618,7 @@ func TestDeployRickAgents(t *testing.T) {
 	t.Setenv("HOME", home)
 	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
 
-	// 正常路径：七文件落盘 + frontmatter + 非空正文。
+	// 正常路径：四文件落盘（v7.2：agent 收缩为 4 个重生型）+ frontmatter + 非空正文。
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents: %v", err)
 	}

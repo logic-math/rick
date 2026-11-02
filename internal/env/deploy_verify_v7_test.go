@@ -14,7 +14,7 @@ func TestDeployV7AgentsSmoke(t *testing.T) {
 		t.Fatalf("deployRickAgents: %v", err)
 	}
 	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
-	for _, name := range []string{"research", "zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
+	for _, name := range []string{"research", "syllabus-builder", "lesson-writer", "recall-review"} {
 		data, err := os.ReadFile(filepath.Join(agentsDir, name+".md"))
 		if err != nil {
 			t.Fatalf("%s.md not deployed: %v", name, err)
@@ -34,8 +34,10 @@ func TestDeployV7AgentsSmoke(t *testing.T) {
 			t.Errorf("%s.md body suspiciously short (%d bytes)", name, len(c))
 		}
 	}
-	// teach must NOT be deployed
-	if _, err := os.Stat(filepath.Join(agentsDir, "teach.md")); !os.IsNotExist(err) {
-		t.Error("teach.md should not be deployed in v7")
+	// v7.2 移除的 agent 不得部署：teach（v7）+ zpd-assessor/feynman/originality-sparker（v7.2 收回 parent 内联）
+	for _, gone := range []string{"teach", "zpd-assessor", "feynman", "originality-sparker"} {
+		if _, err := os.Stat(filepath.Join(agentsDir, gone+".md")); !os.IsNotExist(err) {
+			t.Errorf("%s.md should not be deployed in v7.2", gone)
+		}
 	}
 }

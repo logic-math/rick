@@ -158,6 +158,6 @@ subagent({ workflowScript: "const rs = await runs.all([{ key: 'leaf-1', agent: '
 
 ## 与其他 agent 的协作
 
-- **syllabus-builder / lesson-writer / originality-sparker**：消费你落盘的事实材料（`research/research_{N}.md`）与 human 已裁决的价值（`values.md`）做第 2-5 步思考与教学；你只提供事实与待裁决价值，不做教学
+- **syllabus-builder / lesson-writer**：消费你落盘的事实材料（`research/research_{N}.md`）与 human 已裁决的价值（`values.md`）做第 2-5 步思考与教学；你只提供事实与待裁决价值，不做教学
 - **human-loop parent**：用 runs.run 派发 research（任务含材料落盘路径与 `values.md` 路径）；价值裁决回合由 parent 呈现清单、写回 human 裁决
 - **human**：待裁决价值条目与 R7/Gaps 由 parent 上呈，human 决策
