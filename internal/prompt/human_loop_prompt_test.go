@@ -49,16 +49,17 @@ func TestGenerateHumanLoopPromptFileWritesV7FileSet(t *testing.T) {
 		t.Errorf("main prompt does not contain draftDir %q", draftDir)
 	}
 
-	// v7 skill 副本集：sense + research + 五个教学 agent（teach 不复存在）。
+	// v7.2 skill 副本集（8 个）：sense + 三个 parent 内联方法论（zpd/feynman/exploration_stream）
+	// + 四个重生型 agent 契约（syllabus_builder/lesson_writer/recall_review/research）。
 	skills := []string{
 		"skill_sense.md",
-		"skill_research.md",
-		"skill_zpd_assessor.md",
+		"skill_zpd.md",
 		"skill_feynman.md",
+		"skill_exploration_stream.md",
 		"skill_syllabus_builder.md",
 		"skill_lesson_writer.md",
-		"skill_originality_sparker.md",
 		"skill_recall_review.md",
+		"skill_research.md",
 	}
 	for _, skill := range skills {
 		path := promptsDir + "/" + skill
@@ -72,10 +73,10 @@ func TestGenerateHumanLoopPromptFileWritesV7FileSet(t *testing.T) {
 		}
 	}
 
-	// v6 的 teach/research task prompt 不再渲染。
-	for _, gone := range []string{"teach.md", "research.md"} {
+	// v7.1 的 zpd_assessor/originality_sparker 副本不再渲染（agent 已移除，方法论改为内联 skill_zpd/exploration_stream）。
+	for _, gone := range []string{"skill_zpd_assessor.md", "skill_originality_sparker.md"} {
 		if _, err := os.Stat(promptsDir + "/" + gone); !os.IsNotExist(err) {
-			t.Errorf("v6 task prompt %s should no longer be rendered", gone)
+			t.Errorf("removed skill %s should no longer be rendered", gone)
 		}
 	}
 
@@ -86,13 +87,13 @@ func TestGenerateHumanLoopPromptFileWritesV7FileSet(t *testing.T) {
 		}
 	}
 
-	// 主 prompt 引用 v7.x 学习材料路径约定（zpd/anchors/spark/feynman）。
+	// 主 prompt 引用 v7.2 路径约定：三个内联方法论 skill 路径 + 四个 agent 名。
 	for _, want := range []string{
-		"zpd.md", "anchors.md", "spark_{N}.md", "feynman_{N}.md", "skill_sense.md",
-		"zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
+		"zpd.md", "anchors.md", "teach_{N}.md", "skill_sense.md", "skill_zpd.md", "skill_feynman.md", "skill_exploration_stream.md",
+		"research", "syllabus-builder", "lesson-writer", "recall-review",
 	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("main prompt missing v7 path/agent reference %q", want)
+			t.Errorf("main prompt missing v7.2 path/agent reference %q", want)
 		}
 	}
 }
@@ -110,8 +111,9 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 	if strings.Contains(content, "{{") {
 		t.Errorf("dry-run output contains an unreplaced template variable")
 	}
-	// 学习材料路径约定注入（v7：含 zpd/anchors + sense canon 路径）。
-	for _, want := range []string{"mission.md", "values.md", "syllabus.md", "zpd.md", "anchors.md", "lessons", "research", "judgment.md", "skill_sense.md"} {
+	// 学习材料路径约定注入（v7.2：含 zpd/anchors + 四个方法论 skill 路径）。
+	for _, want := range []string{"mission.md", "values.md", "syllabus.md", "zpd.md", "anchors.md", "lessons", "research", "judgment.md",
+		"skill_sense.md", "skill_zpd.md", "skill_feynman.md", "skill_exploration_stream.md"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing learning-material path %q", want)
 		}
@@ -122,14 +124,15 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 			t.Errorf("dry-run output missing SENSE step name %q", want)
 		}
 	}
-	// v7 核心循环关键词 + v7.1（ZPD 生成重写）关键锚词。
+	// v7.2 核心循环关键词：费曼演绎三步内联 + 探索流 + 推进下一课。
 	for _, want := range []string{
 		"费曼", "原创", "ZPD", "详略",
-		"结构化提问", "ZPD 生成", "ZPD 档案", "费曼演绎", "select", "consolidate",
-		"challenge", "verdict", "feynman", "会什么", "随 loop 展开逐次完善",
+		"结构化提问", "ZPD 生成", "ZPD 档案", "费曼演绎",
+		"探索流", "原创性信息点", "原创性表达", "推进下一课", "跨领域差异性概念",
+		"会什么", "薄弱点", "parent 独写",
 	} {
 		if !strings.Contains(content, want) {
-			t.Errorf("dry-run output missing v7 core-loop keyword %q", want)
+			t.Errorf("dry-run output missing v7.2 core-loop keyword %q", want)
 		}
 	}
 	if strings.Contains(content, "exporter") {
@@ -144,41 +147,49 @@ func TestSenseLoopTemplateIsV7TeachingSession(t *testing.T) {
 		t.Fatalf("LoadTemplate(sense_loop) error = %v", err)
 	}
 
-	// v7.x 协议关键词：七 agent + 学习材料路径 + 文件状态机 + 核心循环 + 交付门禁。
+	// v7.2 协议关键词：四 agent + 三个内联方法论 skill + 学习材料路径 + 文件状态机 + 核心循环 + 交付门禁。
 	for _, kw := range []string{
-		"research", "zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review",
+		"research", "syllabus-builder", "lesson-writer", "recall-review",
 		"mission.md", "syllabus", "教学大纲", "lessons", "judgment.md", "zpd.md", "anchors.md",
 		"文件状态机", "学习目标", "考核标准", "退出准则",
 		"values_path", "价值裁决", "changelog", "大纲动态变更",
-		"sense_skill_path",
+		"sense_skill_path", "zpd_skill_path", "feynman_skill_path", "exploration_skill_path",
 		"问题还原", "构建视角", "洞察矛盾", "辩证逆转", "良质批判",
-		"费曼", "原创思考", "详略", "核心循环", "ZPD 生成", "认知强制", "节奏规则",
-		"三次同类", "无能力", "二次探针",
-		// v7.1（ZPD 生成重写）：结构化提问 + 档案 + 费曼演绎 + feynman agent。
-		"结构化提问", "ZPD 档案", "费曼演绎", "select", "consolidate", "challenge", "verdict",
-		"feynman_{N}", "会什么", "随 loop 展开逐次完善",
+		"费曼", "原创思考", "详略", "核心循环", "ZPD 生成", "认知强制",
+		"三次同类",
+		// v7.2：结构化提问 + parent 内联（费曼演绎 3 步/探索流/档案）。
+		"结构化提问", "ZPD 档案", "费曼演绎", "探索流", "原创性信息点", "原创性表达",
+		"跨领域差异性概念", "推进下一课", "会什么", "薄弱点", "parent 独写", "不派 subagent",
 	} {
 		if !strings.Contains(tpl.Content, kw) {
-			t.Errorf("sense_loop.md missing v7 keyword %q", kw)
+			t.Errorf("sense_loop.md missing v7.2 keyword %q", kw)
 		}
 	}
 
-	// v6/v7.0 遗留机制不得回流：teach agent、旧 SENSE 第一步名、旧 ZPD 初始化/probe-assess 机制。
-	for _, gone := range []string{"agent:'teach'", "teach_agent_path", "事实还原", "exporter", "阶段 1:S", "N1:", "反向回流", "三维打分", "系统论描述符", "max_retries", "max_backflows", "think_agent_path", "domain-survey", "module-facts", "ZPD 初始化", "任务模式 `probe`", "任务模式 `assess`"} {
+	// v6/v7.1 遗留机制不得回流：teach agent、旧 SENSE 第一步名、旧 ZPD 机制、
+	// v7.1 的三个交互型 agent（v7.2 已移除，改 parent 内联）。
+	for _, gone := range []string{
+		"agent:'teach'", "teach_agent_path", "事实还原", "exporter", "阶段 1:S", "N1:",
+		"反向回流", "三维打分", "系统论描述符", "max_retries", "max_backflows",
+		"think_agent_path", "domain-survey", "module-facts",
+		"ZPD 初始化", "任务模式 `probe`", "任务模式 `assess`",
+		"agent:'zpd-assessor'", "agent:'feynman'", "agent:'originality-sparker'",
+		"feynman_{N}", "spark_{N}",
+	} {
 		if strings.Contains(tpl.Content, gone) {
 			t.Errorf("sense_loop.md should not contain removed mechanism %q", gone)
 		}
 	}
 
-	// 派发显式语法 + 交付门禁。
-	for _, kw := range []string{"workflowScript", "timeoutMs: 3600000", "runs.run", "交付门禁", "resume"} {
+	// 派发显式语法 + 交付门禁（只覆盖四个 agent）。
+	for _, kw := range []string{"workflowScript", "timeoutMs: 3600000", "runs.run", "交付门禁", "resume", "只覆盖四个"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing dispatch keyword %q", kw)
 		}
 	}
 
-	// 单写者按文件隔离：七 agent 各自的独写文件。
-	for _, kw := range []string{"独写", "spark_{N}.md", "teach_{N}.md", "feynman_{N}.md"} {
+	// 单写者按文件隔离：四 agent + parent 独写 mission/judgment/zpd。
+	for _, kw := range []string{"独写", "teach_{N}.md", "zpd.md", "judgment.md"} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing single-writer keyword %q", kw)
 		}
@@ -199,8 +210,8 @@ func TestSenseLoopJudgmentIsHumanOnly(t *testing.T) {
 	}
 }
 
-// TestV7SkillsCoreContracts 验证六个 v7.x 教学 skill 的核心契约关键词
-//（select/consolidate、challenge/verdict、档案格式、独写文件、交付契约）。
+// TestV7SkillsCoreContracts 验证 v7.2 教学 skill 的核心契约关键词
+//（费曼演绎 3 步、ZPD 档案格式、探索流循环协议、四 agent 契约、独写文件）。
 func TestV7SkillsCoreContracts(t *testing.T) {
 	cases := []struct {
 		skill    string
@@ -208,29 +219,38 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 		forbid   []string
 	}{
 		{
-			skill: "zpd_assessor",
-			required: []string{
-				"zpd-assessor", "select", "consolidate", "3–5 个概念清单",
-				"ZPD 档案", "会什么", "不会什么", "边缘区", "随 loop 展开逐次完善",
-				"概念掌握表", "状态（会/边缘/不会）", "当前结论", "详略建议", "节奏建议",
-				"无错误断言", "错误断言", "feynman", "feynman_{N}",
-				"不问 human 价值判断", "无能力", "仅本模式", "zpd.md", "独写",
-				"400 字", "300 字", "rubric", "证据",
-			},
-			forbid: []string{"任务模式 `probe`", "任务模式 `assess`", "学习知识记录"},
-		},
-		{
 			skill: "feynman",
 			required: []string{
-				"feynman", "challenge", "verdict", "费曼技巧执行者",
-				"对 / 模糊 / 错", "逼问清单", "模糊处", "事实不符处", "价值判断错误处",
-				"正确答案应包含的要点", "过关判据", "最简呈现要求",
-				"最终对错条目", "最简呈现评价", "建议状态", "会 / 边缘 / 不会",
-				"feynman_{N}", "全局递增", "与 teach_N 编号无关",
-				"禁止替 human 讲解", "需补事实", "不得编造", "≤800 字", "独写",
-				"episode", "事实源",
+				"费曼", "3 步协议", "parent 会话内联执行", "内联方法论",
+				"引导开始", "用自己的话讲出来", "现在你当老师",
+				"清晰化引导", "事实模糊", "价值模糊", "逐处追问", "对话内连续追问",
+				"补充答案", "重新教学", "只补讲该缺口",
+				"记录 ZPD", "模糊点", "薄弱知识领域", "skill_zpd",
+				"不替 human 讲解", "需补事实", "不编造", "≤3 处模糊点",
 			},
-			forbid: []string{},
+			forbid: []string{"challenge", "verdict", "逼问清单", "独写 lessons"},
+		},
+		{
+			skill: "zpd",
+			required: []string{
+				"ZPD 档案", "parent 会话内联执行", "内联方法论", "parent 独写",
+				"概念掌握表", "状态（会/边缘/不会）", "证据（模糊点与对错摘要）", "时间",
+				"当前结论", "可加速", "重点教", "补基础",
+				"薄弱点", "薄弱知识领域标记",
+				"详略建议", "费曼演绎步③", "建档", "lesson-writer",
+			},
+			forbid: []string{"select", "consolidate", "zpd-assessor"},
+		},
+		{
+			skill: "exploration_stream",
+			required: []string{
+				"探索流", "可选", "human 决定", "parent 会话内联执行",
+				"要进入探索流吗", "推进下一课", "结束权在 human", "不催促",
+				"原创性信息点", "跨领域差异性概念", "web_search", "fallback 派 research",
+				"讲解该概念", "关联", "原创性表达", "引导持续",
+				"价值清晰、符合事实", "识别为假设", "judgment.md",
+			},
+			forbid: []string{"originality-sparker", "spark_{N}"},
 		},
 		{
 			skill: "syllabus_builder",
@@ -249,15 +269,6 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"ZPD 详略", "少而精", "加速", "先判图/文", "code-fence",
 				"box-drawing", "事实层", "推导层", "留白", "一课一事",
 				"引注", "关键概念清单", "费曼", "独写", "正文全文",
-			},
-			forbid: nil,
-		},
-		{
-			skill: "originality_sparker",
-			required: []string{
-				"originality-sparker", "spark", "spark_{N}", "费曼",
-				"真实异质性", "部分违背", "非完全否定", "更优替代", "差异维度",
-				"跨领域", "web", "信源", "魔鬼代言人式角色扮演", "合成异议", "独写",
 			},
 			forbid: nil,
 		},
@@ -285,6 +296,16 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 			if strings.Contains(skill, gone) {
 				t.Errorf("skill %s should not contain %q", c.skill, gone)
 			}
+		}
+	}
+}
+
+// TestRemovedV72SkillsAreGone 验证 v7.2 删除的 skill 文件不复存在
+//（zpd_assessor/originality_sparker 已被 skill_zpd/skill_exploration_stream 替代）。
+func TestRemovedV72SkillsAreGone(t *testing.T) {
+	for _, gone := range []string{"zpd_assessor", "originality_sparker"} {
+		if _, err := ReadEmbeddedSkill(gone); err == nil {
+			t.Errorf("skill %q should be removed in v7.2 (replaced by inline methodology)", gone)
 		}
 	}
 }

@@ -18,16 +18,22 @@ func TestRenderHumanLoopPrompt(t *testing.T) {
 	if !strings.Contains(content, "教学会话 v7") {
 		t.Error("rendered prompt should contain the v7 teaching session protocol header")
 	}
-	// v7 核心节锚词：SENSE 第一步新名 + 核心循环机制 + 五步编排。
-	for _, anchor := range []string{"问题还原", "费曼", "ZPD", "原创性启发", "文件状态机", "价值裁决"} {
+	// v7.2 核心节锚词：SENSE 第一步新名 + 核心循环机制（费曼演绎内联+探索流）+ 五步编排。
+	for _, anchor := range []string{"问题还原", "费曼", "ZPD", "探索流", "文件状态机", "价值裁决"} {
 		if !strings.Contains(content, anchor) {
 			t.Errorf("rendered prompt should contain v7 core anchor %q", anchor)
 		}
 	}
 	// 六 agent 名（连字符 pi agent 名）。
-	for _, agent := range []string{"zpd-assessor", "feynman", "syllabus-builder", "lesson-writer", "originality-sparker", "recall-review"} {
+	// v7.2：四个重生型 agent + 三个 parent 内联方法论 skill。
+	for _, agent := range []string{"syllabus-builder", "lesson-writer", "recall-review", "research"} {
 		if !strings.Contains(content, agent) {
-			t.Errorf("rendered prompt should reference v7 agent %q", agent)
+			t.Errorf("rendered prompt should reference v7.2 agent %q", agent)
+		}
+	}
+	for _, skill := range []string{"skill_zpd.md", "skill_feynman.md", "skill_exploration_stream.md"} {
+		if !strings.Contains(content, skill) {
+			t.Errorf("rendered prompt should reference parent inline methodology skill %q", skill)
 		}
 	}
 	if strings.Contains(content, "{{") {

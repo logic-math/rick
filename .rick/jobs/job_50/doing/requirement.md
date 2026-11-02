@@ -24,3 +24,10 @@
 - **ZPD 与费曼演绎抽为可复用 skill**：feynman=新 agent（费曼技巧执行者：挑战逼问+判定）；zpd-assessor 演化（select 选点 + consolidate 档案管理，去掉原 probe 回忆写出/assess 费曼判断）
 - **① 学习目标对齐**：结构化提问即可（固定字段一次成表，非开放式面试）
 - **④ 费曼环节**复用 feynman skill 保持一致
+
+## v7.2 增量裁决（2026-11-01，human 实跑前反馈二）
+
+- **费曼演绎精简 3 步**（parent 会话内联执行，不再 agent 往返）：① 引导用户用自己的话讲出来 ② 清晰化引导：识别事实模糊或价值模糊的表达并追问 ③ 用户无法回答→补充答案重新教学；并记录 ZPD——模糊点标记薄弱知识领域
+- **探索流 skill**（替代 originality-sparker；费曼完成后可选进入，human 决定）：始终识别 human 回答中的原创性信息点并扩展——先引导到某个跨领域差异性概念（内联检索），讲解概念并关联当前讨论主题，形成原创性表达，引导持续回答；澄清纪律：价值清晰、符合事实（无法验证部分清晰识别为假设）；结束标准=询问用户是否可推进下一课，结束权在 human
+- **交互协议（费曼/ZPD 档案/探索流）= parent 内联 skill（方法论文件）**；重生型 agent 收缩为 4 个：research / syllabus-builder / lesson-writer / recall-review（移除 zpd-assessor、feynman、originality-sparker 三个 agent）
+- **推进权归 human**（探索流结束询问）；ZPD 档案记录薄弱点供下轮 lesson-writer 详略

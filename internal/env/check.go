@@ -8,16 +8,14 @@ import (
 )
 
 // requiredRickAgents 是 rick 自定义 agent 的清单（对应 AgentDir()/agents/<name>.md）。
-// human-loop v7.x 七 agent 由 env 职责 3 落盘（task9 机制）并在此注册为就绪
-// check 的必需项：任一文件缺失即报未就绪。v7：teach 下线，新增五个教学 agent；
-// v7.1：新增 feynman（费曼演绎），zpd-assessor 改 select/consolidate 双模式。
+// human-loop v7.x 四 agent（重生型）由 env 职责 3 落盘（task9 机制）并在此注册
+// 为就绪 check 的必需项：任一文件缺失即报未就绪。
+// v7.2（job_50）：交互型环节（费曼演绎/ZPD 档案/探索流）收回 parent 会话内联
+// 执行，agent 收缩为 4 个；zpd-assessor/feynman/originality-sparker 移除。
 var requiredRickAgents = []string{
 	"research",
-	"zpd-assessor",
-	"feynman",
 	"syllabus-builder",
 	"lesson-writer",
-	"originality-sparker",
 	"recall-review",
 }
 
@@ -56,8 +54,8 @@ func CheckEcosystemExtensions() []string {
 	return VerifyExtensions()
 }
 
-// CheckRickAgents 检查 rick 自定义 agent（v7.x 七 agent：research + 六个教学
-// agent）是否落盘到 AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回
+// CheckRickAgents 检查 rick 自定义 agent（v7.x 四 agent：research + 三个重生型
+// 教学 agent）是否落盘到 AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回
 // 缺失 agent 名。
 func CheckRickAgents() []string {
 	var missing []string

@@ -1,0 +1,31 @@
+{
+  "created_at": "2026-11-02T16:30:00+08:00",
+  "updated_at": "2026-11-02T16:30:00+08:00",
+  "version": "1.0",
+  "tasks": [
+    {
+      "task_id": "fix1",
+      "task_name": "super 外部 workspace 两层修复（资产部署 + resolveRepoRoot exe fallback）+ parseScriptFlag 变量回退",
+      "status": "success",
+      "attempts": 1,
+      "dependencies": [],
+      "task_file": "",
+      "commit_hash": "65c2cd1",
+      "created_at": "2026-11-02T16:30:00+08:00",
+      "updated_at": "2026-11-02T16:30:00+08:00"
+    },
+    {
+      "task_id": "fix2",
+      "task_name": "launchd plist proxy 硬编码根治 + prodEnv 不透传 + GitHub 积压推送",
+      "status": "success",
+      "attempts": 1,
+      "dependencies": [
+        "fix1"
+      ],
+      "task_file": "",
+      "commit_hash": "08b5782",
+      "created_at": "2026-11-02T16:30:00+08:00",
+      "updated_at": "2026-11-02T16:30:00+08:00"
+    }
+  ]
+}

@@ -802,3 +802,42 @@ api.on("agent_end", async () => {
 ```
 
 **首次发现**: job_47 / 迭代13 后 pi hook 真实验证（commit 9667d13→e2bfd6f，superopt-json-guard 扩展）  **验证状态**: ✅ 已修复（e2bfd6f：run5 事件流完整修复链 + gate 隔离 + 2 次上限不死循环）
+
+
+### launchd plist 硬编码 proxy = KeepAlive 复活的毒源（实例杀不死）
+
+**症状**: kill 掉 web 后 ≤5s 复活且 env 里带着失效的 http_proxy/https_proxy；改 start-web.sh、修 release prodEnv、手动 env -i 干净重启全部无效（每次都被复活盖掉）；实例下所有 pi worker/git push 被灌 403 代理。
+
+**根因**: `~/Library/LaunchAgents/com.rick.web.plist` 的 `EnvironmentVariables` 在 job_49 时代硬编码了 proxy 三件套（当时模型连接确实需要）；2026-11-01 环境直连化反转后，plist 里的硬编码值没人改——launchd KeepAlive（ThrottleInterval=5）每次复活都带着旧毒。
+
+**精确解决步骤**:
+```bash
+launchctl list | grep com.rick.web                      # 确认实例归属 launchd（非手动/daemon）
+# 删 plist 里 http_proxy/https_proxy（保留 no_proxy 含 mcli.sankuai.com）
+launchctl bootout gui/$(id -u)/com.rick.web             # 成对重载（只改文件不重载无效）
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.rick.web.plist
+ps eww $(pgrep -f 'bin/rick web' | head -1) | tr ' ' '
+' | grep -i proxy   # 复验（警惕 ps 截断假象，用进程内 env 交叉验证）
+```
+
+**首次发现**: job_51（2026-11-02，5 轮重启排查破案；skill 已同步反转 mac_launchd_web_skill 的 proxy 注入约定）  **验证状态**: ✅ 已修复（实例/会话/直连 github/npm 全 200）
+
+### macOS ps eww 截断假象误导 env 继承链排查
+
+**症状**: `ps eww <pi-pid>` 显示无 proxy 变量，但其子进程 bash `env` 里 http/https_proxy 都在——排查「proxy 从哪继承」时方向被带偏（一度怀疑 pi 的 bash 工具主动注入）。
+
+**根因**: macOS `ps eww` 输出有长度截断；环境变量多的大进程（pi 带 launchd 完整 env）靠后的变量显示不全。
+
+**精确解决步骤**: 排查 env 继承链时用**进程内自证**：让可疑进程自己跑 `env | grep -i proxy`（bash 工具直接跑，或 `ps eww` 之外用 lldb/审计日志），交叉验证后再定方向。
+
+**首次发现**: job_51（2026-11-02）  **验证状态**: ✅ 方法论沉淀（无需代码修复）
+
+### parseScriptFlag 命中 "$PORT" 字面量提前返回——DefaultPlan 报「无法确定生产端口」
+
+**症状**: `TestDefaultPlanReadsPortFromDeploymentScript` 失败：`DefaultPlan: 无法确定生产端口`（部署脚本明明有端口）。
+
+**根因**: job_49 P1-1 加固 start-web.sh 改用 `PORT=6137` + `--port $PORT` 变量写法；parseScriptFlag 的字面量正则先命中 `$PORT`（非空）→ 提前 return 未解析的 shell 变量引用 → 谁也不认识 "$PORT"。
+
+**精确解决步骤**: internal/env/release/defaults.go——字面量值以 `$` 开头视为「未解析」继续走回退：按 flag 名大写匹配 `(?m)^\s*VAR=...` 变量赋值行（带引号/裸值三种捕获），返回真实值。已带单测（TestDefaultPlanReadsPort... 全绿）。
+
+**首次发现**: job_51（顺手修复 job_49 加固引入的既有回归）  **验证状态**: ✅ 已修复（commit 65c2cd1）
