@@ -1028,10 +1028,15 @@ func (p Plan) prodEnv() []string {
 			env = append(env, k+"="+v)
 		}
 	}
-	// 网络代理必须透传：本机直连外网不通，pi worker 的模型调用（如 deepseek）
-	// 遵循 *_proxy。丢了它们 → release 重启后的生产 web 会话全部 "Connection
-	// error."（实测：release 拉起的生产进程 proxy 变量数=0，而用户终端拉起的有 4 个）。
-	for _, k := range []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"} {
+	// 网络代理不再透传（2026-11-02 修订；推翻 2026-10 前提「本机直连外网不通」）：
+	// ① 11-01 human 裁决搜索/出网一律直连，start-web.sh 已删 proxy export；
+	// ② 实测本机 GitHub 443 直连 200，而 10.229.18.27:8412 代理对 github
+	//    CONNECT 403——透传旧 proxy 反而把「能直连」的进程变「连不上」；
+	// ③ 模型网关 mcli.sankuai.com 走内网直达（no_proxy 已含）。
+	// release CLI 常从带 proxy 的交互 shell 里跑（detached 继承）——若透传，
+	// 每次 release 都会把陈旧 proxy 灌进新生产实例（11-02 37771 实例实证）。
+	// no_proxy / NO_PROXY 仍透传（无害且防内网域名被未来代理误伤）。
+	for _, k := range []string{"no_proxy", "NO_PROXY"} {
 		if v := os.Getenv(k); v != "" {
 			env = append(env, k+"="+v)
 		}
