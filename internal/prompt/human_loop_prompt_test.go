@@ -135,6 +135,15 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 			t.Errorf("dry-run output missing v7.2 core-loop keyword %q", want)
 		}
 	}
+	// v7.3 输出纪律（沉默的编排者）：text 只出教学内容，编排动作全部隐藏。
+	for _, want := range []string{
+		"输出纪律", "沉默的编排者", "只允许七类", "禁止翻译", "Translation:",
+		"验收元数据", "run id", "内部失败内部修", "动作不打字",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("dry-run output missing v7.3 output-discipline keyword %q", want)
+		}
+	}
 	if strings.Contains(content, "exporter") {
 		t.Error("dry-run output still contains exporter")
 	}
@@ -227,6 +236,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"补充答案", "重新教学", "只补讲该缺口",
 				"记录 ZPD", "模糊点", "薄弱知识领域", "skill_zpd",
 				"不替 human 讲解", "需补事实", "不编造", "≤3 处模糊点",
+				"输出纪律", "动作不打字", "不在 text 播报",
 			},
 			forbid: []string{"challenge", "verdict", "逼问清单", "独写 lessons"},
 		},
@@ -238,6 +248,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"当前结论", "可加速", "重点教", "补基础",
 				"薄弱点", "薄弱知识领域标记",
 				"详略建议", "费曼演绎步③", "建档", "lesson-writer",
+				"动作不打字", "不在 text 播报", "text 不播报写入",
 			},
 			forbid: []string{"select", "consolidate", "zpd-assessor"},
 		},
@@ -249,6 +260,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"原创性信息点", "跨领域差异性概念", "web_search", "fallback 派 research",
 				"讲解该概念", "关联", "原创性表达", "引导持续",
 				"价值清晰、符合事实", "识别为假设", "judgment.md",
+				"输出纪律", "动作不打字", "不在 text 播报",
 			},
 			forbid: []string{"originality-sparker", "spark_{N}"},
 		},
@@ -259,6 +271,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"问题还原", "构建视角", "洞察矛盾", "辩证逆转", "良质批判",
 				"教学序列", "多个备选", "多个可行方案", "强相关", "弱相关",
 				"独写", "期望", "现状", "判据", "一课一事", "不替 human 收敛",
+				"纯正文", "验收元数据",
 			},
 			forbid: nil,
 		},
@@ -269,6 +282,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"ZPD 详略", "少而精", "加速", "先判图/文", "code-fence",
 				"box-drawing", "事实层", "推导层", "留白", "一课一事",
 				"引注", "关键概念清单", "费曼", "独写", "正文全文",
+				"纯正文", "不含交付自检", "验收元数据",
 			},
 			forbid: nil,
 		},
@@ -278,6 +292,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"recall-review", "recall", "anchors.md", "独写",
 				"关键词", "卡点", "未解矛盾", "≤5", "复习关键词",
 				"允许遗忘", "再创造", "mission",
+				"纯清单", "验收元数据",
 			},
 			forbid: nil,
 		},

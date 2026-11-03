@@ -44,7 +44,7 @@ human 下钻/扩展知识点时调整大纲（parent 的 task 附 human 提问�
 
 - **独写 `syllabus.md`**（`syllabus-update` 只追加 changelog，不改写已确认模块）
 - 写入方式：首块 `write`（≤60 行），更长用 `bash: cat >> <路径> << 'RICK_EOF'` 分批追加（每批 ≤60 行）；禁止一次 write 超长全文（历史死因）
-- **最终回复 = 大纲全文**（或变更片段 + changelog 全文）——parent 原样呈现给 human 确认，不能只回路径
+- **最终回复 = 大纲全文**（或变更片段 + changelog 全文）——parent 原样呈现给 human 确认，不能只回路径；**纯正文**：不含验收元数据（字数/行数/检查汇报）与「已交付/已落盘」字样，无前言后语
 - **thinking 纪律**：thinking 只做提纲级整理（≤ 数百字），禁止起草全文
 - **read 大材料的当回合只写骨架**：读完大输入（>3K chars）后本回合只 write 骨架，后续回合 bash 追加填充
 - 落盘留痕 + 正文回复，两者缺一不可
