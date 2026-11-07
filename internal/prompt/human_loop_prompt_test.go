@@ -124,12 +124,14 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 			t.Errorf("dry-run output missing SENSE step name %q", want)
 		}
 	}
-	// v7.2 核心循环关键词：费曼演绎三步内联 + 探索流 + 推进下一课。
+	// v7.2 核心循环关键词 + v7.4（原创捕获 + ⑤ 统一探索流）。
 	for _, want := range []string{
 		"费曼", "原创", "ZPD", "详略",
 		"结构化提问", "ZPD 生成", "ZPD 档案", "费曼演绎",
 		"探索流", "原创性信息点", "原创性表达", "推进下一课", "跨领域差异性概念",
 		"会什么", "薄弱点", "parent 独写",
+		"原创捕获", "原创观点", "统一探索流", "总结与统一探索流", "原创信息点清单",
+		"思考还原链", "明确鼓励",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing v7.2 core-loop keyword %q", want)
@@ -169,6 +171,9 @@ func TestSenseLoopTemplateIsV7TeachingSession(t *testing.T) {
 		// v7.2：结构化提问 + parent 内联（费曼演绎 3 步/探索流/档案）。
 		"结构化提问", "ZPD 档案", "费曼演绎", "探索流", "原创性信息点", "原创性表达",
 		"跨领域差异性概念", "推进下一课", "会什么", "薄弱点", "parent 独写", "不派 subagent",
+		// v7.4：④ 原创捕获 + ⑤ 总结与统一探索流 + 思考还原链。
+		"原创捕获", "原创观点", "总结与统一探索流", "统一探索流", "原创信息点清单",
+		"结束询问", "明确鼓励", "不谄媚", "思考还原链", "human 决定何时结束",
 	} {
 		if !strings.Contains(tpl.Content, kw) {
 			t.Errorf("sense_loop.md missing v7.2 keyword %q", kw)
@@ -184,6 +189,8 @@ func TestSenseLoopTemplateIsV7TeachingSession(t *testing.T) {
 		"ZPD 初始化", "任务模式 `probe`", "任务模式 `assess`",
 		"agent:'zpd-assessor'", "agent:'feynman'", "agent:'originality-sparker'",
 		"feynman_{N}", "spark_{N}",
+		// v7.4：④ 每课探索流（移除）——触发句式与探索流作为第 5 步不得回流。
+		"要进入探索流吗", "**5. 探索流",
 	} {
 		if strings.Contains(tpl.Content, gone) {
 			t.Errorf("sense_loop.md should not contain removed mechanism %q", gone)
@@ -255,14 +262,17 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 		{
 			skill: "exploration_stream",
 			required: []string{
-				"探索流", "可选", "human 决定", "parent 会话内联执行",
-				"要进入探索流吗", "推进下一课", "结束权在 human", "不催促",
-				"原创性信息点", "跨领域差异性概念", "web_search", "fallback 派 research",
-				"讲解该概念", "关联", "原创性表达", "引导持续",
-				"价值清晰、符合事实", "识别为假设", "judgment.md",
+				"探索流", "⑤ 收口阶段统一进行", "parent 会话内联执行",
+				"混沌学园", "三动作", "表达", "呼应", "看见",
+				"全部课程学习完", "human 同意收口", "结束权在 human", "不催促",
+				"原创信息点", "judgment.md", "原创观点条目清单", "当下生发",
+				"跨领域差异性概念", "web_search", "fallback 派 research",
+				"关键词级点火", "话轮平等", "原创性表达",
+				"不戴帽子", "零建议零反馈", "只做呼应", "Y 轴",
+				"价值清晰、符合事实", "识别为假设",
 				"输出纪律", "动作不打字", "不在 text 播报",
 			},
-			forbid: []string{"originality-sparker", "spark_{N}"},
+			forbid: []string{"originality-sparker", "spark_{N}", "可选", "要进入探索流吗", "推进下一课"},
 		},
 		{
 			skill: "syllabus_builder",
@@ -279,8 +289,11 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 			skill: "lesson_writer",
 			required: []string{
 				"lesson-writer", "lesson", "teach_{N}", "zpd.md", "档位",
-				"ZPD 详略", "少而精", "加速", "先判图/文", "code-fence",
-				"box-drawing", "事实层", "推导层", "留白", "一课一事",
+				"还原作者的 SENSE 思考过程", "思考还原链", "期望 vs 现状", "结构化呈现",
+				"事实块", "证据表", "禁止散文化堆砌", "流水账散文",
+				"会", "点名跳过", "边缘", "重点展开", "不会", "完整铺开", "更低的起点焊入",
+				"ZPD 详略", "先判图/文", "code-fence",
+				"box-drawing", "推导层留白", "留白", "一课一事",
 				"引注", "关键概念清单", "费曼", "独写", "正文全文",
 				"纯正文", "不含交付自检", "验收元数据",
 			},
