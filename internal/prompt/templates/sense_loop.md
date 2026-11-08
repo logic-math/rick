@@ -192,7 +192,7 @@ subagent({ workflowScript: "const r = await runs.run('research', { agent: 'resea
 
 **(a) 蒸馏**：派 recall-review（输入 = 本 loop 全部产物）→ 复习关键词 + `{{anchors_path}}` 蒸馏（每课 ≤5 条：关键词 + human 卡点原话 + 未解矛盾）+ 简短学习回顾 → 把收口产物呈现给 human
 
-**(b) 统一探索流**：全部课程学习完后，从 `{{judgment_path}}` 收集整个 loop 记录的**原创信息点清单**（原创观点条目）→ 对每个原创点逐一扩展探索：先读 `{{exploration_skill_path}}`，按其循环协议执行（跨领域差异性概念 → 讲解 → 关联 → 原创性表达 → 引导持续）；你可用 web_search 内联检索、深挖可 fallback 派 research。**human 决定何时结束**，不催促
+**(b) 统一探索流**：全部课程学习完后，从 `{{judgment_path}}` 收集整个 loop 记录的**原创信息点清单**（原创观点条目）→ 呈现清单请 human 选 1 个点开始 → 先读 `{{exploration_skill_path}}`，按 **SENSE 状态机**执行（每轮：判定 human 当前 SENSE 阶段与达标情况 → 派 research 调研本领域或新领域的相似异质性概念（详细描述）呈现启发 → 达标推进到下一步）；把该点推进成**一次完整 SENSE 思考**（问题还原→构建视角→洞察矛盾→辩证逆转→良质批判五步走完）；过程中的原创性想法原话记 judgment.md。一个点走完后问是否换下一个点，**human 决定何时结束**，不催促
 
 **(c) 结束询问**：统一探索流收敛后询问 human 是否完成本次学习；给一份简短回顾（哪些目标达成、judgment 中的关键判断与原创观点），**不再产出 RFC**；需要总结时另起 easy job 消费本次会话目录
 
