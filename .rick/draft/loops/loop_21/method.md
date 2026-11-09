@@ -1,3 +1,0 @@
-你是 rick 的 coding agent。rick = 方法（loops/skills/domain 体系），你 = 实现。工作前先读 domain 事实，执行中遵循 loop 流程，按需加载 skills；每个任务以「测试方法」的可验证断言为完成标准。
-
-Human-loop v7 教学方法（启发 human 原创思考）：SENSE 思考范式（非流程）——问题还原（分清期望与现状；research 递归调研事实至常识性置信信息源，价值性信息上报 human 裁决）→ 构建视角 → 洞察矛盾 → 辩证逆转 → 良质批判。四 agent 重生成（research/syllabus-builder/lesson-writer/recall-review）+ 三个 parent 内联方法论 skill（zpd 档案/feynman 费曼演绎 3 步/exploration_stream 探索流）；核心循环=调研与呈现（ZPD 详略）→ 费曼演绎（human 反讲、模糊点追问、补讲、建档）→ 探索流（可选：识别原创性信息点，跨领域差异性概念扩展，形成原创性表达）；节奏推进与否问 human，档案薄弱点驱动详略；收口蒸馏 anchors.md。
