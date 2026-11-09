@@ -841,3 +841,20 @@ ps eww $(pgrep -f 'bin/rick web' | head -1) | tr ' ' '
 **精确解决步骤**: internal/env/release/defaults.go——字面量值以 `$` 开头视为「未解析」继续走回退：按 flag 名大写匹配 `(?m)^\s*VAR=...` 变量赋值行（带引号/裸值三种捕获），返回真实值。已带单测（TestDefaultPlanReadsPort... 全绿）。
 
 **首次发现**: job_51（顺手修复 job_49 加固引入的既有回归）  **验证状态**: ✅ 已修复（commit 65c2cd1）
+
+### internal/web 测试 TempDir RemoveAll cleanup 竞态（release 门禁负载放大，job_50 连挂 ×4）
+
+**症状**: `go test ./internal/web/` 全量包跑时不同测试轮换 FAIL（TestSessionResumeConcurrentSpawnHeals / TestEasyPromptDiscoversRsiLoop / TestSessionCreatePlan_ReusesExplicitJob），失败信息均为 `testing.go: TempDir RemoveAll cleanup: ... directory not empty`；单测（-run 指定）/低载运行通过。release 门禁（`go test ./... -p 1`，dev 树）连挂 4 次，单包复跑即绿。
+
+**根因**: web 测试 spawn 的 supervisor worker 进程**异步终止滞后于 `t.TempDir` 清理**（无同步等待）；release 门禁 buildEnv 用 **HOME=dev-home**（`internal/env/release/release.go` `Plan.DevHomeOr` → dev 树旁的 rick-dev-home）——该 HOME 与**在跑的 dev web 实例**（活动教学会话）共享 pi runtime/sessions 目录，竞争放大终止滞后；`-p 1` 包间串行的重负载进一步放大。
+
+**精确解决步骤**:
+```bash
+# 规避（已入 rick_release_ops_skill 条目 8）：release 前 down dev web，完成后恢复
+rick tools dev-web down
+rick tools release --merge-source --yes ...   # 门禁通过
+rick tools dev-web up --no-build
+```
+代码级根治 backlog（二选一，未做）：① web 测试 cleanup 前 wait worker 进程退出（internal/web 测试基建同步）；② release 门禁前自动 down/恢复 dev web（internal/env/release/release.go）。
+
+**首次发现**: job_50（2026-11-09，release 连挂 ×4 + HOME 对照实验定位）  **验证状态**: ⚠️ 规避已沉淀（dev-web down）；代码级根治未做

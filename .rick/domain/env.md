@@ -122,3 +122,9 @@
 
 - **`resolveRepoRoot` 两级查找（internal/super/supervisor.go）**：①进程 cwd 逐级上溯找 `super/superopt/__main__.py`（dev 树内/测试用）；②**fallback：rick 二进制自身位置**（`os.Executable` + `EvalSymlinks` 穿 `bin/rick → releases/current/rick` symlink 链到真实 repo）。外部 workspace（如 MT_INFER）的 web super session 里 pi worker cwd=ws.Path，①必失败——superopt 调度器全靠②救（曾实测 `rick super start` 报 `No module named superopt`）。
 - **super session 资产是逐 workspace 的**：web 侧 `rickDir = <workspace>/.rick`，创建 super session 前置检查 `<ws>/.rick/loops/super-loop.md` + `<ws>/.rick/skills/gen_env_skill/skill.md`；运行还要 super 七件套（experiment_analysis/sense/experiment_design/debug_protocol/cell_management/cost_analysis）+ super_event_autopsy。外部 workspace 上 super 前必须整套部署（job_51 已部署 MT_INFER 9 件）。
+
+## release 门禁环境（job_50 实测，2026-11-09）
+
+- **门禁在 dev 树跑且 HOME=dev-home**：`rick tools release` 的 `runGates`（internal/env/release/release.go）在 **dev 工作树**执行 `go test ./... -p 1 -timeout 1800s`，且 `Plan.buildEnv` 的 HOME 取 **DevHomeOr**（dev 树祖父目录的 rick-dev-home）——不是生产 HOME。该 HOME 与 **dev web 实例**（端口 8414，state=rick-dev-home/.rick）共享 pi runtime/sessions 目录。
+- **后果与纪律**：dev web 有活动会话时，web 测试 spawn 的 worker 与其竞争 pi sessions → TempDir 清理竞态（见 bugs.md「internal/web 测试 TempDir」条）→ 门禁连挂。**release 期间必须 `rick tools dev-web down`，完成后 `rick tools dev-web up --no-build` 恢复**（迁移中的教学会话产物已落盘 loop 目录，无损失；全流程见 rick_release_ops_skill 条目 8）。
+- 验证命令: `grep -n "DevHomeOr" internal/env/release/release.go && HOME=/Users/logic/workdir/rick-dev-home go test ./internal/web/`（低载时单包可过，全量门禁负载下才复现竞态）

@@ -65,4 +65,9 @@ grep -rlE 'workflowScript|runs\.run|runs\.all' internal/prompt/templates/ | wc -
 - level_complete 的 gate_cmd 一律写绝对路径（经验值）
 - 理由：findGitRoot 在异常 cwd（doing_dir 不存在/不在 git 树内）会静默回退起点，相对路径报错后难以自证解析到了哪里
 
+### 7. 派发纪律：task 文件化 + runs.all 形态（job_50 实测，优先于第 5 节 join 方案）
+
+- **task 文本超 1 行 / 含撇号·引号·反引号 / 含换行 → 一律文件化**：先 `write` 任务书到目标目录（如 `<job>/doing/<name>-brief.md`），再派单行指针 task（「read <该文件> 并执行其中的清单」）。job_50 实测：长文本内嵌 workflowScript 单引号字符串转义连挂 ×3（JSON `\n` 解码为真实换行即 unterminated string；撇号破坏字符串），research-L1 起全面文件化后 0 失败。第 5 节的 `join('\n')` 方案在 JSON 转义层不可靠（含 `\n` 的 task 时成时败，混合证据），仅作无法文件化时的降级
+- **runs.all 只传描述符对象**（`{key, agent, task}` / `{key, resume, task}`），禁止传入 `runs.run` 已启动的返回 promise——报 `runs.all item 0 has an invalid key`，且 workflow 失败会 SIGTERM 已启动的子运行（幸存孤儿运行须 `subagent_wait` 挂订阅收割，job_50 doing-5 实测）
+
 pi 编排语法权威来源：`/home/hadoop-recsys/.rick/pi/agent/npm/node_modules/pi-subagents/skills/pi-subagents/SKILL.md`

@@ -40,3 +40,4 @@
    - ③ base 视角复核：`git diff --stat <merge-base>...HEAD` 确认只有 base 中不存在的新路径退出跟踪；base 内路径退出跟踪 = merge 时删除生产历史，须 human 显式确认
 
    反例（job_44）：`git rm --cached .rick/jobs` 目录前缀 → 921 条删除 delta（merge 会删生产 job 历史），靠 43 秒人工警觉救回
+8. **release 前预检：dev web 在跑则先 down**（job_50 实测门禁连挂 ×4，~30 分钟诊断+重试成本）：release 门禁 buildEnv 用 dev HOME（`Plan.DevHomeOr` → rick-dev-home），internal/web 测试 spawn 的 worker 与在跑的 dev web 实例（活动会话）共享该 HOME 的 pi sessions → worker 异步终止滞后于 `t.TempDir` 清理 → TempDir RemoveAll cleanup 竞态失败（单测/低载通过、门禁全量必挂，症状：不同测试轮换挂 + `directory not empty`）。**release 前 `rick tools dev-web down`，release 后 `rick tools dev-web up --no-build` 恢复**（迁移中的教学会话产物已落盘 loop 目录，无损失）。代码级根治（门禁自动 down/恢复 或 测试 cleanup 前 wait worker 退出）记 domain/bugs.md backlog。

@@ -6,6 +6,8 @@ scope: "全局（web 承载的 easy/doing 会话均可加载；与 rick-rsi-loop
 
 # Loop: web 验收反馈增量迭代
 
+> **分工路由**：反馈对象是 web UI 代码用本 loop；反馈对象是 prompt 模板层/agent 清单（templates/*.md、agents.go），用 `prompt-template-iteration-loop`（job_50 先例）；一次性协议形态重构先走 `protocol-redesign-loop`。
+
 把「human 用过之后的反馈」变成**一轮低成本、可验收、可回滚**的增量迭代。job_43 实测 6 轮（13 task / 10 gate / 6 release），反馈→上线全链路收敛到 ~30 分钟/轮。
 
 **与 rick-rsi-loop 的关系**：本 loop 只管**反馈轮次的编排**（分级/调研/微任务化/验收/呈批节奏）；单轮内的 dev 树隔离、层门禁、S3-S7 提升流程、rsi_check 证据全部**沿用 rick-rsi-loop 原文**，不重复定义。加载本 loop 前先读 rick-rsi-loop.md。
