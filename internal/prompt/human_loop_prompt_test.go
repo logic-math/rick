@@ -132,6 +132,7 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 		"会什么", "薄弱点", "parent 独写",
 		"原创捕获", "原创观点", "统一探索流", "总结与统一探索流", "原创信息点清单",
 		"思考还原链", "明确鼓励",
+				"可读性地板", "准确定义", "初学者",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing v7.2 core-loop keyword %q", want)
@@ -268,6 +269,7 @@ func TestV7SkillsCoreContracts(t *testing.T) {
 				"原创信息点", "judgment.md", "一次完整 SENSE 思考",
 				"research", "卡点", "张力呈现", "最小充分集", "引导性问题", "不代答",
 				"事实", "价值张力对", "视角候选", "矛盾结构", "逆转先例", "批判标准",
+				"初学者", "最少的概念", "准确定义", "说人话",
 				"达标标准", "推进判定", "重判卡点", "原创性想法", "后续内容",
 				"价值清晰、符合事实", "识别为假设",
 				"输出纪律", "动作不打字", "不在 text 播报",
