@@ -132,6 +132,7 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 		"会什么", "薄弱点", "parent 独写",
 		"原创捕获", "原创观点", "统一探索流", "总结与统一探索流", "原创信息点清单",
 		"思考还原链", "明确鼓励",
+				"自己的 SENSE 思考", "脚手架", "学生先自己推", "你的 SENSE 痕迹",
 				"可读性地板", "准确定义", "初学者",
 	} {
 		if !strings.Contains(content, want) {
