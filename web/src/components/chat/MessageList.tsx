@@ -34,6 +34,7 @@ import type { ChatItem } from "./viewModel";
 import { AssistantBubble, NoticeCard, UserBubble } from "./MessageBubble";
 import ThinkingBlock from "./ThinkingBlock";
 import ToolCallCard, { ToolElapsed, noteToolRunStart } from "./ToolCallCard";
+import { CompactionCard } from "./CompactionCard";
 import Saucer from "../starfield/Saucer";
 import { ExpandCtx, useExpandState, type ExpandCtrl, type ExpandMode } from "./expand";
 
@@ -204,6 +205,12 @@ function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): Rea
       return (
         <div key={item.id} className={cls}>
           <NoticeCard item={item} />
+        </div>
+      );
+    case "compaction":
+      return (
+        <div key={item.id} className={cls}>
+          <CompactionCard item={item} />
         </div>
       );
   }

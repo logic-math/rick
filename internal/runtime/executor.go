@@ -39,13 +39,47 @@ type piEvent struct {
 }
 
 type piMessage struct {
-	Role    string      `json:"role"`
-	Content []piContent `json:"content"`
+	Role    string         `json:"role"`
+	Content piContentList  `json:"content"`
 }
 
 type piContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+// piContentList accepts both of pi's message.content wire formats: the
+// array form ([{type:"text",text:"…"},…]) and the plain-string shorthand
+// ("content":"…") newer pi versions use on some events (message_start/
+// message_end/turn_end). The string form is normalized into a single text
+// part so downstream readers see a uniform shape. Without this, the whole
+// event line fails to unmarshal and the supervisor drops it ("skip bad rpc
+// line", 488+192 logged drops on prod/dev → missing messages in web UI;
+// job_53 Bug #1 fix 3).
+type piContentList []piContent
+
+func (c *piContentList) UnmarshalJSON(b []byte) error {
+	var arr []piContent
+	if err := json.Unmarshal(b, &arr); err == nil {
+		*c = arr
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*c = piContentList{{Type: "text", Text: s}}
+		return nil
+	}
+	snip := truncateJSON(b, 64)
+	return fmt.Errorf("piMessage.content: expected content array or string, got %s", snip)
+}
+
+// truncateJSON clips a raw JSON snippet for error messages (never panics on
+// non-UTF-8 or oversized payloads).
+func truncateJSON(b []byte, n int) string {
+	if len(b) > n {
+		b = b[:n]
+	}
+	return string(b)
 }
 
 // --- private session ---

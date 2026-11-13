@@ -75,7 +75,31 @@ export interface NoticeItem extends SeqAnchor {
   text: string;
 }
 
-export type ChatItem = UserItem | AssistantTextItem | ThinkingItem | ToolItem | NoticeItem;
+/** 压缩事件卡（compaction_start → 占位；compaction_end → 填充结果）。
+ *  job_53 Bug #1 修复 4：压缩过程可视化——手动/自动压缩都在会话流中可见。 */
+export interface CompactionItem extends SeqAnchor {
+  kind: "compaction";
+  id: string;
+  /** manual | threshold | overflow */
+  reason: string;
+  /** 占位态（压缩进行中——compaction_start 后、end 前） */
+  pending: boolean;
+  /** 中止（compaction_end aborted=true，result=null） */
+  aborted?: boolean;
+  /** 失败原因（compaction_end 失败：result=null + errorMessage） */
+  errorMessage?: string;
+  /** 压缩结果（成功时） */
+  summary?: string;
+  firstKeptEntryId?: string;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  /** 历史回放的既有压缩点（轻量分割线形态，无事件详情） */
+  historical?: boolean;
+  /** 自定义压缩指令原文（compact_request 合成事件携带；无指令时缺省） */
+  customInstructions?: string;
+}
+
+export type ChatItem = UserItem | AssistantTextItem | ThinkingItem | ToolItem | NoticeItem | CompactionItem;
 
 export interface ChatViewModel {
   items: ChatItem[];
@@ -182,6 +206,8 @@ interface BuildState {
   boundarySeq: number;
   /** 历史回放指纹（live 重叠跳过） */
   skip: Set<string> | undefined;
+  /** 待并入下一张压缩卡的自定义指令（compact_request → compaction_start 配对） */
+  pendingCompactArg: string | null;
 }
 
 const MAX_NOTIFICATIONS = 5;
@@ -217,6 +243,7 @@ export function buildChatViewModel(
     idSeq: 0,
     boundarySeq: 0,
     skip: skipFingerprints,
+    pendingCompactArg: null,
   };
 
   for (const env of envelopes) {
@@ -287,12 +314,67 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       }
       break;
     }
+    case "compact_request": {
+      // rick 合成事件（后端 SessionCompact 发起前广播）：携带自定义指令
+      // 原文——pi 的 compaction_start/end 不带指令，但压缩卡要展示它
+      //（human 裁决：感知「压缩怎么发生」）。暂存，并入随后的占位卡。
+      if (typeof ev.customInstructions === "string" && ev.customInstructions) {
+        st.pendingCompactArg = ev.customInstructions;
+      }
+      break;
+    }
     case "compaction_start": {
       st.compacting = true;
+      // 压缩过程可视化（job_53 修复 4）：占位卡——压缩中状态在会话流内可见，
+      // 而非只右输入区徽标；compaction_end 到达时原地填充（同 id 原地更新）。
+      st.items.push({
+        kind: "compaction",
+        id: `compaction-${st.idSeq || st.seq}`,
+        reason: typeof ev.reason === "string" ? ev.reason : "manual",
+        pending: true,
+        customInstructions: st.pendingCompactArg ?? undefined,
+      });
+      st.pendingCompactArg = null;
       break;
     }
     case "compaction_end": {
       st.compacting = false;
+      // 填充最近一张占位压缩卡（compaction_start → end 配对；无占位时
+      // 兜底新建——历史裁剪后 start 卡可能已不在流内）。
+      const result = (ev.result ?? null) as Record<string, unknown> | null;
+      const slot =
+        [...st.items]
+          .reverse()
+          .find((it): it is CompactionItem => it.kind === "compaction" && it.pending) ??
+        (() => {
+          const fresh: CompactionItem = {
+            kind: "compaction",
+            id: `compaction-${st.idSeq || st.seq}`,
+            reason: typeof ev.reason === "string" ? ev.reason : "manual",
+            pending: false,
+          };
+          st.items.push(fresh);
+          return fresh;
+        })();
+      slot.pending = false;
+      slot.reason = typeof ev.reason === "string" ? ev.reason : slot.reason;
+      if (!slot.customInstructions && st.pendingCompactArg) {
+        slot.customInstructions = st.pendingCompactArg;
+      }
+      st.pendingCompactArg = null;
+      if (ev.aborted === true) {
+        slot.aborted = true;
+      }
+      if (typeof ev.errorMessage === "string" && ev.errorMessage) {
+        slot.errorMessage = ev.errorMessage;
+      }
+      if (result) {
+        if (typeof result.summary === "string") slot.summary = result.summary;
+        if (typeof result.firstKeptEntryId === "string") slot.firstKeptEntryId = result.firstKeptEntryId;
+        if (typeof result.tokensBefore === "number") slot.tokensBefore = result.tokensBefore;
+        if (typeof result.estimatedTokensAfter === "number")
+          slot.estimatedTokensAfter = result.estimatedTokensAfter;
+      }
       break;
     }
     case "message_update": {
@@ -641,6 +723,22 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
     }
     if (entry.type === "thinking_level_change") {
       if (typeof entry.thinkingLevel === "string") meta.thinkingLevel = entry.thinkingLevel;
+      continue;
+    }
+
+    // 历史压缩点（compaction entry）：轻量分割线卡（job_53 修复 4）——
+    // 历史回放不重放摘要全文（会话流里它是边界标记，重放既占屏又误导
+    // 「这里刚压缩过」；事件流重建时/live 新压缩才有完整卡）。带 token 数
+    // 时展示规模（可感知压缩历史）。
+    if (entry.type === "compaction") {
+      items.push({
+        kind: "compaction",
+        id: eid("compaction"),
+        reason: "historical",
+        pending: false,
+        historical: true,
+        tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
+      });
       continue;
     }
 

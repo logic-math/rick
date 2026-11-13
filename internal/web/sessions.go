@@ -1121,19 +1121,49 @@ func (m *SessionManager) continueBackground(w http.ResponseWriter, entry Session
 
 // continueInteractive 人工继续一个交互型会话：spawn `--session <pi_session_id>`。
 func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry SessionEntry) {
+	wk, already, err := m.ensureInteractiveWorker(entry)
+	switch {
+	case errors.Is(err, errWorkspaceGone):
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+	case errors.Is(err, errNoSupervisor):
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
+	case err != nil:
+		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
+	case already && wk != nil:
+		// 幂等：worker 仍在 → 视为「已恢复」，202 并重播状态让客户端收敛。
+		m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "resumed": true})
+	}
+}
+
+var (
+	// errWorkspaceGone / errNoSupervisor：ensureInteractiveWorker 的可识别失败
+	//（HTTP 投影由调用方决定——continueInteractive 404/501，compact 降级 409）。
+	errWorkspaceGone = errors.New("workspace is no longer registered")
+	errNoSupervisor  = errors.New("supervisor is not configured")
+)
+
+// ensureInteractiveWorker 保证交互型会话有一个活 worker（幂等），是
+// continueInteractive（人工「恢复继续」）与 compact-on-non-active
+// （COMPACT_RESUME_MARKER，job_53 Bug #1 修复 2）的共享核心：
+//   - active/running 且 worker 存活 → 直接返回（already=true，无副作用）
+//   - active/running 但 worker 已死（崩溃逃过 markWorkerLost 等异常路径）
+//     → 先修正为 suspended 再 spawn 自愈（避免永久卡在「active 但不可用、
+//     resume 又 409」）
+//   - 非 active（suspended/error）→ spawn（--session 既有 resume 语义）
+//
+// 成功副作用：状态 → active、归档标记清除（恢复使用语义）、pumpWorker、
+// 恢复记录。spawn 失败副作用：状态 → error + 失败记录。返回的 worker 非
+// nil 时保证存活；err 非 nil 时 worker 必为 nil。
+func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.Worker, bool, error) {
 	if entry.Status == SessionStatusActive || entry.Status == SessionStatusRunning {
-		// 幂等：worker 仍在 → 视为「已恢复」，202 成功并重播状态让客户端收敛。
-		// 前端可能因陈旧列表/其他标签页仍显示挂起——重复点击不应冲突
-		//（用户实测：会话其实在跑（worker 存活 5h+），点 Resume 却报 409 且 UI 不刷新）。
 		if m.sup != nil {
 			if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
-				m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
-				writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
-				return
+				return wk, true, nil
 			}
 		}
-		// active/running 但 worker 已不存在（崩溃逃过 markWorkerLost 等异常路径）：
-		// 先修正状态再走 spawn 自愈，避免会话永久卡在「active 但不可用、resume 又 409」。
 		m.updateStatus(entry, SessionStatusSuspended, "worker missing; recovering on resume")
 		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
 			entry = e2
@@ -1141,12 +1171,10 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
-		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
-		return
+		return nil, false, errWorkspaceGone
 	}
 	if m.sup == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
-		return
+		return nil, false, errNoSupervisor
 	}
 
 	spec := runtime.SpawnSpec{
@@ -1159,20 +1187,18 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	worker, err := m.sup.Spawn(spec)
 	if err != nil {
-		// 并发 continue（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
-		// **活 worker** → 说明另一个请求已成功恢复——视为 already_active（202），
-		// 不再把状态误标 error（旧行为造成「error + worker 存活」永久不一致：
-		// 之后每次 resume 都 500 already has a worker，会话卡死不可恢复）。
+		// 并发恢复（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
+		// **活 worker** → 另一个请求已成功恢复——视为 already，不再把状态
+		// 误标 error（旧行为造成「error + worker 存活」永久不一致：之后每次
+		// resume 都 500 already has a worker，会话卡死不可恢复）。
 		if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
 			m.updateStatus(entry, SessionStatusActive, "resumed (worker already present)")
-			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
-			return
+			return wk, true, nil
 		}
 		reason := "resume spawn failed: " + err.Error()
 		m.updateStatus(entry, SessionStatusError, reason)
 		m.recordFailed(recoveryItemOf(entry, reason))
-		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
-		return
+		return nil, false, fmt.Errorf("%s", reason)
 	}
 	m.updateStatus(entry, SessionStatusActive, "resumed")
 	// Resuming an archived session means the user wants it back in active use:
@@ -1186,7 +1212,7 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	m.pumpWorker(entry.ID, worker)
 	m.recordRecovered(recoveryItemOf(entry, "resumed by human"))
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "resumed": true})
+	return worker, false, nil
 }
 
 // SessionUIResponse handles POST /api/sessions/{id}/ui_response: answer a
@@ -1592,8 +1618,35 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if entry.Status != SessionStatusActive {
-		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
-		return
+		// COMPACT_RESUME_MARKER（job_53 Bug #1 修复 2，human 裁决方案 C）：
+		// web 重启后旧会话全变 suspended/error，而用户最想压缩的恰是用完的
+		// 长会话——旧行为一律 409 导致「总是压缩失败」（实测 dev 29 会话 0
+		// active）。交互型会话（plan/easy/ctrl/human-loop/learning/交互 dream）
+		// 自动 resume worker 再压缩；closed（用户明确关闭，不自动复活）与
+		// 后台型（doing/后台 dream，worker 由后台 runner 管理）维持 409。
+		if entry.Status == SessionStatusClosed ||
+			entry.Type == SessionTypeDoing ||
+			(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
+			return
+		}
+		if _, _, err := m.ensureInteractiveWorker(entry); err != nil {
+			if errors.Is(err, errWorkspaceGone) {
+				writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+				return
+			}
+			if errors.Is(err, errNoSupervisor) {
+				writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
+				return
+			}
+			// resume 失败（spawn 失败等）：降级回原 409 语义，前端显示具体原因。
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "compact auto-resume failed: %v", err))
+			return
+		}
+		// resume 成功：刷新本地拷贝（store 内状态已更新为 active）。
+		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
+			entry = e2
+		}
 	}
 	var req struct {
 		CustomInstructions string `json:"custom_instructions"`
@@ -1601,6 +1654,14 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req) // 空 body 合法（全部字段可选）
 	}
+	// 广播 compact 请求事件（job_53 修复 4）：pi 的 compaction_start/end 事件
+	// 不携带自定义指令，但 human 要求压缩卡展示指令原文（感知「压缩怎么
+	// 发生」）——rick 在发起前广播合成事件，前端把它并入占位压缩卡。
+	m.hub.Publish(SessionEvent(entry.ID, nil, map[string]any{
+		"type":               "compact_request",
+		"customInstructions": req.CustomInstructions,
+	}))
+
 	ev, err := m.rpcRequestTimeout(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
 		return c.Compact(req.CustomInstructions)
 	}, 180*time.Second)

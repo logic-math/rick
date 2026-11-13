@@ -1,0 +1,17 @@
+{
+  "created_at": "2026-11-12T21:00:00+08:00",
+  "tasks": [
+    {
+      "attempts": 0,
+      "created_at": "2026-11-12T21:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task1",
+      "task_name": "Bug #1: compact 全链路修复（双条目/非active拒/piMessage string/压缩可视化卡）",
+      "updated_at": "2026-11-12T21:00:00+08:00"
+    }
+  ],
+  "updated_at": "2026-11-12T21:00:00+08:00",
+  "version": "1.0"
+}

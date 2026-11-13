@@ -8,8 +8,9 @@
  * - textarea 随内容自适应扩大（scrollHeight 驱动——长句自动折行也撑高，
  *   不只按 \n 计数），上限约 6 行（240px），超出内部滚动
  * - agent streaming 时变为 steer 输入（发送即 steer——由 SteerBar 注入 onSend）
- * - 斜杠命令：输入以 / 开头弹出命令面板；/abort /close 实装（调 API），/compact
- *   提示暂不可用
+ * - 斜杠命令：输入以 / 开头弹出命令面板；/model /thinking /abort /compact
+ *   /close 实装（调 API；/compact 含自动恢复 worker——挂起会话也能压，
+ *   非 human 聊天类会话仍 409）
  * - 软键盘适配：VisualViewport resize/scroll 监听——输入条贴软键盘上沿
  *   （fixed 底部 + 底偏移 = innerHeight - (vv.height + vv.offsetTop)）
  */
@@ -30,7 +31,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/abort", desc: "中止当前生成", available: true },
   { name: "/compact", desc: "压缩上下文（长会话降 token；可附指令引导摘要侧重点）", available: true },
   { name: "/close", desc: "关闭会话", available: true },
-  { name: "/compact", desc: "压缩上下文（v1 暂不可用）", available: false },
 ];
 
 interface ChatInputProps {
