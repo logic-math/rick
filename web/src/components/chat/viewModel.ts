@@ -93,7 +93,7 @@ export interface CompactionItem extends SeqAnchor {
   firstKeptEntryId?: string;
   tokensBefore?: number;
   estimatedTokensAfter?: number;
-  /** 历史回放的既有压缩点（轻量分割线形态，无事件详情） */
+  /** 历史回放的既有压缩点（完整卡，默认收起；迭代 2 human 裁决：一直在会话流中） */
   historical?: boolean;
   /** 自定义压缩指令原文（compact_request 合成事件携带；无指令时缺省） */
   customInstructions?: string;
@@ -726,10 +726,10 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
       continue;
     }
 
-    // 历史压缩点（compaction entry）：轻量分割线卡（job_53 修复 4）——
-    // 历史回放不重放摘要全文（会话流里它是边界标记，重放既占屏又误导
-    // 「这里刚压缩过」；事件流重建时/live 新压缩才有完整卡）。带 token 数
-    // 时展示规模（可感知压缩历史）。
+    // 历史压缩点（compaction entry）：完整压缩卡（迭代 2：human 裁决「压缩卡
+    // 一直在会话流中」——刷新后历史重建同样渲染完整卡，JSONL 条目自带
+    // summary/tokensBefore/firstKeptEntryId；无 estimatedTokensAfter（只在实时
+    // rpc 响应里）——如实展示，不伪造对比。historical 标记驱动默认收起）。
     if (entry.type === "compaction") {
       items.push({
         kind: "compaction",
@@ -737,6 +737,9 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
         reason: "historical",
         pending: false,
         historical: true,
+        summary: typeof entry.summary === "string" ? entry.summary : undefined,
+        firstKeptEntryId:
+          typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
         tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
       });
       continue;
