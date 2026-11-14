@@ -16,9 +16,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
+import { MemoryRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import RecoveryBanner from "./components/recovery/RecoveryBanner";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
+import { api } from "./api/client";
 import Portal from "./components/starfield/Portal";
 import Saucer from "./components/starfield/Saucer";
 import Button from "./components/common/Button";
@@ -339,16 +340,45 @@ function OpenFileDialog({
   );
 }
 
+// ui-state draft key：停留位置（路由+查询串）服务端记忆——Bug #6（human
+// 2026-11-14）：单 URL 模式（打开只有 IP:port/，页面切换 URL 不跳转），跨设备
+// 打开恢复到上一次操作停留的页面。
+const UI_STATE_DRAFT_KEY = "ui-state";
+
 export default function App() {
+  // 启动恢复：GET 服务端记忆的停留位置 → MemoryRouter 初始入口（跨设备续接）。
+  // GET 失败/无记忆 → "/" 默认。恢复前渲染极简 loading（GET 通常 <50ms）。
+  const [initialRoute, setInitialRoute] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .getDraft(UI_STATE_DRAFT_KEY)
+      .then((d) => {
+        if (!cancelled) setInitialRoute(d.content.startsWith("/") ? d.content : "/");
+      })
+      .catch(() => {
+        if (!cancelled) setInitialRoute("/");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (initialRoute === null) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-ink-3">
+        恢复上次位置…
+      </div>
+    );
+  }
   return (
-    <BrowserRouter>
+    <MemoryRouter initialEntries={[initialRoute]}>
       <AppShell />
-    </BrowserRouter>
+    </MemoryRouter>
   );
 }
 
 /**
- * AppShell：应用壳实体（BrowserRouter 内层，可用 useLocation）。
+ * AppShell：应用壳实体（MemoryRouter 内层，可用 useLocation）。
  *
  * 路由切换重置主滚动（KR2b）：<main> 是主内容滚动容器，切路由不重置
  * scrollTop 时「长页切短页」视觉上像没刷新。pathname 变化 → mainRef
@@ -358,6 +388,16 @@ export default function App() {
 function AppShell() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement | null>(null);
+
+  // Bug #6：停留位置服务端记忆——路由变化（页面/会话切换）防抖 PUT（跨设备打开
+  // 恢复到这个位置；MemoryRouter 下 URL 恒定，位置只存在于服务端）。
+  useEffect(() => {
+    const route = location.pathname + location.search;
+    const t = setTimeout(() => {
+      void api.saveDraft(UI_STATE_DRAFT_KEY, route).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [location.pathname, location.search]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 桌面端侧栏折叠（用户可切换；默认展开） */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);

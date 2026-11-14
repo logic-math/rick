@@ -13,7 +13,7 @@
  * 必填缺失时禁用提交；提交成功跳转 /session/:id。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
@@ -228,19 +228,27 @@ export default function NewSessionModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presetWorkspaceId, presetType, presetJob]);
 
-  // 输入防抖落草稿（~500ms）
+  // 输入防抖落草稿（~500ms）+ 关闭/卸载即时 flush（Bug #6：防抖窗口内关闭弹窗
+  // 会丢最后一段输入——跨设备打开时草稿不完整；关闭与卸载路径立即 PUT）。
+  const flushDrafts = useCallback(() => {
+    void api.saveDraft("new-session:requirement", requirement).catch(() => {});
+    void api.saveDraft("new-session:topic", topic).catch(() => {});
+  }, [requirement, topic]);
   useEffect(() => {
-    const t = setTimeout(() => {
-      void api.saveDraft("new-session:requirement", requirement).catch(() => {});
-    }, 500);
+    const t = setTimeout(flushDrafts, 500);
     return () => clearTimeout(t);
-  }, [requirement]);
+  }, [flushDrafts]);
+  // 卸载（弹窗整体拆除/路由变化）即时 flush（保存——清除只在提交成功路径）
   useEffect(() => {
-    const t = setTimeout(() => {
-      void api.saveDraft("new-session:topic", topic).catch(() => {});
-    }, 500);
-    return () => clearTimeout(t);
-  }, [topic]);
+    return () => {
+      flushDrafts();
+    };
+  }, [flushDrafts]);
+  // 关闭（取消/遮罩/Esc）flush 后再关——草稿保留（跨设备继续）
+  const handleCloseWithFlush = useCallback(() => {
+    flushDrafts();
+    onClose();
+  }, [flushDrafts, onClose]);
 
   // dream 素材预检（job_53 Bug #5：job 下拉已随四类型删除；dream 的
   // 「无可学习 job」预检仍需 job 计数——raw 全量 + dreamPending）。
@@ -310,7 +318,7 @@ export default function NewSessionModal({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleCloseWithFlush}
       title={
         <span className="flex items-center gap-2">
           <Saucer size={20} />

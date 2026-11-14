@@ -134,16 +134,27 @@
       "commit_hash": "e5797aeaced6337a5f608ea921a77c86282a0550"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-14T19:45:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task13",
       "task_name": "Bug #5 追加3: 次要显示位统一（aria-label/设置弹窗标题也走派生）",
-      "updated_at": "2026-11-14T19:45:00+08:00"
+      "updated_at": "2026-11-14T11:15:56.741Z",
+      "commit_hash": "1ad5b95173ac21081e80f2c32165b4aad4cac0eb"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-14T20:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task14",
+      "task_name": "Bug #6: 弹窗草稿关闭 flush + 单 URL 模式（MemoryRouter + ui-state 位置服务端记忆跨设备恢复）",
+      "updated_at": "2026-11-14T20:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-14T19:45:00+08:00",
+  "updated_at": "2026-11-14T20:00:00+08:00",
   "version": "1.0"
 }
