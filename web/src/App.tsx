@@ -12,7 +12,7 @@
  * - 全局：TokenGate 锁页（authRequired）+ 全局错误横幅
  *
  * 数据接线（main.tsx 统一 wire）：wireUiEvents/wireSessions/wireSessionEvents/
- * wireJobs + sse.connect()。
+ * sse.connect()（job_53 Bug #5：wireJobs 已随 doing 会话类型移除）。
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";

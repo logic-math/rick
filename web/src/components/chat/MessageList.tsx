@@ -389,7 +389,7 @@ export default function MessageList({
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
         {/* 空态静态飞船（job_43 二轮 KR7a，全局不限移动端）：空态常驻飞行动画
             （SMIL 航灯 + 悬停/光束 CSS）是新开会话挂机发烫主根因；空态本就静态，
-            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar/MonitorView）不动——
+            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar）不动——
             那是功能反馈，仅移动端降级（theme.css 窄屏块 + Saucer 内部 SMIL 条件渲染）。 */}
         <Saucer size={64} />
         <p className="text-sm">会话已就绪——发送第一条消息开始</p>

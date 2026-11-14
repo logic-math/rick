@@ -49,44 +49,12 @@ const ICON_CLS = (active: boolean) =>
 
 const CMD_META: CmdMeta[] = [
   {
-    type: "plan",
-    label: "plan",
-    desc: "需求 → 开发计划（job 分解 + task.md 产出）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
     type: "easy",
     label: "easy",
     desc: "轻量直通执行（单需求一把梭）",
     icon: (a) => (
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "doing",
-    label: "doing",
-    desc: "门禁化执行 job（监控型：task 看板 + 事件流）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "ctrl",
-    label: "ctrl",
-    desc: "干预运行中的 job（追加指令/重置 task）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <path d="M5 5v14l6-7-6-7zM13 5v14l6-7-6-7z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -98,16 +66,6 @@ const CMD_META: CmdMeta[] = [
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M12 3a6 6 0 0 1 6 6c0 2.5-1.5 3.7-2.5 5-.8 1-1.5 2.2-1.5 4h-4c0-1.8-.7-3-1.5-4C7.5 12.7 6 11.5 6 9a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M10 21h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "learning",
-    label: "learning",
-    desc: "单 job 知识沉淀（SUMMARY + skills/loops）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <path d="M4 19V5a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2zm0 0a2 2 0 0 0 2 2h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
   },

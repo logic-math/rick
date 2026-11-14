@@ -2,7 +2,7 @@
  * /session/:id——按会话类型分派主视图。
  *
  * - 交互型（plan/easy/ctrl/human-loop/learning/dream[interactive]）→ ChatView
- * - 监控型（doing / dream[background]）→ MonitorView
+ * -（job_53 Bug #5：doing 监控视图已删，全部类型走 ChatView）
  * 加载中 Spinner；加载失败 ErrorBanner（含返回）。
  */
 
@@ -11,20 +11,9 @@ import { Link, useParams } from "react-router-dom";
 import { useSessionsStore } from "../stores/sessions";
 import type { SessionInfo } from "../types";
 import ChatView from "../components/chat/ChatView";
-import MonitorView from "../components/monitor/MonitorView";
 import ErrorBanner from "../components/common/ErrorBanner";
 import Spinner from "../components/common/Spinner";
 
-/** dream 交互模式（params.mode）也走聊天窗 */
-function isMonitorType(session: SessionInfo | null): boolean {
-  if (!session) return false;
-  if (session.type === "doing") return true;
-  if (session.type === "dream") {
-    const mode = (session.params as Record<string, unknown>)?.mode;
-    return mode !== "interactive"; // 契约默认 background
-  }
-  return false;
-}
 
 export default function SessionPage() {
   const { id: sessionId = "" } = useParams<{ id: string }>();
@@ -77,14 +66,10 @@ export default function SessionPage() {
     );
   }
 
-  return isMonitorType(session) ? (
-    // key=session.id 强制重挂：ChatView 的历史拉取 epoch 守卫不含 sessionId（ChatView.tsx epoch
-    // = resyncCount + historyRefresh），切会话 A→B 时 effect 重跑但 epoch 相同提前 return，
-    // B 的历史永不拉取、界面保留 A 的消息。key 变化 → 组件整体重挂（epoch 守卫、history
-    // state、refs、滚动位置全部随新实例重置），是最小且完备的修复。MonitorView 无此 bug，
-    // 重挂无害（按 sessionId 依赖正常拉取）。
-    <MonitorView key={session.id} sessionId={session.id} />
-  ) : (
-    <ChatView key={session.id} sessionId={session.id} />
-  );
+  // 所有会话类型走聊天窗（job_53 Bug #5：doing 监控视图已随 doing 类型删除；dream
+  // 后台会话的进度事件流在聊天窗可见——session_event 事件流含 dream_progress）。
+  // key=session.id 强制重挂：ChatView 的历史拉取 epoch 守卫不含 sessionId（ChatView.tsx
+  // epoch = resyncCount + historyRefresh），切会话 A→B 时 effect 重跑但 epoch 相同提前
+  // return，B 的历史永不拉取、界面保留 A 的消息。key 变化 → 组件整体重挂。
+  return <ChatView key={session.id} sessionId={session.id} />;
 }
