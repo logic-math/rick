@@ -23,9 +23,37 @@ import {
   buildHistoryItems,
   optimisticEchoed,
   type HistoryBuildResult,
+  type ChatItem,
 } from "./viewModel";
 import type { SlashCommand } from "./ChatInput";
 import Portal from "../starfield/Portal";
+
+/** 迭代 3（human 反馈）：items 里最后一张完整压缩卡（非 pending/aborted/
+ *  无 errorMessage——历史卡缺省字段同样算成功）之后是否存在新对话项
+ *  （user/assistant/thinking/tool；notice 不算对话）。
+ *  - 存在 → 可压缩；不存在 → 前置拦截不调 API（免无谓 resume worker + pi 调用）。
+ *  - 无压缩卡或 items 为空（历史未加载）→ true 放行（后端 pi 的
+ *    Already compacted 错误兕底，前端 catch 处映射中文）。 */
+function hasDialogueSinceLastCompaction(items: ChatItem[]): boolean {
+  let lastCompaction = -1;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const it = items[i];
+    if (it.kind === "compaction" && !it.pending && !it.aborted && !it.errorMessage) {
+      lastCompaction = i;
+      break;
+    }
+  }
+  if (lastCompaction < 0) return true;
+  return items
+    .slice(lastCompaction + 1)
+    .some(
+      (it) =>
+        it.kind === "user" ||
+        it.kind === "assistant-text" ||
+        it.kind === "thinking" ||
+        it.kind === "tool",
+    );
+}
 // 文件阅读器（Provider + Panel）已提升到 App 壳层（job_43 增量 5）——
 // 消息链接的 useFileReader 在 Markdown/LocalAwareLink 内部，走全局 Context。
 import Collapse from "../common/Collapse";
@@ -577,9 +605,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           }
         } else if (cmd.name === "/compact") {
           // 手动压缩：后端转发 pi 的 compact 命令；「压缩中」状态由既有
-          // compaction_start/end 事件驱动（vm.compacting）。
-          await api.compactSession(sessionId, cmd.arg || undefined);
-          setModelHint(cmd.arg ? `压缩已发起（侧重：${cmd.arg}）` : "压缩已发起");
+          // compaction_start/end 事件驱动（vm.compacting，占位卡可见——发起提示
+          // 已删，迭代 3 human 反馈：占位卡已可见，冗余）。
+          // 迭代 3：距上次成功压缩无新对话 → 不再发起（免无谓 resume worker
+          // + pi 调用，pi 会报 Already compacted）。
+          if (hasDialogueSinceLastCompaction(items)) {
+            await api.compactSession(sessionId, cmd.arg || undefined);
+          } else {
+            setModelHint("上次压缩后无新对话，无需压缩");
+          }
         } else if (cmd.name === "/thinking") {
           if (cmd.arg) {
             await api.setSessionThinking(sessionId, cmd.arg);
@@ -589,12 +623,21 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        // 迭代 3：pi 端压缩错误中文映射（边缘场景：历史分页窗口未含压缩卡时
+        // 前置拦截未触发，由后端 pi 错误兕底——映射为可读提示而非报错条）。
+        if (msg.includes("Already compacted")) {
+          setModelHint("上次压缩后无新对话，无需再压缩");
+        } else if (msg.includes("Nothing to compact")) {
+          setModelHint("会话太短，暂无可压缩内容");
+        } else {
+          setError(msg);
+        }
       } finally {
         setBusy(false);
       }
     },
-    [applyState, sessionId],
+    [applyState, sessionId, items],
   );
 
   const abort = useCallback(async () => {
