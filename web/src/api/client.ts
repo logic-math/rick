@@ -465,6 +465,23 @@ export class ApiClient {
     );
   }
 
+  /** Bug #5 迭代5b（human 2026-11-14）：草稿服务端存储（跨设备不中断）。
+   * key：sessionID（聊天输入草稿）或 "new-session-<type>"（新建会话弹窗草稿）。 */
+  getDraft(key: string): Promise<{ content: string }> {
+    return this.request<{ content: string }>(
+      "GET",
+      `/api/drafts/${encodeURIComponent(key)}`,
+    );
+  }
+
+  saveDraft(key: string, content: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      "PUT",
+      `/api/drafts/${encodeURIComponent(key)}`,
+      { body: { content } },
+    );
+  }
+
   /** Bug #4（human 2026-11-14）：会话级别名——所有会话类型可重命名（不依赖 job 概念）。
    * 空 name 清除别名（回到默认标题：job 任务名 / title / 类型·短 id）。 */
   renameSession(

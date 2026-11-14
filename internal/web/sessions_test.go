@@ -1900,8 +1900,12 @@ func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
 	if !ok {
 		t.Fatal("session not persisted in registry")
 	}
-	if entry.Title != "super env_1" {
-		t.Fatalf("entry.Title = %q, want %q", entry.Title, "super env_1")
+	// Bug #5 迭代5b：title 用可读任务描述（requirement 截断）+ id_tag 传 env_N 标识
+	if want := "优化 512×512 矩阵乘，从纯 Python 三重循环起点进化"; entry.Title != want {
+		t.Fatalf("entry.Title = %q, want %q", entry.Title, want)
+	}
+	if tag := paramString(entry.Params, "id_tag"); tag != "env_1" {
+		t.Fatalf("params.id_tag = %q, want env_1", tag)
 	}
 
 	// prompt 严格加载断言：gen_env skill 全文（关键词）+ super 工作区路径 +
@@ -1973,8 +1977,12 @@ func TestSessionCreateSuper_EnvAutoNumberingAndTitle(t *testing.T) {
 		t.Fatalf("create super 1: status %d", code)
 	}
 	entry1, _ := env.sessions.Get(id1)
-	if entry1.Title != "super env_1" {
-		t.Fatalf("title1 = %q, want %q", entry1.Title, "super env_1")
+	// Bug #5 迭代5b：title=requirement（可读任务描述）；id_tag=env_1
+	if entry1.Title != "需求一" {
+		t.Fatalf("title1 = %q, want %q", entry1.Title, "需求一")
+	}
+	if tag := paramString(entry1.Params, "id_tag"); tag != "env_1" {
+		t.Fatalf("id_tag1 = %q, want env_1", tag)
 	}
 	if _, err := os.Stat(filepath.Join(env.rickDir, "super", "env_1", "super.json")); err != nil {
 		t.Fatalf("env_1 workspace not initialized: %v", err)
@@ -2012,8 +2020,9 @@ func TestSessionCreateSuper_EnvAutoNumberingAndTitle(t *testing.T) {
 		t.Fatalf("create super 3: status %d", code)
 	}
 	entry3, _ := env.sessions.Get(id3)
-	if entry3.Title != "super env_4" {
-		t.Fatalf("title3 = %q, want super env_4（max+1 跳号）", entry3.Title)
+	// Bug #5 迭代5b：跳号语义由 id_tag 断言（title=requirement 可读描述）
+	if tag := paramString(entry3.Params, "id_tag"); tag != "env_4" {
+		t.Fatalf("id_tag3 = %q, want env_4（max+1 跳号）", tag)
 	}
 }
 

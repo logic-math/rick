@@ -90,16 +90,27 @@
       "commit_hash": "4abbc85c7a7bac824f19564115d709a198a527e6"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-14T19:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task9",
       "task_name": "Bug #5: 前端大删除——模态四类型选项/MonitorView/TaskBoard/jobs store 死代码清理",
-      "updated_at": "2026-11-14T19:00:00+08:00"
+      "updated_at": "2026-11-14T10:25:26.192Z",
+      "commit_hash": "78179afe28848bf9bed2db2d106abc56b258af2a"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-14T19:30:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task10",
+      "task_name": "Bug #5 迭代5b: 历史标签删除+创建title任务化+模态多行+草稿服务端化",
+      "updated_at": "2026-11-14T19:30:00+08:00"
     }
   ],
-  "updated_at": "2026-11-14T19:00:00+08:00",
+  "updated_at": "2026-11-14T19:30:00+08:00",
   "version": "1.0"
 }

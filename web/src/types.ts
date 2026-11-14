@@ -67,15 +67,7 @@ export interface AddWorkspaceRequest {
 // Sessions
 // ============================================================
 
-export type SessionType =
-  | "plan"
-  | "easy"
-  | "ctrl"
-  | "human-loop"
-  | "learning"
-  | "dream"
-  | "doing"
-  | "super";
+export type SessionType = "easy" | "human-loop" | "dream" | "super";
 
 /**
  * 会话状态（server 权威）。五态语义：

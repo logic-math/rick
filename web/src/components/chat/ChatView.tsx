@@ -73,25 +73,18 @@ const MAX_HISTORY = 500;
 // 会话头（类型徽标 + 状态点）
 // ============================================================
 
-const TYPE_LABEL: Record<SessionType, string> = {
-  plan: "PLAN",
+// Bug #5（human 2026-11-14）：已删除类型不显示历史标签（Partial + 条件渲染）
+const TYPE_LABEL: Partial<Record<SessionType, string>> = {
   easy: "EASY",
-  ctrl: "CTRL",
   "human-loop": "HUMAN-LOOP",
-  learning: "LEARNING",
   dream: "DREAM",
-  doing: "DOING",
   super: "SUPER",
 };
 
-const TYPE_TONE: Record<SessionType, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
+const TYPE_TONE: Partial<Record<SessionType, string>> = {
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/60 bg-nebula/15 text-ink",
-  learning: "border-rick/50 bg-rick/10 text-rick",
   dream: "border-nebula/60 bg-nebula/15 text-ink",
-  doing: "border-morty/50 bg-morty/10 text-morty",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
@@ -145,15 +138,11 @@ function StatusDot({ status, streaming }: { status: SessionStatus; streaming: bo
 // ============================================================
 
 /** 会话类型的 prompt 文件来源（显示路径提示——内容经 job files API 查看） */
-const PROMPT_SOURCE: Record<SessionType, string> = {
-  plan: "<job>/plan/prompts/plan_prompt.md（+ method 系统提示词，--append-system-prompt 注入）",
+const PROMPT_SOURCE: Partial<Record<SessionType, string>> = {
   easy: "<job>/doing/prompts/easy_main_prompt.md（+ method 系统提示词）",
-  ctrl: "<job>/doing/prompts/ctrl_prompt.md",
   "human-loop": "<draft>/loops/loop_N/prompts/*.md（SENSE 四文件协议）",
-  learning: "<job>/learning/prompts/learning_prompt.md",
   dream: ".rick/dream/（跨 job 反思，扫描已完成 jobs）",
-  doing: "<job>/doing/prompts/doing_prompt.md（parent 编排协议）",
-  super: "<ws>/.rick/super_env/<name>/：super-loop + gen_env skill 中控（进化运行/观察/干预）",
+  super: "<ws>/.rick/super/env_N/：super-loop + gen_env skill 中控（进化运行/观察/干预）",
 };
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -178,7 +167,7 @@ function SessionInfoPanel({
   /** 点「切换」打开模型切换 Dialog */
   onSwitchModel: () => void;
 }) {
-  const type = info?.type ?? "plan";
+  const type: SessionType = info?.type ?? "easy";
   const params = info?.params ?? {};
   const paramRows = Object.entries(params);
   const [prompt, setPrompt] = useState<SessionPrompt | null>(null);
@@ -234,7 +223,7 @@ function SessionInfoPanel({
       <div className="px-3 py-2">
         <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-3">系统提示词（原文）</div>
         <p className="pb-1 font-mono text-[11px] leading-relaxed text-ink-2">
-          {PROMPT_SOURCE[type]}
+          {PROMPT_SOURCE[type] ?? "（已删除类型的会话——历史数据保留，无活动协议）"}
         </p>
         <button
           type="button"
@@ -733,7 +722,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 渲染
   // ============================================================
 
-  const sessionType: SessionType = info?.type ?? "plan";
+  const sessionType: SessionType = info?.type ?? "easy";
   const title = info?.title ?? sessionId.slice(0, 8);
 
   return (

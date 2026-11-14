@@ -68,9 +68,11 @@ type SessionManager struct {
 
 	// jobNames holds user-assigned job display names（任务名），由
 	// SetJobNames 注入（nil 时优雅降级：不显示别名）。侧栏/Jobs 页展示用。
-jobNames *JobNameStore
-	// sessionNames（会话名，Bug #4：所有类型可重命名）
+	jobNames *JobNameStore
+	// sessionNames（会话名，Bug #4：所有类型可重命名——与 job 概念解耦）
 	sessionNames *SessionNameStore
+	// drafts（草稿，Bug #5 迭代5b：服务端存储，跨设备不中断）
+	drafts *SessionDraftStore
 
 	// progressLog keeps the recent background-progress notes per session
 	// (bounded; in-memory — 重启后后台任务本就终止，无需持久化)。GetSession 返回它，
@@ -93,6 +95,44 @@ func (m *SessionManager) SetJobNames(s *JobNameStore) { m.jobNames = s }
 
 // SetSessionNames wires the session display-name store (会话名，Bug #4).
 func (m *SessionManager) SetSessionNames(s *SessionNameStore) { m.sessionNames = s }
+
+// drafts（草稿，Bug #5 迭代5b：跨设备输入不中断——存服务端）。
+func (m *SessionManager) SetDrafts(s *SessionDraftStore) { m.drafts = s }
+
+// SessionDraftGet handles GET /api/drafts/{key} → {"content": "..."}.
+func (m *SessionManager) SessionDraftGet(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := validateDraftKey(key); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"content": m.drafts.Get(key)})
+}
+
+// SessionDraftPut handles PUT /api/drafts/{key} {"content": "..."}（空串=清除）。
+func (m *SessionManager) SessionDraftPut(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := validateDraftKey(key); err != nil {
+		writeError(w, err)
+		return
+	}
+	if m.drafts == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "draft store is not configured"))
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_body", "request body must be JSON: {\"content\": \"...\"}"))
+		return
+	}
+	if err := m.drafts.Set(key, req.Content); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
 
 // NewSessionManager wires the dependencies. dreamRunner may be
 // nil — defaults wrap handler.DreamIn with the CLI
@@ -423,6 +463,11 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 		// 投影时被剥离）→ 前端**完全看不到 job 归属**（用户实测：easy job_72 的会话
 		// 在侧栏无法重命名、没有 job 徽标）。
 		entry.Params["job"] = prep.JobID
+	}
+	// IDTag（Bug #5 迭代5b）：标识徽标显式传递（human-loop: loop_N / super: env_N）
+	// ——title 已改为可读任务描述，标识不再从 title 提取。
+	if prep.IDTag != "" {
+		entry.Params["id_tag"] = prep.IDTag
 	}
 
 	if err := m.sessions.Add(entry); err != nil {
@@ -2104,6 +2149,25 @@ type prep struct {
 	// jobID of the rick job this interactive session drives (easy: close-time
 	// tasks.json status flip; empty for other types).
 	JobID string
+
+	// IDTag 会话标识徽标（Bug #5 迭代5b human 裁决：title 用可读任务描述，
+	// 标识改为显式传递——human-loop: loop_N / super: env_N；写 params.id_tag，
+	// 前端右侧徽标显示，替代从 title 正则提取）。
+	IDTag string
+}
+
+// prepTitleFromInput 从用户输入构造可读任务标题（requirement/topic 截断 60 rune——
+// Bug #5 迭代5b：会话列表显示任务名信息，而不是「类型 + 编号」）。
+func prepTitleFromInput(input, fallback string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return fallback
+	}
+	runes := []rune(trimmed)
+	if len(runes) > 60 {
+		runes = runes[:60]
+	}
+	return string(runes)
 }
 
 // prepareInteractive produces the prompt artifacts for a session type using
@@ -2151,7 +2215,7 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 			promptFile: promptFile,
 			methodFile: methodFile,
 			persistDir: doingDir,
-			title:      fmt.Sprintf("easy %s", jobID),
+			title:      prepTitleFromInput(requirement, fmt.Sprintf("easy %s", jobID)),
 			JobID:      jobID,
 		}, nil
 	case SessionTypeHumanLoop:
@@ -2172,7 +2236,8 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 			promptFile: mainFile,
 			methodFile: methodFile,
 			persistDir: loopDir,
-			title:      topic,
+			title:      prepTitleFromInput(topic, filepath.Base(loopDir)),
+			IDTag:      filepath.Base(loopDir),
 		}, nil
 	case SessionTypeSuper:
 		// super 中控会话（目录模型 v2，job_48 迭代2）：严格加载 super-loop +
@@ -2216,7 +2281,9 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 			return nil, fmt.Errorf("build super prompt: %w", err)
 		}
 		return &prep{promptFile: promptFile, methodFile: methodFile,
-			persistDir: filepath.Dir(promptFile), title: orDefault(title, "super "+envID)}, nil
+			persistDir: filepath.Dir(promptFile),
+			title: prepTitleFromInput(orDefault(title, ""), prepTitleFromInput(requirement, "super "+envID)),
+			IDTag: envID}, nil
 
 	case SessionTypeDream:
 		// interactive dream: same prompt as the CLI dream run

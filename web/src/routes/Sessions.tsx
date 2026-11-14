@@ -44,16 +44,10 @@ const TYPE_TONE: Record<string, string> = {
 function sessionSubtitle(s: SessionInfo): string {
   const p = s.params as Record<string, unknown>;
   switch (s.type) {
-    case "plan":
-      return typeof p?.requirement === "string" ? p.requirement.slice(0, 90) : "";
     case "easy":
       return typeof p?.requirement === "string" ? p.requirement.slice(0, 90) : "";
     case "human-loop":
       return typeof p?.topic === "string" ? p.topic.slice(0, 90) : "";
-    case "doing":
-    case "ctrl":
-    case "learning":
-      return typeof p?.job === "string" ? p.job : "";
     case "dream":
       return `job_num=${String(p?.job_num ?? "?")} mode=${String(p?.mode ?? "?")}`;
     case "super":

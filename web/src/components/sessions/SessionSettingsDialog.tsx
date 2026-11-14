@@ -14,25 +14,18 @@ import { api } from "../../api/client";
 import type { SessionInfo, SessionType } from "../../types";
 import Dialog from "../common/Dialog";
 
-const TYPE_LABEL: Record<SessionType, string> = {
-  plan: "PLAN",
+// Bug #5（human 2026-11-14）：已删除类型不显示历史标签（Partial）
+const TYPE_LABEL: Partial<Record<SessionType, string>> = {
   easy: "EASY",
-  ctrl: "CTRL",
   "human-loop": "HUMAN-LOOP",
-  learning: "LEARNING",
   dream: "DREAM",
-  doing: "DOING",
   super: "SUPER",
 };
 
-const TYPE_TONE: Record<SessionType, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
+const TYPE_TONE: Partial<Record<SessionType, string>> = {
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/50 bg-nebula/10 text-nebula",
-  learning: "border-portal/40 bg-portal-soft text-portal",
   dream: "border-nebula/50 bg-nebula/10 text-nebula",
-  doing: "border-rick/40 bg-rick/10 text-rick",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
@@ -138,9 +131,8 @@ function SettingsBody({
    * task」而不是 spawn 交互 worker——文案需要区分（与后端 continueSession 分派一致）。
    */
   const isBackground =
-    session.type === "doing" ||
-    (session.type === "dream" &&
-      (session.params as { mode?: unknown } | undefined)?.mode === "background");
+    session.type === "dream" &&
+    (session.params as { mode?: unknown } | undefined)?.mode === "background";
   // Job 归属（doing/ctrl/learning 等）：会话被命名后侧栏不再显示编号，用户需要
   // 一个能查到「这是哪个 job / 它的工作目录在哪」的地方（实测反馈）。
   const jobParamRaw = (session.params as { job?: unknown } | undefined)?.job;

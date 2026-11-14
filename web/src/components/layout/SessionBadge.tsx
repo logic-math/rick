@@ -18,25 +18,19 @@ import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
 import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
 
-const TYPE_LABEL: Record<SessionType, string> = {
-  plan: "PLAN",
+// Bug #5（human 2026-11-14 裁决）：已删除类型（plan/doing/learning/ctrl）不再显示
+// 历史标签（历史数据保留给 agent 阅读感知，UI 不展示）——无映射类型不渲染徽标。
+const TYPE_LABEL: Partial<Record<SessionType, string>> = {
   easy: "EASY",
-  ctrl: "CTRL",
   "human-loop": "HUMAN-LOOP",
-  learning: "LEARNING",
   dream: "DREAM",
-  doing: "DOING",
   super: "SUPER",
 };
 
-const TYPE_TONE: Record<SessionType, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
+const TYPE_TONE: Partial<Record<SessionType, string>> = {
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/50 bg-nebula/10 text-nebula",
-  learning: "border-portal/40 bg-portal-soft text-portal",
   dream: "border-nebula/50 bg-nebula/10 text-nebula",
-  doing: "border-rick/40 bg-rick/10 text-rick",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
@@ -59,12 +53,17 @@ export default function SessionBadge({
   // Bug #2（human 2026-11-14）：super/human-loop 会话的标识（env_N/loop_N）从 title
   // 提取为右侧徽标（与 job_N 徽标同款视觉）；标题改显示主题（requirement/topic
   // 截断——与 job 会话显示任务名同机制），避免标识占用标题位。
+  // Bug #5 迭代5b：新建会话 title 已用可读任务描述（后端 prepTitleFromInput），
+  // 标识改为 params.id_tag 显式传递（title 正则仅兑底历史会话）。
+  const idTagParam = (session.params as { id_tag?: unknown } | undefined)?.id_tag;
   const idTag =
-    session.type === "super"
-      ? /\b(env_\d+)\b/.exec(session.title || "")?.[1]
-      : session.type === "human-loop"
-        ? /\b(loop_\d+)\b/.exec(session.title || "")?.[1]
-        : undefined;
+    typeof idTagParam === "string" && idTagParam
+      ? idTagParam
+      : session.type === "super"
+        ? /\b(env_\d+)\b/.exec(session.title || "")?.[1]
+        : session.type === "human-loop"
+          ? /\b(loop_\d+)\b/.exec(session.title || "")?.[1]
+          : undefined;
   const themeParam = (session.params as { requirement?: unknown; topic?: unknown } | undefined) ?? {};
   const themeText =
     session.type === "super" && typeof themeParam.requirement === "string"
@@ -90,11 +89,13 @@ export default function SessionBadge({
           }`
         }
       >
-        <span
-          className={`shrink-0 rounded border px-1 font-mono text-[8px] font-semibold tracking-wider ${TYPE_TONE[session.type]}`}
-        >
-          {TYPE_LABEL[session.type]}
-        </span>
+        {TYPE_LABEL[session.type] && (
+          <span
+            className={`shrink-0 rounded border px-1 font-mono text-[8px] font-semibold tracking-wider ${TYPE_TONE[session.type] ?? ""}`}
+          >
+            {TYPE_LABEL[session.type]}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate">{baseTitle}</span>
         {/* 归属徽标：job（会话被命名后标题可能不含编号，始终可见）；Bug #2：
             super 的 env_N / human-loop 的 loop_N 同款右侧徽标。 */}
