@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { deriveSessionDisplay } from "../../lib/sessionDisplay";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
 import type { SessionStatus, SessionPrompt, SessionType } from "../../types";
@@ -723,7 +724,9 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // ============================================================
 
   const sessionType: SessionType = info?.type ?? "easy";
-  const title = info?.title ?? sessionId.slice(0, 8);
+  // Bug #5 迭代5b（human 反馈）：会话页头部与会话列表共用显示名派生（任务名优先）
+  const display = info ? deriveSessionDisplay(info) : null;
+  const title = display?.title ?? sessionId.slice(0, 8);
 
   return (
     <div className="flex h-full min-h-0 w-full">

@@ -16,6 +16,7 @@ import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
+import { deriveSessionDisplay } from "../../lib/sessionDisplay";
 import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
 
 // Bug #5（human 2026-11-14 裁决）：已删除类型（plan/doing/learning/ctrl）不再显示
@@ -47,36 +48,10 @@ export default function SessionBadge({
   // 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
   // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
   const jobParam = (session.params as { job?: unknown } | undefined)?.job;
-  // Bug #4（human 2026-11-14）：会话名（所有类型可重命名）优先级最高，兼容旧
-  // job 任务名（job_name）。
-  const jobName = session.name?.trim() || session.job_name?.trim() || "";
-  // Bug #2（human 2026-11-14）：super/human-loop 会话的标识（env_N/loop_N）从 title
-  // 提取为右侧徽标（与 job_N 徽标同款视觉）；标题改显示主题（requirement/topic
-  // 截断——与 job 会话显示任务名同机制），避免标识占用标题位。
-  // Bug #5 迭代5b：新建会话 title 已用可读任务描述（后端 prepTitleFromInput），
-  // 标识改为 params.id_tag 显式传递（title 正则仅兑底历史会话）。
-  const idTagParam = (session.params as { id_tag?: unknown } | undefined)?.id_tag;
-  const idTag =
-    typeof idTagParam === "string" && idTagParam
-      ? idTagParam
-      : session.type === "super"
-        ? /\b(env_\d+)\b/.exec(session.title || "")?.[1]
-        : session.type === "human-loop"
-          ? /\b(loop_\d+)\b/.exec(session.title || "")?.[1]
-          : undefined;
-  const themeParam = (session.params as { requirement?: unknown; topic?: unknown } | undefined) ?? {};
-  const themeText =
-    session.type === "super" && typeof themeParam.requirement === "string"
-      ? themeParam.requirement
-      : session.type === "human-loop" && typeof themeParam.topic === "string"
-        ? themeParam.topic
-        : "";
-  const baseTitle =
-    jobName ||
-    (idTag ? themeText || session.type : "") ||
-    session.title ||
-    (typeof jobParam === "string" && jobParam ? `${session.type} ${jobParam}` : "") ||
-    `${session.type} · ${session.id.slice(0, 8)}`;
+  // Bug #5 迭代5b（human 反馈：会话页也显示任务名）：显示名派生抽公共单源
+  //（lib/sessionDisplay.ts）——侧栏与会话页共用（会话名 > job 任务名 > 输入主题
+  // > title > 类型·短 id；idTag: params.id_tag 显式传递，title 正则兜底历史）。
+  const { title: baseTitle, idTag } = deriveSessionDisplay(session);
   return (
     <div className="group relative flex min-w-0 items-center rounded-md">
       <NavLink
