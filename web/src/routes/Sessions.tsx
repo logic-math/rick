@@ -116,7 +116,7 @@ function SessionCard({
         {/* ⋮ 会话设置（归档/恢复）——不触发卡片导航 */}
         <button
           type="button"
-          aria-label={`${session.title || session.id} 设置`}
+          aria-label={`${deriveSessionDisplay(session).title} 设置`}
           title="会话设置（归档/恢复）"
           onClick={(e) => {
             e.preventDefault();

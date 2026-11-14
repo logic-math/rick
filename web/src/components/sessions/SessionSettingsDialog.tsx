@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
 import type { SessionInfo, SessionType } from "../../types";
+import { deriveSessionDisplay } from "../../lib/sessionDisplay";
 import Dialog from "../common/Dialog";
 
 // Bug #5（human 2026-11-14）：已删除类型不显示历史标签（Partial）
@@ -91,7 +92,7 @@ export default function SessionSettingsDialog({ session, open, onClose, onChange
       open={open && session !== null}
       title={
         session
-          ? `会话设置 · ${session.title || `${session.type} · ${session.id.slice(0, 8)}`}`
+          ? `会话设置 · ${deriveSessionDisplay(session).title}`
           : "会话设置"
       }
       onClose={onClose}
