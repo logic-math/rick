@@ -7,7 +7,7 @@
  *   「新建会话」按钮；<768px 折叠 drawer（汉堡切换+遮罩）
  * - 顶部导航：功能区标识 + SSE 连接状态点（绿=open/黄=reconnecting/红=closed）+
  *   Settings 齿轮
- * - 主内容区：路由出口（/ws/:wsId/{sessions|jobs|dreams}、/session/:id、
+ * - 主内容区：路由出口（/ws/:wsId/{sessions、dreams、humans}、/session/:id、
  *   /settings、/ 重定向到首个工作区 sessions）
  * - 全局：TokenGate 锁页（authRequired）+ 全局错误横幅
  *
@@ -35,7 +35,6 @@ import { useUiStore } from "./stores/ui";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { useSessionsStore } from "./stores/sessions";
 import type { SseConnectionState } from "./api/sse";
-import Jobs from "./routes/Jobs";
 import Dreams from "./routes/Dreams";
 import Humans from "./routes/Humans";
 import SessionPage from "./routes/SessionPage";
@@ -187,8 +186,8 @@ function HomeRedirect() {
   return <Navigate to={`/ws/${list[0].id}/sessions`} replace />;
 }
 
-/** /ws/:wsId/{sessions|jobs|dreams|humans} —— 按路由参数渲染对应工作区视图 */
-function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" | "humans" }) {
+/** /ws/:wsId/{sessions|dreams|humans} —— 按路由参数渲染对应工作区视图 */
+function WorkspaceRoutePage({ kind }: { kind: "sessions" | "dreams" | "humans" }) {
   const { wsId = "" } = useParams<{ wsId: string }>();
   const list = useWorkspacesStore((s) => s.list);
   const loading = useWorkspacesStore((s) => s.loading);
@@ -208,7 +207,6 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" | "
   }
 
   if (kind === "sessions") return <Sessions workspaceId={wsId} />;
-  if (kind === "jobs") return <Jobs workspaceId={wsId} />;
   if (kind === "dreams") return <Dreams workspaceId={wsId} />;
   return <Humans workspaceId={wsId} />;
 }
@@ -511,7 +509,6 @@ function AppShell() {
               <Routes>
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
-                <Route path="/ws/:wsId/jobs" element={<WorkspaceRoutePage kind="jobs" />} />
                 <Route path="/ws/:wsId/dreams" element={<WorkspaceRoutePage kind="dreams" />} />
                 <Route path="/ws/:wsId/humans" element={<WorkspaceRoutePage kind="humans" />} />
                 <Route path="/settings" element={<Settings />} />

@@ -54,8 +54,25 @@ export default function SessionBadge({
   // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
   const jobParam = (session.params as { job?: unknown } | undefined)?.job;
   const jobName = session.job_name?.trim() || "";
-  const title =
+  // Bug #2（human 2026-11-14）：super/human-loop 会话的标识（env_N/loop_N）从 title
+  // 提取为右侧徽标（与 job_N 徽标同款视觉）；标题改显示主题（requirement/topic
+  // 截断——与 job 会话显示任务名同机制），避免标识占用标题位。
+  const idTag =
+    session.type === "super"
+      ? /\b(env_\d+)\b/.exec(session.title || "")?.[1]
+      : session.type === "human-loop"
+        ? /\b(loop_\d+)\b/.exec(session.title || "")?.[1]
+        : undefined;
+  const themeParam = (session.params as { requirement?: unknown; topic?: unknown } | undefined) ?? {};
+  const themeText =
+    session.type === "super" && typeof themeParam.requirement === "string"
+      ? themeParam.requirement
+      : session.type === "human-loop" && typeof themeParam.topic === "string"
+        ? themeParam.topic
+        : "";
+  const baseTitle =
     jobName ||
+    (idTag ? themeText || session.type : "") ||
     session.title ||
     (typeof jobParam === "string" && jobParam ? `${session.type} ${jobParam}` : "") ||
     `${session.type} · ${session.id.slice(0, 8)}`;
@@ -64,7 +81,7 @@ export default function SessionBadge({
       <NavLink
         to={`/session/${session.id}`}
         onClick={onNavigate}
-        title={title}
+        title={baseTitle}
         className={({ isActive }) =>
           `flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pl-2 pr-7 text-xs ${
             isActive ? "bg-portal-soft text-portal" : "text-ink-2 hover:bg-white/5 hover:text-ink"
@@ -76,15 +93,23 @@ export default function SessionBadge({
         >
           {TYPE_LABEL[session.type]}
         </span>
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {/* job 归属徽标：会话被命名后标题可能不含编号，这里始终可见（点开会话 →
-            会话设置里可复制完整编号与 job 工作目录）。 */}
-        {typeof jobParam === "string" && jobParam && !title.includes(jobParam) && (
+        <span className="min-w-0 flex-1 truncate">{baseTitle}</span>
+        {/* 归属徽标：job（会话被命名后标题可能不含编号，始终可见）；Bug #2：
+            super 的 env_N / human-loop 的 loop_N 同款右侧徽标。 */}
+        {typeof jobParam === "string" && jobParam && !baseTitle.includes(jobParam) && (
           <span
             className="shrink-0 rounded border border-line bg-space-2/60 px-1 font-mono text-[8px] leading-4 text-ink-3"
             title={`归属 job：${jobParam}`}
           >
             {jobParam}
+          </span>
+        )}
+        {idTag && (
+          <span
+            className="shrink-0 rounded border border-line bg-space-2/60 px-1 font-mono text-[8px] leading-4 text-ink-3"
+            title={`归属：${idTag}`}
+          >
+            {idTag}
           </span>
         )}
         {session.status === "active" || session.status === "running" ? (
@@ -99,7 +124,7 @@ export default function SessionBadge({
       {/* ⋮ 会话设置（hover 显示；stopPropagation 避免触发导航） */}
       <button
         type="button"
-        aria-label={`${title} 设置`}
+        aria-label={`${baseTitle} 设置`}
         title="会话设置（任务名重命名 / 归档 / 恢复）"
         onClick={() => setSettingsOpen(true)}
         /* 常显（低对比）+ hover 提亮：触摸设备没有 hover，旧版 opacity-0 会让

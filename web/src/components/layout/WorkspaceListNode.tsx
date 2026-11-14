@@ -24,7 +24,6 @@ const EMPTY_SESSIONS: SessionInfo[] = [];
 
 const WS_VIEWS = [
   { to: (id: string) => `/ws/${id}/sessions`, label: "Sessions" },
-  { to: (id: string) => `/ws/${id}/jobs`, label: "Jobs" },
   { to: (id: string) => `/ws/${id}/dreams`, label: "Dreams" },
   { to: (id: string) => `/ws/${id}/humans`, label: "Humans" },
 ] as const;
@@ -157,18 +156,21 @@ export default function WorkspaceListNode({
 
       {expanded && (
         <div className="ml-3 flex flex-col gap-0.5 border-l border-line pl-1.5 pb-1">
-          {/* 三导航 */}
-          {WS_VIEWS.map((v) => (
-            <NavLink
-              key={v.label}
-              to={v.to(workspaceId)}
-              end={v.label === "Sessions"}
-              onClick={onNavigate}
-              className={navClass}
-            >
-              {v.label}
-            </NavLink>
-          ))}
+          {/* 导航（Bug #2 human 反馈 2026-11-14：去 Jobs 概念；Sessions/Dreams/Humans
+              横向排列——竖排三项占三行，横排一行省侧栏空间） */}
+          <div className="flex flex-row items-center gap-1">
+            {WS_VIEWS.map((v) => (
+              <NavLink
+                key={v.label}
+                to={v.to(workspaceId)}
+                end={v.label === "Sessions"}
+                onClick={onNavigate}
+                className={navClass}
+              >
+                {v.label}
+              </NavLink>
+            ))}
+          </div>
 
           {/* 会话列表（三态徽标） */}
           <div className="mt-1 flex flex-col gap-0.5">
