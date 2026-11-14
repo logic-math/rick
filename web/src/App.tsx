@@ -511,7 +511,7 @@ function AppShell() {
             拖宽（Bug #3）：CSS 变量 --sidebar-w + 右缘拖动手柄，拖动中禁 transition */}
         <aside
           style={{ "--sidebar-w": `${sidebarW}px` } as React.CSSProperties}
-          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur md:static md:translate-x-0 relative ${
+          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur md:static md:translate-x-0 md:relative ${
             isResizing ? "" : "transition-all duration-200"
           } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} ${
             sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-[var(--sidebar-w)]"
