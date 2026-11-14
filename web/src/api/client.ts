@@ -465,6 +465,19 @@ export class ApiClient {
     );
   }
 
+  /** Bug #4（human 2026-11-14）：会话级别名——所有会话类型可重命名（不依赖 job 概念）。
+   * 空 name 清除别名（回到默认标题：job 任务名 / title / 类型·短 id）。 */
+  renameSession(
+    sessionId: string,
+    name: string,
+  ): Promise<{ session_id: string; name: string }> {
+    return this.request<{ session_id: string; name: string }>(
+      "PUT",
+      `/api/sessions/${encodeURIComponent(sessionId)}/name`,
+      { body: { name } },
+    );
+  }
+
   /** GET /api/workspaces/{ws}/file?path=… — 读取聊天里引用的本地文本文件
    *  （右侧阅读器用）。路径可为相对工作区 / 绝对路径 / file:// URL；
    *  工作区（与 ~/.rick）之外的路径返回 invalid_path。 */

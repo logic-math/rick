@@ -73,7 +73,9 @@ type SessionManager struct {
 
 	// jobNames holds user-assigned job display names（任务名），由
 	// SetJobNames 注入（nil 时优雅降级：不显示别名）。侧栏/Jobs 页展示用。
-	jobNames *JobNameStore
+jobNames *JobNameStore
+	// sessionNames（会话名，Bug #4：所有类型可重命名）
+	sessionNames *SessionNameStore
 
 	// progressLog keeps the recent background-progress notes per session
 	// (bounded; in-memory — 重启后后台任务本就终止，无需持久化)。GetSession 返回它，
@@ -90,6 +92,12 @@ type SessionManager struct {
 // store simply yields empty JobName fields. Called once at composition time,
 // before the server starts serving.
 func (m *SessionManager) SetJobNames(s *JobNameStore) { m.jobNames = s }
+
+// sessionNames holds user-assigned session display names（「会话名」，Bug #4：
+// 所有会话类型可重命名——与 job 概念解耦）。
+
+// SetSessionNames wires the session display-name store (会话名，Bug #4).
+func (m *SessionManager) SetSessionNames(s *SessionNameStore) { m.sessionNames = s }
 
 // NewSessionManager wires the dependencies. doingRunner/dreamRunner may be
 // nil — defaults wrap handler.DoingIn / handler.DreamIn with the CLI
@@ -256,6 +264,10 @@ type sessionInfo struct {
 	// 侧栏会话行优先显示它——「doing job_3」看不出在干什么，用户实测要求
 	// 能给 job 起有意义的名字。
 	JobName string `json:"job_name,omitempty"`
+	// Name is the user-assigned session display name（「会话名」）——Bug #4
+	//（human 2026-11-14）：所有会话类型可重命名（super/human-loop/dream 等无
+	// job 概念的类型也能起名）。侧栏优先级：Name > JobName > title。
+	Name string `json:"name,omitempty"`
 	// Progress carries the session's recent background progress notes
 	// (doing/dream) — populated by GetSession only. Background progress events
 	// are otherwise **live-only** (hub ring buffer), so opening the monitor
@@ -314,6 +326,7 @@ func (m *SessionManager) toSessionInfo(e SessionEntry) sessionInfo {
 		Archived:    e.Archived,
 		Busy:        e.Status == SessionStatusActive && e.Busy,
 		JobName:     m.jobNames.Get(e.WorkspaceID, jobParamOf(e)),
+		Name:        m.sessionNames.Get(e.WorkspaceID, e.ID),
 	}
 	if !e.ClosedAt.IsZero() {
 		closed := e.ClosedAt
@@ -1676,6 +1689,39 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "result": json.RawMessage(ev.Data)})
+}
+
+// SessionRename handles PUT /api/sessions/{id}/name {"name": "..."} →
+// 200 {"session_id","name"}. Bug #4（human 2026-11-14）：所有会话类型可重命名
+// （会话级别名，与 job 概念解耦——super/human-loop/dream 无 job 目录也能起名）。
+// 空/纯空白 name 清除别名（回到默认标题：job 任务名 / title / 类型·短 id）。
+// 纯展示层别名：不动会话 registry 的 title，不影响 CLI/正在跑的会话。
+func (m *SessionManager) SessionRename(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if m.sessionNames == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "session name store is not configured"))
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_body", "request body must be JSON: {\"name\": \"...\"}"))
+		return
+	}
+	normalized, err := ValidateJobName(req.Name)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := m.sessionNames.Set(entry.WorkspaceID, entry.ID, normalized); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "save session name: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": entry.ID, "name": normalized})
 }
 
 // SessionSetThinking handles POST /api/sessions/{id}/thinking {level}:

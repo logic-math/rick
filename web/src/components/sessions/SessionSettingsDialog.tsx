@@ -124,8 +124,8 @@ function SettingsBody({
   const [error, setError] = useState<string | null>(null);
   /** 「恢复继续」结果回显（归一化了几条 task / 已存活） */
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
-  // 任务名（job 展示别名）编辑态：初值 = 服务端当前值
-  const [nameDraft, setNameDraft] = useState<string>(session.job_name ?? "");
+  // 会话名（Bug #4：所有类型可重命名）编辑态：初值 = 会话别名 → job 任务名（兼容旧数据）
+  const [nameDraft, setNameDraft] = useState<string>(session.name ?? session.job_name ?? "");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameMsg, setNameMsg] = useState<string | null>(null);
 
@@ -165,17 +165,16 @@ function SettingsBody({
     }
   }
 
-  // 保存任务名（空串 = 清除别名 → 回到显示 job_N）。成功后 onDone() 刷新列表，
-  // 侧栏会话行随即显示新名字（服务端返回 job_name，前端优先展示它）。
+  // 保存会话名（Bug #4：所有类型可重命名；空串 = 清除 → 回到默认标题）。
+  // 成功后 onDone() 刷新列表，侧栏会话行随即显示新名字。
   async function saveName(next: string): Promise<void> {
-    if (!job) return;
     setNameBusy(true);
     setNameMsg(null);
     setError(null);
     try {
-      const res = await api.setJobName(session.workspace_id, job, next);
+      const res = await api.renameSession(session.id, next);
       setNameDraft(res.name);
-      setNameMsg(res.name ? "已保存 ✓" : "已清除（回到显示 job 编号）✓");
+      setNameMsg(res.name ? "已保存 ✓" : "已清除（回到默认标题）✓");
       onDone();
     } catch (e) {
       setNameMsg(e instanceof Error ? e.message : String(e));
@@ -289,9 +288,10 @@ function SettingsBody({
               </dd>
             </div>
           )}
-          {job && (
-            <div className="flex gap-2">
-              <dt className="w-16 shrink-0 pt-1 text-ink-3">任务名</dt>
+          {/* Bug #4（human 2026-11-14）：会话名——所有会话类型可重命名（避免会话
+              管理混乱；不再 job gating——super/human-loop/dream 等无 job 概念） */}
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 pt-1 text-ink-3">会话名</dt>
               <dd className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <input
@@ -336,12 +336,10 @@ function SettingsBody({
                   <span className="text-[10px] text-ink-2">{nameMsg}</span>
                 )}
                 <span className="text-[10px] text-ink-3">
-                  仅 web 展示用的别名（不重命名 job 目录、不动 tasks.json）——侧栏会话行与
-                  Jobs 页会显示它。
+                  仅 web 展示用的别名（不影响会话数据与 CLI）——侧栏会话行会显示它。
                 </span>
               </dd>
             </div>
-          )}
           {jobDir && (
             <div className="flex gap-2">
               <dt className="w-16 shrink-0 text-ink-3">Job 目录</dt>

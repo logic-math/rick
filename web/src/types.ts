@@ -165,6 +165,8 @@ export interface SessionInfo {
   /** 用户给所属 job 起的任务名（「任务名」别名，展示层；未命名为空）。
    *  侧栏会话行优先显示它——「doing job_3」看不出在干什么。 */
   job_name?: string;
+  /** 用户自定义会话名（Bug #4：所有会话类型可重命名）——侧栏优先级 name > job_name > title */
+  name?: string;
   /** 后台进度日志（doing/dream；仅单会话查询返回）——监控页首次/事后打开时回填
    *  事件流（这些事件原本只在 hub 环形缓冲里活过一次）。 */
   progress?: Array<{ at: string; kind: string; text: string }>;

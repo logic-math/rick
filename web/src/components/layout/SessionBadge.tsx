@@ -53,7 +53,9 @@ export default function SessionBadge({
   // 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
   // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
   const jobParam = (session.params as { job?: unknown } | undefined)?.job;
-  const jobName = session.job_name?.trim() || "";
+  // Bug #4（human 2026-11-14）：会话名（所有类型可重命名）优先级最高，兼容旧
+  // job 任务名（job_name）。
+  const jobName = session.name?.trim() || session.job_name?.trim() || "";
   // Bug #2（human 2026-11-14）：super/human-loop 会话的标识（env_N/loop_N）从 title
   // 提取为右侧徽标（与 job_N 徽标同款视觉）；标题改显示主题（requirement/topic
   // 截断——与 job 会话显示任务名同机制），避免标识占用标题位。
