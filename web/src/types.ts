@@ -17,6 +17,8 @@ export interface ServerConfig {
   rick_version: string;
   port: number;
   auth_required: boolean;
+  /** 构建标识（Bug #7 版本探针：跨设备确认新旧 bundle） */
+  build_id?: string;
 }
 
 /** 统一错误体（HTTP 响应 body） */

@@ -405,15 +405,25 @@ function AppShell() {
   // 宽度 localStorage 持久化；clamp 200–480；拖动中禁用 transition（跟手）。
   // 桌面生效（md:w-[var(--sidebar-w)]）；移动端 drawer 保持 w-60 固定（小屏拖宽无意义）。
   const SIDEBAR_W_KEY = "rick-sidebar-w";
+  // Bug #7：视口上限——拖宽值不超视口 60%（手机横屏/平板 ≥768px 视口时
+  // md:w-[var(--sidebar-w)] 生效，电脑端拖的 480 在窄视口占屏大半）。
+  const clampSidebarW = (v: number): number =>
+    Math.min(480, Math.max(200, Math.min(v, Math.floor(window.innerWidth * 0.6))));
   const [sidebarW, setSidebarW] = useState<number>(() => {
     const v = Number(localStorage.getItem(SIDEBAR_W_KEY));
-    return Number.isFinite(v) && v >= 200 && v <= 480 ? v : 240;
+    return Number.isFinite(v) ? clampSidebarW(v) : 240;
   });
   const [isResizing, setIsResizing] = useState(false);
   const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
   useEffect(() => {
     localStorage.setItem(SIDEBAR_W_KEY, String(sidebarW));
   }, [sidebarW]);
+  // 视口变化重 clamp（手机转屏/窗口缩小：拖宽值超限自动收敛）
+  useEffect(() => {
+    const onResize = () => setSidebarW((w) => clampSidebarW(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const onSidebarResizeStart = (e: React.MouseEvent) => {
     resizeDragRef.current = { startX: e.clientX, startW: sidebarW };
     setIsResizing(true);

@@ -225,6 +225,13 @@ export default function Settings() {
               <dd className="text-ink">{server.version}</dd>
             </div>
             <div>
+              <dt className="text-xs text-ink-3">构建</dt>
+              {/* Bug #7 版本探针：跨设备排查新旧 bundle（SW 缓存旧版时两设备 build 不同） */}
+              <dd className="font-mono text-xs text-ink-2" title="服务端构建标识（/api/health 的 build_id）">
+                {server.build_id ?? server.version ?? "?"}
+              </dd>
+            </div>
+            <div>
               <dt className="text-xs text-ink-3">rick 版本</dt>
               <dd className="text-ink">{server.rick_version}</dd>
             </div>
