@@ -1314,6 +1314,8 @@ func (m *SessionManager) SessionEntries(w http.ResponseWriter, r *http.Request) 
 
 	if entry.Status == SessionStatusActive {
 		if resp, err := m.rpcGetEntries(entry.ID, since); err == nil {
+			// 注入压缩估算（裁剪前；rpc 增量窗口缺 kept 边界时函数内部自降级跳过）。
+			injectCompactionEstimates(resp.Entries)
 			applyPagination(resp, limit, before)
 			writeJSON(w, http.StatusOK, resp)
 			return
@@ -1805,6 +1807,8 @@ func parseSessionEntries(file, since string, limit int, before string) (*entries
 	if leaf != "" {
 		resp.LeafID = &leaf
 	}
+	// 全量注入压缩估算（必须在分页/since裁剪前：kept 范围可能跨窗口）。
+	injectCompactionEstimates(resp.Entries)
 	if since == "" {
 		applyPagination(resp, limit, before)
 		return resp, nil
@@ -1829,6 +1833,111 @@ func parseSessionEntries(file, since string, limit int, before string) (*entries
 	}
 	applyPagination(resp, limit, before)
 	return resp, nil // cursor not found → full list
+}
+
+// injectCompactionEstimates 为 entries 中的 compaction 条目注入 estimatedTokensAfter
+// （human 2026-11-14 反馈：历史压缩卡要显示压缩后 token 与压缩比例）。pi 的 JSONL
+// 不持久化该字段（只在实时 rpc 响应里）；此处后端复刻 pi 的 chars/4 估算口径：
+//   est = ceil(len(summary)/4) + Σ ceil(messageChars/4)，其中消息范围 =
+//   firstKeptEntryId 起 → 该压缩点为止的 message 条目（kept 范围）。
+// 与 pi 实时值同族（均不含 system prompt 的启发式估算）。
+// 必须在分页/since 裁剪前的全量列表上调用（kept 范围可能跨窗口）；窗口受限时
+// kept 边界缺失的条目自降级跳过（前端如实显示压缩前规模）。
+func injectCompactionEstimates(entries []json.RawMessage) {
+	type compactionRef struct {
+		pos              int
+		summary          string
+		firstKeptEntryID string
+	}
+	posByID := make(map[string]int, len(entries))
+	var compactions []compactionRef
+	for i, raw := range entries {
+		var probe struct {
+			Type             string `json:"type"`
+			ID               string `json:"id"`
+			Summary          string `json:"summary"`
+			FirstKeptEntryID string `json:"firstKeptEntryId"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			continue
+		}
+		if probe.ID != "" {
+			posByID[probe.ID] = i
+		}
+		if probe.Type == "compaction" {
+			compactions = append(compactions, compactionRef{pos: i, summary: probe.Summary, firstKeptEntryID: probe.FirstKeptEntryID})
+		}
+	}
+	for _, c := range compactions {
+		start := 0
+		if c.firstKeptEntryID != "" {
+			p, ok := posByID[c.firstKeptEntryID]
+			if !ok {
+				continue // kept 边界缺失（窗口受限/旧文件）：跳过，前端降级显示
+			}
+			start = p
+		}
+		est := int64((len(c.summary) + 3) / 4) // ceil
+		for j := start; j < c.pos; j++ {
+			est += (messageCharsEstimate(entries[j]) + 3) / 4
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(entries[c.pos], &obj); err != nil {
+			continue
+		}
+		if _, exists := obj["estimatedTokensAfter"]; exists {
+			continue // 已有（未来 pi 持久化该字段后天然兼容）
+		}
+		obj["estimatedTokensAfter"] = est
+		if out, err := json.Marshal(obj); err == nil {
+			entries[c.pos] = out
+		}
+	}
+}
+
+// messageCharsEstimate 估算一条 message 条目的字符量（pi estimateTokens 同族口径：
+// text/thinking 长度 + toolCall 的 name+JSON(arguments) 长度；content 兼容
+// 数组与 string 简写两种形态）。非 message 条目返回 0。
+func messageCharsEstimate(raw json.RawMessage) int64 {
+	var entry struct {
+		Type    string          `json:"type"`
+		Message json.RawMessage `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &entry); err != nil || entry.Type != "message" {
+		return 0
+	}
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(entry.Message, &msg); err != nil {
+		return 0
+	}
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+		var chars int64
+		for _, b := range blocks {
+			switch b.Type {
+			case "text":
+				chars += int64(len(b.Text))
+			case "thinking":
+				chars += int64(len(b.Thinking))
+			case "toolCall":
+				chars += int64(len(b.Name) + len(b.Arguments))
+			}
+		}
+		return chars
+	}
+	var s string
+	if err := json.Unmarshal(msg.Content, &s); err == nil {
+		return int64(len(s))
+	}
+	return 0
 }
 
 // pumpWorker relays a worker's event stream into the Hub for the session's

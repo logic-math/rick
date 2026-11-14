@@ -741,6 +741,10 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
         firstKeptEntryId:
           typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
         tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
+        // 迭代 4（human 反馈）：后端 entries 投关注入的 chars/4 估算（与 pi 实时
+        // 口径同族）；历史卡显示压缩后 token + 压缩比例。
+        estimatedTokensAfter:
+          typeof entry.estimatedTokensAfter === "number" ? entry.estimatedTokensAfter : undefined,
       });
       continue;
     }
