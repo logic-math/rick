@@ -68,16 +68,27 @@
       "commit_hash": "7aa03af3ffc579c0a5c36fe4a0f47abbc7bdd7ef"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-14T16:40:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task7",
       "task_name": "Bug #4: 所有会话类型可重命名会话名（SessionNameStore + PUT /api/sessions/{id}/name + 全类型入口）",
-      "updated_at": "2026-11-14T16:40:00+08:00"
+      "updated_at": "2026-11-14T09:27:36.136Z",
+      "commit_hash": "5b1ae0f08f3314282da7b31e5c56cee2eb247040"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-14T18:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task8",
+      "task_name": "Bug #5: Go 侧大删除——plan/doing/learning/ctrl 四类型全链路（CLI+模板+builder+web+watcher）",
+      "updated_at": "2026-11-14T18:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-14T16:40:00+08:00",
+  "updated_at": "2026-11-14T18:00:00+08:00",
   "version": "1.0"
 }

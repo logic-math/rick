@@ -45,7 +45,7 @@ func TestSessionNameStoreRoundTrip(t *testing.T) {
 // rename handler：会话名写入 + 空串清除 + 投影（name 字段）。
 func TestSessionRenameHandler(t *testing.T) {
 	env := newTestEnv(t) // 既有测试环境装配（registry+supervisor+workspace）
-	sm := env.managerWith(t, nil, nil)
+	sm := env.managerWith(t, nil)
 	sm.SetSessionNames(&SessionNameStore{path: filepath.Join(t.TempDir(), "session-names.json"), names: map[string]string{}})
 
 	// dream 类型（无 loop/skill 前置文件校验——重命名与类型无关，验证非 job 类型即可）

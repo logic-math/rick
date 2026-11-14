@@ -268,15 +268,20 @@ func TestValidateJobID(t *testing.T) {
 func TestRootCmdSubcommands(t *testing.T) {
 	cmd := NewRootCmd("0.1.0")
 
+	// job_53 Bug #5：plan/doing/learning/ctrl 已删除——验证保留命令在、删除命令不在。
 	subcommands := map[string]bool{
-		"plan":     false,
-		"doing":    false,
-		"learning": false,
+		"easy":       false,
+		"human-loop": false,
+		"dream":      false,
 	}
+	removed := map[string]bool{"plan": true, "doing": true, "learning": true, "ctrl": true}
 
 	for _, subCmd := range cmd.Commands() {
 		if _, exists := subcommands[subCmd.Name()]; exists {
 			subcommands[subCmd.Name()] = true
+		}
+		if removed[subCmd.Name()] {
+			t.Errorf("removed subcommand %s still registered", subCmd.Name())
 		}
 	}
 

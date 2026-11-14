@@ -14,13 +14,9 @@ import (
 
 // Session type constants (api-contract.md Sessions 节)：会话类型 = rick cmd。
 const (
-	SessionTypePlan      = "plan"
 	SessionTypeEasy      = "easy"
-	SessionTypeCtrl      = "ctrl"
 	SessionTypeHumanLoop = "human-loop"
-	SessionTypeLearning  = "learning"
 	SessionTypeDream     = "dream"
-	SessionTypeDoing     = "doing"
 	SessionTypeSuper     = "super"
 )
 
@@ -479,15 +475,6 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 	}
 
 	switch sessionType {
-	case SessionTypePlan:
-		if err := requireStr("requirement"); err != nil {
-			return err
-		}
-		if _, present := params["job"]; present {
-			if _, ok := strParam("job"); !ok {
-				return newValidationError("invalid_params", "plan.job must be a string")
-			}
-		}
 	case SessionTypeEasy:
 		if err := requireStr("requirement"); err != nil {
 			return err
@@ -496,10 +483,6 @@ func ValidateSessionRequest(sessionType string, params map[string]any) error {
 			if _, ok := strParam("ctx_path"); !ok {
 				return newValidationError("invalid_params", "easy.ctx_path must be a string")
 			}
-		}
-	case SessionTypeCtrl, SessionTypeLearning, SessionTypeDoing:
-		if err := requireStr("job"); err != nil {
-			return err
 		}
 	case SessionTypeHumanLoop:
 		if err := requireStr("topic"); err != nil {

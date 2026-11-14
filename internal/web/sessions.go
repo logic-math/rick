@@ -49,10 +49,6 @@ import (
 
 // ---- 可注入的后台执行器（测试 fake 化） ----
 
-// DoingRunner runs one doing job in the background (web 的 doing 执行桥).
-// 生产实现包 handler.DoingIn；测试注入 fake 以断言 progress→Hub 链路。
-type DoingRunner func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error
-
 // DreamRunner runs one dream pass in the background (non-interactive).
 type DreamRunner func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error
 
@@ -64,7 +60,6 @@ type SessionManager struct {
 	sup        *runtime.Supervisor
 	hub        *Hub
 
-	doingRunner DoingRunner
 	dreamRunner DreamRunner
 
 	// pending routes correlated rpc responses (get_entries) back to the
@@ -99,10 +94,10 @@ func (m *SessionManager) SetJobNames(s *JobNameStore) { m.jobNames = s }
 // SetSessionNames wires the session display-name store (会话名，Bug #4).
 func (m *SessionManager) SetSessionNames(s *SessionNameStore) { m.sessionNames = s }
 
-// NewSessionManager wires the dependencies. doingRunner/dreamRunner may be
-// nil — defaults wrap handler.DoingIn / handler.DreamIn with the CLI
+// NewSessionManager wires the dependencies. dreamRunner may be
+// nil — defaults wrap handler.DreamIn with the CLI
 // runtime (the same Runtime the composition root injects elsewhere).
-func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry, sup *runtime.Supervisor, hub *Hub, rt runtime.Runtime, doing DoingRunner, dream DreamRunner) *SessionManager {
+func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry, sup *runtime.Supervisor, hub *Hub, rt runtime.Runtime, dream DreamRunner) *SessionManager {
 	m := &SessionManager{
 		sessions:    sessions,
 		workspaces:  workspaces,
@@ -113,12 +108,6 @@ func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry,
 		cancels:     make(map[string]context.CancelFunc),
 		closing:     make(map[string]bool),
 		bgWaits:     make(map[string]chan struct{}),
-	}
-	m.doingRunner = doing
-	if m.doingRunner == nil {
-		m.doingRunner = func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-			return handler.DoingIn(ctx, rickDir, jobID, handler.Options{}, rt, progress)
-		}
 	}
 	m.dreamRunner = dream
 	if m.dreamRunner == nil {
@@ -140,12 +129,6 @@ func (m *SessionManager) BackfillTitles() {
 			continue
 		}
 		switch e.Type {
-		case SessionTypeDoing:
-			job := paramString(e.Params, "job")
-			if job == "" {
-				continue // 无 job 参数（异常行）——不编造
-			}
-			e.Title = "doing " + job
 		case SessionTypeDream:
 			n := DreamDefaultJobNum
 			if v, ok := paramInt(e.Params, "job_num"); ok {
@@ -177,7 +160,7 @@ func (m *SessionManager) ReconcileOnStart() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue
 		}
-		if e.Type == SessionTypeDoing || e.Type == SessionTypeDream {
+		if e.Type == SessionTypeDream {
 			// 后台型 goroutine 随进程消亡——掉起（可人工继续重跑剩余 task）
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
 			continue
@@ -402,25 +385,15 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 	}
 
 	// Background types never spawn an rpc worker.
-	if req.Type == SessionTypeDoing || (req.Type == SessionTypeDream && dreamMode(req.Params) == DreamModeBackground) {
-		// 后台型会话不走 prepareInteractive（无 prep.title）——此前 title 为空，前端
-		// 只能回退成「doing · d56134af（会话 id）」，侧栏看不到 job 编号
-		// （用户实测反馈）。此处按参数生成有意义默认标题。
+	if req.Type == SessionTypeDream && dreamMode(req.Params) == DreamModeBackground {
+		// 后台型会话不走 prepareInteractive（无 prep.title）——按参数生成
+		// 有意义默认标题（此前 title 为空，侧栏只显示会话 id 截断）。
 		if strings.TrimSpace(entry.Title) == "" {
-			switch req.Type {
-			case SessionTypeDoing:
-				if job := paramString(req.Params, "job"); job != "" {
-					entry.Title = "doing " + job
-				} else {
-					entry.Title = "doing"
-				}
-			case SessionTypeDream:
-				n := DreamDefaultJobNum
-				if v, ok := paramInt(req.Params, "job_num"); ok {
-					n = v
-				}
-				entry.Title = fmt.Sprintf("dream ×%d", n)
+			n := DreamDefaultJobNum
+			if v, ok := paramInt(req.Params, "job_num"); ok {
+				n = v
 			}
+			entry.Title = fmt.Sprintf("dream ×%d", n)
 		}
 		if err := m.sessions.Add(entry); err != nil {
 			return nil, err
@@ -504,41 +477,6 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 		defer close(done)
 		var err error
 		switch entry.Type {
-		case SessionTypeDoing:
-			jobID := paramString(entry.Params, "job")
-			err = m.doingRunner(ctx, rickDir, jobID, func(ev handler.DoingEvent) {
-				// 进度/说明事件（无 task 变更）：作为会话事件流出，让监控视图有活性
-				// 信号（否则 doing 长时间只显示空白事件流）。
-				if ev.Note != "" {
-					m.recordProgress(entry.ID, "doing_note", ev.Note)
-					m.hub.Publish(Envelope{
-						Type:      EventTypeSessionEvent,
-						SessionID: entry.ID,
-						Data: mustMarshal(map[string]any{
-							"kind":   "doing_note",
-							"job_id": ev.JobID,
-							"note":   ev.Note,
-						}),
-					})
-					return
-				}
-				m.recordProgress(entry.ID, "doing_progress", fmt.Sprintf("%s %s: %s → %s", ev.JobID, ev.TaskID, ev.From, ev.To))
-				m.hub.Publish(JobsUpdate(ws.ID, ev.JobID, []TaskDiff{
-					{TaskID: ev.TaskID, From: ev.From, To: ev.To},
-				}, nil))
-				// doing 的任务态变更同时作为会话事件流出（监控视图主体）。
-				m.hub.Publish(Envelope{
-					Type:      EventTypeSessionEvent,
-					SessionID: entry.ID,
-					Data: mustMarshal(map[string]any{
-						"kind":    "doing_progress",
-						"job_id":  ev.JobID,
-						"task_id": ev.TaskID,
-						"from":    ev.From,
-						"to":      ev.To,
-					}),
-				})
-			})
 		case SessionTypeDream:
 			jobNum := DreamDefaultJobNum
 			if v, ok := paramInt(entry.Params, "job_num"); ok {
@@ -768,7 +706,7 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 	cancel := m.cancels[entry.ID]
 	m.mu.Unlock()
 
-	if entry.Type == SessionTypeDoing || entry.Type == SessionTypeDream {
+	if entry.Type == SessionTypeDream {
 		if cancel != nil {
 			cancel()
 			// Give the goroutine a moment to observe cancellation; the state
@@ -949,7 +887,7 @@ func (m *SessionManager) ImportSession(w http.ResponseWriter, r *http.Request) {
 
 	// Infer session type from the doing directory layout.
 	// easy_prompt.md may be at doing/easy_prompt.md OR doing/prompts/easy_prompt.md
-	sessionType := SessionTypeDoing // default
+	sessionType := SessionTypeEasy // default
 	for _, p := range []string{
 		filepath.Join(doingDir, "easy_prompt.md"),
 		filepath.Join(doingDir, "prompts", "easy_prompt.md"),
@@ -1066,8 +1004,7 @@ func (m *SessionManager) SessionContinue(w http.ResponseWriter, r *http.Request)
 //   - 交互型（plan/easy/ctrl/human-loop/learning/交互 dream）：spawn
 //     `--session <pi_session_id>`（既有 resume 语义）
 func (m *SessionManager) continueSession(w http.ResponseWriter, entry SessionEntry) {
-	if entry.Type == SessionTypeDoing ||
-		(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
+	if entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground {
 		m.continueBackground(w, entry)
 		return
 	}
@@ -1084,39 +1021,16 @@ func (m *SessionManager) continueBackground(w http.ResponseWriter, entry Session
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
 		return
 	}
+	if entry.Type == SessionTypeDream && m.dreamRunner == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "dream runner is not configured"))
+		return
+	}
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
 		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
 		return
 	}
-	if entry.Type == SessionTypeDoing && m.doingRunner == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "doing runner is not configured"))
-		return
-	}
-	if entry.Type == SessionTypeDream && m.dreamRunner == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "dream runner is not configured"))
-		return
-	}
-
 	rickDir := filepath.Join(ws.Path, workspace.RickDirName)
-	normalized := []string{}
-	if entry.Type == SessionTypeDoing {
-		jobID := jobParamOf(entry)
-		if jobID == "" {
-			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "doing session has no job id"))
-			return
-		}
-		moved, err := handler.NormalizeRunningTasks(rickDir, jobID)
-		if err != nil {
-			reason := "normalize tasks failed: " + err.Error()
-			m.updateStatus(entry, SessionStatusError, reason)
-			m.recordFailed(recoveryItemOf(entry, reason))
-			writeError(w, newWebError(http.StatusInternalServerError, "normalize_failed", "%v", err))
-			return
-		}
-		normalized = moved
-	}
-
 	current, ok := m.sessions.Get(entry.ID)
 	if !ok {
 		current = entry
@@ -1124,11 +1038,9 @@ func (m *SessionManager) continueBackground(w http.ResponseWriter, entry Session
 	m.startBackground(&current, rickDir, ws)
 	m.recordRecovered(recoveryItemOf(entry, "continued by human"))
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"ok":               true,
-		"resumed":          true,
-		"kind":             entry.Type,
-		"job":              jobParamOf(entry),
-		"normalized_tasks": normalized,
+		"ok":      true,
+		"resumed": true,
+		"kind":    entry.Type,
 	})
 }
 
@@ -1640,7 +1552,6 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 		// 自动 resume worker 再压缩；closed（用户明确关闭，不自动复活）与
 		// 后台型（doing/后台 dream，worker 由后台 runner 管理）维持 409。
 		if entry.Status == SessionStatusClosed ||
-			entry.Type == SessionTypeDoing ||
 			(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
 			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
 			return
@@ -2201,30 +2112,6 @@ type prep struct {
 func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params map[string]any) (*prep, error) {
 	pb := builder.NewPIBuilder()
 	switch sessionType {
-	case SessionTypePlan:
-		requirement := paramString(params, "requirement")
-		jobID := paramString(params, "job")
-		if jobID == "" {
-			var err error
-			jobID, err = scanNextJobID(rickDir)
-			if err != nil {
-				return nil, err
-			}
-		}
-		jobPlanDir := filepath.Join(rickDir, "jobs", jobID, "plan")
-		if err := os.MkdirAll(jobPlanDir, 0755); err != nil {
-			return nil, fmt.Errorf("create plan dir: %w", err)
-		}
-		promptFile, method, err := pb.SavePlanPrompt(requirement, jobPlanDir, rickDir)
-		if err != nil {
-			return nil, fmt.Errorf("build plan prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(jobPlanDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: jobPlanDir, title: "plan " + jobID}, nil
-
 	case SessionTypeEasy:
 		requirement := paramString(params, "requirement")
 		ctxPath := paramString(params, "ctx_path")
@@ -2260,24 +2147,13 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		// jobID 经 prep.JobID 携带——createSessionLocked 会写入 entry.Params
 		// （reserved _job_id，wire 投影过滤）：SessionClose 时据此把 easy 的
 		// tasks.json 标 success（dream 只学完成的 job）。
-		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: doingDir, title: "easy " + jobID, JobID: jobID}, nil
-
-	case SessionTypeCtrl:
-		jobID := paramString(params, "job")
-		doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
-		if _, err := os.Stat(doingDir); os.IsNotExist(err) {
-			return nil, newWebError(http.StatusNotFound, "not_found", "doing directory not found for job %s", jobID)
-		}
-		promptFile, method, err := pb.SaveCtrlPrompt(jobID, rickDir)
-		if err != nil {
-			return nil, fmt.Errorf("build ctrl prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(doingDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, title: "ctrl " + jobID}, nil
-
+		return &prep{
+			promptFile: promptFile,
+			methodFile: methodFile,
+			persistDir: doingDir,
+			title:      fmt.Sprintf("easy %s", jobID),
+			JobID:      jobID,
+		}, nil
 	case SessionTypeHumanLoop:
 		topic := paramString(params, "topic")
 		draftDir, rfcDir, loopDir, err := handler.PrepareHumanLoopDirsIn(rickDir)
@@ -2292,24 +2168,12 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		if err != nil {
 			return nil, err
 		}
-		return &prep{promptFile: mainFile, methodFile: methodFile, persistDir: loopDir, title: "human-loop " + filepath.Base(loopDir)}, nil
-
-	case SessionTypeLearning:
-		jobID := paramString(params, "job")
-		lp, err := buildLearningParams(rickDir, jobID)
-		if err != nil {
-			return nil, err
-		}
-		promptFile, method, err := pb.SaveLearningPrompt(lp)
-		if err != nil {
-			return nil, fmt.Errorf("build learning prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(lp.LearningDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, title: "learning " + jobID}, nil
-
+		return &prep{
+			promptFile: mainFile,
+			methodFile: methodFile,
+			persistDir: loopDir,
+			title:      topic,
+		}, nil
 	case SessionTypeSuper:
 		// super 中控会话（目录模型 v2，job_48 迭代2）：严格加载 super-loop +
 		// gen_env skill（缺失 → 创建失败显式报错，不静默降级）；工作区 =

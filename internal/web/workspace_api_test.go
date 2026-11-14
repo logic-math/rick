@@ -139,7 +139,7 @@ func TestRoutesSessionPrompt(t *testing.T) {
 	if err := e.sessions.Add(SessionEntry{
 		ID:          sessionID,
 		WorkspaceID: ws.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Params: map[string]any{
 			"_prompt_file": promptPath,
 			"_method_file": methodPath,
@@ -195,7 +195,7 @@ func TestRoutesSessionPromptTraversalRejected(t *testing.T) {
 	if err := e.sessions.Add(SessionEntry{
 		ID:          sessionID,
 		WorkspaceID: ws.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Params:      map[string]any{"_prompt_file": outside},
 		Status:      SessionStatusActive,
 		CreatedAt:   mustTime(t),
@@ -231,7 +231,7 @@ func TestRoutesSessionPromptMissingFile(t *testing.T) {
 	if err := e.sessions.Add(SessionEntry{
 		ID:          sessionID,
 		WorkspaceID: ws.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Params:      map[string]any{"_prompt_file": filepath.Join(wsRoot, ".rick", "nope.md")},
 		Status:      SessionStatusActive,
 		CreatedAt:   mustTime(t),

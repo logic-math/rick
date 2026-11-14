@@ -8,7 +8,7 @@ func TestLoadEmbeddedTemplate(t *testing.T) {
 	// Create manager with empty template dir (should use embedded)
 	pm := NewPromptManager("")
 
-	tests := []string{"plan", "doing", "learning", "test_python"}
+	tests := []string{"easy", "learning", "test_python"}
 
 	for _, name := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -38,13 +38,13 @@ func TestLoadEmbeddedTemplateCaching(t *testing.T) {
 	pm := NewPromptManager("")
 
 	// Load template first time
-	template1, err := pm.LoadTemplate("plan")
+	template1, err := pm.LoadTemplate("easy")
 	if err != nil {
 		t.Fatalf("First load failed: %v", err)
 	}
 
 	// Load template second time (should be cached)
-	template2, err := pm.LoadTemplate("plan")
+	template2, err := pm.LoadTemplate("easy")
 	if err != nil {
 		t.Fatalf("Second load failed: %v", err)
 	}
@@ -74,8 +74,7 @@ func TestGetEmbeddedTemplate(t *testing.T) {
 		name     string
 		expected bool
 	}{
-		{"plan", true},
-		{"doing", true},
+		{"easy", true},
 		{"learning", true},
 		{"test_python", true},
 		{"nonexistent", false},

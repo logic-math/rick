@@ -139,22 +139,16 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 }
 
-// managerWith builds a SessionManager (fakes optional; nil → injected fake runners).
-func (e *testEnv) managerWith(t *testing.T, doing DoingRunner, dream DreamRunner) *SessionManager {
+// managerWith builds a SessionManager (fakes optional; nil → injected fake runner).
+func (e *testEnv) managerWith(t *testing.T, dream DreamRunner) *SessionManager {
 	t.Helper()
-	if doing == nil {
-		doing = func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-			<-ctx.Done() // default fake: park until cancelled
-			return ctx.Err()
-		}
-	}
 	if dream == nil {
 		dream = func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error {
 			<-ctx.Done()
 			return ctx.Err()
 		}
 	}
-	return NewSessionManager(e.sessions, e.workspaces, e.sup, e.hub, nil, doing, dream)
+	return NewSessionManager(e.sessions, e.workspaces, e.sup, e.hub, nil, dream)
 }
 
 // post issues a JSON POST against a handler with a path like
@@ -295,11 +289,11 @@ func (c *hubCollector) waitMatching(t *testing.T, timeout time.Duration, pred fu
 
 func TestSessionCreatePlan_SpawnsRPCAndBootstraps(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	coll := startCollector(env.hub)
 	defer coll.stop()
-	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
 		"requirement": "test requirement",
 	})
 	if code != http.StatusCreated {
@@ -340,7 +334,7 @@ func TestSessionCreatePlan_SpawnsRPCAndBootstraps(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("plan session must have created a job directory")
 	}
-	sid, err := os.ReadFile(filepath.Join(env.rickDir, "jobs", "job_1", "plan", "session_id"))
+	sid, err := os.ReadFile(filepath.Join(env.rickDir, "jobs", "job_1", "doing", "session_id"))
 	if err != nil || strings.TrimSpace(string(sid)) != entry.PISessionID {
 		t.Fatalf("plan/session_id CLI-compat file: got %q err=%v, want %q", string(sid), err, entry.PISessionID)
 	}
@@ -388,33 +382,34 @@ func TestSessionCreatePlan_SpawnsRPCAndBootstraps(t *testing.T) {
 
 func TestSessionCreatePlan_ReusesExplicitJob(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	// Pre-create job_7/plan so the explicit-job path reuses it.
-	if err := os.MkdirAll(filepath.Join(env.rickDir, "jobs", "job_7", "plan"), 0755); err != nil {
+	// easy 语义：自动编号 job 目录（job_7 已存在 → 新 job_8；easy 不接受显式 job 复用）。
+	if err := os.MkdirAll(filepath.Join(env.rickDir, "jobs", "job_7", "doing"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	id, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+	id, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
 		"requirement": "another requirement",
-		"job":         "job_7",
 	})
 	if code != http.StatusCreated {
-		t.Fatalf("create with explicit job: %d", code)
+		t.Fatalf("create easy: %d", code)
 	}
 	entry, _ := env.sessions.Get(id)
 	pf := paramString(entry.Params, "_prompt_file")
-	if !strings.Contains(pf, filepath.Join("job_7", "plan")) {
-		t.Fatalf("explicit job not reused: prompt file %s", pf)
+	if !strings.Contains(pf, filepath.Join("job_8", "doing")) {
+		t.Fatalf("auto-numbered job dir expected: prompt file %s", pf)
 	}
 }
 
-func TestSessionCreateCtrl_JobMustExist(t *testing.T) {
+func TestSessionCreateRemovedTypesRejected(t *testing.T) {
+	// job_53 Bug #5：plan/doing/learning/ctrl 已删除——unknown session type 400。
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-
-	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "ctrl", map[string]any{"job": "job_99"})
-	if code != http.StatusNotFound {
-		t.Fatalf("ctrl with missing job: status %d body %v", code, body)
+	m := env.managerWith(t, nil)
+	for _, typ := range []string{"plan", "doing", "learning", "ctrl"} {
+		_, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, typ, map[string]any{})
+		if code != http.StatusBadRequest {
+			t.Fatalf("removed type %s create: status %d, want 400", typ, code)
+		}
 	}
 }
 
@@ -422,8 +417,8 @@ func TestSessionCreateCtrl_JobMustExist(t *testing.T) {
 
 func TestSessionCommandRouting(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	// prompt
@@ -520,8 +515,8 @@ func TestSessionCommandRouting(t *testing.T) {
 
 func TestSessionModels_ListsAvailableModels(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	rec := get(t, m.SessionModels, "/api/sessions/"+id+"/models")
@@ -549,8 +544,8 @@ func TestSessionModels_ListsAvailableModels(t *testing.T) {
 
 func TestSessionSetModel(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	rec := post(t, m.SessionSetModel, "/api/sessions/"+id+"/model", map[string]any{
@@ -573,8 +568,8 @@ func TestSessionSetModel(t *testing.T) {
 
 func TestSessionSetThinking(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	rec := post(t, m.SessionSetThinking, "/api/sessions/"+id+"/thinking", map[string]any{"level": "high"})
@@ -594,8 +589,8 @@ func TestSessionSetThinking(t *testing.T) {
 
 func TestSessionModels_NoWorker409(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	_ = post(t, m.SessionClose, "/api/sessions/"+id+"/close", nil)
 
@@ -614,7 +609,7 @@ func TestSessionModels_NoWorker409(t *testing.T) {
 
 func TestSessionStateConflictMatrix(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// Unknown session: 404.
 	rec := post(t, m.SessionPrompt, "/api/sessions/nope/prompt", map[string]any{"message": "x"})
@@ -624,7 +619,7 @@ func TestSessionStateConflictMatrix(t *testing.T) {
 
 	// Create a plan session, close it, then assert 409s on the active-only
 	// command surface.
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	_ = post(t, m.SessionClose, "/api/sessions/"+id+"/close", nil)
 
@@ -640,39 +635,39 @@ func TestSessionStateConflictMatrix(t *testing.T) {
 		}
 	}
 
-	// Doing sessions are no longer monitor-only: /resume (= /continue) 对一个**正在
-	// 跑**的 doing 会话是幂等 no-op（自动 202 already_active），而不是 409——人工
-	// 恢复入口必须能重复点击而不报错（human 裁决 J-L6-7）。
-	did, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "doing", map[string]any{"job": "job_1"})
+	// Background dream: /resume (= /continue) 对一个**正在跑**的后台会话是幂等
+	// no-op（自动 202 already_active），而不是 409——人工恢复入口必须能重复点击
+	// 而不报错（human 裁决 J-L6-7；doing 会话类型已删，语义由 dream 承接）。
+	did, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "dream", map[string]any{"mode": "background", "job_num": 1})
 	if code != http.StatusCreated {
-		t.Fatalf("create doing session: %d", code)
+		t.Fatalf("create background dream session: %d", code)
 	}
 	rec = post(t, m.SessionResume, "/api/sessions/"+did+"/resume", nil)
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("resume running doing session: %d (want 202 already_active), body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("resume running background dream: %d (want 202 already_active), body=%s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "already_active") {
-		t.Fatalf("resume running doing session should be idempotent, body=%s", rec.Body.String())
+		t.Fatalf("resume running background dream should be idempotent, body=%s", rec.Body.String())
 	}
-	// prompt on running doing session: 409.
+	// prompt on running background session: 409.
 	rec = post(t, m.SessionPrompt, "/api/sessions/"+did+"/prompt", map[string]any{"message": "x"})
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("prompt on running doing: %d (want 409)", rec.Code)
+		t.Fatalf("prompt on running background dream: %d (want 409)", rec.Code)
 	}
 	// close cancels the background goroutine.
 	rec = post(t, m.SessionClose, "/api/sessions/"+did+"/close", nil)
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("close doing: %d", rec.Code)
+		t.Fatalf("close background dream: %d", rec.Code)
 	}
 	entry, _ := env.sessions.Get(did)
 	if entry.Status != SessionStatusClosed && entry.Status != SessionStatusError {
-		t.Fatalf("doing after close: %q", entry.Status)
+		t.Fatalf("background dream after close: %q", entry.Status)
 	}
 }
 
 func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// Interactive dream with no pending jobs → 409 no_pending_jobs (the frontend
 	// pre-checks and shows an explicit "已无可学习的 job" hint + disables submit;
@@ -698,7 +693,7 @@ func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	}
 	coll := startCollector(env.hub)
 	defer coll.stop()
-	m2 := env.managerWith(t, nil, dream)
+	m2 := env.managerWith(t, dream)
 	id, code, _ := createSessionViaHTTP(t, m2, env.wsEntry.ID, "dream", map[string]any{"mode": "background", "job_num": 3})
 	if code != http.StatusCreated {
 		t.Fatalf("background dream: %d", code)
@@ -731,67 +726,7 @@ func TestSessionDreamInteractiveVsBackground(t *testing.T) {
 	_ = post(t, m2.SessionClose, "/api/sessions/"+id+"/close", nil)
 }
 
-// --- background doing bridge ---
-
-func TestSessionDoingBackground_ProgressToHub(t *testing.T) {
-	env := newTestEnv(t)
-
-	doing := func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-		// Emit a task transition, then finish cleanly.
-		progress(handler.DoingEvent{JobID: jobID, TaskID: "task1", From: "pending", To: "running"})
-		progress(handler.DoingEvent{JobID: jobID, TaskID: "task1", From: "running", To: "success"})
-		return nil
-	}
-	coll := startCollector(env.hub)
-	defer coll.stop()
-	m := env.managerWith(t, doing, nil)
-
-	id, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "doing", map[string]any{"job": "job_1"})
-	if code != http.StatusCreated {
-		t.Fatalf("create doing session: %d", code)
-	}
-
-	// jobs_update envelopes must reach the hub with the task diff.
-	gotJobs := coll.waitMatching(t, 3*time.Second, func(e Envelope) bool {
-		return e.Type == EventTypeJobsUpdate && strings.Contains(string(e.Data), `"task_id":"task1"`)
-	})
-	if len(gotJobs) == 0 {
-		t.Fatal("doing progress never produced jobs_update on the hub")
-	}
-	gotSessionEvts := coll.waitMatching(t, time.Second, func(e Envelope) bool {
-		return e.Type == EventTypeSessionEvent && e.SessionID == id && strings.Contains(string(e.Data), "doing_progress")
-	})
-	if len(gotSessionEvts) == 0 {
-		t.Fatal("doing progress never produced a session event on the hub")
-	}
-
-	// The runner returned nil → session closed with reason completed.
-	waitStatus := func(want string) SessionEntry {
-		t.Helper()
-		deadline := time.Now().Add(3 * time.Second)
-		for {
-			entry, _ := env.sessions.Get(id)
-			if entry.Status == want {
-				return entry
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("doing session status stuck at %q, want %q", entry.Status, want)
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
-	waitStatus(SessionStatusClosed)
-
-	// A failing runner lands on error status.
-	doingErr := func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-		return fmt.Errorf("boom")
-	}
-	m2 := env.managerWith(t, doingErr, nil)
-	id2, _, _ := createSessionViaHTTP(t, m2, env.wsEntry.ID, "doing", map[string]any{"job": "job_1"})
-	_ = waitForStatus(t, env, id2, SessionStatusError)
-}
-
-// waitForStatus polls the registry until the session reaches want.
+// --- background doing bridge ---// waitForStatus polls the registry until the session reaches want.
 func waitForStatus(t *testing.T, env *testEnv, id, want string) SessionEntry {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
@@ -811,7 +746,7 @@ func waitForStatus(t *testing.T, env *testEnv, id, want string) SessionEntry {
 
 func TestSessionEntriesOfflineParsing(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// Fabricate a pi session file under the isolated AgentDir sessions tree
 	// named after a known uuid.
@@ -834,7 +769,7 @@ func TestSessionEntriesOfflineParsing(t *testing.T) {
 	entry := SessionEntry{
 		ID:          "closed-1",
 		WorkspaceID: env.wsEntry.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Params:      map[string]any{"requirement": "r"},
 		Status:      SessionStatusClosed,
 		PISessionID: piID,
@@ -950,7 +885,7 @@ func TestSessionEntriesActiveNoWorker_FallsBackOffline(t *testing.T) {
 	// No supervisor worker is ever spawned for this session (nil runners are
 	// fine — we register the session entry directly, mimicking a restarted
 	// server whose registry lists the session as active).
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	piID := "0199abcd-1234-4abc-8def-00000000000a"
 	sessDir := filepath.Join(os.Getenv("RICK_PI_AGENT_DIR"), "sessions", "--fake-workdir--")
@@ -969,7 +904,7 @@ func TestSessionEntriesActiveNoWorker_FallsBackOffline(t *testing.T) {
 	entry := SessionEntry{
 		ID:          "active-noworker",
 		WorkspaceID: env.wsEntry.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Params:      map[string]any{"requirement": "r"},
 		Status:      SessionStatusActive, // active but no worker in this process
 		PISessionID: piID,
@@ -1036,9 +971,9 @@ func TestSessionEntriesActiveNoWorker_FallsBackOffline(t *testing.T) {
 
 func TestSessionListByWorkspace(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	rec := get(t, m.ListSessions, "/api/sessions?workspace="+env.wsEntry.ID)
@@ -1066,9 +1001,9 @@ func TestSessionListByWorkspace(t *testing.T) {
 
 func TestSessionWorkerDeathMarksError(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	// Kill the worker outside the manager (simulates a crash): closing stdin
@@ -1090,9 +1025,9 @@ func TestSessionWorkerDeathMarksError(t *testing.T) {
 
 func TestSessionCommandOnLostWorkerMarksError(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	// 手动把 worker 标记 dead（模拟心跳超时/崩溃——不经 pumpWorker 通道关闭路径）
@@ -1116,7 +1051,7 @@ func TestSessionCommandOnLostWorkerMarksError(t *testing.T) {
 // 导致前端发送消息静默返回 prompt 原文（200 假成功、消息从未送达 agent）——「发送没反应」。
 func TestRoutes_POSTPromptMapsToSendNotFiles(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, Deps{
@@ -1149,14 +1084,14 @@ func TestRoutes_POSTPromptMapsToSendNotFiles(t *testing.T) {
 // job_36 验收期实测：重启后旧会话仍 active → 发送消息 409 worker is not alive。
 func TestReconcileOnStart_MarksOrphanActiveAsSuspended(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// 直接造一个 active 会话（不经过 CreateSession——模拟旧进程遗留的注册表条目）
 	now := time.Now()
 	orphan := SessionEntry{
 		ID:          "orphan-1",
 		WorkspaceID: env.wsEntry.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Status:      SessionStatusActive,
 		Params:      map[string]any{"requirement": "x"},
 		CreatedAt:   now,
@@ -1219,12 +1154,12 @@ func TestReconcileOnStart_MarksOrphanActiveAsSuspended(t *testing.T) {
 // 不报错会静默空转）。
 func TestReconcileOnStart_DoesNotAutoResume(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	for _, e := range []SessionEntry{
-		{ID: "r1", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan, Status: SessionStatusActive,
+		{ID: "r1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy, Status: SessionStatusActive,
 			PISessionID: "pi-r1", Params: map[string]any{"requirement": "x"}, CreatedAt: time.Now()},
-		{ID: "r2", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDoing, Status: SessionStatusRunning,
+		{ID: "r2", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDream, Status: SessionStatusRunning,
 			Params: map[string]any{"job": "job_1"}, CreatedAt: time.Now()},
 		{ID: "r3", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDream, Status: SessionStatusRunning,
 			Params: map[string]any{"mode": DreamModeBackground}, CreatedAt: time.Now()},
@@ -1262,9 +1197,9 @@ func TestReconcileOnStart_DoesNotAutoResume(t *testing.T) {
 
 func TestSessionArchive_ActiveTerminatesAndMarks(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	if w := env.sup.Get(id); w == nil {
 		t.Fatal("active session should hold a live worker")
@@ -1309,10 +1244,10 @@ func TestSessionArchive_ActiveTerminatesAndMarks(t *testing.T) {
 
 func TestSessionArchive_ClosedAndError_OnlyMarksIdempotent(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// Closed session (created then closed by the user).
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	if rec := post(t, m.SessionClose, "/api/sessions/"+id+"/close", nil); rec.Code != http.StatusAccepted {
 		t.Fatalf("close: %d", rec.Code)
@@ -1336,7 +1271,7 @@ func TestSessionArchive_ClosedAndError_OnlyMarksIdempotent(t *testing.T) {
 	errID := "err-archive-1"
 	now := time.Now()
 	if err := env.sessions.Add(SessionEntry{
-		ID: errID, WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+		ID: errID, WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
 		Params: map[string]any{"requirement": "r"}, Status: SessionStatusError,
 		PISessionID: "pi-err", CreatedAt: now,
 	}); err != nil {
@@ -1358,9 +1293,9 @@ func TestSessionArchive_ClosedAndError_OnlyMarksIdempotent(t *testing.T) {
 
 func TestSessionArchive_UnarchiveRestoresToList(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("archive: %d", rec.Code)
@@ -1401,13 +1336,13 @@ func TestSessionArchive_UnarchiveRestoresToList(t *testing.T) {
 
 func TestSessionList_ArchivedPagination(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// Seed 5 archived + 1 active session with distinct created_at (desc order
 	// expected: newest first in the archived view).
 	seed := func(id string, created time.Time, archived bool) {
 		entry := SessionEntry{
-			ID: id, WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+			ID: id, WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
 			Params: map[string]any{"requirement": "r"}, Status: SessionStatusClosed,
 			PISessionID: "pi-" + id, CreatedAt: created,
 		}
@@ -1470,9 +1405,9 @@ func TestSessionList_ArchivedPagination(t *testing.T) {
 
 func TestSessionResume_ClearsArchived(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("archive: %d", rec.Code)
@@ -1494,9 +1429,9 @@ func TestSessionResume_ClearsArchived(t *testing.T) {
 
 func TestSessionArchive_PersistsAcrossReload(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 	if rec := post(t, m.SessionArchive, "/api/sessions/"+id+"/archive", nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("archive: %d", rec.Code)
@@ -1521,12 +1456,12 @@ func TestSessionArchive_PersistsAcrossReload(t *testing.T) {
 // （重复同值不重复广播）、以及非 active 状态一律不 busy。
 func TestSessionBusyAuthority(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	entry := SessionEntry{
 		ID:          "busy-s1",
 		WorkspaceID: env.wsEntry.ID,
-		Type:        SessionTypePlan,
+		Type:        SessionTypeEasy,
 		Status:      SessionStatusActive,
 		PISessionID: "pi-busy-1",
 	}
@@ -1587,7 +1522,7 @@ func TestSessionBusyAuthority(t *testing.T) {
 // 也被 dream 当完成学习并归档**（用户实测）。
 func TestEasyTasksLifecycle(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
 		"requirement": "easy lifecycle test",
@@ -1649,9 +1584,9 @@ func TestEasyTasksLifecycle(t *testing.T) {
 // ② active 但 worker 缺失（异常路径）→ 修正状态并重新 spawn（自愈），不卡死。
 func TestSessionResumeIdempotent(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
 		"requirement": "resume idempotency",
 	})
 	if code != http.StatusCreated {
@@ -1687,9 +1622,9 @@ func TestSessionResumeIdempotent(t *testing.T) {
 // already_active(202) 并把状态纠正回 active。
 func TestSessionResumeConcurrentSpawnHeals(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
 		"requirement": "concurrent resume race",
 	})
 	if code != http.StatusCreated {
@@ -1721,12 +1656,12 @@ func TestSessionResumeConcurrentSpawnHeals(t *testing.T) {
 // 幂等（重复点击 202 already_active）；恢复动作写入恢复报告。
 func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	entry := SessionEntry{
-		ID: "susp-plan", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
-		Status: SessionStatusSuspended, Title: "suspended plan",
-		PISessionID: "pi-susp-plan",
+		ID: "susp-easy", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
+		Status: SessionStatusSuspended, Title: "suspended easy",
+		PISessionID: "pi-susp-easy",
 		Params:      map[string]any{"requirement": "r"},
 		CreatedAt:   time.Now(), LastReason: SuspendReasonRelease,
 	}
@@ -1735,7 +1670,7 @@ func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 	}
 	m.refreshSuspendedReport()
 
-	rec := post(t, m.SessionContinue, "/api/sessions/susp-plan/continue", nil)
+	rec := post(t, m.SessionContinue, "/api/sessions/susp-easy/continue", nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("continue suspended session: %d, body=%s", rec.Code, rec.Body.String())
 	}
@@ -1745,11 +1680,11 @@ func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 		t.Fatalf("continue body = %s, want resumed:true", rec.Body.String())
 	}
 
-	got, _ := env.sessions.Get("susp-plan")
+	got, _ := env.sessions.Get("susp-easy")
 	if got.Status != SessionStatusActive {
 		t.Fatalf("after continue status = %q, want active", got.Status)
 	}
-	if w := env.sup.Get("susp-plan"); w == nil || w.IsDead() {
+	if w := env.sup.Get("susp-easy"); w == nil || w.IsDead() {
 		t.Fatal("continue 应 spawn 出活 worker")
 	}
 	// 恢复动作必须留痕（报告：从 suspended 移入 recovered）
@@ -1757,12 +1692,12 @@ func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 	if len(rep.Suspended) != 0 {
 		t.Fatalf("恢复后报告 suspended 应为空: %+v", rep.Suspended)
 	}
-	if len(rep.Recovered) != 1 || rep.Recovered[0].ID != "susp-plan" {
+	if len(rep.Recovered) != 1 || rep.Recovered[0].ID != "susp-easy" {
 		t.Fatalf("报告 recovered = %+v", rep.Recovered)
 	}
 
 	// 幂等：重复点击 → 202 already_active，不重复 spawn
-	rec = post(t, m.SessionContinue, "/api/sessions/susp-plan/continue", nil)
+	rec = post(t, m.SessionContinue, "/api/sessions/susp-easy/continue", nil)
 	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "already_active") {
 		t.Fatalf("重复 continue 应幂等 202 already_active, got %d %s", rec.Code, rec.Body.String())
 	}
@@ -1776,119 +1711,7 @@ func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 // TestSessionContinue_DoingNormalizesAndReruns 覆盖 doing 的人工恢复：
 // 归一化tasks.json 里遗留的 running → pending（**在 runner 启动之前**），
 // 再重跑剩余 task；且不把 success 改回 pending。
-func TestSessionContinue_DoingNormalizesAndReruns(t *testing.T) {
-	env := newTestEnv(t)
 
-	type observed struct {
-		jobID    string
-		statuses map[string]string
-	}
-	seen := make(chan observed, 1)
-	doing := func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-		// runner 启动那一刻的 tasks.json 快照 —— 归一化必须已经完成
-		data, err := os.ReadFile(filepath.Join(rickDir, "jobs", jobID, "doing", "tasks.json"))
-		if err != nil {
-			t.Errorf("runner 读 tasks.json: %v", err)
-		}
-		var doc struct {
-			Tasks []struct {
-				TaskID string `json:"task_id"`
-				Status string `json:"status"`
-			} `json:"tasks"`
-		}
-		_ = json.Unmarshal(data, &doc)
-		st := map[string]string{}
-		for _, tk := range doc.Tasks {
-			st[tk.TaskID] = tk.Status
-		}
-		select {
-		case seen <- observed{jobID: jobID, statuses: st}:
-		default:
-		}
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	m := env.managerWith(t, doing, nil)
-
-	// 造 job：一个 success（必须原样保留）+ 一个遗留 running + 一个 pending
-	doingDir := filepath.Join(env.rickDir, "jobs", "job_9", "doing")
-	if err := os.MkdirAll(doingDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	tasksJSON := `{"version":"1.0","tasks":[` +
-		`{"task_id":"task1","status":"success","commit_hash":"abc"},` +
-		`{"task_id":"task2","status":"running"},` +
-		`{"task_id":"task3","status":"pending"}]}`
-	if err := os.WriteFile(filepath.Join(doingDir, "tasks.json"), []byte(tasksJSON), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	entry := SessionEntry{
-		ID: "susp-doing", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDoing,
-		Status: SessionStatusSuspended, Title: "doing job_9",
-		Params: map[string]any{"job": "job_9"}, CreatedAt: time.Now(),
-	}
-	if err := env.sessions.Add(entry); err != nil {
-		t.Fatal(err)
-	}
-	m.refreshSuspendedReport()
-
-	rec := post(t, m.SessionContinue, "/api/sessions/susp-doing/continue", nil)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("continue suspended doing: %d, body=%s", rec.Code, rec.Body.String())
-	}
-	var body map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body["kind"] != SessionTypeDoing {
-		t.Fatalf("continue body kind = %v, want doing", body["kind"])
-	}
-	if norm, ok := body["normalized_tasks"].([]any); !ok || len(norm) != 1 || norm[0] != "task2" {
-		t.Fatalf("normalized_tasks = %v, want [task2]", body["normalized_tasks"])
-	}
-
-	select {
-	case obs := <-seen:
-		if obs.jobID != "job_9" {
-			t.Fatalf("runner jobID = %q, want job_9", obs.jobID)
-		}
-		if obs.statuses["task2"] != "pending" {
-			t.Fatalf("runner 启动时 task2 仍为 %q（归一化必须早于重跑）", obs.statuses["task2"])
-		}
-		if obs.statuses["task1"] != "success" {
-			t.Fatalf("success 被改动了: %q", obs.statuses["task1"])
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("doing runner 未被启动（人工继续没有生效）")
-	}
-
-	// 重跑前状态回到 running
-	if e, _ := env.sessions.Get("susp-doing"); e.Status != SessionStatusRunning {
-		t.Fatalf("继续后状态 = %q, want running", e.Status)
-	}
-	// 幂等：再次 continue → 202 already_active（不重复起 runner）
-	rec = post(t, m.SessionContinue, "/api/sessions/susp-doing/continue", nil)
-	if rec.Code != http.StatusAccepted || !strings.Contains(rec.Body.String(), "already_active") {
-		t.Fatalf("重复 continue doing 应幂等: %d %s", rec.Code, rec.Body.String())
-	}
-	// tasks.json 备份存在（归一化写过盘）
-	if _, err := os.Stat(filepath.Join(doingDir, "tasks.json.bak")); err != nil {
-		t.Fatalf("归一化应留下 tasks.json.bak 备份: %v", err)
-	}
-
-	// 收尾：取消后台 runner，避免 goroutine 泄漏
-	post(t, m.SessionClose, "/api/sessions/susp-doing/close", nil)
-}
-
-// ---- RSI 去特殊化（human 裁决 2026-09-22）：loop 走标准加载，无专属会话类型 ----
-//
-// 修订后的成立条件：RSI 只是 .rick/loops/rick-rsi-loop.md 这条普通 loop——
-// 由 easy/plan 会话提示词里的「可用的项目 Loops」目录（LoadLoopsContext：name+trigger）
-// 按触发条件发现，agent 加载后自行遵循。因此这里只断言两件事：
-// ① 标准发现路径可用：带该 loop 的工作区上建 easy 会话，提示词必须含目录条目；
-// ② 「rsi」不再是合法会话类型（特殊入口已删，回落到 unknown session type 错误）。
-
-// writeRsiLoopFixture 在工作区的 .rick/loops/ 下放一个最小合规的 rick-rsi-loop.md
-// （五要素齐全，含 LoadLoopsContext 需要的 frontmatter trigger）。
 func writeRsiLoopFixture(t *testing.T, ws string) {
 	t.Helper()
 	loopDir := filepath.Join(ws, ".rick", "loops")
@@ -1927,7 +1750,7 @@ rsi_check pass=true。
 // 这是「RSI 只是一条普通 loop」设计的成立条件：agent 靠这个目录找到 loop。
 func TestEasyPromptDiscoversRsiLoop(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 	writeRsiLoopFixture(t, filepath.Dir(env.rickDir)) // 工作区根 = rickDir 的父目录
 
 	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
@@ -1970,7 +1793,7 @@ func TestEasyPromptDiscoversRsiLoop(t *testing.T) {
 // unknown session type 错误路径，返回 400 invalid_params）。
 func TestCreateSessionRSITypeRemoved(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "rsi", map[string]any{})
 	if code != http.StatusBadRequest {
@@ -1988,8 +1811,8 @@ func TestCreateSessionRSITypeRemoved(t *testing.T) {
 // （此前 /compact 在 web 上完全无入口：pi 协议有命令、rick 未封装、无路由、前端无分支。）
 func TestSessionCompact(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	m := env.managerWith(t, nil)
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	rec := post(t, m.SessionCompact, "/api/sessions/"+id+"/compact", map[string]any{})
@@ -2029,7 +1852,7 @@ func seedClosedSession(t *testing.T, m *SessionManager, wsID string) string {
 	t.Helper()
 	id := "closed-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	entry := SessionEntry{
-		ID: id, WorkspaceID: wsID, Type: SessionTypePlan, Status: SessionStatusClosed,
+		ID: id, WorkspaceID: wsID, Type: SessionTypeEasy, Status: SessionStatusClosed,
 		PISessionID: "pi-closed", CreatedAt: time.Now(),
 	}
 	if err := m.sessions.Add(entry); err != nil {
@@ -2063,7 +1886,7 @@ func seedSuperAssets(t *testing.T, rickDir string) {
 func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
 	env := newTestEnv(t)
 	seedSuperAssets(t, env.rickDir)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	coll := startCollector(env.hub)
 	defer coll.stop()
@@ -2141,7 +1964,7 @@ func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
 func TestSessionCreateSuper_EnvAutoNumberingAndTitle(t *testing.T) {
 	env := newTestEnv(t)
 	seedSuperAssets(t, env.rickDir)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// 第一个会话：env_1（自动编号，title 默认）
 	id1, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
@@ -2197,7 +2020,7 @@ func TestSessionCreateSuper_EnvAutoNumberingAndTitle(t *testing.T) {
 func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 	env := newTestEnv(t)
 	seedSuperAssets(t, env.rickDir)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// 缺 gen_env skill → 400 invalid_params，错误含缺失路径（严格加载，
 	// 不静默降级）。
@@ -2240,7 +2063,7 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 func TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName(t *testing.T) {
 	env := newTestEnv(t)
 	seedSuperAssets(t, env.rickDir)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// 缺 requirement → 400
 	_, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper, map[string]any{})

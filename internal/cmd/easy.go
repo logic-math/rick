@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/sunquan/rick/internal/handler"
@@ -53,4 +56,16 @@ func NewEasyCmd() *cobra.Command {
 	easyCmd.Flags().StringVar(&resumeJobID, "resume", "", "Resume an existing easy session by job ID")
 
 	return easyCmd
+}
+
+// promptForRequirement prompts user for requirement input.
+// （job_53 Bug #5：原定义在被删除的 plan.go 中——easy 保留，函数移此。）
+func promptForRequirement() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Enter your requirement: ")
+	requirement, err := reader.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(requirement), nil
 }

@@ -239,7 +239,7 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	}
 	hub := web.NewHub(0)
 	sup := runtime.NewSupervisor(resolveSupervisorConfig(cfg))
-	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil, nil)
+	sm := web.NewSessionManager(sessions, workspaces, sup, hub, rt, nil)
 	// 用户自定义 job 任务名（侧栏会话行 + Jobs 页展示）
 	sm.SetJobNames(jobNames)
 	sm.SetSessionNames(sessionNames)

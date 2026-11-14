@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// GenerateEasyPromptFile generates the easy mode interactive prompt using the shared doing.md template.
+// GenerateEasyPromptFile generates the easy mode interactive prompt using the easy.md template (job_53 Bug #5：原 doing.md 改名).
 // ctxPath is optional; when non-empty the prompt includes ctx-inheritance instructions.
 func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string, []string, error) {
 	doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
@@ -67,9 +67,9 @@ func GenerateEasyPromptFile(jobID, requirement, rickDir, ctxPath string) (string
 	domainDir := filepath.Join(rickDir, "domain")
 
 	mgr := NewPromptManager()
-	tmpl, err := mgr.LoadTemplate("doing")
+	tmpl, err := mgr.LoadTemplate("easy")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to load doing template: %w", err)
+		return "", nil, fmt.Errorf("failed to load easy template: %w", err)
 	}
 
 	builder := NewPromptBuilder(tmpl)
@@ -108,9 +108,9 @@ func GenerateEasyPrompt(requirement, rickDir, ctxPath string) (string, error) {
 	}
 
 	mgr := NewPromptManager()
-	tmpl, err := mgr.LoadTemplate("doing")
+	tmpl, err := mgr.LoadTemplate("easy")
 	if err != nil {
-		return "", fmt.Errorf("failed to load doing template: %w", err)
+		return "", fmt.Errorf("failed to load easy template: %w", err)
 	}
 
 	projectRoot, _ := os.Getwd()

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/sunquan/rick/internal/config"
-	"github.com/sunquan/rick/internal/handler"
 	"github.com/sunquan/rick/internal/runtime"
 )
 
@@ -118,21 +117,6 @@ func withTempWorkspace(t *testing.T, f func(dir string)) {
 	}
 	f(dir)
 }
-
-func TestRunDoingDryRun_EmptyJobID(t *testing.T) {
-	if err := handler.DoingDryRun(""); err != nil {
-		t.Errorf("expected no error for empty job ID, got: %v", err)
-	}
-}
-
-func TestRunDoingDryRun_NoPlanDir(t *testing.T) {
-	withTempWorkspace(t, func(dir string) {
-		if err := handler.DoingDryRun("job_test"); err != nil {
-			t.Errorf("expected no error (dry-run ignores missing plan), got: %v", err)
-		}
-	})
-}
-
 func TestRunLearningCheck_WithWorkspace(t *testing.T) {
 	withTempWorkspace(t, func(dir string) {
 		learningDir := filepath.Join(dir, ".rick", "jobs", "job_test", "learning")
