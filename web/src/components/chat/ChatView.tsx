@@ -746,6 +746,17 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           <StatusDot status={status} streaming={vm.streaming} />
           {vm.streaming ? "streaming" : STATUS_LABEL[status] ?? status}
         </span>
+        {/* Bug #8 2B（human 2026-11-14 实测要求）：当前模型名常驻显示（此前只在折叠的
+            会话信息区可见——运行时看不到当前用的什么模型）。meta 来自会话 JSONL 的
+            model_change（含初始默认模型，实测首条即 glm-5.3）。 */}
+        {history?.meta.model && (
+          <span
+            className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-2"
+            title={`当前模型：${history?.meta.model}${history?.meta.provider ? `（${history?.meta.provider}）` : ""}`}
+          >
+            {history?.meta.model}
+          </span>
+        )}
         {vm.compacting && <span className="text-xs text-morty">压缩中</span>}
         {/* 归档状态可见 + 一键取消归档：归档是「从列表隐藏」，会话页本身不会变化——
             若不在页面上明示，用户会误以为「点了归档没生效」（实测反馈）。 */}

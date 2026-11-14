@@ -271,10 +271,11 @@ function OpenPathIcon() {
 }
 
 /**
- * OpenFileDialog：工具箱路径输入弹窗（job_43 增量 5，human 方案：
- * 「右上角工具箱 + 输入路径窗口 → 打开 md 阅读」）。
- * - 输入路径（绝对 / 相对工作区 / .rick 相对）→ Enter 或「打开」提交
- * - 空路径不提交；提交后交给全局 reader.open → FileReaderPanel 展示
+ * OpenFileDialog：顶栏「打开文件」弹窗（Bug #8 human 反馈 2026-11-14：不要填路径
+ * ——直接目录/文件选择，文件浏览器式逐级导航）。
+ * - 文件浏览器（fsList 逐级）：目录点击进入、文件点击选定
+ * - 面包屑导航（上级目录 / 当前路径）+ md/文本文件优先高亮
+ * - 选定文件 → 交给全局 reader.open → FileReaderPanel 展示
  */
 function OpenFileDialog({
   open,
@@ -285,54 +286,100 @@ function OpenFileDialog({
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
-  const [pathInput, setPathInput] = useState("");
+  // 文件浏览器（Bug #8：直接选择——不再路径输入）
+  const [cur, setCur] = useState("");
+  const [parent, setParent] = useState("");
+  const [entries, setEntries] = useState<{ path: string; name: string; is_dir?: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // 每次打开时清空 + 聚焦（关闭期间保留也无意义——路径是一次性输入）
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    if (open) {
-      setPathInput("");
-      // Dialog 挂载后聚焦（rAF 避开首帧）
-      requestAnimationFrame(() => inputRef.current?.focus());
+  async function loadDir(dir: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.fsList(dir);
+      setCur(res.path);
+      setParent(res.parent);
+      setEntries(res.entries);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setEntries([]);
+    } finally {
+      setBusy(false);
     }
+  }
+
+  useEffect(() => {
+    if (open) void loadDir("/");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const submit = (): void => {
-    const p = pathInput.trim();
-    if (!p) return; // 空路径不提交（KR12d）
-    onOpen(p);
-    onClose();
-  };
+  const isTextLike = (name: string): boolean =>
+    /\.(md|markdown|txt|json|ya?ml|toml|go|ts|tsx|py|sh|log|csv)$/i.test(name);
 
   return (
     <Dialog open={open} onClose={onClose} title="打开文件" contentClassName="w-full max-w-xl">
-      <div className="flex flex-col gap-3">
-        <label htmlFor="open-file-path" className="text-xs text-ink-3">
-          输入文件路径（md / 文本）——支持绝对路径、相对当前工作区、.rick/… 路径
-        </label>
-        <input
-          ref={inputRef}
-          id="open-file-path"
-          type="text"
-          value={pathInput}
-          onChange={(e) => setPathInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder="如 .rick/jobs/job_43/plan/task1.md 或 /workdir/…/README.md"
-          className="w-full rounded-md border border-line bg-space/70 px-3 py-2 font-mono text-xs text-ink outline-none placeholder:text-ink-3/60 focus:border-portal/60"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <div className="flex justify-end gap-2">
+      <div className="flex flex-col gap-2">
+        {/* 面包屑 + 状态 */}
+        <div className="flex min-w-0 items-center gap-2 text-xs text-ink-3">
+          {parent && (
+            <button
+              type="button"
+              onClick={() => void loadDir(parent)}
+              className="shrink-0 rounded border border-line px-1.5 py-0.5 text-ink-2 hover:border-portal/50 hover:text-portal"
+              title="上一级目录"
+            >
+              ⬆ 上级
+            </button>
+          )}
+          <span className="min-w-0 flex-1 truncate font-mono" title={cur}>
+            {cur}
+          </span>
+          {busy && <span className="shrink-0">…</span>}
+        </div>
+        {error && <ErrorBanner message={error} />}
+        {/* 逐级列表：目录进入 / 文件选定 */}
+        <div className="max-h-[50vh] min-h-40 overflow-y-auto rounded-md border border-line bg-space/60">
+          {entries.length === 0 && !busy && (
+            <p className="px-3 py-6 text-center text-xs text-ink-3">空目录</p>
+          )}
+          {entries.map((e) => {
+            const dir = !!(e as { is_dir?: boolean }).is_dir;
+            const textLike = !dir && isTextLike(e.name);
+            return (
+              <button
+                key={e.path}
+                type="button"
+                onClick={() => {
+                  if (dir) {
+                    void loadDir(e.path);
+                  } else {
+                    onOpen(e.path);
+                    onClose();
+                  }
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-portal/10 ${
+                  textLike ? "text-ink" : "text-ink-3"
+                }`}
+                title={dir ? `进入目录 ${e.name}` : e.path}
+              >
+                <span className="shrink-0" aria-hidden="true">
+                  {dir ? "📂" : textLike ? "📄" : "·"}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono">{e.name}</span>
+                {!dir && !textLike && (
+                  <span className="shrink-0 text-[10px] text-ink-3/60">非文本</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-ink-3">
+          点击目录逐级导航；点击文件直接打开（📄 = 可阅读的文本/Markdown）。
+        </p>
+        <div className="flex justify-end">
           <Button size="sm" variant="ghost" onClick={onClose}>
             取消
-          </Button>
-          <Button size="sm" variant="primary" onClick={submit} disabled={!pathInput.trim()}>
-            打开
           </Button>
         </div>
       </div>
