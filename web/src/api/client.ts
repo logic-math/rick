@@ -36,7 +36,8 @@ export interface FsListResult {
   path: string;
   /** 上级目录（文件系统根为空串） */
   parent: string;
-  entries: { path: string; name: string }[];
+  /** 子项（files=1 模式含文件并带 is_dir；默认仅目录） */
+  entries: { path: string; name: string; is_dir?: boolean }[];
 }
 
 /** GET /api/fs/status 响应 */
@@ -199,9 +200,9 @@ export class ApiClient {
   // ----------------------------------------------------------
 
   /** GET /api/fs/list?path=<dir> —— 列出子目录（逐级导航） */
-  fsList(path: string): Promise<FsListResult> {
+  fsList(path: string, withFiles = false): Promise<FsListResult> {
     return this.request<FsListResult>("GET", "/api/fs/list", {
-      query: { path: path || "/" },
+      query: { path: path || "/", ...(withFiles ? { files: "1" } : {}) },
     });
   }
 

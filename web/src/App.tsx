@@ -297,7 +297,7 @@ function OpenFileDialog({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.fsList(dir);
+      const res = await api.fsList(dir, true);
       setCur(res.path);
       setParent(res.parent);
       setEntries(res.entries);
