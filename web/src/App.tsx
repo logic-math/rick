@@ -361,6 +361,46 @@ function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 桌面端侧栏折叠（用户可切换；默认展开） */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Bug #3（human 2026-11-14）：侧栏可拖宽——拖动右缘改变宽度（长标题不再被迫截断）。
+  // 宽度 localStorage 持久化；clamp 200–480；拖动中禁用 transition（跟手）。
+  // 桌面生效（md:w-[var(--sidebar-w)]）；移动端 drawer 保持 w-60 固定（小屏拖宽无意义）。
+  const SIDEBAR_W_KEY = "rick-sidebar-w";
+  const [sidebarW, setSidebarW] = useState<number>(() => {
+    const v = Number(localStorage.getItem(SIDEBAR_W_KEY));
+    return Number.isFinite(v) && v >= 200 && v <= 480 ? v : 240;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_W_KEY, String(sidebarW));
+  }, [sidebarW]);
+  const onSidebarResizeStart = (e: React.MouseEvent) => {
+    resizeDragRef.current = { startX: e.clientX, startW: sidebarW };
+    setIsResizing(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = resizeDragRef.current;
+      if (!d) return;
+      const next = d.startW + (e.clientX - d.startX);
+      setSidebarW(Math.min(480, Math.max(200, next)));
+    };
+    const onUp = () => {
+      if (!resizeDragRef.current) return;
+      resizeDragRef.current = null;
+      setIsResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionWs, setNewSessionWs] = useState<string | null>(null);
   const authRequired = useUiStore((s) => s.authRequired);
@@ -417,11 +457,15 @@ function AppShell() {
           />
         )}
 
-        {/* 侧栏：移动端不透明底（job_43：去毛玻璃层省电——canvas 動画时 blur 层每帧 GPU 重合成是发烫主根因之一）；md: 恢复桌面毛玻璃 */}
+        {/* 侧栏：移动端不透明底（job_43：去毛玻璃层省电）；md: 恢复桌面毛玻璃；
+            拖宽（Bug #3）：CSS 变量 --sidebar-w + 右缘拖动手柄，拖动中禁 transition */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } ${sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-60"}`}
+          style={{ "--sidebar-w": `${sidebarW}px` } as React.CSSProperties}
+          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur md:static md:translate-x-0 relative ${
+            isResizing ? "" : "transition-all duration-200"
+          } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} ${
+            sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-[var(--sidebar-w)]"
+          }`}
         >
           <div className="flex items-center gap-2 px-4 py-4">
             <Portal size={28} spin />
@@ -445,8 +489,19 @@ function AppShell() {
           </div>
           <div className="flex items-center gap-2 px-4 pb-3 text-xs text-ink-3">
             <Saucer size={20} />
-            <span>guardians of the context</span>
+            {/* Bug #3（human 裁决）：最能体现 Rick and Morty 特色的一句话 */}
+            <span>wubba lubba dub dubs</span>
           </div>
+          {/* 拖宽手柄（Bug #3）：右缘竖条，仅桌面（移动端 drawer 固定宽） */}
+          {!sidebarCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖动调整侧栏宽度"
+              onMouseDown={onSidebarResizeStart}
+              className="absolute right-0 top-0 z-10 hidden h-full w-1 cursor-col-resize hover:bg-portal/40 active:bg-portal/60 md:block"
+            />
+          )}
         </aside>
 
         {/* 主区 */}
