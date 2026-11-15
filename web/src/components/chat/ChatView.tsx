@@ -382,83 +382,77 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   /** 懒加载页大小（屏幕适配：视口高 ÷ 估条高 48px × 2 倍余量，下限 20） */
   const lazyPageSize = (): number =>
     Math.max(20, Math.ceil(window.innerHeight / 48) * 2);
-  // 首次打开拉游标（恢复阅读位置）；重建（resync/刷新）不重拉定位（保持当前视口）
+  // 首次打开的定位锚（历史加载 effect 内拉游标后设置——**时序修复**：此前游标
+  // getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到永远
+  // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
   const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
-  useEffect(() => {
-    if (hadHistoryRef.current) return; // 重建不重定位
-    let cancelled = false;
-    void api
-      .getDraft(SCROLL_KEY_PREFIX + sessionId)
-      .then((d) => {
-        if (!cancelled) setInitialScrollAnchor(d.content.startsWith("h-") || d.content.startsWith("msg-") || d.content.startsWith("grp-") || d.content.startsWith("tool-") || d.content.includes("-") ? d.content : null);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
     const isRebuild = hadHistoryRef.current;
-    // Bug #8 第三批：有保存游标时恢复拉取（before=游标前 N 条 + since=游标后续全部，
-    // 合并定位）。游标锚是前端 item id（h-…-${entryId} 等）——解析出后端 entry id。
-    // 游标条目可能已被 compact/裁剪——API 降级回退默认拉取（最近 N 条贴底）。
-    const anchorEntryId = (() => {
-      const a = !isRebuild && initialScrollAnchor ? initialScrollAnchor : null;
-      if (!a) return null;
-      // item id 形态：h-<suffix>-<entryId> / tool-<toolCallId> / compaction-… / h-…-<entryId>
-      const m = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(a);
-      return m ? m[1] : null;
-    })();
-    api
-      .getEntries(
-        sessionId,
-        isRebuild
-          ? {}
-          : anchorEntryId
-            ? { before: anchorEntryId, limit: lazyPageSize() }
-            : { limit: HISTORY_PAGE_SIZE },
-      )
-      .then(async (resp) => {
+    // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
+    // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
+    // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
+    void (async () => {
+      // ① 游标（仅首次打开；重建保持当前视口）
+      let savedAnchor: string | null = null;
+      if (!isRebuild) {
+        try {
+          const d = await api.getDraft(SCROLL_KEY_PREFIX + sessionId);
+          if (!cancelled && d.content && d.content.includes("-")) savedAnchor = d.content;
+        } catch {
+          // 无游标/失败——默认行为
+        }
+      }
+      if (cancelled) return;
+      setInitialScrollAnchor(savedAnchor);
+      // ② 解析锚里的后端 entry id（item id 形态 h-…-${entryId} 尾部 uuid；组锚
+      // grp-…-tool-<callId> 无 uuid → null → 定位-only 降级）
+      const anchorEntryId = savedAnchor
+        ? /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(savedAnchor)?.[1] ?? null
+        : null;
+      // ③ 拉历史：恢复模式（before=游标前 N 条 + since=游标后续）；默认最近 N 贴底
+      try {
+        const resp = anchorEntryId
+          ? await api.getEntries(sessionId, { before: anchorEntryId, limit: lazyPageSize() })
+          : await api.getEntries(sessionId, isRebuild ? {} : { limit: HISTORY_PAGE_SIZE });
         if (cancelled) return;
         let entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
-        // Bug #8 第三批：游标恢复——before 拉到游标前 N 条后，再拉 since=游标 后续
-        // 全部（上次阅读位置之后的新消息），合并后定位到游标。
         if (anchorEntryId) {
+          // ④ 恢复模式：拉游标后续全部（上次阅读位置之后的新消息）合并
           try {
             const after = await api.getEntries(sessionId, { since: anchorEntryId });
-            if (!cancelled) entriesList = [...entriesList, ...(after.entries as unknown as Array<Record<string, unknown>>)];
+            if (!cancelled)
+              entriesList = [
+                ...entriesList,
+                ...(after.entries as unknown as Array<Record<string, unknown>>),
+              ];
           } catch {
             // since 失败（游标 entry 已清理等）——只渲染前段（定位游标处）
           }
         }
+        if (cancelled) return;
         const firstBuilt = buildHistoryItems(
           entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
-        // 分页游标：entries 时间序，第一条=最早已加载；满页=可能还有更早
-        let earliestId = (resp.entries[0] as { id?: string } | undefined)?.id ?? null;
-        let hasMore =
-          !isRebuild && resp.entries.length === HISTORY_PAGE_SIZE;
+        // ⑤ 分页游标 + 懒加载语义：恢复模式**不做**自动补拉（游标前 N 条 +
+        // hasMore 可向上翻页 = 真懒加载）；默认模式保持自动补拉（A 方案现状）
+        let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
+        let hasMore = !isRebuild && !anchorEntryId && entriesList.length >= (anchorEntryId ? lazyPageSize() : HISTORY_PAGE_SIZE);
         setPaging({ earliestId, hasMore });
-        if (isRebuild || !hasMore || !earliestId) {
-          // 重建（全量已拿齐）或首次拉到底：历史已完整
-          if (!cancelled) hadHistoryRef.current = true;
+        if (isRebuild || anchorEntryId || !hasMore || !earliestId) {
+          if (!cancelled) hadHistoryRef.current = isRebuild || !anchorEntryId;
           return;
         }
-
-        // A：挂载自动补拉（方案 A——用户实测 254 条会话首屏只见最近 50 条，
-        // 更早历史要手动滚动才加载，体验不完整）。首屏已渲染，随后循环用
-        // before 游标拉更早页并前置合并，直到：拉到底（不满页）/ 达 MAX_HISTORY
-        // 上限 / 组件卸载。补拉不阻塞首屏；与 loadEarlier 共用 loadingEarlierRef 防重入。
+        // A：挂载自动补拉（默认模式——用户实测 254 条会话首屏只见最近 50 条）。
         if (hasMore && earliestId && !cancelled) {
           loadingEarlierRef.current = true;
           setLoadingEarlier(true);
           try {
-            let loaded = resp.entries.length;
+            let loaded = entriesList.length;
             while (hasMore && earliestId && !cancelled && loaded < MAX_HISTORY) {
               const pageResp = await api.getEntries(sessionId, {
                 before: earliestId,
@@ -487,11 +481,11 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             if (!cancelled) setLoadingEarlier(false);
           }
         }
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
         setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } }); // 历史拉取失败不阻塞 live 流
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };

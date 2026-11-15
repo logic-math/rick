@@ -302,10 +302,20 @@ export default function MessageList({
       virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
     });
   }, [initialAnchor, flatIdToIndex]);
-  // 视口锚回调（rangeChanged：视口首条 → onViewportAnchor）
+  // 视口锚回调（rangeChanged：视口首条 → onViewportAnchor）。组锚（grp-…-tool-）
+  // 解析不出后端 entryId（恢复拉取需要）——首条是组时向后找最近的 single 条目
+  // （h-/msg-/compaction-… 的 id 内嵌 entryId，恢复链可用）。
   const handleRangeChanged = useCallback(
     (range: { startIndex: number }) => {
-      const f = flat[range.startIndex];
+      let f = flat[range.startIndex];
+      if (f && f.kind === "group") {
+        for (let i = range.startIndex + 1; i < flat.length; i += 1) {
+          if (flat[i].kind === "single") {
+            f = flat[i];
+            break;
+          }
+        }
+      }
       if (f) onViewportAnchor?.(f.id);
     },
     [flat, onViewportAnchor],
