@@ -103,6 +103,10 @@ interface MessageListProps {
   /** Bug #8 2A 终版追加（human 反馈）：子会话视图的 user 对话者标签（main-agent——
    *  区分主会话 human；默认 "human"（主会话）） */
   userSenderLabel?: string;
+  /** Bug #8 第三批：视口顶部条目锚变化回调（游标记录——ChatView debounce 存服务端） */
+  onViewportAnchor?: (anchorId: string | null) => void;
+  /** Bug #8 第三批：初始定位锚（恢复上次阅读位置——挂载后 scrollToIndex 该条目） */
+  initialAnchor?: string | null;
   /** 可能还有更早历史（显示顶部「加载更早历史」按钮——显式兑底，不只靠滚动触发） */
   hasMore?: boolean;
   /** 加载更早进行中（按钮「加载中…」禁用态） */
@@ -253,6 +257,8 @@ export default function MessageList({
   onReachTop,
   onOpenSubagent,
   userSenderLabel,
+  onViewportAnchor,
+  initialAnchor,
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
@@ -276,6 +282,34 @@ export default function MessageList({
 
   // ---- 虚拟化数据（分组扁平化；items 引用变化即重算——流式 110ms 粒度）----
   const flat = useMemo(() => buildFlat(items), [items]);
+
+  // ---- Bug #8 第三批：视口锚（游标记录）+ 初始定位（恢复上次阅读位置）----
+  // flat 的稳定映射（flat entry id → index；锚 id 是 item id 或组 id）
+  const flatIdToIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    flat.forEach((f, i) => m.set(f.id, i));
+    return m;
+  }, [flat]);
+  // 初始定位（挂载 + 有锚）：scrollToIndex 锚条目（非贴底——覆盖默认贴底行为）
+  const didInitialAnchorRef = useRef(false);
+  useEffect(() => {
+    if (didInitialAnchorRef.current || !initialAnchor) return;
+    const idx = flatIdToIndex.get(initialAnchor);
+    if (idx === undefined) return;
+    didInitialAnchorRef.current = true;
+    // rAF：等 Virtuoso 完成首帧布局后再定位（立即调用会被重置）
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
+    });
+  }, [initialAnchor, flatIdToIndex]);
+  // 视口锚回调（rangeChanged：视口首条 → onViewportAnchor）
+  const handleRangeChanged = useCallback(
+    (range: { startIndex: number }) => {
+      const f = flat[range.startIndex];
+      if (f) onViewportAnchor?.(f.id);
+    },
+    [flat, onViewportAnchor],
+  );
 
   // ---- 前置插入检测 + firstItemIndex（KR8d：历史前置插入防跳）----
   // 判定：首条 id 变化 + 长度增长 = 前置（追加时首条 id 不变；原地更新长度不变）。
@@ -426,6 +460,7 @@ export default function MessageList({
           followOutput="auto"
           atBottomStateChange={setPinned}
           startReached={() => onReachTopRef.current?.()}
+          rangeChanged={handleRangeChanged}
           components={components}
           itemContent={(_, entry) =>
             entry.kind === "group" ? (

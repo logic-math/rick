@@ -361,18 +361,82 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 拉**全量**（不带 limit）覆盖，避免「重建只拉最近 50 条 → 254 条历史缩水 →
   // 全部重挂 + enter 动画重放 = 使用中历史闪烁 + override 展开态丢失」。
   const hadHistoryRef = useRef(false);
+  // Bug #8 第三批（human 2026-11-15）：滚动游标跨设备保留——打开会话恢复到上次
+  // 阅读位置（游标前 N 条 + 定位），滚动时 debounce 存服务端 drafts（scroll:<sid>）。
+  const SCROLL_KEY_PREFIX = "scroll:";
+  const scrollAnchorRef = useRef<string | null>(null);
+  const scrollSaveTimerRef = useRef<number | null>(null);
+  /** 视口锚回调（MessageList rangeChanged）——debounce 1s 存服务端（跨设备恢复） */
+  const handleViewportAnchor = useCallback(
+    (anchorId: string | null) => {
+      scrollAnchorRef.current = anchorId;
+      if (!anchorId) return;
+      if (scrollSaveTimerRef.current !== null) window.clearTimeout(scrollSaveTimerRef.current);
+      scrollSaveTimerRef.current = window.setTimeout(() => {
+        scrollSaveTimerRef.current = null;
+        void api.saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId).catch(() => {});
+      }, 1000);
+    },
+    [sessionId],
+  );
+  /** 懒加载页大小（屏幕适配：视口高 ÷ 估条高 48px × 2 倍余量，下限 20） */
+  const lazyPageSize = (): number =>
+    Math.max(20, Math.ceil(window.innerHeight / 48) * 2);
+  // 首次打开拉游标（恢复阅读位置）；重建（resync/刷新）不重拉定位（保持当前视口）
+  const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
+  useEffect(() => {
+    if (hadHistoryRef.current) return; // 重建不重定位
+    let cancelled = false;
+    void api
+      .getDraft(SCROLL_KEY_PREFIX + sessionId)
+      .then((d) => {
+        if (!cancelled) setInitialScrollAnchor(d.content.startsWith("h-") || d.content.startsWith("msg-") || d.content.startsWith("grp-") || d.content.startsWith("tool-") || d.content.includes("-") ? d.content : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
     const isRebuild = hadHistoryRef.current;
+    // Bug #8 第三批：有保存游标时恢复拉取（before=游标前 N 条 + since=游标后续全部，
+    // 合并定位）。游标锚是前端 item id（h-…-${entryId} 等）——解析出后端 entry id。
+    // 游标条目可能已被 compact/裁剪——API 降级回退默认拉取（最近 N 条贴底）。
+    const anchorEntryId = (() => {
+      const a = !isRebuild && initialScrollAnchor ? initialScrollAnchor : null;
+      if (!a) return null;
+      // item id 形态：h-<suffix>-<entryId> / tool-<toolCallId> / compaction-… / h-…-<entryId>
+      const m = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(a);
+      return m ? m[1] : null;
+    })();
     api
-      .getEntries(sessionId, isRebuild ? {} : { limit: HISTORY_PAGE_SIZE })
+      .getEntries(
+        sessionId,
+        isRebuild
+          ? {}
+          : anchorEntryId
+            ? { before: anchorEntryId, limit: lazyPageSize() }
+            : { limit: HISTORY_PAGE_SIZE },
+      )
       .then(async (resp) => {
         if (cancelled) return;
+        let entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
+        // Bug #8 第三批：游标恢复——before 拉到游标前 N 条后，再拉 since=游标 后续
+        // 全部（上次阅读位置之后的新消息），合并后定位到游标。
+        if (anchorEntryId) {
+          try {
+            const after = await api.getEntries(sessionId, { since: anchorEntryId });
+            if (!cancelled) entriesList = [...entriesList, ...(after.entries as unknown as Array<Record<string, unknown>>)];
+          } catch {
+            // since 失败（游标 entry 已清理等）——只渲染前段（定位游标处）
+          }
+        }
         const firstBuilt = buildHistoryItems(
-          resp.entries as unknown as Parameters<typeof buildHistoryItems>[0],
+          entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
         // 分页游标：entries 时间序，第一条=最早已加载；满页=可能还有更早
@@ -950,6 +1014,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           loadingEarlier={loadingEarlier}
           onReachTop={() => void loadEarlier()}
           onOpenSubagent={(t: SubagentTarget) => setOpenSubagent(t)}
+          onViewportAnchor={handleViewportAnchor}
+          initialAnchor={initialScrollAnchor}
         />
       </div>
 
