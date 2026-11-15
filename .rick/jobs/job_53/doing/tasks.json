@@ -233,16 +233,27 @@
       "commit_hash": "de1e1e5f52200a768574a926022ef539eccd68fd"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T12:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task22",
       "task_name": "Bug #8 2A R2: subagent 进度 SSE 推送（后端 watcher 轮询 status.json→subagent_progress 事件→前端多卡渲染默认不折叠）",
-      "updated_at": "2026-11-15T12:00:00+08:00"
+      "updated_at": "2026-11-15T04:09:33.775Z",
+      "commit_hash": "04f2c3eeab2fa4a5a5c3925aee2db258bc6beab3"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-15T12:40:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task23",
+      "task_name": "Bug #8 2A R2 追加: subagent_progress 事件形状修复（Envelope kind→SessionEvent {event:{type}} camelCase——replace 静默失败修正）",
+      "updated_at": "2026-11-15T12:40:00+08:00"
     }
   ],
-  "updated_at": "2026-11-15T12:00:00+08:00",
+  "updated_at": "2026-11-15T12:40:00+08:00",
   "version": "1.0"
 }

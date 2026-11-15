@@ -149,18 +149,16 @@ func (m *SessionManager) publishSubagentProgress(statusPath string) {
 	}
 	for _, e := range m.sessions.List() {
 		if e.PISessionID != "" && strings.Contains(piSession, e.PISessionID) {
-			m.hub.Publish(Envelope{
-				Type:      EventTypeSessionEvent,
-				SessionID: e.ID,
-				Data: mustMarshal(map[string]any{
-					"kind":         "subagent_progress",
-					"run_id":       ev.RunID,
-					"tool_call_id": ev.ToolCall,
-					"state":        ev.State,
-					"steps":        ev.Steps,
-					"last_update":  ev.UpdatedAt,
-				}),
-			})
+			// SessionEvent helper：{event: {...}} 形状（前端 env.data.event 解包进 applyEvent）。
+			// 字段 camelCase（与前端 viewModel 的 ev.toolCallId/ev.runId 对齐）。
+			m.hub.Publish(SessionEvent(e.ID, nil, map[string]any{
+				"type":       "subagent_progress",
+				"runId":      ev.RunID,
+				"toolCallId": ev.ToolCall,
+				"state":      ev.State,
+				"steps":      ev.Steps,
+				"lastUpdate": ev.UpdatedAt,
+			}))
 		}
 	}
 }
