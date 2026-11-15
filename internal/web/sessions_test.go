@@ -112,7 +112,14 @@ func newTestEnv(t *testing.T) *testEnv {
 		IdleTimeout:       0,
 		PiPath:            pi,
 	})
-	t.Cleanup(sup.CloseAll)
+	// Bug #8 第二批（2026-11-15 根治 TempDir 竞态）：CloseAll 的 w.Close() 只等
+	// sh 主进程退出（cmd.Wait），fake pi 的孙进程（printf/sed fork）在进程组
+	// kill 后仍有毫秒级写窗口 → t.TempDir RemoveAll 竞态「directory not empty」
+	// （job_50 起 3 个 job 反复骚扰的 backlog）。grace 100ms 等孙进程 flush。
+	t.Cleanup(func() {
+		sup.CloseAll()
+		time.Sleep(100 * time.Millisecond)
+	})
 
 	workspaces, err := LoadWorkspaceRegistry(filepath.Join(t.TempDir(), "web.json"))
 	if err != nil {

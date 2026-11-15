@@ -401,3 +401,10 @@ export interface SessionModelsResult {
   models: SessionModel[];
   current: SessionModel | null;
 }
+
+/** Bug #8 2C：GET /api/sessions/{id}/stats 响应（pi get_session_stats 透传） */
+export interface SessionStats {
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  cost: number;
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
+}

@@ -25,6 +25,7 @@ import {
   type SessionEntries,
   type SessionInfo,
   type SessionModelsResult,
+  type SessionStats,
   type SessionPrompt,
   type WorkspaceEntry,
 } from "../types";
@@ -480,6 +481,14 @@ export class ApiClient {
       "PUT",
       `/api/drafts/${encodeURIComponent(key)}`,
       { body: { content } },
+    );
+  }
+
+  /** Bug #8 2C：token/成本/上下文使用率（get_session_stats 透传）。 */
+  getSessionStats(sessionId: string): Promise<{ ok: boolean; stats: SessionStats }> {
+    return this.request<{ ok: boolean; stats: SessionStats }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/stats`,
     );
   }
 

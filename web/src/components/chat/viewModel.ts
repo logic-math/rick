@@ -164,10 +164,18 @@ export function resultText(result: unknown): { text: string; truncated: boolean;
 }
 
 /** 工具参数摘要（单行） */
-export function summarizeArgs(args: unknown): string {
+export function summarizeArgs(args: unknown, toolName?: string): string {
   if (args == null) return "";
   if (typeof args === "string") return args;
   const a = args as Record<string, unknown>;
+  // Bug #8 2A（human 2026-11-14）：subagent 摘要 = agent · task 首行（子代理在
+  // 干什么一眼可见——泛型 JSON 摘要不可读）
+  if (toolName === "subagent") {
+    const agent = typeof a?.agent === "string" ? a.agent : "";
+    const task = typeof a?.task === "string" ? a.task.split("\n")[0] : "";
+    const summary = [agent, task].filter(Boolean).join(" · ");
+    if (summary) return summary.length > 120 ? `${summary.slice(0, 117)}…` : summary;
+  }
   for (const key of ["command", "file_path", "path", "pattern", "query", "url", "name"]) {
     const v = a?.[key];
     if (typeof v === "string" && v) return v.length > 120 ? `${v.slice(0, 117)}…` : v;

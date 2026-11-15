@@ -1680,6 +1680,29 @@ func (m *SessionManager) SessionRename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"session_id": entry.ID, "name": normalized})
 }
 
+// SessionStats handles GET /api/sessions/{id}/stats — pi get_session_stats
+// 透传（Bug #8 2C human 2026-11-14）：token 用量/成本（全 session 含工具与
+// compact 生成——subagent 消耗计入）+ contextUsage（上下文窗口使用率，compact
+// 判定的实际口径）。active worker 直查；非 active 降级（会话结束后无 worker）。
+func (m *SessionManager) SessionStats(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	ev, err := m.rpcRequestTimeout(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
+		return c.GetSessionStats()
+	}, 10*time.Second)
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		writeError(w, newWebError(http.StatusBadRequest, "stats_failed", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "stats": json.RawMessage(ev.Data)})
+}
+
 // SessionSetThinking handles POST /api/sessions/{id}/thinking {level}:
 // sets the reasoning/thinking level for the session's current model.
 func (m *SessionManager) SessionSetThinking(w http.ResponseWriter, r *http.Request) {

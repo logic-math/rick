@@ -151,8 +151,15 @@ function buildFlat(items: ChatItem[]): FlatEntry[] {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.kind === "tool") {
-      if (toolRun.length === 0) currentRunStart = i;
-      toolRun.push(item);
+      // Bug #8 2A（human 2026-11-14）：subagent 调用独立成卡（不折叠进
+      // 「N 次工具调用」组——子代理的工作进展一眼可见、点击展开详情）
+      if (item.toolName === "subagent") {
+        flushTools();
+        out.push({ kind: "single", id: item.id, item });
+      } else {
+        if (toolRun.length === 0) currentRunStart = i;
+        toolRun.push(item);
+      }
     } else {
       flushTools();
       // thinking 默认折叠（含流式中的最后一块）：历史+实时都不自动展开。

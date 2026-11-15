@@ -53,6 +53,28 @@ export default function Settings() {
   // token
   const [token, setToken] = useState(() => getStoredToken());
   const [tokenSaved, setTokenSaved] = useState(false);
+  // Bug #8 2C（human 2026-11-14）：自动压缩设置（上下文使用率超阈值自动 compact）
+  const AUTO_COMPACT_KEY = "rick-web:auto-compact";
+  const [autoCompact, setAutoCompact] = useState<{ enabled: boolean; threshold: number }>(() => {
+    try {
+      const raw = localStorage.getItem(AUTO_COMPACT_KEY);
+      const v = raw ? JSON.parse(raw) : null;
+      if (v && typeof v.enabled === "boolean") {
+        return { enabled: v.enabled, threshold: typeof v.threshold === "number" ? v.threshold : 80 };
+      }
+    } catch {
+      // localStorage 不可用——默认
+    }
+    return { enabled: true, threshold: 80 };
+  });
+  const saveAutoCompact = (next: { enabled: boolean; threshold: number }) => {
+    setAutoCompact(next);
+    try {
+      localStorage.setItem(AUTO_COMPACT_KEY, JSON.stringify(next));
+    } catch {
+      // 静默
+    }
+  };
   const [testing, setTesting] = useState(false);
   const [testOk, setTestOk] = useState<boolean | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
@@ -215,6 +237,37 @@ export default function Settings() {
       </Section>
 
       {/* 服务器信息 */}
+      {/* Bug #8 2C：自动压缩（上下文使用率超阈值自动 compact——会话页常驻使用率徽标） */}
+      <Section title="自动压缩" desc="会话上下文使用率超过阈值时自动执行 compact（历史总结为摘要，保留最近消息；会话页头部常驻显示使用率）">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={autoCompact.enabled}
+              onChange={(e) => saveAutoCompact({ ...autoCompact, enabled: e.target.checked })}
+              className="h-4 w-4 accent-portal"
+            />
+            <span className="text-ink">启用自动压缩</span>
+          </label>
+          <label className="flex items-center gap-2 text-ink-2">
+            阈值
+            <input
+              type="number"
+              min={50}
+              max={95}
+              value={autoCompact.threshold}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) saveAutoCompact({ ...autoCompact, threshold: Math.min(95, Math.max(50, v)) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            %
+          </label>
+          <span className="text-xs text-ink-3">（默认 80%——使用率徽标 ≥80% 变警示色）</span>
+        </div>
+      </Section>
+
       <Section title="服务器" desc="GET /api/config">
         {serverErr ? (
           <ErrorBanner message={serverErr} />

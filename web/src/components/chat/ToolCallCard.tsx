@@ -216,7 +216,7 @@ interface ToolCallCardProps {
 function ToolCallCardImpl({ item }: ToolCallCardProps) {
   const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, false);
   const [expandedFull, setExpandedFull] = useState(false);
-  const summary = summarizeArgs(item.args);
+  const summary = summarizeArgs(item.args, item.toolName);
   const isBash = item.toolName === "bash";
   const isEdit = item.toolName === "edit";
   const edit = useMemo(() => (isEdit ? editStrings(item.args) : null), [isEdit, item.args]);
