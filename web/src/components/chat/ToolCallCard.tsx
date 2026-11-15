@@ -214,7 +214,8 @@ interface ToolCallCardProps {
 }
 
 function ToolCallCardImpl({ item }: ToolCallCardProps) {
-  const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, false);
+  // Bug #8 2A 追加（human 裁决）：subagent 卡默认不折叠（进度实时可见）
+  const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, item.toolName === "subagent");
   const [expandedFull, setExpandedFull] = useState(false);
   const summary = summarizeArgs(item.args, item.toolName);
   const isBash = item.toolName === "bash";
@@ -266,6 +267,36 @@ function ToolCallCardImpl({ item }: ToolCallCardProps) {
       </button>
 
       {/* 展开态：完整参数 + 结果 */}
+      {/* Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（subagent_progress
+          SSE 注入——多 subagent 多卡各自更新；不折叠也可看到进度概览） */}
+      {item.subagentProgress && (
+        <div className="border-t border-line/60 px-3 py-1.5">
+          <div className="flex items-center gap-2 text-[10px] text-ink-3">
+            <span className={item.subagentProgress.state === "running" ? "text-portal" : "text-ink-3"}>
+              {item.subagentProgress.state === "running" ? "● 运行中" : item.subagentProgress.state}
+            </span>
+            <span className="font-mono">{item.subagentProgress.runId.slice(0, 8)}</span>
+          </div>
+          {item.subagentProgress.steps.map((st, idx) => (
+            <div key={idx} className="mt-1 flex min-w-0 items-center gap-2 text-[11px]">
+              <span className="shrink-0 rounded bg-white/5 px-1 font-mono text-[10px] text-ink-2">{st.agent}</span>
+              <span className="shrink-0 text-ink-3">{st.label}</span>
+              <span
+                className={`shrink-0 text-[10px] ${
+                  st.status === "running" ? "text-portal" : st.status === "completed" ? "text-ink-3" : "text-ink-2"
+                }`}
+              >
+                {st.status === "running" ? "⟳" : st.status === "completed" ? "✓" : st.status}
+              </span>
+              {st.currentTool && (
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-3" title={st.currentTool}>
+                  {st.currentTool}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {expanded && (
         <div className="border-t border-line">
           {/* 完整参数 */}

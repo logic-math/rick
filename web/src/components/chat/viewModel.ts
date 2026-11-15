@@ -33,6 +33,23 @@ export interface ToolItem extends SeqAnchor {
   /** 结果截断/全文路径（details 字段） */
   truncated: boolean;
   fullOutputPath: string | null;
+  /** Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（subagent_progress
+   * SSE 事件按 toolCallId 匹配注入——多 subagent 多卡各自更新） */
+  subagentProgress?: SubagentProgress;
+}
+
+/** subagent_progress 事件负载（后端投影：pi-subagents status.json） */
+export interface SubagentProgress {
+  runId: string;
+  state: string; // running | complete | ...
+  steps: Array<{
+    agent: string;
+    label: string;
+    status: string;
+    currentTool?: string;
+    lastActivityAt?: number;
+  }>;
+  lastUpdate?: number;
 }
 
 /** envelope 全局序号（Hub 单调 seq）——live 项的**时序锚点**。
@@ -319,6 +336,31 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       if (!willRetry) {
         st.streaming = false;
         supersedeRunningTools(st);
+      }
+      break;
+    }
+    case "subagent_progress": {
+      // Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（后端 watcher 轮询
+      // pi-subagents status.json → SSE）——按 toolCallId 匹配 subagent 工具卡注入。
+      const tcid = String(ev.toolCallId ?? "");
+      if (tcid) {
+        const item = st.items.find((i) => i.kind === "tool" && i.toolCallId === tcid);
+        if (item && item.kind === "tool" && item.toolName === "subagent") {
+          item.subagentProgress = {
+            runId: String(ev.runId ?? ""),
+            state: String(ev.state ?? ""),
+            steps: Array.isArray(ev.steps)
+              ? (ev.steps as Array<Record<string, unknown>>).map((s2) => ({
+                  agent: String(s2.agent ?? ""),
+                  label: String(s2.label ?? ""),
+                  status: String(s2.status ?? ""),
+                  currentTool: typeof s2.currentTool === "string" ? s2.currentTool : undefined,
+                  lastActivityAt: typeof s2.lastActivityAt === "number" ? s2.lastActivityAt : undefined,
+                }))
+              : [],
+            lastUpdate: typeof ev.lastUpdate === "number" ? ev.lastUpdate : undefined,
+          };
+        }
       }
       break;
     }

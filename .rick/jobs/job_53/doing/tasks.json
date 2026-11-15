@@ -222,16 +222,27 @@
       "commit_hash": "ac4f88bfeab6ce35fea8de1081c32ba6a67ea493"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T11:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task21",
       "task_name": "Bug #8 追加: ctx 徽标显示窗口大小+两位小数占比（阈值配置提升组件级）",
-      "updated_at": "2026-11-15T11:00:00+08:00"
+      "updated_at": "2026-11-15T03:06:32.189Z",
+      "commit_hash": "de1e1e5f52200a768574a926022ef539eccd68fd"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-15T12:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task22",
+      "task_name": "Bug #8 2A R2: subagent 进度 SSE 推送（后端 watcher 轮询 status.json→subagent_progress 事件→前端多卡渲染默认不折叠）",
+      "updated_at": "2026-11-15T12:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-15T11:00:00+08:00",
+  "updated_at": "2026-11-15T12:00:00+08:00",
   "version": "1.0"
 }

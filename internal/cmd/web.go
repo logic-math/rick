@@ -249,6 +249,9 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 	sm.SetJobNames(jobNames)
 	sm.SetSessionNames(sessionNames)
 	sm.SetDrafts(drafts)
+	// Bug #8 2A 追加（human 裁决 R2）：async subagent 进度 watcher（status.json
+	// 轮询 → subagent_progress SSE → 前端 subagent 卡实时渲染）
+	sm.StartSubagentProgressWatcher()
 	// 重启对账：active/running 但无 worker 的会话标记 error（前端显示 Resume 恢复）
 	sm.ReconcileOnStart()
 	// 后台型会话的历史空标题回填（doing job_N / dream ×N）——旧数据侧栏只显示会话 id
