@@ -484,6 +484,19 @@ export class ApiClient {
     );
   }
 
+  /** Bug #8 2A 终版：会话当前活跃 subagent 列表（侧边栏下拉数据源）。 */
+  listSubagents(sessionId: string): Promise<{
+    subagents: Array<{ runId: string; state: string; steps: Array<{ agent: string; label: string; status: string; currentTool?: string }> }>;
+  }> {
+    return this.request("GET", `/api/sessions/${encodeURIComponent(sessionId)}/subagents`);
+  }
+
+  /** Bug #8 2A 终版：subagent 子会话消息流（只读渲染）。 */
+  subagentEntries(runId: string, label?: string): Promise<{ entries: unknown[]; leaf_id?: string | null }> {
+    const q = label ? `?label=${encodeURIComponent(label)}` : "";
+    return this.request("GET", `/api/subagent/${encodeURIComponent(runId)}/entries${q}`);
+  }
+
   /** Bug #8 2C：token/成本/上下文使用率（get_session_stats 透传）。 */
   getSessionStats(sessionId: string): Promise<{ ok: boolean; stats: SessionStats }> {
     return this.request<{ ok: boolean; stats: SessionStats }>(

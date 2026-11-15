@@ -211,11 +211,14 @@ function StatusIcon({ status }: { status: ToolItem["status"] }) {
 
 interface ToolCallCardProps {
   item: ToolItem;
+  /** Bug #8 2A 终版：subagent 卡「查看会话」跳转（打开右侧栏子会话） */
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
 }
 
-function ToolCallCardImpl({ item }: ToolCallCardProps) {
-  // Bug #8 2A 追加（human 裁决）：subagent 卡默认不折叠（进度实时可见）
-  const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, item.toolName === "subagent");
+function ToolCallCardImpl({ item, onOpenSubagent }: ToolCallCardProps) {
+  // Bug #8 2A 终版（human 裁决 2026-11-15）：subagent 卡恢复默认折叠（进度区仍
+  // 展开（折叠卡也能看到进度概览）+「查看会话」跳转右侧栏）
+  const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, false);
   const [expandedFull, setExpandedFull] = useState(false);
   const summary = summarizeArgs(item.args, item.toolName);
   const isBash = item.toolName === "bash";
@@ -276,9 +279,28 @@ function ToolCallCardImpl({ item }: ToolCallCardProps) {
               {item.subagentProgress.state === "running" ? "● 运行中" : item.subagentProgress.state}
             </span>
             <span className="font-mono">{item.subagentProgress.runId.slice(0, 8)}</span>
+            {onOpenSubagent && (
+              <button
+                type="button"
+                onClick={() => {
+                  const st = item.subagentProgress?.steps[0];
+                  if (st) onOpenSubagent({ runId: item.subagentProgress!.runId, label: st.label, agent: st.agent });
+                }}
+                className="ml-auto shrink-0 rounded border border-portal/40 bg-portal/10 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/20"
+                title="在右侧栏打开子会话（只读）"
+              >
+                查看会话 ↗
+              </button>
+            )}
           </div>
           {item.subagentProgress.steps.map((st, idx) => (
-            <div key={idx} className="mt-1 flex min-w-0 items-center gap-2 text-[11px]">
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onOpenSubagent?.({ runId: item.subagentProgress!.runId, label: st.label, agent: st.agent })}
+              className="mt-1 flex min-w-0 w-full items-center gap-2 text-left text-[11px] hover:bg-portal/5"
+              title="打开该 subagent 的会话（右侧栏只读）"
+            >
               <span className="shrink-0 rounded bg-white/5 px-1 font-mono text-[10px] text-ink-2">{st.agent}</span>
               <span className="shrink-0 text-ink-3">{st.label}</span>
               <span
@@ -293,7 +315,7 @@ function ToolCallCardImpl({ item }: ToolCallCardProps) {
                   {st.currentTool}
                 </span>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}

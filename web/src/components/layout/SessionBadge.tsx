@@ -12,11 +12,13 @@
  * 归档/恢复成功后 load(workspace_id) 重拉（默认列表不含归档会话）。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
+import { api } from "../../api/client";
+import { useUiStore } from "../../stores/ui";
 import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
 
 // Bug #5（human 2026-11-14 裁决）：已删除类型（plan/doing/learning/ctrl）不再显示
@@ -44,6 +46,31 @@ export default function SessionBadge({
 }) {
   const load = useSessionsStore((s) => s.load);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Bug #8 2A 终版（human 裁决 2026-11-15）：活跃 subagent 下拉——active 会话
+  // 拉取活跃 subagent 列表（30s 轮询），点击跳转会话页右侧栏（只读子会话）。
+  const openSubagentFromSidebar = useUiStore((s) => s.openSubagentFromSidebar);
+  const [subagents, setSubagents] = useState<
+    Array<{ runId: string; state: string; steps: Array<{ agent: string; label: string; status: string; currentTool?: string }> }>
+  >([]);
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
+  useEffect(() => {
+    if (!subagentsOpen || session.status !== "active") return;
+    let cancelled = false;
+    const pull = () => {
+      void api
+        .listSubagents(session.id)
+        .then((r) => {
+          if (!cancelled) setSubagents(r.subagents ?? []);
+        })
+        .catch(() => {});
+    };
+    pull();
+    const t = setInterval(pull, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [subagentsOpen, session.id, session.status]);
   // 标题兜底：优先**用户给 job 起的任务名**（server 返回 job_name）→ title →
   // 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
   // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
@@ -98,7 +125,46 @@ export default function SessionBadge({
         ) : (
           sessionStatusBadge(session.status)
         )}
+        {session.status === "active" && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setSubagentsOpen((o) => !o);
+            }}
+            className="shrink-0 rounded px-1 text-[10px] text-ink-3 hover:text-portal"
+            title="活跃 subagent 列表"
+            aria-expanded={subagentsOpen}
+          >
+            {subagentsOpen ? "▾" : "▸"}⧉
+          </button>
+        )}
       </NavLink>
+      {subagentsOpen && session.status === "active" && (
+        <div className="ml-4 flex flex-col gap-0.5 py-0.5">
+          {subagents.length === 0 && <p className="px-2 text-[10px] text-ink-3">无活跃 subagent</p>}
+          {subagents.flatMap((run) =>
+            run.steps.map((st) => (
+              <button
+                key={`${run.runId}-${st.label}`}
+                type="button"
+                onClick={() => {
+                  openSubagentFromSidebar({ runId: run.runId, label: st.label, agent: st.agent });
+                  onNavigate?.();
+                }}
+                className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-left text-[10px] text-ink-2 hover:bg-portal/10 hover:text-portal"
+                title={`${st.agent} · ${st.label}——点击在会话页右侧栏打开（只读）`}
+              >
+                <span className="shrink-0">{st.status === "running" ? "⟳" : "✓"}</span>
+                <span className="shrink-0 rounded bg-white/5 px-1 font-mono">{st.agent}</span>
+                <span className="shrink-0">{st.label}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-ink-3">{st.currentTool ?? ""}</span>
+              </button>
+            )),
+          )}
+        </div>
+      )}
       {/* ⋮ 会话设置（hover 显示；stopPropagation 避免触发导航） */}
       <button
         type="button"

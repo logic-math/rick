@@ -244,16 +244,27 @@
       "commit_hash": "04f2c3eeab2fa4a5a5c3925aee2db258bc6beab3"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T12:40:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task23",
       "task_name": "Bug #8 2A R2 追加: subagent_progress 事件形状修复（Envelope kind→SessionEvent {event:{type}} camelCase——replace 静默失败修正）",
-      "updated_at": "2026-11-15T12:40:00+08:00"
+      "updated_at": "2026-11-15T04:24:00.142Z",
+      "commit_hash": "195f0083ffa3c27b1bcc00cade71583f1be497d2"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-15T13:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task24",
+      "task_name": "Bug #8 2A 终版: subagent 会话深度展示（右侧栏只读+侧边栏活跃列表+卡片跳转+默认折叠）",
+      "updated_at": "2026-11-15T13:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-15T12:40:00+08:00",
+  "updated_at": "2026-11-15T13:00:00+08:00",
   "version": "1.0"
 }

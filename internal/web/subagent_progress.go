@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,4 +162,128 @@ func (m *SessionManager) publishSubagentProgress(statusPath string) {
 			}))
 		}
 	}
+}
+
+// SubagentEntries handles GET /api/subagent/{runId}/entries?label=<label> —— 读取一个
+// async subagent run 的子会话消息流（status.json 定位 steps[].sessionFile → 离线解析
+// 该 pi 会话 JSONL）。Bug #8 2A 终版（human 裁决 2026-11-15：subagent 会话完整展示、
+// 只读——右侧栏渲染完整子会话输出）。
+func (m *SessionManager) SubagentEntries(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runId")
+	label := r.URL.Query().Get("label")
+	if runID == "" {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "missing runId"))
+		return
+	}
+	sp := filepath.Join(subagentProgressDir(), runID, "status.json")
+	data, err := os.ReadFile(sp)
+	if err != nil {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "subagent run %s not found", runID))
+		return
+	}
+	var st asyncStatusRaw
+	if err := json.Unmarshal(data, &st); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "parse status: %v", err))
+		return
+	}
+	sessionFile := ""
+	for _, s := range st.Steps {
+		if label == "" || s.Label == label {
+			// 完整子会话路径在 status.json 的原始 JSON 里（steps[].sessionFile）——
+			// asyncStatusRaw 未投影，重读一次取路径。
+			break
+		}
+	}
+	// 重读原始 JSON 提取 sessionFile（带 label 匹配）
+	var full struct {
+		Steps []struct {
+			Label       string `json:"label"`
+			SessionFile string `json:"sessionFile"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(data, &full); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "parse steps: %v", err))
+		return
+	}
+	for _, s := range full.Steps {
+		if (label == "" || s.Label == label) && s.SessionFile != "" {
+			sessionFile = s.SessionFile
+			break
+		}
+	}
+	if sessionFile == "" {
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "subagent session file not found for run %s label %q", runID, label))
+		return
+	}
+	resp, err := parseSessionEntries(sessionFile, "", 0, "")
+	if err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "parse subagent session: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// SessionSubagents handles GET /api/sessions/{id}/subagents —— 该会话当前的活跃
+// subagent 列表（扫描 async-subagent-runs 下属于该会话的 run（status.json 的
+// sessionId 匹配 PISessionID）→ 投影 steps）。侧边栏下拉数据源。
+func (m *SessionManager) SessionSubagents(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	dir := subagentProgressDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"subagents": []any{}})
+		return
+	}
+	type subagentBrief struct {
+		RunID string                 `json:"runId"`
+		State string                 `json:"state"`
+		Steps []subagentProgressStep `json:"steps"`
+	}
+	out := []subagentBrief{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sp := filepath.Join(dir, e.Name(), "status.json")
+		data, err := os.ReadFile(sp)
+		if err != nil {
+			continue
+		}
+		var st asyncStatusRaw
+		if err := json.Unmarshal(data, &st); err != nil {
+			continue
+		}
+		// 父会话匹配（status.sessionId basename 含 PISessionID）
+		piSession := st.SessionID
+		if i := strings.LastIndexAny(piSession, "/\\"); i >= 0 {
+			piSession = piSession[i+1:]
+		}
+		if entry.PISessionID == "" || !strings.Contains(piSession, entry.PISessionID) {
+			continue
+		}
+		if st.State != "running" {
+			continue // 活跃列表：只列 running（human：当前活跃的 subagent）
+		}
+		b := subagentBrief{RunID: st.RunID, State: st.State}
+		for _, s := range st.Steps {
+			cur := ""
+			if n := len(s.RecentTools); n > 0 {
+				rt := s.RecentTools[n-1]
+				args := rt.Args
+				if len(args) > 60 {
+					args = args[:60] + "…"
+				}
+				cur = rt.Tool + " " + args
+			}
+			b.Steps = append(b.Steps, subagentProgressStep{
+				Agent: s.Agent, Label: s.Label, Status: s.Status,
+				CurrentTool: cur, LastActive: s.LastActivityAt,
+			})
+		}
+		out = append(out, b)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"subagents": out})
 }

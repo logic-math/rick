@@ -12,8 +12,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
+import SubagentPanel, { type SubagentTarget } from "./SubagentPanel";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
+import { useUiStore } from "../../stores/ui";
 import type { SessionStatus, SessionPrompt, SessionType, SessionStats } from "../../types";
 import { ApiError } from "../../types";
 import MessageList from "./MessageList";
@@ -776,6 +778,13 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       .catch(() => {});
   }, [stats?.contextUsage?.percent, vm.compacting, info?.status, sessionId, refreshStats, info]);
 
+  // Bug #8 2A 终版（human 裁决 2026-11-15）：subagent 子会话右侧栏（只读——输入走
+  // 主页面）。卡片/侧边栏点击 → 打开右侧栏展示完整子会话输出。侧边栏点击经
+  // ui store pendingSubagent 传递（跨组件），挂载时消费。
+  const [openSubagent, setOpenSubagent] = useState<SubagentTarget | null>(() =>
+    useUiStore.getState().consumePendingSubagent(),
+  );
+
   return (
     <div className="flex h-full min-h-0 w-full">
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
@@ -931,6 +940,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           hasMore={paging.hasMore}
           loadingEarlier={loadingEarlier}
           onReachTop={() => void loadEarlier()}
+          onOpenSubagent={(t: SubagentTarget) => setOpenSubagent(t)}
         />
       </div>
 
@@ -958,7 +968,25 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         />
       </div>
     </div>
-    {/* 阅读器已提升到 App 壳层（job_43 增量 5）——这里不再挂 FileReaderPanel */}
+    {/* Bug #8 2A 终版：subagent 子会话右侧栏（只读，点击卡片/侧边栏打开） */}
+    {openSubagent && (
+      <SubagentPanel
+        target={openSubagent}
+        progress={
+          // 最近匹配的 subagent 卡进度（同 runId 的卡）
+          (() => {
+            const card = vm.items.find(
+              (i): i is Extract<ChatItem, { kind: "tool" }> =>
+                i.kind === "tool" &&
+                i.toolName === "subagent" &&
+                i.subagentProgress?.runId === openSubagent.runId,
+            );
+            return card?.subagentProgress;
+          })()
+        }
+        onClose={() => setOpenSubagent(null)}
+      />
+    )}
     </div>
   );
 }

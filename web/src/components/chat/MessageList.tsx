@@ -47,10 +47,12 @@ function ToolGroup({
   tools,
   groupKey,
   defaultOpen,
+  onOpenSubagent,
 }: {
   tools: Extract<ChatItem, { kind: "tool" }>[];
   groupKey: string;
   defaultOpen: boolean;
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
 }) {
   const { open, onToggle } = useExpandState(groupKey, defaultOpen);
   const running = tools.some((t) => t.status === "running");
@@ -83,7 +85,7 @@ function ToolGroup({
       {open && (
         <div className="mt-1 space-y-0.5 pl-2">
           {tools.map((t) => (
-            <ToolCallCard key={t.id} item={t} />
+            <ToolCallCard key={t.id} item={t} onOpenSubagent={onOpenSubagent} />
           ))}
         </div>
       )}
@@ -96,6 +98,8 @@ interface MessageListProps {
   streaming: boolean;
   /** 滚动到顶部时回调（历史分页：加载更早）——触发方防抖/幂等 */
   onReachTop?: () => void;
+  /** Bug #8 2A 终版：subagent 卡片「查看会话」跳转（右侧栏打开子会话） */
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
   /** 可能还有更早历史（显示顶部「加载更早历史」按钮——显式兑底，不只靠滚动触发） */
   hasMore?: boolean;
   /** 加载更早进行中（按钮「加载中…」禁用态） */
@@ -176,7 +180,7 @@ function buildFlat(items: ChatItem[]): FlatEntry[] {
 }
 
 /** 单条目渲染（工具组在上方折叠处理） */
-function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): ReactNode {
+function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean, onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void): ReactNode {
   const cls = animate ? "chat-item-enter" : undefined;
   switch (item.kind) {
     case "user":
@@ -205,7 +209,7 @@ function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): Rea
     case "tool":
       return (
         <div key={item.id} className={cls}>
-          <ToolCallCard item={item} />
+          <ToolCallCard item={item} onOpenSubagent={onOpenSubagent} />
         </div>
       );
     case "notice":
@@ -244,6 +248,7 @@ export default function MessageList({
   items,
   streaming,
   onReachTop,
+  onOpenSubagent,
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
@@ -427,7 +432,7 @@ export default function MessageList({
                 defaultOpen={entry.defaultOpen}
               />
             ) : (
-              renderItem(entry.item, false, animateIds.has(entry.id))
+              renderItem(entry.item, false, animateIds.has(entry.id), onOpenSubagent)
             )
           }
         />
