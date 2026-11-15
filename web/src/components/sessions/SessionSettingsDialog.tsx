@@ -49,6 +49,7 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
   }
   // 挂起（平台升级/服务重启）：与「已中断（error=执行失败）」「已完成（closed）」
   // 三态明确区分——人类要求重启后**不自动恢复**，靠这个徽标 + 一键恢复入口。
+  // 文案精简（human 2026-11-15）：只说「挂起」，长描述放 title 悬停。
   if (status === "suspended") {
     return (
       <span
@@ -56,7 +57,7 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
         title="因平台升级/服务重启挂起：进程不在但状态完整，点「恢复继续」重新拉起（不会自动续跑）"
       >
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
-        ⏸ 已挂起（平台升级）
+        ⏸ 挂起
       </span>
     );
   }

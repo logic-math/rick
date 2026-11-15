@@ -55,7 +55,9 @@ export default function SessionBadge({
   >([]);
   const [subagentsOpen, setSubagentsOpen] = useState(false);
   useEffect(() => {
-    if (!subagentsOpen || session.status !== "active") return;
+    // Bug #8 追加（human 2026-11-15）：active 会话始终拉活跃列表——无活跃 subagent
+    // 时整个 sub 图标隐藏（不只是下拉为空）。
+    if (session.status !== "active") return;
     let cancelled = false;
     const pull = () => {
       void api
@@ -71,7 +73,7 @@ export default function SessionBadge({
       cancelled = true;
       clearInterval(t);
     };
-  }, [subagentsOpen, session.id, session.status]);
+  }, [session.id, session.status]);
   // 标题兜底：优先**用户给 job 起的任务名**（server 返回 job_name）→ title →
   // 参数里的 job 编号（doing/ctrl/learning）→ 类型·短 id。
   // 「doing job_3」看不出在干什么——用户实测要求能给 job 起有意义的名字。
@@ -127,7 +129,7 @@ export default function SessionBadge({
         ) : (
           sessionStatusBadge(session.status)
         )}
-        {session.status === "active" && (
+        {session.status === "active" && subagents.some((r) => r.steps.length > 0) && (
           <button
             type="button"
             onClick={(e) => {

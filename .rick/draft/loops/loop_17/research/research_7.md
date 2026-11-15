@@ -6,7 +6,7 @@
 
 ### 一、操作系统：特权环＝不可降级层；hypervisor＝在抽象层上再建抽象
 - **x86 四特权环，内核独占 ring 0**：环编号 0（最特权）→3（最不特权）；OS 代码在 ring 0 执行「因为只有 ring 0 能执行特权指令」，应用代码一般用 ring 3；ring 1/2 自 OS/2 后无知名 x86 OS 使用。前提：特权指令（装页表、I/O 等）仅 ring 0 可执行，越权执行被处理器拒绝（静默失败或 fault）。来源：Xen SOSP'03 §3.1（A）。
-- **Xen 的环压缩部署**：Xen 占 ring 0、guest OS 改到 ring 1（半虚拟化）——「防止 guest OS 直接执行特权指令、同时与 ring 3 应用安全隔离」，特权指令须经 Xen 验证执行。前提：x86 2005 年前无 VT-x/SVM 硬件虚拟化。来源：Xen SOSP'03（A）。
+- **Xen 的环压缩部署**：Xen 占 ring 0、guest OS 改到 ring 1（半虚拟化）——「防止 guest OS 直接执行特权指令、同时与 ring 3 应用安全隔离」，特权指令须经 Xen 验证执行。前提：x86 2005 年前无 VT-x/SVM。来源：Xen SOSP'03（A）。
 - **「不可降级层使上层获得自由」的结构论证原文**：kernel＝「在处理器最特权模式执行的系统部分，拥有无限硬件访问权；kernel 的任何实现故障都有可能破坏系统其余部分的正确运行」——因此安全/可靠优先时「标准做法是减少特权代码量、最小化 bug 暴露面」，此乃 security kernel／separation kernel／MILS／microkernel／小 hypervisor 作为最小信任基的共同动机。来源：seL4 SOSP'09 §1（A）。
 - **虚拟化形式判据（在抽象层上建抽象的许可证）**：Popek & Goldberg《Formal Requirements for Virtualizable Third Generation Architectures》CACM 17(7):412-421, 1974——VMM 三性质＝等价（VMM 下程序效果与裸机一致，除资源与计时）、资源控制、效率；可虚拟化充分条件＝敏感指令全部特权化（trap）。x86 长期不满足 → VMware 走运行时二进制翻译、Xen 走半虚拟化、Intel/AMD 2005-06 加 VMX/SVM 后硬件化。来源：Popek & Goldberg 1974（A 原文；判据细节经 Wikipedia 条目转述 B）+ Turtles §2（A）。
 - **嵌套虚拟化（hypervisor 上再跑 hypervisor）＝一层抽象上再建抽象的工程实证**：x86 只有单层架构虚拟化支持——「无论 trap 发生在哪层（1..n），执行都掉回 level 0」；Turtles（Linux/KVM）让 L0 递归模拟 VMX 给 L1，L1 又可给 L2……多层虚拟化复用在单层硬件支持上（multi-dimensional paging 把 3 层 MMU 翻译表压进硬件仅有的 2 层）。代价：常见负载开销 6-8%（vs 单层虚拟化）；cpuid 裸机 ~100 周期→单层 VM ~2,600→嵌套 ~58,000。来源：Turtles OSDI'10（A）；嵌套虚拟化理论首见 Popek & Goldberg。
@@ -48,8 +48,8 @@
 - [TSB 术语]：parent 用「TSB」非标准术语；标准=TCB（trusted computing base）。本研究按「TCB 的 RSI 化转写」处理，是否独立命名由 human 定。
 - [Thompson 引 4]：空军 Multics 评估文献 Thompson 本人无法定位（原文「Unknown Air Force Document」）；通认 Karger & Schell 1974 但无一手确认。
 - [Saltzer-Schroeder 全文]：1975 原文未直读，原则措辞以 MIT 站点+Cornell 课件转述为准。
-- [seL4 时点]：官方 proof statistics 为 2009 首版口径（2015 全部证明已 ~500k 行）；2026 现状未深挖。
-- [DDC 部署面]：除 GNU Mes 外的工业部署面未尽调（Wheeler 页为一手个人页）。
+- [seL4 时点]：官方 proof statistics 为 2009 首版口径（2015 全部证明已 ~500k 行）；现状未深挖。
+- [DDC 部署面]：除 GNU Mes 外的工业部署面未尽调。
 
 ## Gaps
 - 「人类裁决层最小化/Thompson 道德律的 RSI 化用」是否采纳为设计原则＝价值判断——已上报 values.md 待裁决 14/15，待 human 裁决。
