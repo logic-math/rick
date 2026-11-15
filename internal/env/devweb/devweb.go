@@ -1105,6 +1105,9 @@ func runNode(l Layout, dir string, out io.Writer, name string, args ...string) e
 		"HOME=" + l.Home,
 		"PATH=" + os.Getenv("PATH"),
 		"npm_config_cache=" + l.NpmCache,
+		// Bug #8 第三批（human 实测根因：SW 缓存死锁——旧 SW 拦截 HTML→新 JS
+		// 永远跑不到）：dev 构建一律禁 SW 生成（vite.config 读此变量）。
+		"RICK_DEV_NO_PWA=1",
 	}, envPairs("TMPDIR", "LANG", "LC_ALL", "USER")...)
 	raw, err := cmd.CombinedOutput()
 	if len(raw) > 0 && out != nil {
