@@ -286,7 +286,16 @@ function OpenFileDialog({
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
-  // 文件浏览器（Bug #8：直接选择——不再路径输入）
+  // 文件浏览器（Bug #8：直接选择——不再路径输入）。初始目录 = 当前工作区
+  // 所在目录（human 反馈 2026-11-15：不要根目录——.rick 等工作区内容在工作区根下）。
+  const location = useLocation();
+  const wsList = useWorkspacesStore((s) => s.list);
+  const initialDir = useMemo(() => {
+    // 当前路由的工作区（/ws/:wsId/…）优先；否则第一个工作区；兜底根目录
+    const m = /^\/ws\/([^/]+)/.exec(location.pathname);
+    const ws = (m && wsList.find((w) => w.id === m[1])) || wsList[0];
+    return ws?.path || "/";
+  }, [location.pathname, wsList]);
   const [cur, setCur] = useState("");
   const [parent, setParent] = useState("");
   const [entries, setEntries] = useState<{ path: string; name: string; is_dir?: boolean }[]>([]);
@@ -310,7 +319,7 @@ function OpenFileDialog({
   }
 
   useEffect(() => {
-    if (open) void loadDir("/");
+    if (open) void loadDir(initialDir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

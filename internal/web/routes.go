@@ -274,8 +274,8 @@ func handleFSList(w http.ResponseWriter, r *http.Request) {
 	var dirs, files []fsEntry
 	for _, e := range entries {
 		name := e.Name()
-		if strings.HasPrefix(name, ".") {
-			continue // hidden entries excluded
+		if !withFiles && strings.HasPrefix(name, ".") {
+			continue // hidden entries excluded（默认模式；files=1 文件浏览器显示——.rick 等）
 		}
 		entry := fsEntry{Path: filepath.Join(path, name), Name: name, IsDir: e.IsDir()}
 		if e.IsDir() {
