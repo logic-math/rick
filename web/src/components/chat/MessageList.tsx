@@ -284,41 +284,52 @@ export default function MessageList({
   const flat = useMemo(() => buildFlat(items), [items]);
 
   // ---- Bug #8 第三批：视口锚（游标记录）+ 初始定位（恢复上次阅读位置）----
-  // flat 的稳定映射（flat entry id → index；锚 id 是 item id 或组 id）
-  const flatIdToIndex = useMemo(() => {
+  // 稳定锚 = pi entryId（item.id 含位置序号，恢复窗口重建后 seq 漂移 → id 匹配
+  // 不上 → 定位失败（human 实测复现第二轮根因）。entryId 跨重建稳定。
+  // flat entry → 首个稳定 entryId（single: item.entryId / 组: 组内首个 toolCallId）。
+  const flatAnchorId = useCallback((f: (typeof flat)[number] | undefined): string | null => {
+    if (!f) return null;
+    if (f.kind === "single") {
+      if ("entryId" in f.item && typeof f.item.entryId === "string" && f.item.entryId) return f.item.entryId;
+      return null;
+    }
+    const t = f.tools.find((x) => x.toolCallId);
+    return t ? t.toolCallId : null;
+  }, []);
+  // entryId → flat index 映射（定位用；每 entry 只记首个出现的 flat 条目）
+  const anchorToIndex = useMemo(() => {
     const m = new Map<string, number>();
-    flat.forEach((f, i) => m.set(f.id, i));
+    flat.forEach((f, i) => {
+      const a = flatAnchorId(f);
+      if (a && !m.has(a)) m.set(a, i);
+    });
     return m;
-  }, [flat]);
+  }, [flat, flatAnchorId]);
   // 初始定位（挂载 + 有锚）：scrollToIndex 锚条目（非贴底——覆盖默认贴底行为）
   const didInitialAnchorRef = useRef(false);
   useEffect(() => {
     if (didInitialAnchorRef.current || !initialAnchor) return;
-    const idx = flatIdToIndex.get(initialAnchor);
+    const idx = anchorToIndex.get(initialAnchor);
     if (idx === undefined) return;
     didInitialAnchorRef.current = true;
     // rAF：等 Virtuoso 完成首帧布局后再定位（立即调用会被重置）
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
     });
-  }, [initialAnchor, flatIdToIndex]);
-  // 视口锚回调（rangeChanged：视口首条 → onViewportAnchor）。组锚（grp-…-tool-）
-  // 解析不出后端 entryId（恢复拉取需要）——首条是组时向后找最近的 single 条目
-  // （h-/msg-/compaction-… 的 id 内嵌 entryId，恢复链可用）。
+  }, [initialAnchor, anchorToIndex]);
+  // 视口锚回调（rangeChanged：视口首条 → 稳定 entryId；组/无 entryId 条目向后找）
   const handleRangeChanged = useCallback(
     (range: { startIndex: number }) => {
-      let f = flat[range.startIndex];
-      if (f && f.kind === "group") {
-        for (let i = range.startIndex + 1; i < flat.length; i += 1) {
-          if (flat[i].kind === "single") {
-            f = flat[i];
-            break;
-          }
+      let a = flatAnchorId(flat[range.startIndex]);
+      if (!a) {
+        for (let i = range.startIndex + 1; i < flat.length && i < range.startIndex + 5; i += 1) {
+          a = flatAnchorId(flat[i]);
+          if (a) break;
         }
       }
-      if (f) onViewportAnchor?.(f.id);
+      if (a) onViewportAnchor?.(a);
     },
-    [flat, onViewportAnchor],
+    [flat, onViewportAnchor, flatAnchorId],
   );
 
   // ---- 前置插入检测 + firstItemIndex（KR8d：历史前置插入防跳）----

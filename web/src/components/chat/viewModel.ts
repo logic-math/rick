@@ -59,6 +59,11 @@ export interface SubagentProgress {
  *  在上一轮回复尾巴仍在 live 时会把新消息插到它前面 → 用户实测乱序）。 */
 export interface SeqAnchor {
   seq?: number;
+  /** 稳定锚：来源 pi entry id（历史 item 由 buildHistoryItems 填；live item 缺省）。
+   *  Bug #8 第三批（human 实测复现第二轮）：滚动游标恢复用——item.id 含位置序号
+   *  （msg-<seq>-…），恢复窗口重建后 seq 漂移 → id 永远匹配不上 → 定位失败。
+   *  entryId 跨重建稳定（pi JSONL entry id 不变）。 */
+  entryId?: string;
 }
 
 export interface UserItem extends SeqAnchor {
@@ -804,7 +809,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
 
     if (m.role === "user") {
       const text = messageText(m);
-      items.push({ kind: "user", id: eid("user"), text, ts: tsMs(entry.timestamp) });
+      items.push({ kind: "user", id: eid("user"), text, ts: tsMs(entry.timestamp), entryId: typeof entry.id === "string" ? entry.id : undefined });
       fingerprints.add(fingerprint("user", normText(text)));
       if (!meta.startedAt && text) meta.startedAt = entry.timestamp ?? null;
       continue;
@@ -822,6 +827,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
             text: block.text,
             streaming: false,
             ts: tsMs(entry.timestamp),
+            entryId: typeof entry.id === "string" ? entry.id : undefined,
           });
           fingerprints.add(fingerprint("text", normText(block.text)));
           blockIdx += 1;
@@ -831,6 +837,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
             id: eid(`think-${blockIdx}`),
             text: block.thinking,
             streaming: false,
+            entryId: typeof entry.id === "string" ? entry.id : undefined,
           });
           fingerprints.add(fingerprint("think", normText(block.thinking)));
           blockIdx += 1;

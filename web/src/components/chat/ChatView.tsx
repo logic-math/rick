@@ -408,11 +408,10 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       }
       if (cancelled) return;
       setInitialScrollAnchor(savedAnchor);
-      // ② 解析锚里的后端 entry id（item id 形态 h-…-${entryId} 尾部 uuid；组锚
-      // grp-…-tool-<callId> 无 uuid → null → 定位-only 降级）
-      const anchorEntryId = savedAnchor
-        ? /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(savedAnchor)?.[1] ?? null
-        : null;
+      // ② 锚 = 稳定 entryId（MessageList flatAnchorId 记录——pi entry id /
+      // toolCallId，跨重建稳定；此前存 item.id（含位置序号）→ 恢复窗口 seq
+      // 漂移匹配不上 → 定位失败（human 实测复现第二轮根因））
+      const anchorEntryId = savedAnchor;
       // ③ 拉历史：恢复模式（before=游标前 N 条 + since=游标后续）；默认最近 N 贴底
       try {
         const resp = anchorEntryId
@@ -421,9 +420,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         if (cancelled) return;
         let entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
         if (anchorEntryId) {
-          // ④ 恢复模式：拉游标后续全部（上次阅读位置之后的新消息）合并
+          // ④ 恢复模式：拉游标后续合并。**API 语义修正（human 实测第三轮）**：
+          // before/since 均严格排他（strictly before/after）——锚 entry 本身被两边
+          // 跳过（锚缺失 → 定位条目不在窗口 → 永不定位）。修正：since 游标用
+          // before 窗口**最后一条**（锚前一条）→ 锚包含在 since 结果里。
           try {
-            const after = await api.getEntries(sessionId, { since: anchorEntryId });
+            const lastBefore = entriesList[entriesList.length - 1] as { id?: string } | undefined;
+            const sinceCursor = lastBefore?.id ?? anchorEntryId;
+            const after = await api.getEntries(sessionId, { since: sinceCursor });
             if (!cancelled)
               entriesList = [
                 ...entriesList,

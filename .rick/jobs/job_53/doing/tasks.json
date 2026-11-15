@@ -321,16 +321,27 @@
       "commit_hash": "96da012799cab3d53e835870cf76e0600fb57c9d"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T19:40:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task30",
       "task_name": "Bug #8 第三批修复: 游标恢复时序竞争（getDraft 并行先于历史加载→串行 await）+ 组锚 entryId 兜底 + 恢复模式真懒加载（跳过自动补拉）",
-      "updated_at": "2026-11-15T19:40:00+08:00"
+      "updated_at": "2026-11-15T13:19:07.493Z",
+      "commit_hash": "74c60310e7445dcb030790d4b1026041acaf0776"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-15T20:30:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task31",
+      "task_name": "Bug #8 第三批修复2: 锚改稳定 entryId（item.id 含位置序号跨重建漂移）+ before/since 严格排他补锚（since=锚前一条）",
+      "updated_at": "2026-11-15T20:30:00+08:00"
     }
   ],
-  "updated_at": "2026-11-15T19:40:00+08:00",
+  "updated_at": "2026-11-15T20:30:00+08:00",
   "version": "1.0"
 }
