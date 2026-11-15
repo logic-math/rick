@@ -17,7 +17,6 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
-import { shortAgentName } from "../../lib/agentNames";
 import { api } from "../../api/client";
 import { useUiStore } from "../../stores/ui";
 import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
@@ -135,11 +134,11 @@ export default function SessionBadge({
               e.stopPropagation();
               setSubagentsOpen((o) => !o);
             }}
-            className="shrink-0 rounded px-1 text-[10px] text-ink-3 hover:text-portal"
+            className="shrink-0 rounded px-1 font-mono text-[9px] font-bold text-portal drop-shadow-[0_0_3px_rgba(16,185,129,0.8)] hover:text-portal/80"
             title="活跃 subagent 列表"
             aria-expanded={subagentsOpen}
           >
-            {subagentsOpen ? "▾" : "▸"}⧉
+            {subagentsOpen ? "▾" : "▸"} sub
           </button>
         )}
       </NavLink>
@@ -160,9 +159,9 @@ export default function SessionBadge({
                 title={`${st.agent} · ${st.label}——点击在会话页右侧栏打开（只读）`}
               >
                 <span className="shrink-0">{st.status === "running" ? "⟳" : "✓"}</span>
-                <span className="shrink-0 rounded bg-white/5 px-1 font-mono" title={st.agent}>{shortAgentName(st.agent)}</span>
+                <span className="shrink-0 font-mono">{st.agent}</span>
+                <span className="shrink-0 text-ink-3">·</span>
                 <span className="shrink-0">{st.label}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-ink-3">{st.currentTool ?? ""}</span>
               </button>
             )),
           )}

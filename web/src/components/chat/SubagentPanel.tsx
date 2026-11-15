@@ -10,7 +10,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import { buildHistoryItems } from "./viewModel";
-import { shortAgentName } from "../../lib/agentNames";
 import type { SubagentProgress } from "./viewModel";
 import MessageList from "./MessageList";
 
@@ -73,8 +72,8 @@ export default function SubagentPanel({
         <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-portal">
           subagent
         </span>
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink" title={`${target.agent} · ${target.label}`}>
-          {shortAgentName(target.agent)} · {target.label}
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-ink">
+          {target.agent} · {target.label}
         </span>
         {step?.status === "running" && <span className="shrink-0 text-[10px] text-portal">⟳ 运行中</span>}
         {step?.status === "completed" && <span className="shrink-0 text-[10px] text-ink-3">✓ 完成</span>}
@@ -104,7 +103,7 @@ export default function SubagentPanel({
         {loading && items.length === 0 ? (
           <p className="py-6 text-center text-xs text-ink-3">加载子会话…</p>
         ) : (
-          <MessageList items={items} streaming={false} />
+          <MessageList items={items} streaming={false} userSenderLabel="main-agent" />
         )}
       </div>
       <p className="border-t border-line/60 px-3 py-1 text-[10px] text-ink-3">

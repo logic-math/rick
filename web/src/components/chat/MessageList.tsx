@@ -100,6 +100,9 @@ interface MessageListProps {
   onReachTop?: () => void;
   /** Bug #8 2A 终版：subagent 卡片「查看会话」跳转（右侧栏打开子会话） */
   onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
+  /** Bug #8 2A 终版追加（human 反馈）：子会话视图的 user 对话者标签（main-agent——
+   *  区分主会话 human；默认 "human"（主会话）） */
+  userSenderLabel?: string;
   /** 可能还有更早历史（显示顶部「加载更早历史」按钮——显式兑底，不只靠滚动触发） */
   hasMore?: boolean;
   /** 加载更早进行中（按钮「加载中…」禁用态） */
@@ -180,13 +183,13 @@ function buildFlat(items: ChatItem[]): FlatEntry[] {
 }
 
 /** 单条目渲染（工具组在上方折叠处理） */
-function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean, onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void): ReactNode {
+function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean, onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void, userSenderLabel?: string): ReactNode {
   const cls = animate ? "chat-item-enter" : undefined;
   switch (item.kind) {
     case "user":
       return (
         <div key={item.id} className={cls}>
-          <UserBubble item={item} />
+          <UserBubble item={item} senderLabel={userSenderLabel} />
         </div>
       );
     case "assistant-text":
@@ -249,6 +252,7 @@ export default function MessageList({
   streaming,
   onReachTop,
   onOpenSubagent,
+  userSenderLabel,
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
@@ -432,7 +436,7 @@ export default function MessageList({
                 defaultOpen={entry.defaultOpen}
               />
             ) : (
-              renderItem(entry.item, false, animateIds.has(entry.id), onOpenSubagent)
+              renderItem(entry.item, false, animateIds.has(entry.id), onOpenSubagent, userSenderLabel)
             )
           }
         />
