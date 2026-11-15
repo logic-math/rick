@@ -26,6 +26,18 @@ wireSessions();
 wireSessionEvents();
 sse.connect();
 
+// Bug #8 第三批（human 实测根因）：旧 Service Worker 缓存死锁——SW 拦截 HTML
+// 返回旧 bundle → 新代码永远跑不到。web 构建现禁 SW（RICK_DEV_NO_PWA=1）；
+// 此处注销浏览器残留的旧 SW（新页面加载后清掉，之后请求走网络，更新即生效）。
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker
+    .getRegistrations()
+    .then((rs) => {
+      for (const r of rs) void r.unregister();
+    })
+    .catch(() => {});
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

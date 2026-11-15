@@ -327,6 +327,8 @@ export default function MessageList({
           if (a) break;
         }
       }
+      // DEBUG（游标记录链路定位——human 实测 0 记录）：控制台可见三环之一
+      console.debug("[scroll-cursor] rangeChanged", range.startIndex, "→ anchor:", a ?? "(null)");
       if (a) onViewportAnchor?.(a);
     },
     [flat, onViewportAnchor, flatAnchorId],

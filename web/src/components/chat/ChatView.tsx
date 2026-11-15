@@ -374,7 +374,11 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       if (scrollSaveTimerRef.current !== null) window.clearTimeout(scrollSaveTimerRef.current);
       scrollSaveTimerRef.current = window.setTimeout(() => {
         scrollSaveTimerRef.current = null;
-        void api.saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId).catch(() => {});
+        // DEBUG（游标记录链路定位）：saveDraft 成败可见
+        api
+          .saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
+          .then(() => console.debug("[scroll-cursor] saved:", anchorId))
+          .catch((e) => console.warn("[scroll-cursor] save failed:", e));
       }, 1000);
     },
     [sessionId],
