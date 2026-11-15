@@ -81,7 +81,8 @@ export default function SessionBadge({
   // > title > 类型·短 id；idTag: params.id_tag 显式传递，title 正则兜底历史）。
   const { title: baseTitle, idTag } = deriveSessionDisplay(session);
   return (
-    <div className="group relative flex min-w-0 items-center rounded-md">
+    <div className="group flex min-w-0 flex-col rounded-md">
+      <div className="relative flex min-w-0 items-center">
       <NavLink
         to={`/session/${session.id}`}
         onClick={onNavigate}
@@ -142,6 +143,17 @@ export default function SessionBadge({
           </button>
         )}
       </NavLink>
+      {/* ⋮ 会话设置（hover 显示；absolute 锚定本行 relative 容器——下拉展开不漂移） */}
+      <button
+        type="button"
+        aria-label={`${baseTitle} 设置`}
+        title="会话设置（任务名重命名 / 归档 / 恢复）"
+        onClick={() => setSettingsOpen(true)}
+        className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3/70 transition-colors hover:bg-white/10 hover:text-ink"
+      >
+        ⋮
+      </button>
+      </div>
       {subagentsOpen && session.status === "active" && (
         <div className="ml-4 flex flex-col gap-0.5 py-0.5">
           {subagents.length === 0 && <p className="px-2 text-[10px] text-ink-3">无活跃 subagent</p>}
@@ -167,18 +179,6 @@ export default function SessionBadge({
           )}
         </div>
       )}
-      {/* ⋮ 会话设置（hover 显示；stopPropagation 避免触发导航） */}
-      <button
-        type="button"
-        aria-label={`${baseTitle} 设置`}
-        title="会话设置（任务名重命名 / 归档 / 恢复）"
-        onClick={() => setSettingsOpen(true)}
-        /* 常显（低对比）+ hover 提亮：触摸设备没有 hover，旧版 opacity-0 会让
-           「重命名/归档」入口**完全点不到**（用户实测：easy job_72 找不到重命名入口）。 */
-        className="absolute right-0.5 top-1/2 z-10 -translate-y-1/2 rounded px-0.5 py-0.5 text-sm leading-none text-ink-3/70 transition-colors hover:bg-white/10 hover:text-ink"
-      >
-        ⋮
-      </button>
 
       <SessionSettingsDialog
         session={session}
