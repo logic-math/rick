@@ -13,10 +13,11 @@
  */
 
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import type { SessionInfo, SessionType } from "../../types";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
+import { shortAgentName } from "../../lib/agentNames";
 import { api } from "../../api/client";
 import { useUiStore } from "../../stores/ui";
 import SessionSettingsDialog, { sessionStatusBadge } from "../sessions/SessionSettingsDialog";
@@ -45,6 +46,7 @@ export default function SessionBadge({
   onNavigate?: () => void;
 }) {
   const load = useSessionsStore((s) => s.load);
+  const navigate = useNavigate();
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Bug #8 2A 终版（human 裁决 2026-11-15）：活跃 subagent 下拉——active 会话
   // 拉取活跃 subagent 列表（30s 轮询），点击跳转会话页右侧栏（只读子会话）。
@@ -151,13 +153,14 @@ export default function SessionBadge({
                 type="button"
                 onClick={() => {
                   openSubagentFromSidebar({ runId: run.runId, label: st.label, agent: st.agent });
+                  navigate(`/session/${session.id}`);
                   onNavigate?.();
                 }}
                 className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-left text-[10px] text-ink-2 hover:bg-portal/10 hover:text-portal"
                 title={`${st.agent} · ${st.label}——点击在会话页右侧栏打开（只读）`}
               >
                 <span className="shrink-0">{st.status === "running" ? "⟳" : "✓"}</span>
-                <span className="shrink-0 rounded bg-white/5 px-1 font-mono">{st.agent}</span>
+                <span className="shrink-0 rounded bg-white/5 px-1 font-mono" title={st.agent}>{shortAgentName(st.agent)}</span>
                 <span className="shrink-0">{st.label}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-ink-3">{st.currentTool ?? ""}</span>
               </button>

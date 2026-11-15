@@ -15,6 +15,7 @@ import { DiffView, DiffModeEnum } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import { summarizeArgs, type ToolItem } from "./viewModel";
 import { useExpandState } from "./expand";
+import { shortAgentName } from "../../lib/agentNames";
 
 /** 工具输出截断阈值（8KB） */
 const MAX_OUTPUT = 8 * 1024;
@@ -301,7 +302,7 @@ function ToolCallCardImpl({ item, onOpenSubagent }: ToolCallCardProps) {
               className="mt-1 flex min-w-0 w-full items-center gap-2 text-left text-[11px] hover:bg-portal/5"
               title="打开该 subagent 的会话（右侧栏只读）"
             >
-              <span className="shrink-0 rounded bg-white/5 px-1 font-mono text-[10px] text-ink-2">{st.agent}</span>
+              <span className="shrink-0 rounded bg-white/5 px-1 font-mono text-[10px] text-ink-2" title={st.agent}>{shortAgentName(st.agent)}</span>
               <span className="shrink-0 text-ink-3">{st.label}</span>
               <span
                 className={`shrink-0 text-[10px] ${

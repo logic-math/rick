@@ -255,16 +255,27 @@
       "commit_hash": "195f0083ffa3c27b1bcc00cade71583f1be497d2"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-15T13:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task24",
       "task_name": "Bug #8 2A 终版: subagent 会话深度展示（右侧栏只读+侧边栏活跃列表+卡片跳转+默认折叠）",
-      "updated_at": "2026-11-15T13:00:00+08:00"
+      "updated_at": "2026-11-15T06:33:41.080Z",
+      "commit_hash": "0a6059c6c8b5424e7f927a4110ba2625c79b9ccd"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-15T15:10:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task25",
+      "task_name": "Bug #8 2A 终版修复: 侧边栏跳转缺 navigate + ChatView pending 消费 effect + agent 短名显示",
+      "updated_at": "2026-11-15T15:10:00+08:00"
     }
   ],
-  "updated_at": "2026-11-15T13:00:00+08:00",
+  "updated_at": "2026-11-15T15:10:00+08:00",
   "version": "1.0"
 }

@@ -784,6 +784,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   const [openSubagent, setOpenSubagent] = useState<SubagentTarget | null>(() =>
     useUiStore.getState().consumePendingSubagent(),
   );
+  // 已在会话页时侧边栏点击（组件不重挂，useState 初始不重跑）——订阅式消费：
+  // pendingSubagent 一旦被设置立即打开并清除。
+  const pendingSubagent = useUiStore((s) => s.pendingSubagent);
+  useEffect(() => {
+    if (pendingSubagent) {
+      setOpenSubagent(pendingSubagent);
+      useUiStore.getState().consumePendingSubagent();
+    }
+  }, [pendingSubagent]);
 
   return (
     <div className="flex h-full min-h-0 w-full">
