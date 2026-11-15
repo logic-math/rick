@@ -746,24 +746,27 @@ export default function ChatView({ sessionId }: ChatViewProps) {
 
   // Bug #8 2C（human 2026-11-14）：上下文使用率超阈值（默认 80%，Settings 可调）
   // 自动触发压缩——一次触发后等下一轮 stats 再评估（防抖：压缩中/本轮已触发不重复）。
-  const autoCompactRef = useRef(0);
+  // 阈值配置提升组件级（头部徽标警示色 + 自动压缩共用同一读数）。
+  const [autoCompactCfg, setAutoCompactCfg] = useState({ enabled: true, threshold: 80 });
   useEffect(() => {
-    const pct = stats?.contextUsage?.percent;
-    if (pct == null || !info || info.status !== "active") return;
-    // 设置（Settings 可调；localStorage 设备级偏好）
-    let cfg = { enabled: true, threshold: 80 };
     try {
       const raw = localStorage.getItem("rick-web:auto-compact");
       if (raw) {
         const v = JSON.parse(raw);
         if (v && typeof v.enabled === "boolean") {
-          cfg = { enabled: v.enabled, threshold: typeof v.threshold === "number" ? v.threshold : 80 };
+          setAutoCompactCfg({ enabled: v.enabled, threshold: typeof v.threshold === "number" ? v.threshold : 80 });
         }
       }
     } catch {
       // 默认
     }
-    if (!cfg.enabled || pct < cfg.threshold) return;
+  }, []);
+  const autoCompactThreshold = autoCompactCfg.threshold;
+  const autoCompactRef = useRef(0);
+  useEffect(() => {
+    const pct = stats?.contextUsage?.percent;
+    if (pct == null || !info || info.status !== "active") return;
+    if (!autoCompactCfg.enabled || pct < autoCompactCfg.threshold) return;
     if (vm.compacting) return;
     if (autoCompactRef.current === pct) return; // 同一水位只触发一次
     autoCompactRef.current = pct;
@@ -802,19 +805,32 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             {history?.meta.model}
           </span>
         )}
-        {/* Bug #8 2C：上下文使用率 + token/成本常驻（≥80% 警示色——该 compact 了） */}
-        {stats?.contextUsage?.percent != null && (
-          <span
-            className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
-              stats.contextUsage.percent >= 80
-                ? "border-morty/60 bg-morty/10 text-morty"
-                : "border-line bg-space-2/60 text-ink-2"
-            }`}
-            title={`上下文使用：${stats.contextUsage.tokens ?? "?"} / ${stats.contextUsage.contextWindow} token（${stats.contextUsage.percent}%）——超 80% 建议压缩`}
-          >
-            ctx {stats.contextUsage.percent}%
-          </span>
-        )}
+        {/* Bug #8 2C：上下文使用率 + token/成本常驻（≥80% 警示色——该 compact 了）。
+            迭代（human 2026-11-15）：显示模型上下文窗口（如 1M）+ 占比两位小数。 */}
+        {stats?.contextUsage?.percent != null && (() => {
+          const ctx = stats.contextUsage;
+          // 两位小数（pi 的 percent 是整数——自己按 tokens/contextWindow 算精确占比）
+          const used = ctx.tokens ?? 0;
+          const win = ctx.contextWindow || 1;
+          const pct2 = Math.round((used / win) * 10000) / 100;
+          // 窗口人类可读（1M / 256k / 131k …）
+          const fmtWin = (n: number): string => {
+            if (n >= 1_000_000 && n % 1_000_000 === 0) return `${n / 1_000_000}M`;
+            if (n >= 1_000) return `${Math.round(n / 1000)}k`;
+            return String(n);
+          };
+          const high = pct2 >= (autoCompactThreshold ?? 80);
+          return (
+            <span
+              className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                high ? "border-morty/60 bg-morty/10 text-morty" : "border-line bg-space-2/60 text-ink-2"
+              }`}
+              title={`上下文使用：${used.toLocaleString()} / ${win.toLocaleString()} token（${pct2}%，窗口 ${fmtWin(win)}）——超阈值建议压缩`}
+            >
+              ctx {pct2.toFixed(2)}% / {fmtWin(win)}
+            </span>
+          );
+        })()}
         {stats && (
           <span
             className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-3"

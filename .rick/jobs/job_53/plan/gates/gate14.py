@@ -50,7 +50,7 @@ check("A1 subagent 独立成卡（不折叠进组）", "subagent" in ml and "flu
 check("A1 subagent 摘要（agent · task 首行）", "subagent" in vm and "toolName" in vm)
 check("C1 stats API（路由+handler）", "/api/sessions/{id}/stats" in routes and "SessionStats" in sg)
 check("C2 常驻徽标（ctx %/token/cost）", "ctx {" in cv and "tok" in cv and "cost" in cv)
-check("C2 80% 警示色", ">= 80" in cv or ">= 80" in cv.replace("&#x3E;=", ""))
+check("C2 阈值警示色（Settings 可调阈值）", "autoCompactThreshold" in cv)
 check("C3 自动压缩监控（阈值）", "autoCompact" in cv or "auto-compact" in cv)
 check("C3 Settings 开关+阈值", "自动压缩" in st and "threshold" in st)
 
