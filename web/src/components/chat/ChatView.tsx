@@ -375,8 +375,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       scrollSaveTimerRef.current = window.setTimeout(() => {
         scrollSaveTimerRef.current = null;
         // DEBUG（游标记录链路定位）：saveDraft 成败可见
-        void api
-          .saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
+        void api.saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
           .then(() => console.log("[scroll-cursor] saved:", anchorId))
           .catch(() => {});
       }, 1000);
@@ -397,27 +396,26 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
     // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
     void (async () => {
-      // ① 游标（仅首次打开；重建保持当前视口）
-      let savedAnchor: string | null = null;
-      if (!isRebuild) {
-        try {
-          const d = await api.getDraft(SCROLL_KEY_PREFIX + sessionId);
-          if (!cancelled && d.content && d.content.length >= 4) savedAnchor = d.content; // pi entry ID 是 8 位 hex（无连字符——此前 includes("-") 恒 false 导致恢复永不生效）
-        } catch (e) {
-        }
-      }
+      // 性能优化（human 反馈刷新流畅度）：游标与 entries **并行拉取**——此前串行
+      // （先 await 游标→再拉 entries），多一次 RTT 等待。全量加载后 entries 参数
+      // 不依赖游标值（统一 `{}` / `limit:50`），可安全并行。
+      const [draftResult, entriesResult] = await Promise.allSettled([
+        isRebuild ? Promise.resolve(null) : api.getDraft(SCROLL_KEY_PREFIX + sessionId),
+        api.getEntries(sessionId, {}), // 全量拉取（性能优化：与游标并行；50 条窗口的 flat 结构与全量不同→锚偏移）
+      ]);
       if (cancelled) return;
+      // ① 游标（仅首次打开；重建保持当前视口）——pi entry ID 是 8 位 hex
+      const savedAnchor =
+        draftResult.status === "fulfilled" && draftResult.value?.content && draftResult.value.content.length >= 4
+          ? draftResult.value.content
+          : null;
       setInitialScrollAnchor(savedAnchor);
-      // ② 锚 = 稳定 entryId（MessageList flatAnchorId 记录——pi entry id /
-      // toolCallId，跨重建稳定；此前存 item.id（含位置序号）→ 恢复窗口 seq
-      // 漂移匹配不上 → 定位失败（human 实测复现第二轮根因））
+      // ② 锚 = 稳定 entryId（跨重建稳定——pi entry id / toolCallId）
       const anchorEntryId = savedAnchor;
-      // ③ 拉历史：恢复模式与默认路径**统一全量加载**（E2E 实测：before/since 分窗口
-      // 的 flat 数组结构与原始全量不同——同一锚在不同结构里 flat index 不同 →
-      // scrollToIndex 定位偏移（human 实测 68% vs 预期 33%）。恢复模式复用默认
-      // 拉取（最近 N + auto-compensation 全量），flat 结构一致 → 定位准确。）
+      // ③ 拉历史：统一全量加载（flat 结构一致 → 定位准确）
       try {
-        const resp = await api.getEntries(sessionId, isRebuild || anchorEntryId ? {} : { limit: HISTORY_PAGE_SIZE });
+        if (entriesResult.status === "rejected") throw entriesResult.reason;
+        const resp = entriesResult.value;
         if (cancelled) return;
         const entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
         if (cancelled) return;

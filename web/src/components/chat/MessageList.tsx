@@ -320,7 +320,6 @@ export default function MessageList({
     // rAF：等 Virtuoso 完成首帧布局后再定位（立即调用会被重置）
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
-      // 定位完成——通知清除（恢复 followOutput="auto" + pinned 正常行为）
       onAnchorConsumed?.();
     });
   }, [initialAnchor, anchorToIndex, onAnchorConsumed]);
