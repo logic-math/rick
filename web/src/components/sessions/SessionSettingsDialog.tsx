@@ -57,7 +57,7 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
         title="因平台升级/服务重启挂起：进程不在但状态完整，点「恢复继续」重新拉起（不会自动续跑）"
       >
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
-        ⏸ 挂起
+        ⏸ 已挂起
       </span>
     );
   }

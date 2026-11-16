@@ -97,7 +97,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   running: "running",
   closed: "closed",
   error: "error",
-  suspended: "挂起",
+  suspended: "已挂起",
 };
 
 function StatusDot({ status, streaming }: { status: SessionStatus; streaming: boolean }) {
