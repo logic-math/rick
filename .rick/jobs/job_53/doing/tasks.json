@@ -420,16 +420,27 @@
       "commit_hash": "b94d6dea4c0c1c5e8f216ee9a40022c75892c68c"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-16T14:20:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task39",
       "task_name": "Bug #8 第四批: 刷新流畅度——游标与 entries 并行拉取（省一次 RTT）+ entries 全量统一（{} 消除分窗口 flat 结构不一致）+ E2E 验证 26%",
-      "updated_at": "2026-11-16T14:20:00+08:00"
+      "updated_at": "2026-11-16T13:46:34.175Z",
+      "commit_hash": "14c6b439986cfd8b94768ff0f08ccdfadf94332e"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-16T15:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task40",
+      "task_name": "Bug #8 第四批: 游标重试（3次200ms退避）+ 游标中心懒加载窗口（before/since 各 N/2 条——长会话快速首屏）",
+      "updated_at": "2026-11-16T15:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-16T14:20:00+08:00",
+  "updated_at": "2026-11-16T15:00:00+08:00",
   "version": "1.0"
 }

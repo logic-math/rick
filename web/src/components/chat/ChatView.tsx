@@ -396,44 +396,87 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
     // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
     void (async () => {
-      // 性能优化（human 反馈刷新流畅度）：游标与 entries **并行拉取**——此前串行
-      // （先 await 游标→再拉 entries），多一次 RTT 等待。全量加载后 entries 参数
-      // 不依赖游标值（统一 `{}` / `limit:50`），可安全并行。
-      const [draftResult, entriesResult] = await Promise.allSettled([
-        isRebuild ? Promise.resolve(null) : api.getDraft(SCROLL_KEY_PREFIX + sessionId),
-        api.getEntries(sessionId, {}), // 全量拉取（性能优化：与游标并行；50 条窗口的 flat 结构与全量不同→锚偏移）
-      ]);
+      // Bug #8 第四批（human 反馈 2026-11-16）：① 游标拉取加重试（网络抖动不丢游标）
+      // ② 游标中心懒加载窗口（只渲染游标上下游 N 条——长会话快速首屏；全量加载
+      //    在 500+ entries 时慢且无必要）。无游标时保持默认路径（最近 N + auto-comp）。
+      const CURSOR_RETRIES = 3;
+      const CURSOR_RETRY_DELAY = 200;
+      const fetchCursor = async (): Promise<string | null> => {
+        for (let i = 0; i < CURSOR_RETRIES; i++) {
+          try {
+            const d = await api.getDraft(SCROLL_KEY_PREFIX + sessionId);
+            if (d.content && d.content.length >= 4) return d.content;
+            return null; // 有响应但无游标——不再重试
+          } catch {
+            if (i < CURSOR_RETRIES - 1) await new Promise((r) => setTimeout(r, CURSOR_RETRY_DELAY));
+          }
+        }
+        return null; // 全部重试失败——降级无游标
+      };
+
+      // ① 游标（重试）+ entries **并行**（有游标时用窗口拉取，无游标用默认）
+      const cursorPromise = isRebuild ? Promise.resolve(null) : fetchCursor();
+      // 无游标路径的 entries 先拉（不依赖游标结果）
+      const defaultEntriesPromise = isRebuild
+        ? api.getEntries(sessionId, {})
+        : api.getEntries(sessionId, { limit: HISTORY_PAGE_SIZE });
+
+      const savedAnchor = await cursorPromise;
       if (cancelled) return;
-      // ① 游标（仅首次打开；重建保持当前视口）——pi entry ID 是 8 位 hex
-      const savedAnchor =
-        draftResult.status === "fulfilled" && draftResult.value?.content && draftResult.value.content.length >= 4
-          ? draftResult.value.content
-          : null;
       setInitialScrollAnchor(savedAnchor);
-      // ② 锚 = 稳定 entryId（跨重建稳定——pi entry id / toolCallId）
       const anchorEntryId = savedAnchor;
-      // ③ 拉历史：统一全量加载（flat 结构一致 → 定位准确）
+
       try {
-        if (entriesResult.status === "rejected") throw entriesResult.reason;
-        const resp = entriesResult.value;
+        let resp: Awaited<ReturnType<typeof api.getEntries>>;
+        if (anchorEntryId && !isRebuild) {
+          // ② 游标中心懒加载：before=游标前 N/2 + since=游标后 N/2（含游标）
+          const WINDOW = Math.max(20, Math.ceil(window.innerHeight / 48) * 3);
+          const half = Math.ceil(WINDOW / 2);
+          const [beforeResp, sinceResp] = await Promise.all([
+            api.getEntries(sessionId, { before: anchorEntryId, limit: half }),
+            api.getEntries(sessionId, { since: anchorEntryId, limit: half }),
+          ]);
+          if (cancelled) return;
+          // 合并：before（游标前）+ [游标 entry 本身] + since（游标后）
+          // since=游标 ID 是 strictly-after——游标 entry 本身不在两边，手动补
+          //（用 before 的最后一条作为 since 锚点重新拉，或直接查游标 entry）
+          const beforeEntries = beforeResp.entries as unknown as Array<Record<string, unknown>>;
+          const sinceEntries = sinceResp.entries as unknown as Array<Record<string, unknown>>;
+          // before 的最后一条是游标前一条；since 从游标后开始（不含游标）
+          // 游标 entry 本身：从 before 最后一条的 id 用 since 拉一条补上
+          let cursorEntry: Record<string, unknown> | null = null;
+          const lastBefore = beforeEntries[beforeEntries.length - 1] as { id?: string } | undefined;
+          if (lastBefore?.id) {
+            try {
+              const cursorResp = await api.getEntries(sessionId, { since: lastBefore.id, limit: 1 });
+              const first = (cursorResp.entries as unknown as Array<Record<string, unknown>>)[0];
+              if (first && first.id === anchorEntryId) cursorEntry = first;
+            } catch { /* 补游标失败——不阻塞 */ }
+          }
+          const merged = [...beforeEntries, ...(cursorEntry ? [cursorEntry] : []), ...sinceEntries];
+          resp = { entries: merged, leaf_id: sinceResp.leaf_id } as typeof resp;
+        } else {
+          // 无游标：默认路径（最近 N 或全量）
+          resp = await defaultEntriesPromise;
+        }
         if (cancelled) return;
         const entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
-        if (cancelled) return;
+
         const firstBuilt = buildHistoryItems(
           entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
-        // ⑤ 分页游标 + 懒加载语义：恢复模式**不做**自动补拉（游标前 N 条 +
-        // hasMore 可向上翻页 = 真懒加载）；默认模式保持自动补拉（A 方案现状）
+        // 分页游标 + hasMore（窗口模式可向上翻页加载更早；默认模式 auto-compensation）
         let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
         let hasMore = !isRebuild && entriesList.length >= HISTORY_PAGE_SIZE;
         setPaging({ earliestId, hasMore });
-        if (isRebuild || anchorEntryId || !hasMore || !earliestId) {
+        if (isRebuild || !hasMore || !earliestId) {
           if (!cancelled) hadHistoryRef.current = isRebuild || !anchorEntryId;
           return;
         }
-        // A：挂载自动补拉（默认模式——用户实测 254 条会话首屏只见最近 50 条）。
-        if (hasMore && earliestId && !cancelled) {
+
+        // 默认模式 auto-compensation（游标窗口模式跳过——真懒加载）
+        if (hasMore && earliestId && !cancelled && !anchorEntryId) {
           loadingEarlierRef.current = true;
           setLoadingEarlier(true);
           try {
@@ -447,10 +490,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
               const pageEntries = pageResp.entries as unknown as Parameters<
                 typeof buildHistoryItems
               >[0];
-              if (pageEntries.length === 0) {
-                hasMore = false;
-                break;
-              }
+              if (pageEntries.length === 0) { hasMore = false; break; }
               const built = buildHistoryItems(pageEntries);
               prependHistory(built);
               loaded += pageEntries.length;
@@ -458,17 +498,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
               hasMore = pageEntries.length === HISTORY_PAGE_SIZE;
             }
             if (!cancelled) setPaging({ earliestId, hasMore });
-            if (!cancelled) hadHistoryRef.current = true; // 首次补拉完整
-          } catch {
-            // 自动补拉失败：保留已渲染部分（不阻塞 live 流），hasMore 保持可重试
-          } finally {
+            if (!cancelled) hadHistoryRef.current = true;
+          } catch { /* 保留已渲染部分 */ } finally {
             loadingEarlierRef.current = false;
             if (!cancelled) setLoadingEarlier(false);
           }
         }
       } catch {
         if (cancelled) return;
-        setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } }); // 历史拉取失败不阻塞 live 流
+        setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } });
       }
     })();
     return () => {
