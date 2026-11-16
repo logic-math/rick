@@ -263,7 +263,9 @@ export default function MessageList({
   loadingEarlier = false,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const [pinned, setPinned] = useState(true);
+  // Bug #8 第三批（human 实测）：恢复模式（有 initialAnchor）下初始不贴底——
+  // pinned=true + followOutput="auto" 会在数据追加后把视口拉到最新，覆盖定位
+  const [pinned, setPinned] = useState(!initialAnchor);
 
   // ---- 展开控制（状态提升：overrides 在条目之上 → 虚拟化卸载不丢展开态，KR8e）----
   const [mode, setMode] = useState<ExpandMode>("default");
@@ -486,7 +488,7 @@ export default function MessageList({
           computeItemKey={(_, entry) => entry.id}
           firstItemIndex={firstItemIndex}
           initialTopMostItemIndex={Math.max(0, flat.length - 1)}
-          followOutput="auto"
+          followOutput={initialAnchor ? false : "auto"}
           atBottomStateChange={setPinned}
           startReached={() => onReachTopRef.current?.()}
           rangeChanged={handleRangeChanged}

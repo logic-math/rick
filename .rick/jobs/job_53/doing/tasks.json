@@ -365,16 +365,17 @@
       "commit_hash": "0588f5ff9c714a9600764ddbfc8b69e499cfd7f2"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-16T01:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task34",
       "task_name": "Bug #8 修复5: Virtuoso rangeChanged 全局索引偏移（firstItemIndex 100_000）→ flat 数组实际索引换算（rangeChanged startIndex 99992 直接取 flat[99992] 越界→ anchor 永远 null）",
-      "updated_at": "2026-11-16T01:00:00+08:00"
+      "updated_at": "2026-11-16T04:00:01.312Z",
+      "commit_hash": "5c86a74db3ae1b234abac44a952afc4408dc8699"
     }
   ],
-  "updated_at": "2026-11-16T01:00:00+08:00",
+  "updated_at": "2026-11-16T04:00:01.312Z",
   "version": "1.0"
 }
