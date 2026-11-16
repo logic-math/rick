@@ -377,7 +377,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         // DEBUG（游标记录链路定位）：saveDraft 成败可见
         api
           .saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
-          .then(() => console.debug("[scroll-cursor] saved:", anchorId))
+          .then(() => console.log("[scroll-cursor] saved:", anchorId))
           .catch((e) => console.warn("[scroll-cursor] save failed:", e));
       }, 1000);
     },

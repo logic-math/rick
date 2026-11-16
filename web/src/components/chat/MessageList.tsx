@@ -318,17 +318,22 @@ export default function MessageList({
     });
   }, [initialAnchor, anchorToIndex]);
   // 视口锚回调（rangeChanged：视口首条 → 稳定 entryId；组/无 entryId 条目向后找）
+  // firstItemIndex 声明序在 handleRangeChanged 之后 → 用 ref 镜像（声明序安全）
+  const firstItemIndexRef = useRef(FIRST_INDEX_BASE);
   const handleRangeChanged = useCallback(
     (range: { startIndex: number }) => {
-      let a = flatAnchorId(flat[range.startIndex]);
+      // Virtuoso rangeChanged 的 startIndex 是全局索引（含 firstItemIndex 偏移，
+      // 基准 100_000）——必须减去偏移得到 flat 数组的实际索引（human 实测：
+      // startIndex 99992 直接取 flat[99992] 越界 → anchor 永远 null）
+      const idx = range.startIndex - firstItemIndexRef.current;
+      let a = flatAnchorId(flat[idx]);
       if (!a) {
-        for (let i = range.startIndex + 1; i < flat.length && i < range.startIndex + 5; i += 1) {
+        for (let i = idx + 1; i < flat.length && i < idx + 5; i += 1) {
           a = flatAnchorId(flat[i]);
           if (a) break;
         }
       }
-      // DEBUG（游标记录链路定位——human 实测 0 记录）：控制台可见三环之一
-      console.debug("[scroll-cursor] rangeChanged", range.startIndex, "→ anchor:", a ?? "(null)");
+      console.log("[scroll-cursor] rangeChanged flat[" + idx + "] → anchor:", a ?? "(null)");
       if (a) onViewportAnchor?.(a);
     },
     [flat, onViewportAnchor, flatAnchorId],
@@ -338,6 +343,7 @@ export default function MessageList({
   // 判定：首条 id 变化 + 长度增长 = 前置（追加时首条 id 不变；原地更新长度不变）。
   // 重建（SSE resync 全量重拉）长度可能变化——仅 N>0 时递减，位移漂移无害。
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_INDEX_BASE);
+  firstItemIndexRef.current = firstItemIndex; // ref 镜像（handleRangeChanged 用）
   /** 上一帧快照（firstId + 长度）——渲染期只读，effect 期写入 */
   const prevFrameRef = useRef<{ firstId: string | null; len: number } | null>(null);
   /** 本帧是否为前置插入（渲染期判定，供动画 memo + firstItemIndex effect 复用） */
