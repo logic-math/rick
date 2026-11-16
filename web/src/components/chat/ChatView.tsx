@@ -375,17 +375,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       scrollSaveTimerRef.current = window.setTimeout(() => {
         scrollSaveTimerRef.current = null;
         // DEBUG（游标记录链路定位）：saveDraft 成败可见
-        api
+        void api
           .saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
           .then(() => console.log("[scroll-cursor] saved:", anchorId))
-          .catch((e) => console.warn("[scroll-cursor] save failed:", e));
+          .catch(() => {});
       }, 1000);
     },
     [sessionId],
   );
-  /** 懒加载页大小（屏幕适配：视口高 ÷ 估条高 48px × 2 倍余量，下限 20） */
-  const lazyPageSize = (): number =>
-    Math.max(20, Math.ceil(window.innerHeight / 48) * 2);
   // 首次打开的定位锚（历史加载 effect 内拉游标后设置——**时序修复**：此前游标
   // getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到永远
   // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
@@ -405,9 +402,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       if (!isRebuild) {
         try {
           const d = await api.getDraft(SCROLL_KEY_PREFIX + sessionId);
-          if (!cancelled && d.content && d.content.includes("-")) savedAnchor = d.content;
-        } catch {
-          // 无游标/失败——默认行为
+          if (!cancelled && d.content && d.content.length >= 4) savedAnchor = d.content; // pi entry ID 是 8 位 hex（无连字符——此前 includes("-") 恒 false 导致恢复永不生效）
+        } catch (e) {
         }
       }
       if (cancelled) return;
@@ -416,31 +412,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       // toolCallId，跨重建稳定；此前存 item.id（含位置序号）→ 恢复窗口 seq
       // 漂移匹配不上 → 定位失败（human 实测复现第二轮根因））
       const anchorEntryId = savedAnchor;
-      // ③ 拉历史：恢复模式（before=游标前 N 条 + since=游标后续）；默认最近 N 贴底
+      // ③ 拉历史：恢复模式与默认路径**统一全量加载**（E2E 实测：before/since 分窗口
+      // 的 flat 数组结构与原始全量不同——同一锚在不同结构里 flat index 不同 →
+      // scrollToIndex 定位偏移（human 实测 68% vs 预期 33%）。恢复模式复用默认
+      // 拉取（最近 N + auto-compensation 全量），flat 结构一致 → 定位准确。）
       try {
-        const resp = anchorEntryId
-          ? await api.getEntries(sessionId, { before: anchorEntryId, limit: lazyPageSize() })
-          : await api.getEntries(sessionId, isRebuild ? {} : { limit: HISTORY_PAGE_SIZE });
+        const resp = await api.getEntries(sessionId, isRebuild || anchorEntryId ? {} : { limit: HISTORY_PAGE_SIZE });
         if (cancelled) return;
-        let entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
-        if (anchorEntryId) {
-          // ④ 恢复模式：拉游标后续合并。**API 语义修正（human 实测第三轮）**：
-          // before/since 均严格排他（strictly before/after）——锚 entry 本身被两边
-          // 跳过（锚缺失 → 定位条目不在窗口 → 永不定位）。修正：since 游标用
-          // before 窗口**最后一条**（锚前一条）→ 锚包含在 since 结果里。
-          try {
-            const lastBefore = entriesList[entriesList.length - 1] as { id?: string } | undefined;
-            const sinceCursor = lastBefore?.id ?? anchorEntryId;
-            const after = await api.getEntries(sessionId, { since: sinceCursor });
-            if (!cancelled)
-              entriesList = [
-                ...entriesList,
-                ...(after.entries as unknown as Array<Record<string, unknown>>),
-              ];
-          } catch {
-            // since 失败（游标 entry 已清理等）——只渲染前段（定位游标处）
-          }
-        }
+        const entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
         if (cancelled) return;
         const firstBuilt = buildHistoryItems(
           entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
@@ -449,7 +428,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         // ⑤ 分页游标 + 懒加载语义：恢复模式**不做**自动补拉（游标前 N 条 +
         // hasMore 可向上翻页 = 真懒加载）；默认模式保持自动补拉（A 方案现状）
         let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
-        let hasMore = !isRebuild && !anchorEntryId && entriesList.length >= (anchorEntryId ? lazyPageSize() : HISTORY_PAGE_SIZE);
+        let hasMore = !isRebuild && entriesList.length >= HISTORY_PAGE_SIZE;
         setPaging({ earliestId, hasMore });
         if (isRebuild || anchorEntryId || !hasMore || !earliestId) {
           if (!cancelled) hadHistoryRef.current = isRebuild || !anchorEntryId;
@@ -1018,6 +997,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           onOpenSubagent={(t: SubagentTarget) => setOpenSubagent(t)}
           onViewportAnchor={handleViewportAnchor}
           initialAnchor={initialScrollAnchor}
+          onAnchorConsumed={() => setInitialScrollAnchor(null)}
         />
       </div>
 

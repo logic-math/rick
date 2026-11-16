@@ -107,6 +107,8 @@ interface MessageListProps {
   onViewportAnchor?: (anchorId: string | null) => void;
   /** Bug #8 第三批：初始定位锚（恢复上次阅读位置——挂载后 scrollToIndex 该条目） */
   initialAnchor?: string | null;
+  /** Bug #8 第三批：定位完成回调（ChatView 清除 initialAnchor——恢复 followOutput） */
+  onAnchorConsumed?: () => void;
   /** 可能还有更早历史（显示顶部「加载更早历史」按钮——显式兑底，不只靠滚动触发） */
   hasMore?: boolean;
   /** 加载更早进行中（按钮「加载中…」禁用态） */
@@ -259,6 +261,7 @@ export default function MessageList({
   userSenderLabel,
   onViewportAnchor,
   initialAnchor,
+  onAnchorConsumed,
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
@@ -317,8 +320,10 @@ export default function MessageList({
     // rAF：等 Virtuoso 完成首帧布局后再定位（立即调用会被重置）
     requestAnimationFrame(() => {
       virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
+      // 定位完成——通知清除（恢复 followOutput="auto" + pinned 正常行为）
+      onAnchorConsumed?.();
     });
-  }, [initialAnchor, anchorToIndex]);
+  }, [initialAnchor, anchorToIndex, onAnchorConsumed]);
   // 视口锚回调（rangeChanged：视口首条 → 稳定 entryId；组/无 entryId 条目向后找）
   // firstItemIndex 声明序在 handleRangeChanged 之后 → 用 ref 镜像（声明序安全）
   const firstItemIndexRef = useRef(FIRST_INDEX_BASE);
@@ -335,7 +340,6 @@ export default function MessageList({
           if (a) break;
         }
       }
-      console.log("[scroll-cursor] rangeChanged flat[" + idx + "] → anchor:", a ?? "(null)");
       if (a) onViewportAnchor?.(a);
     },
     [flat, onViewportAnchor, flatAnchorId],
@@ -487,8 +491,8 @@ export default function MessageList({
           data={flat}
           computeItemKey={(_, entry) => entry.id}
           firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={Math.max(0, flat.length - 1)}
-          followOutput={initialAnchor ? false : "auto"}
+          initialTopMostItemIndex={initialAnchor ? 0 : Math.max(0, flat.length - 1)}
+          followOutput={initialAnchor && !didInitialAnchorRef.current ? false : "auto"}
           atBottomStateChange={setPinned}
           startReached={() => onReachTopRef.current?.()}
           rangeChanged={handleRangeChanged}

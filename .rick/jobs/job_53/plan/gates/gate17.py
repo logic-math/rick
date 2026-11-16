@@ -39,7 +39,7 @@ check("C1 视口锚回调（rangeChanged/锚暴露）", "onViewportAnchor" in ml
 check("C1 游标存服务端（scroll: key + saveDraft）", "scroll:" in cv and "getDraft" in cv)
 
 check("C2 恢复拉取（before=游标 + since=游标）", "before: scroll" in cv or "scrollCursor" in cv or "scrollAnchor" in cv)
-check("C2 N 屏幕适配（innerHeight）", "innerHeight" in cv)
+check("C2 恢复模式全量加载（flat 结构一致→定位准确）", "isRebuild || anchorEntryId" in cv)
 
 check("C3 初始定位（scrollToIndex 锚）", "initialAnchor" in ml or "scrollToAnchor" in ml or "initialScrollAnchor" in ml)
 
