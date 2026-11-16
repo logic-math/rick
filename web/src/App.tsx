@@ -17,7 +17,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MemoryRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
-import RecoveryBanner from "./components/recovery/RecoveryBanner";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
 import { api } from "./api/client";
 import Portal from "./components/starfield/Portal";
@@ -651,9 +650,6 @@ function AppShell() {
               </NavLink>
             </span>
           </header>
-
-          {/* 平台升级/重启后的挂起与恢复台账（人工一键继续；仅在有挂起/失败或 24h 内显示） */}
-          <RecoveryBanner />
 
           {/* 全局错误横幅 */}
           {globalError && (
