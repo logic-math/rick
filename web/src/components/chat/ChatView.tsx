@@ -388,7 +388,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
   const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
   // 性能优化：游标判定完成前不渲染消息列表（消除「先贴底→scrollToIndex 跳中间」的闪烁）
-  const [cursorReady, setCursorReady] = useState(false);
+  // 有缓存历史时跳过门控（立即渲染——不显示「恢复会话位置」加载态）
+  const [cursorReady, setCursorReady] = useState(() => getCachedHistory(sessionId) !== null);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;

@@ -497,16 +497,17 @@
       "commit_hash": "d6d8c6d90a7b83b796c90948543b8ad1bae517b4"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-17T21:20:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task46",
       "task_name": "性能优化: 会话历史客户端缓存（多会话切换加速——切回来 0ms 渲染 vs 300-800ms REST 拉取；TTL 60s + LRU 20 会话上限）",
-      "updated_at": "2026-11-17T21:20:00+08:00"
+      "updated_at": "2026-11-17T13:13:06.540Z",
+      "commit_hash": "5ca5797f086db78efde99819474482c9153ce61c"
     }
   ],
-  "updated_at": "2026-11-17T21:20:00+08:00",
+  "updated_at": "2026-11-17T13:13:06.540Z",
   "version": "1.0"
 }
