@@ -508,16 +508,27 @@
       "commit_hash": "5ca5797f086db78efde99819474482c9153ce61c"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-17T22:10:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task47",
       "task_name": "性能优化追加: cursorReady 有缓存时跳过门控（消除加载态闪烁）+ E2E 验证 205ms",
-      "updated_at": "2026-11-17T22:10:00+08:00"
+      "updated_at": "2026-11-17T14:05:20.366Z",
+      "commit_hash": "9852679687fe516d84ea7bdd0b8e0582e27afa69"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-18T05:55:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task48",
+      "task_name": "Bug 修复: 缓存丢失分页状态（hasMore=false 无法上拉）+ 懒加载窗口 hasMore 判定错误（窗口内条数 < 50 ≠ 没有更早的）",
+      "updated_at": "2026-11-18T05:55:00+08:00"
     }
   ],
-  "updated_at": "2026-11-17T22:10:00+08:00",
+  "updated_at": "2026-11-18T05:55:00+08:00",
   "version": "1.0"
 }

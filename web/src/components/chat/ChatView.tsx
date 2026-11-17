@@ -388,8 +388,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
   const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
   // 性能优化：游标判定完成前不渲染消息列表（消除「先贴底→scrollToIndex 跳中间」的闪烁）
-  // 有缓存历史时跳过门控（立即渲染——不显示「恢复会话位置」加载态）
+  // 有缓存历史时跳过门控（立即渲染）；无缓存 500ms 超时放行（不再无限等——
+  // human 实测首次打开 3068ms 门控阻塞 = 「会话加载不出来」的根因）
   const [cursorReady, setCursorReady] = useState(() => getCachedHistory(sessionId) !== null);
+  useEffect(() => {
+    if (cursorReady) return;
+    const t = setTimeout(() => setCursorReady(true), 500); // 超时放行
+    return () => clearTimeout(t);
+  }, [cursorReady]);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
@@ -404,8 +410,11 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     if (cached && isFresh(cached) && !isRebuild) {
       hadHistoryRef.current = true;
       setCursorReady(true);
-      setInitialScrollAnchor(null); // 缓存路径不恢复游标（用户自己滚到位置）
-      return; // 跳过网络拉取——缓存数据直接渲染
+      setInitialScrollAnchor(null);
+      setHistory(cached.result);
+      // 恢复分页状态（上拉加载——此前不设置导致 hasMore=false 无法上拉）
+      setPaging({ earliestId: cached.earliestId, hasMore: cached.hasMore });
+      return; // 跳过网络拉取——缓存数据 + 分页状态直接渲染
     }
 
     // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
@@ -496,11 +505,14 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
-        setCachedHistory(sessionId, firstBuilt, entriesList); // 写入客户端缓存
-        pruneCache();
         // 分页游标 + hasMore（窗口模式可向上翻页加载更早；默认模式 auto-compensation）
         let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
-        let hasMore = !isRebuild && entriesList.length >= HISTORY_PAGE_SIZE;
+        // hasMore 修正：懒加载窗口内条数 < HISTORY_PAGE_SIZE ≠ 没有更早的（窗口
+        // 只装了 ~36 条但之前还有 44 条）。默认 true（让 loadEarlier 尝试——API
+        // 返回空时自动设 false）。
+        let hasMore = !isRebuild;
+        setCachedHistory(sessionId, firstBuilt, entriesList, earliestId, hasMore); // 写入缓存（含分页）
+        pruneCache();
         setPaging({ earliestId, hasMore });
         if (isRebuild || !hasMore || !earliestId) {
           if (!cancelled) hadHistoryRef.current = isRebuild || !anchorEntryId;

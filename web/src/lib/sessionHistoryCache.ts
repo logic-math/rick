@@ -22,6 +22,9 @@ export interface CachedHistory {
   result: HistoryBuildResult;
   /** 已加载的 entries 数组（raw，供重放 buildHistoryItems） */
   entries: unknown[];
+  /** 分页状态（上拉加载更早——缓存命中时恢复，否则 hasMore=false 无法上拉） */
+  earliestId: string | null;
+  hasMore: boolean;
   fetchedAt: number;
 }
 
@@ -36,8 +39,8 @@ export function isFresh(cached: CachedHistory): boolean {
   return Date.now() - cached.fetchedAt < TTL_MS;
 }
 
-export function setCachedHistory(sessionId: string, result: HistoryBuildResult, entries: unknown[]): void {
-  CACHE.set(sessionId, { result, entries, fetchedAt: Date.now() });
+export function setCachedHistory(sessionId: string, result: HistoryBuildResult, entries: unknown[], earliestId: string | null, hasMore: boolean): void {
+  CACHE.set(sessionId, { result, entries, earliestId, hasMore, fetchedAt: Date.now() });
 }
 
 export function evictCachedHistory(sessionId: string): void {
