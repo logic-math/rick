@@ -506,8 +506,18 @@
       "task_name": "性能优化: 会话历史客户端缓存（多会话切换加速——切回来 0ms 渲染 vs 300-800ms REST 拉取；TTL 60s + LRU 20 会话上限）",
       "updated_at": "2026-11-17T13:13:06.540Z",
       "commit_hash": "5ca5797f086db78efde99819474482c9153ce61c"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-17T22:10:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task47",
+      "task_name": "性能优化追加: cursorReady 有缓存时跳过门控（消除加载态闪烁）+ E2E 验证 205ms",
+      "updated_at": "2026-11-17T22:10:00+08:00"
     }
   ],
-  "updated_at": "2026-11-17T13:13:06.540Z",
+  "updated_at": "2026-11-17T22:10:00+08:00",
   "version": "1.0"
 }
