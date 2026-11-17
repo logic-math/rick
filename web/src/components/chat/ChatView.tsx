@@ -448,7 +448,10 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           if (cancelled) return;
           // since 结果：首条 = 游标 entry 本身，后续 = 游标后的条目
           // 截取 half+1 条（游标 + 后续 half 条）
-          const sinceEntries = (sinceResp.entries as unknown as Array<Record<string, unknown>>).slice(0, half + 1);
+          // since 全部加载（不截取）——消除窗口尾部到 SSE 实时事件的空洞（human
+          // 实测「下拉刷新消息随机展示没有 timeline」：窗口到 entry 66，SSE 从 75
+          // 开始，67-74 缺失→断裂。懒加载收益保留在 before 侧（游标前 N/2 条）。
+          const sinceEntries = sinceResp.entries as unknown as Array<Record<string, unknown>>;
           const merged = [...beforeEntries, ...sinceEntries];
           resp = { entries: merged, leaf_id: sinceResp.leaf_id } as typeof resp;
         } else {
