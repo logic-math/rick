@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
+import { getCachedHistory, isFresh, setCachedHistory, pruneCache } from "../../lib/sessionHistoryCache";
 import SubagentPanel, { type SubagentTarget } from "./SubagentPanel";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
@@ -395,6 +396,17 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     historyEpochRef.current = epoch;
     const isRebuild = hadHistoryRef.current;
     if (isRebuild) setCursorReady(true); // 重建：不等游标
+
+    // 会话历史客户端缓存（多会话切换加速）：fresh cache（<60s）+ 非重建 →
+    // 跳过全部 REST 拉取（切回来 0ms 渲染）。SSE resync / 过期 → 正常拉取
+    const cached = getCachedHistory(sessionId);
+    if (cached && isFresh(cached) && !isRebuild) {
+      hadHistoryRef.current = true;
+      setCursorReady(true);
+      setInitialScrollAnchor(null); // 缓存路径不恢复游标（用户自己滚到位置）
+      return; // 跳过网络拉取——缓存数据直接渲染
+    }
+
     // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
     // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
     // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
@@ -483,6 +495,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
+        setCachedHistory(sessionId, firstBuilt, entriesList); // 写入客户端缓存
+        pruneCache();
         // 分页游标 + hasMore（窗口模式可向上翻页加载更早；默认模式 auto-compensation）
         let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
         let hasMore = !isRebuild && entriesList.length >= HISTORY_PAGE_SIZE;
