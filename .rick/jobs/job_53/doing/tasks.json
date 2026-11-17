@@ -453,16 +453,27 @@
       "commit_hash": "be15912ceca2b17201df8f1b94519e4c6aca2e67"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-16T17:00:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task42",
       "task_name": "Bug #8 修复: 懒加载窗口 timeline 空洞（since 截取 N/2 → 窗口尾到 SSE 实时事件之间缺条目→断裂；since 全部加载消除空洞，懒加载收益保留在 before 侧）",
-      "updated_at": "2026-11-16T17:00:00+08:00"
+      "updated_at": "2026-11-17T03:25:24.589Z",
+      "commit_hash": "170d15fe9e1c24a0b5e85afde1399dab8f1c0c06"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-16T17:30:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task43",
+      "task_name": "token 徽标拆分：会话总消耗（Σ）+ 当前上下文（ctx）",
+      "updated_at": "2026-11-16T17:30:00+08:00"
     }
   ],
-  "updated_at": "2026-11-16T17:00:00+08:00",
+  "updated_at": "2026-11-16T17:30:00+08:00",
   "version": "1.0"
 }

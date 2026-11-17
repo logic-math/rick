@@ -929,17 +929,26 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             </span>
           );
         })()}
-        {stats && (
-          <span
-            className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-3"
-            title={`累计 token：${stats.tokens.total.toLocaleString()}（含 subagent 与压缩生成）；成本 $${stats.cost.toFixed(2)}`}
-          >
-            {stats.tokens.total >= 10000
-              ? `${Math.round(stats.tokens.total / 1000)}k tok`
-              : `${stats.tokens.total} tok`}
-            {stats.cost > 0 ? ` · $${stats.cost.toFixed(2)}` : ""}
-          </span>
-        )}
+        {stats && (() => {
+          // human 反馈（2026-11-16）：拆两个数值——会话总消耗（累计）+ 当前上下文（压缩后）
+          const fmt = (n: number): string => (n >= 10000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n));
+          const ctxTokens = stats.contextUsage?.tokens;
+          return (
+            <span
+              className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-3"
+              title={`会话总消耗：${stats.tokens.total.toLocaleString()} token（含 subagent 与压缩生成）；当前上下文：${ctxTokens != null ? ctxTokens.toLocaleString() : "?"} token（压缩后）；成本 $${stats.cost.toFixed(2)}`}
+            >
+              <span title="会话总消耗（含 subagent 与压缩生成）">Σ {fmt(stats.tokens.total)}</span>
+              {ctxTokens != null && (
+                <>
+                  <span className="mx-0.5 text-ink-3/50">·</span>
+                  <span title="当前上下文 token（压缩后）" className="text-ink-2">ctx {fmt(ctxTokens)}</span>
+                </>
+              )}
+              {stats.cost > 0 && <span className="ml-1">· ${stats.cost.toFixed(2)}</span>}
+            </span>
+          );
+        })()}
         {vm.compacting && <span className="text-xs text-morty">压缩中</span>}
         {/* 归档状态可见 + 一键取消归档：归档是「从列表隐藏」，会话页本身不会变化——
             若不在页面上明示，用户会误以为「点了归档没生效」（实测反馈）。 */}
