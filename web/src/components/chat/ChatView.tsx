@@ -428,11 +428,28 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       if (cancelled) return;
       setInitialScrollAnchor(savedAnchor);
       setCursorReady(true); // 游标判定完成（有锚或无锚都算完成）
-      const anchorEntryId = savedAnchor;
+      let anchorEntryId = savedAnchor;
 
       try {
         let resp: Awaited<ReturnType<typeof api.getEntries>>;
+        // 性能优化（human 反馈 2026-11-16）：短会话（entries < MAX_HISTORY 500）全量
+        // 加载 + 定位（懒加载窗口在短会话上无收益反而破坏 timeline 体验——窗口小、
+        // 上拉只加几条、滚动位置跳变）。长会话才用游标中心懒加载窗口。
+        // 先全量拉一次看总数，短则直接用；长则丢弃改用窗口（多一次 RTT 但只在
+        // 首次打开时发生，可接受）。
         if (anchorEntryId && !isRebuild) {
+          // 先试全量拉取——短会话直接用（不进懒加载分支）
+          const fullResp = await api.getEntries(sessionId, {});
+          if (cancelled) return;
+          const fullEntries = fullResp.entries as unknown as Array<Record<string, unknown>>;
+          if (fullEntries.length < MAX_HISTORY) {
+            // 短会话：全量 + 定位（flat 结构一致 → scrollToIndex 精准）
+            resp = fullResp;
+            anchorEntryId = fullEntries.some((e) => e.id === anchorEntryId) ? anchorEntryId : null; // 锚在全量中存在才定位
+            // 跳过懒加载窗口逻辑，直接进后续处理
+            setInitialScrollAnchor(anchorEntryId);
+          } else {
+          // 长会话：游标中心懒加载窗口
           // ② 游标中心懒加载窗口——**顺序拉取**保证游标 entry 包含在窗口中：
           //   step1: before=游标前 N/2（strictly before，不含游标）
           //   step2: since=step1 最后一条的 id → 首条即游标 entry + 后续 N/2
@@ -454,6 +471,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           const sinceEntries = sinceResp.entries as unknown as Array<Record<string, unknown>>;
           const merged = [...beforeEntries, ...sinceEntries];
           resp = { entries: merged, leaf_id: sinceResp.leaf_id } as typeof resp;
+          } // end 长会话懒加载窗口
         } else {
           // 无游标：默认路径（最近 N 或全量）
           resp = await defaultEntriesPromise;

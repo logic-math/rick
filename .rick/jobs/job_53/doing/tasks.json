@@ -464,16 +464,27 @@
       "commit_hash": "170d15fe9e1c24a0b5e85afde1399dab8f1c0c06"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-16T17:30:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task43",
       "task_name": "token 徽标拆分：会话总消耗（Σ）+ 当前上下文（ctx）",
-      "updated_at": "2026-11-16T17:30:00+08:00"
+      "updated_at": "2026-11-17T05:29:47.414Z",
+      "commit_hash": "6b1221890b08024adeac15e75371d0e43558dc72"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-16T18:00:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task44",
+      "task_name": "Bug #8 修复: 短会话全量加载（<500 entries 跳过懒加载窗口——timeline 完整无需上拉）+ 长会话保留懒加载窗口",
+      "updated_at": "2026-11-16T18:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-16T17:30:00+08:00",
+  "updated_at": "2026-11-16T18:00:00+08:00",
   "version": "1.0"
 }
