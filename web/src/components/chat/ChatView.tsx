@@ -492,8 +492,9 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           return;
         }
 
-        // 默认模式 auto-compensation（游标窗口模式跳过——真懒加载）
-        if (hasMore && earliestId && !cancelled && !anchorEntryId) {
+        // auto-compensation：**所有模式都跑**（游标窗口先快速定位首屏，后台
+        // 补全全量 timeline——用户不需要上拉 N 次才能看全 626 条长会话）
+        if (hasMore && earliestId && !cancelled) {
           loadingEarlierRef.current = true;
           setLoadingEarlier(true);
           try {
