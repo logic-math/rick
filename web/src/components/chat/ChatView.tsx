@@ -386,12 +386,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到永远
   // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
   const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
+  // 性能优化：游标判定完成前不渲染消息列表（消除「先贴底→scrollToIndex 跳中间」的闪烁）
+  const [cursorReady, setCursorReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
     const isRebuild = hadHistoryRef.current;
+    if (isRebuild) setCursorReady(true); // 重建：不等游标
     // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
     // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
     // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
@@ -424,36 +427,29 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       const savedAnchor = await cursorPromise;
       if (cancelled) return;
       setInitialScrollAnchor(savedAnchor);
+      setCursorReady(true); // 游标判定完成（有锚或无锚都算完成）
       const anchorEntryId = savedAnchor;
 
       try {
         let resp: Awaited<ReturnType<typeof api.getEntries>>;
         if (anchorEntryId && !isRebuild) {
-          // ② 游标中心懒加载：before=游标前 N/2 + since=游标后 N/2（含游标）
+          // ② 游标中心懒加载窗口——**顺序拉取**保证游标 entry 包含在窗口中：
+          //   step1: before=游标前 N/2（strictly before，不含游标）
+          //   step2: since=step1 最后一条的 id → 首条即游标 entry + 后续 N/2
+          //   （此前 since+limit 返回最新 N 而非最近 N → 游标 entry 从未进窗口 →
+          //     anchorToIndex found:false → scrollToIndex 不触发 → 定位失效）
           const WINDOW = Math.max(20, Math.ceil(window.innerHeight / 48) * 3);
           const half = Math.ceil(WINDOW / 2);
-          const [beforeResp, sinceResp] = await Promise.all([
-            api.getEntries(sessionId, { before: anchorEntryId, limit: half }),
-            api.getEntries(sessionId, { since: anchorEntryId, limit: half }),
-          ]);
+          const beforeResp = await api.getEntries(sessionId, { before: anchorEntryId, limit: half });
           if (cancelled) return;
-          // 合并：before（游标前）+ [游标 entry 本身] + since（游标后）
-          // since=游标 ID 是 strictly-after——游标 entry 本身不在两边，手动补
-          //（用 before 的最后一条作为 since 锚点重新拉，或直接查游标 entry）
           const beforeEntries = beforeResp.entries as unknown as Array<Record<string, unknown>>;
-          const sinceEntries = sinceResp.entries as unknown as Array<Record<string, unknown>>;
-          // before 的最后一条是游标前一条；since 从游标后开始（不含游标）
-          // 游标 entry 本身：从 before 最后一条的 id 用 since 拉一条补上
-          let cursorEntry: Record<string, unknown> | null = null;
           const lastBefore = beforeEntries[beforeEntries.length - 1] as { id?: string } | undefined;
-          if (lastBefore?.id) {
-            try {
-              const cursorResp = await api.getEntries(sessionId, { since: lastBefore.id, limit: 1 });
-              const first = (cursorResp.entries as unknown as Array<Record<string, unknown>>)[0];
-              if (first && first.id === anchorEntryId) cursorEntry = first;
-            } catch { /* 补游标失败——不阻塞 */ }
-          }
-          const merged = [...beforeEntries, ...(cursorEntry ? [cursorEntry] : []), ...sinceEntries];
+          const sinceResp = await api.getEntries(sessionId, { since: lastBefore?.id ?? anchorEntryId });
+          if (cancelled) return;
+          // since 结果：首条 = 游标 entry 本身，后续 = 游标后的条目
+          // 截取 half+1 条（游标 + 后续 half 条）
+          const sinceEntries = (sinceResp.entries as unknown as Array<Record<string, unknown>>).slice(0, half + 1);
+          const merged = [...beforeEntries, ...sinceEntries];
           resp = { entries: merged, leaf_id: sinceResp.leaf_id } as typeof resp;
         } else {
           // 无游标：默认路径（最近 N 或全量）
@@ -1024,6 +1020,13 @@ export default function ChatView({ sessionId }: ChatViewProps) {
 
       {/* 消息流 */}
       <div className="min-h-0 flex-1">
+        {/* 游标判定完成前显示 skeleton（消除底闪→跳中间的视觉闪烁） */}
+        {!cursorReady ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-sm text-ink-3">
+            <span className="mr-2 inline-block h-2 w-2 animate-rm-pulse rounded-full bg-portal" />
+            恢复会话位置…
+          </div>
+        ) : (
         <MessageList
           items={items}
           streaming={vm.streaming}
@@ -1035,6 +1038,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           initialAnchor={initialScrollAnchor}
           onAnchorConsumed={() => setInitialScrollAnchor(null)}
         />
+        )}
       </div>
 
       {/* extension_ui 对话框（agent 阻塞等待——渲染在输入条上方） */}
