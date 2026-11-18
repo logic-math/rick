@@ -23,6 +23,11 @@ import Button from "../components/common/Button";
 import Dialog from "../components/common/Dialog";
 import ErrorBanner from "../components/common/ErrorBanner";
 import Portal from "../components/starfield/Portal";
+import {
+  readHistoryCacheConfig,
+  HISTORY_CACHE_CONFIG_KEY,
+  type HistoryCacheConfig,
+} from "../lib/sessionHistoryCache";
 
 const FIELD =
   "w-full rounded-lg border border-line bg-space/60 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-portal/60 focus:outline-none";
@@ -71,6 +76,16 @@ export default function Settings() {
     setAutoCompact(next);
     try {
       localStorage.setItem(AUTO_COMPACT_KEY, JSON.stringify(next));
+    } catch {
+      // 静默
+    }
+  };
+  // 会话历史缓存（human 2026-11-18 裁决：默认 7 天 / 64 会话，Settings 可调）
+  const [historyCache, setHistoryCache] = useState<HistoryCacheConfig>(() => readHistoryCacheConfig());
+  const saveHistoryCache = (next: HistoryCacheConfig) => {
+    setHistoryCache(next);
+    try {
+      localStorage.setItem(HISTORY_CACHE_CONFIG_KEY, JSON.stringify(next));
     } catch {
       // 静默
     }
@@ -268,10 +283,51 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* 会话历史缓存（多会话切换加速） */}
+      <Section
+        title="会话历史缓存"
+        desc={`多会话切换加速：切回已打开的会话时立即渲染本地缓存，后台增量拉取新消息保持 timeline 一致。内存缓存（页面刷新后重建）；存储于 localStorage "${HISTORY_CACHE_CONFIG_KEY}"，修改即时生效。`}
+      >
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2 text-ink-2">
+            缓存时长
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={historyCache.ttlDays}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v))
+                  saveHistoryCache({ ...historyCache, ttlDays: Math.min(365, Math.max(1, Math.floor(v))) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            天
+          </label>
+          <label className="flex items-center gap-2 text-ink-2">
+            最多缓存
+            <input
+              type="number"
+              min={1}
+              max={512}
+              value={historyCache.maxSessions}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v))
+                  saveHistoryCache({ ...historyCache, maxSessions: Math.min(512, Math.max(1, Math.floor(v))) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            个会话
+          </label>
+          <span className="text-xs text-ink-3">（默认 7 天 / 64 会话，LRU 淘汰最旧）</span>
+        </div>
+      </Section>
+
       <Section title="服务器" desc="GET /api/config">
         {serverErr ? (
-          <ErrorBanner message={serverErr} />
-        ) : server ? (
+          <ErrorBanner message={serverErr} />        ) : server ? (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-xs text-ink-3">API 版本</dt>

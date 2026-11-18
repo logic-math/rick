@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import { deriveSessionDisplay } from "../../lib/sessionDisplay";
-import { getCachedHistory, isFresh, setCachedHistory, pruneCache } from "../../lib/sessionHistoryCache";
+import { getCachedHistory, isFresh, setCachedHistory, touchCachedHistory, pruneCache } from "../../lib/sessionHistoryCache";
 import SubagentPanel, { type SubagentTarget } from "./SubagentPanel";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
@@ -404,8 +404,10 @@ export default function ChatView({ sessionId }: ChatViewProps) {
     const isRebuild = hadHistoryRef.current;
     if (isRebuild) setCursorReady(true); // 重建：不等游标
 
-    // 会话历史客户端缓存（多会话切换加速）：fresh cache（<60s）+ 非重建 →
-    // 跳过全部 REST 拉取（切回来 0ms 渲染）。SSE resync / 过期 → 正常拉取
+    // 会话历史客户端缓存（多会话切换加速）：fresh cache（TTL 默认 7 天，
+    // Settings 可调）+ 非重建 → 立即渲染缓存数据，后台增量拉取新条目合并
+    // （保持 timeline 一致性——只拉缓存 leaf 之后的 delta，无新条目则滑动续期）。
+    // SSE resync / 过期 → 正常全量拉取覆盖。
     const cached = getCachedHistory(sessionId);
     if (cached && isFresh(cached) && !isRebuild) {
       hadHistoryRef.current = true;
@@ -414,7 +416,39 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       setHistory(cached.result);
       // 恢复分页状态（上拉加载——此前不设置导致 hasMore=false 无法上拉）
       setPaging({ earliestId: cached.earliestId, hasMore: cached.hasMore });
-      return; // 跳过网络拉取——缓存数据 + 分页状态直接渲染
+      // 增量拉取更新（human 2026-11-18 裁决：每次增量拉取，保持 timeline
+      // 一致性）：后台拉缓存 leaf 之后的新条目——有则合并重建（首屏已渲染，
+      // 增量到达后原地更新），无则滑动续期（重置 TTL 窗口）。
+      void (async () => {
+        try {
+          const leaf = cached.entries[cached.entries.length - 1] as
+            | { id?: string }
+            | undefined;
+          if (!leaf?.id) {
+            touchCachedHistory(sessionId);
+            return;
+          }
+          const resp = await api.getEntries(sessionId, { since: leaf.id });
+          if (cancelled) return;
+          const sinceEntries = resp.entries as unknown as Array<Record<string, unknown>>;
+          // since 语义含 leaf 本身（首条即 leaf）——过滤后才是真 delta
+          const delta = sinceEntries.filter((e) => e.id !== leaf.id);
+          if (delta.length === 0) {
+            touchCachedHistory(sessionId); // 无新条目——滑动续期
+            return;
+          }
+          const merged = [...cached.entries, ...delta];
+          const rebuilt = buildHistoryItems(
+            merged as unknown as Parameters<typeof buildHistoryItems>[0],
+          );
+          if (cancelled) return;
+          setHistory(rebuilt);
+          setCachedHistory(sessionId, rebuilt, merged, cached.earliestId, cached.hasMore);
+        } catch {
+          // 增量失败——保持缓存渲染（下次切换重试）
+        }
+      })();
+      return; // 首屏立即渲染（缓存）+ 后台增量更新
     }
 
     // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
@@ -524,6 +558,8 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         if (hasMore && earliestId && !cancelled) {
           loadingEarlierRef.current = true;
           setLoadingEarlier(true);
+          // 补拉页收集（缓存更新用）：全量 timeline = 页序列（旧→新）+ 初始窗口
+          const accPages: Record<string, unknown>[][] = [];
           try {
             let loaded = entriesList.length;
             while (hasMore && earliestId && !cancelled && loaded < MAX_HISTORY) {
@@ -536,6 +572,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
                 typeof buildHistoryItems
               >[0];
               if (pageEntries.length === 0) { hasMore = false; break; }
+              accPages.push(pageEntries as Record<string, unknown>[]);
               const built = buildHistoryItems(pageEntries);
               prependHistory(built);
               loaded += pageEntries.length;
@@ -544,6 +581,16 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             }
             if (!cancelled) setPaging({ earliestId, hasMore });
             if (!cancelled) hadHistoryRef.current = true;
+            // 补拉页写回缓存（timeline 一致性）：切回时缓存含全量（含 auto-comp
+            // 补拉的更早条目），而非只有初始窗口——否则切回后早期条目丢失需重拉。
+            if (!cancelled && accPages.length > 0) {
+              const fullEntries = [...accPages.slice().reverse().flat(), ...entriesList];
+              const fullResult = buildHistoryItems(
+                fullEntries as unknown as Parameters<typeof buildHistoryItems>[0],
+              );
+              setCachedHistory(sessionId, fullResult, fullEntries, earliestId, hasMore);
+              pruneCache();
+            }
           } catch { /* 保留已渲染部分 */ } finally {
             loadingEarlierRef.current = false;
             if (!cancelled) setLoadingEarlier(false);
