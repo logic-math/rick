@@ -541,16 +541,27 @@
       "commit_hash": "66f4f0f88e82bc1613cc6ac9b7e1e954145b5cc3"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-18T13:59:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task50",
       "task_name": "会话缓存升级: 默认 7 天/64 会话 + Settings 可配置 + 增量拉取保持 timeline 一致性 + auto-comp 页写回缓存",
-      "updated_at": "2026-11-18T13:59:00+08:00"
+      "updated_at": "2026-11-18T05:59:10.103Z",
+      "commit_hash": "8ecd99e9cb05a77b72195da5a98df75c2fc2ca09"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-18T15:50:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task51",
+      "task_name": "性能修复: 巨型会话（626 entries/8MB）切换卡顿——增量路径全量重建改 delta 拼接 + auto-comp 缓存零二次构建",
+      "updated_at": "2026-11-18T15:50:00+08:00"
     }
   ],
-  "updated_at": "2026-11-18T13:59:00+08:00",
+  "updated_at": "2026-11-18T15:50:00+08:00",
   "version": "1.0"
 }

@@ -61,7 +61,7 @@ function hasDialogueSinceLastCompaction(items: ChatItem[]): boolean {
 // 文件阅读器（Provider + Panel）已提升到 App 壳层（job_43 增量 5）——
 // 消息链接的 useFileReader 在 Markdown/LocalAwareLink 内部，走全局 Context。
 import Collapse from "../common/Collapse";
-import type { HistoryMeta } from "./viewModel";
+import type { HistoryMeta, ToolItem } from "./viewModel";
 import ModelSwitchDialog from "./ModelSwitchDialog";
 
 /** 稳定空数组引用（选择器 `?? EMPTY` 避免每次 store 更新建新 [] 触发重渲染） */
@@ -417,8 +417,10 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       // 恢复分页状态（上拉加载——此前不设置导致 hasMore=false 无法上拉）
       setPaging({ earliestId: cached.earliestId, hasMore: cached.hasMore });
       // 增量拉取更新（human 2026-11-18 裁决：每次增量拉取，保持 timeline
-      // 一致性）：后台拉缓存 leaf 之后的新条目——有则合并重建（首屏已渲染，
-      // 增量到达后原地更新），无则滑动续期（重置 TTL 窗口）。
+      // 一致性）：后台拉缓存 leaf 之后的新条目——有则**增量构建拼接**（不全量
+      // 重建——巨型会话 8MB/626 条全量重建 300ms+ 主线程阻塞 = 切换卡顿根因；
+      // 只 build delta，拼接到既有 result——items 引用稳定 → React 不重挂既有
+      // 项），无则滑动续期（重置 TTL 窗口）。
       void (async () => {
         try {
           const leaf = cached.entries[cached.entries.length - 1] as
@@ -437,13 +439,49 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             touchCachedHistory(sessionId); // 无新条目——滑动续期
             return;
           }
-          const merged = [...cached.entries, ...delta];
-          const rebuilt = buildHistoryItems(
-            merged as unknown as Parameters<typeof buildHistoryItems>[0],
+          // 增量构建：只 build delta（新条目通常少条——构建成本 O(delta)）
+          const deltaBuilt = buildHistoryItems(
+            delta as unknown as Parameters<typeof buildHistoryItems>[0],
           );
+          // 跨缓存边界工具配对回填：toolCall 在缓存尾部、toolResult 在 delta
+          // 首部（缓存切割恰好落在工具对中间）→ 独立 toolResult 卡（args=null）
+          // 回填到缓存中的 toolCall 卡（新对象引用触发该项重渲染），独立卡丢弃。
+          const baseItems = [...cached.result.items];
+          const deltaItems = [...deltaBuilt.items];
+          for (let i = deltaItems.length - 1; i >= 0; i--) {
+            const it = deltaItems[i];
+            if (it.kind === "tool" && it.args === null && it.toolCallId) {
+              const tIdx = baseItems.findIndex(
+                (b) => b.kind === "tool" && b.toolCallId === it.toolCallId && !b.output,
+              );
+              if (tIdx >= 0) {
+                baseItems[tIdx] = {
+                  ...(baseItems[tIdx] as ToolItem),
+                  output: it.output,
+                  status: it.status,
+                  truncated: it.truncated,
+                  fullOutputPath: it.fullOutputPath,
+                };
+                deltaItems.splice(i, 1);
+              }
+            }
+          }
+          const mergedResult: HistoryBuildResult = {
+            items: [...baseItems, ...deltaItems],
+            fingerprints: new Set([...cached.result.fingerprints, ...deltaBuilt.fingerprints]),
+            meta: deltaBuilt.meta.model
+              ? { ...cached.result.meta, ...deltaBuilt.meta }
+              : cached.result.meta,
+          };
           if (cancelled) return;
-          setHistory(rebuilt);
-          setCachedHistory(sessionId, rebuilt, merged, cached.earliestId, cached.hasMore);
+          setHistory(mergedResult);
+          setCachedHistory(
+            sessionId,
+            mergedResult,
+            [...cached.entries, ...delta],
+            cached.earliestId,
+            cached.hasMore,
+          );
         } catch {
           // 增量失败——保持缓存渲染（下次切换重试）
         }
@@ -560,6 +598,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           setLoadingEarlier(true);
           // 补拉页收集（缓存更新用）：全量 timeline = 页序列（旧→新）+ 初始窗口
           const accPages: Record<string, unknown>[][] = [];
+          const accBuilt: HistoryBuildResult[] = [];
           try {
             let loaded = entriesList.length;
             while (hasMore && earliestId && !cancelled && loaded < MAX_HISTORY) {
@@ -574,6 +613,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
               if (pageEntries.length === 0) { hasMore = false; break; }
               accPages.push(pageEntries as Record<string, unknown>[]);
               const built = buildHistoryItems(pageEntries);
+              accBuilt.push(built);
               prependHistory(built);
               loaded += pageEntries.length;
               earliestId = (pageEntries[0] as { id?: string } | undefined)?.id ?? null;
@@ -582,12 +622,21 @@ export default function ChatView({ sessionId }: ChatViewProps) {
             if (!cancelled) setPaging({ earliestId, hasMore });
             if (!cancelled) hadHistoryRef.current = true;
             // 补拉页写回缓存（timeline 一致性）：切回时缓存含全量（含 auto-comp
-            // 补拉的更早条目），而非只有初始窗口——否则切回后早期条目丢失需重拉。
-            if (!cancelled && accPages.length > 0) {
+            // 补拉的更早条目），而非只有初始窗口。**组合已构建页**（零二次全量
+            // 构建——626 条/8MB 会话全量重 build 300ms+ = 首开卡顿放大器）。
+            if (!cancelled && accBuilt.length > 0) {
               const fullEntries = [...accPages.slice().reverse().flat(), ...entriesList];
-              const fullResult = buildHistoryItems(
-                fullEntries as unknown as Parameters<typeof buildHistoryItems>[0],
-              );
+              const fullResult: HistoryBuildResult = {
+                items: [
+                  ...accBuilt.slice().reverse().flatMap((b) => b.items),
+                  ...firstBuilt.items,
+                ],
+                fingerprints: new Set([
+                  ...accBuilt.flatMap((b) => [...b.fingerprints]),
+                  ...firstBuilt.fingerprints,
+                ]),
+                meta: firstBuilt.meta,
+              };
               setCachedHistory(sessionId, fullResult, fullEntries, earliestId, hasMore);
               pruneCache();
             }
