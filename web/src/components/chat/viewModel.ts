@@ -394,6 +394,19 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
     }
     case "compaction_end": {
       st.compacting = false;
+      // no-op 压缩（Already compacted / Nothing to compact）：pi 在检查前就
+      // emit compaction_start、失败也 emit end——这两类「无事可做」结局不是
+      // 真失败，移除占位卡而非显示「上下文压缩失败」（human 报：自动压缩
+      // 触发后出现一次「手动压缩失败」卡即此路径）。
+      const errMsg = typeof ev.errorMessage === "string" ? ev.errorMessage : "";
+      if (errMsg.includes("Already compacted") || errMsg.includes("Nothing to compact")) {
+        const pIdx = st.items.findIndex(
+          (it) => it.kind === "compaction" && (it as CompactionItem).pending,
+        );
+        if (pIdx >= 0) st.items.splice(pIdx, 1);
+        st.pendingCompactArg = null;
+        break;
+      }
       // 填充最近一张占位压缩卡（compaction_start → end 配对；无占位时
       // 兜底新建——历史裁剪后 start 卡可能已不在流内）。
       const result = (ev.result ?? null) as Record<string, unknown> | null;

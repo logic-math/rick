@@ -891,18 +891,23 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   }, []);
   const autoCompactThreshold = autoCompactCfg.threshold;
   const autoCompactRef = useRef(0);
+  // 自动压缩前置拦截：距上次压缩无新对话 → 不发起（与手动 /compact 同款护栏）。
+  // 否则 pi 报 "Already compacted" 但 compaction_start/end 事件已发出（pi 在
+  // 检查前就 emit start，失败也 emit end）→ UI 出现「上下文压缩失败（手动）」卡。
+  const hasNewDialogue = useMemo(() => hasDialogueSinceLastCompaction(vm.items), [vm.items]);
   useEffect(() => {
     const pct = stats?.contextUsage?.percent;
     if (pct == null || !info || info.status !== "active") return;
     if (!autoCompactCfg.enabled || pct < autoCompactCfg.threshold) return;
     if (vm.compacting) return;
+    if (!hasNewDialogue) return; // 无新对话 → pi 必报 Already compacted，不发起
     if (autoCompactRef.current === pct) return; // 同一水位只触发一次
     autoCompactRef.current = pct;
     void api
       .compactSession(sessionId, "自动压缩：上下文使用率已达 " + pct + "%")
       .then(() => refreshStats())
       .catch(() => {});
-  }, [stats?.contextUsage?.percent, vm.compacting, info?.status, sessionId, refreshStats, info]);
+  }, [stats?.contextUsage?.percent, vm.compacting, hasNewDialogue, info?.status, sessionId, refreshStats, info]);
 
   // Bug #8 2A 终版（human 裁决 2026-11-15）：subagent 子会话右侧栏（只读——输入走
   // 主页面）。卡片/侧边栏点击 → 打开右侧栏展示完整子会话输出。侧边栏点击经

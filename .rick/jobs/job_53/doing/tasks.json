@@ -519,16 +519,27 @@
       "commit_hash": "9852679687fe516d84ea7bdd0b8e0582e27afa69"
     },
     {
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-18T05:55:00+08:00",
       "dependencies": [],
-      "status": "pending",
+      "status": "success",
       "task_file": "",
       "task_id": "task48",
       "task_name": "Bug 修复: 缓存丢失分页状态（hasMore=false 无法上拉）+ 懒加载窗口 hasMore 判定错误（窗口内条数 < 50 ≠ 没有更早的）",
-      "updated_at": "2026-11-18T05:55:00+08:00"
+      "updated_at": "2026-11-17T21:52:49.282Z",
+      "commit_hash": "0554410b1026e700da2e65a34e5b62a732337cd4"
+    },
+    {
+      "attempts": 0,
+      "created_at": "2026-11-18T12:09:00+08:00",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "",
+      "task_id": "task49",
+      "task_name": "Bug 修复: 自动压缩触发后 UI 出现「上下文压缩失败（手动）」卡——pi 在检查前 emit compaction_start、失败也 emit end",
+      "updated_at": "2026-11-18T12:09:00+08:00"
     }
   ],
-  "updated_at": "2026-11-18T05:55:00+08:00",
+  "updated_at": "2026-11-18T12:09:00+08:00",
   "version": "1.0"
 }
