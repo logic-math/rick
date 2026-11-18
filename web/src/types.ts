@@ -17,6 +17,8 @@ export interface ServerConfig {
   rick_version: string;
   port: number;
   auth_required: boolean;
+  /** 构建标识（Bug #7 版本探针：跨设备确认新旧 bundle） */
+  build_id?: string;
 }
 
 /** 统一错误体（HTTP 响应 body） */
@@ -67,15 +69,7 @@ export interface AddWorkspaceRequest {
 // Sessions
 // ============================================================
 
-export type SessionType =
-  | "plan"
-  | "easy"
-  | "ctrl"
-  | "human-loop"
-  | "learning"
-  | "dream"
-  | "doing"
-  | "super";
+export type SessionType = "easy" | "human-loop" | "dream" | "super";
 
 /**
  * 会话状态（server 权威）。五态语义：
@@ -165,6 +159,8 @@ export interface SessionInfo {
   /** 用户给所属 job 起的任务名（「任务名」别名，展示层；未命名为空）。
    *  侧栏会话行优先显示它——「doing job_3」看不出在干什么。 */
   job_name?: string;
+  /** 用户自定义会话名（Bug #4：所有会话类型可重命名）——侧栏优先级 name > job_name > title */
+  name?: string;
   /** 后台进度日志（doing/dream；仅单会话查询返回）——监控页首次/事后打开时回填
    *  事件流（这些事件原本只在 hub 环形缓冲里活过一次）。 */
   progress?: Array<{ at: string; kind: string; text: string }>;
@@ -404,4 +400,11 @@ export interface SessionModel {
 export interface SessionModelsResult {
   models: SessionModel[];
   current: SessionModel | null;
+}
+
+/** Bug #8 2C：GET /api/sessions/{id}/stats 响应（pi get_session_stats 透传） */
+export interface SessionStats {
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+  cost: number;
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
 }

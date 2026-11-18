@@ -13,7 +13,7 @@ func TestIntegration_LoadAllTemplates(t *testing.T) {
 
 	pm := NewPromptManager(templateDir)
 
-	templates := []string{"plan", "doing", "test_python", "learning"}
+	templates := []string{"easy", "test_python", "learning"}
 	for _, templateName := range templates {
 		t.Run(templateName, func(t *testing.T) {
 			template, err := pm.LoadTemplate(templateName)
@@ -44,13 +44,13 @@ func TestIntegration_PromptBuilderWorks(t *testing.T) {
 	templateDir := getTemplateDir()
 	pm := NewPromptManager(templateDir)
 
-	template, err := pm.LoadTemplate("plan")
+	template, err := pm.LoadTemplate("easy")
 	if err != nil {
-		t.Fatalf("Failed to load plan template: %v", err)
+		t.Fatalf("Failed to load easy template: %v", err)
 	}
 
 	builder := NewPromptBuilder(template)
-	builder.SetVariable("user_requirement", "Implement feature X")
+	builder.SetVariable("requirement", "Implement feature X")
 	builder.SetContext("completed_work", "- Previous task 1")
 
 	prompt, err := builder.Build()
@@ -60,27 +60,14 @@ func TestIntegration_PromptBuilderWorks(t *testing.T) {
 	if prompt == "" {
 		t.Fatal("Built prompt is empty")
 	}
-	if strings.Contains(prompt, "{{user_requirement}}") {
-		t.Error("user_requirement variable not replaced")
+	if strings.Contains(prompt, "{{requirement}}") {
+		t.Error("requirement variable not replaced")
 	}
 	if !strings.Contains(prompt, "Implement feature X") {
-		t.Error("user_requirement value not found in prompt")
+		t.Error("requirement value not found in prompt")
 	}
 }
 
-// TestIntegration_PlanPromptGeneration verifies the plan generator produces output.
-func TestIntegration_PlanPromptGeneration(t *testing.T) {
-	prompt, err := GeneratePlanPrompt("New requirement", "/tmp/test_plan", "")
-	if err != nil {
-		t.Fatalf("Failed to generate plan prompt: %v", err)
-	}
-	if prompt == "" {
-		t.Fatal("Plan prompt is empty")
-	}
-	if !strings.Contains(prompt, "New requirement") {
-		t.Error("Plan prompt does not contain user requirement")
-	}
-}
 
 // Helper function to get template directory
 func getTemplateDir() string {

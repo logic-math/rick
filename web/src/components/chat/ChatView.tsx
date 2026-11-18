@@ -11,9 +11,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
+import { deriveSessionDisplay } from "../../lib/sessionDisplay";
+import { getCachedHistory, isFresh, setCachedHistory, touchCachedHistory, pruneCache } from "../../lib/sessionHistoryCache";
+import SubagentPanel, { type SubagentTarget } from "./SubagentPanel";
 import { useSessionEventsStore } from "../../stores/events";
 import { useSessionsStore } from "../../stores/sessions";
-import type { SessionStatus, SessionPrompt, SessionType } from "../../types";
+import { useUiStore } from "../../stores/ui";
+import type { SessionStatus, SessionPrompt, SessionType, SessionStats } from "../../types";
 import { ApiError } from "../../types";
 import MessageList from "./MessageList";
 import SteerBar, { type SessionPhase } from "./SteerBar";
@@ -23,13 +27,41 @@ import {
   buildHistoryItems,
   optimisticEchoed,
   type HistoryBuildResult,
+  type ChatItem,
 } from "./viewModel";
 import type { SlashCommand } from "./ChatInput";
 import Portal from "../starfield/Portal";
+
+/** 迭代 3（human 反馈）：items 里最后一张完整压缩卡（非 pending/aborted/
+ *  无 errorMessage——历史卡缺省字段同样算成功）之后是否存在新对话项
+ *  （user/assistant/thinking/tool；notice 不算对话）。
+ *  - 存在 → 可压缩；不存在 → 前置拦截不调 API（免无谓 resume worker + pi 调用）。
+ *  - 无压缩卡或 items 为空（历史未加载）→ true 放行（后端 pi 的
+ *    Already compacted 错误兕底，前端 catch 处映射中文）。 */
+function hasDialogueSinceLastCompaction(items: ChatItem[]): boolean {
+  let lastCompaction = -1;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const it = items[i];
+    if (it.kind === "compaction" && !it.pending && !it.aborted && !it.errorMessage) {
+      lastCompaction = i;
+      break;
+    }
+  }
+  if (lastCompaction < 0) return true;
+  return items
+    .slice(lastCompaction + 1)
+    .some(
+      (it) =>
+        it.kind === "user" ||
+        it.kind === "assistant-text" ||
+        it.kind === "thinking" ||
+        it.kind === "tool",
+    );
+}
 // 文件阅读器（Provider + Panel）已提升到 App 壳层（job_43 增量 5）——
 // 消息链接的 useFileReader 在 Markdown/LocalAwareLink 内部，走全局 Context。
 import Collapse from "../common/Collapse";
-import type { HistoryMeta } from "./viewModel";
+import type { HistoryMeta, ToolItem } from "./viewModel";
 import ModelSwitchDialog from "./ModelSwitchDialog";
 
 /** 稳定空数组引用（选择器 `?? EMPTY` 避免每次 store 更新建新 [] 触发重渲染） */
@@ -45,25 +77,18 @@ const MAX_HISTORY = 500;
 // 会话头（类型徽标 + 状态点）
 // ============================================================
 
-const TYPE_LABEL: Record<SessionType, string> = {
-  plan: "PLAN",
+// Bug #5（human 2026-11-14）：已删除类型不显示历史标签（Partial + 条件渲染）
+const TYPE_LABEL: Partial<Record<SessionType, string>> = {
   easy: "EASY",
-  ctrl: "CTRL",
   "human-loop": "HUMAN-LOOP",
-  learning: "LEARNING",
   dream: "DREAM",
-  doing: "DOING",
   super: "SUPER",
 };
 
-const TYPE_TONE: Record<SessionType, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
+const TYPE_TONE: Partial<Record<SessionType, string>> = {
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/60 bg-nebula/15 text-ink",
-  learning: "border-rick/50 bg-rick/10 text-rick",
   dream: "border-nebula/60 bg-nebula/15 text-ink",
-  doing: "border-morty/50 bg-morty/10 text-morty",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
@@ -73,7 +98,7 @@ const STATUS_LABEL: Record<SessionStatus, string> = {
   running: "running",
   closed: "closed",
   error: "error",
-  suspended: "已挂起（平台升级）",
+  suspended: "已挂起",
 };
 
 function StatusDot({ status, streaming }: { status: SessionStatus; streaming: boolean }) {
@@ -117,15 +142,11 @@ function StatusDot({ status, streaming }: { status: SessionStatus; streaming: bo
 // ============================================================
 
 /** 会话类型的 prompt 文件来源（显示路径提示——内容经 job files API 查看） */
-const PROMPT_SOURCE: Record<SessionType, string> = {
-  plan: "<job>/plan/prompts/plan_prompt.md（+ method 系统提示词，--append-system-prompt 注入）",
+const PROMPT_SOURCE: Partial<Record<SessionType, string>> = {
   easy: "<job>/doing/prompts/easy_main_prompt.md（+ method 系统提示词）",
-  ctrl: "<job>/doing/prompts/ctrl_prompt.md",
   "human-loop": "<draft>/loops/loop_N/prompts/*.md（SENSE 四文件协议）",
-  learning: "<job>/learning/prompts/learning_prompt.md",
   dream: ".rick/dream/（跨 job 反思，扫描已完成 jobs）",
-  doing: "<job>/doing/prompts/doing_prompt.md（parent 编排协议）",
-  super: "<ws>/.rick/super_env/<name>/：super-loop + gen_env skill 中控（进化运行/观察/干预）",
+  super: "<ws>/.rick/super/env_N/：super-loop + gen_env skill 中控（进化运行/观察/干预）",
 };
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -150,7 +171,7 @@ function SessionInfoPanel({
   /** 点「切换」打开模型切换 Dialog */
   onSwitchModel: () => void;
 }) {
-  const type = info?.type ?? "plan";
+  const type: SessionType = info?.type ?? "easy";
   const params = info?.params ?? {};
   const paramRows = Object.entries(params);
   const [prompt, setPrompt] = useState<SessionPrompt | null>(null);
@@ -206,7 +227,7 @@ function SessionInfoPanel({
       <div className="px-3 py-2">
         <div className="mb-1 text-[10px] uppercase tracking-wide text-ink-3">系统提示词（原文）</div>
         <p className="pb-1 font-mono text-[11px] leading-relaxed text-ink-2">
-          {PROMPT_SOURCE[type]}
+          {PROMPT_SOURCE[type] ?? "（已删除类型的会话——历史数据保留，无活动协议）"}
         </p>
         <button
           type="button"
@@ -341,40 +362,245 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 拉**全量**（不带 limit）覆盖，避免「重建只拉最近 50 条 → 254 条历史缩水 →
   // 全部重挂 + enter 动画重放 = 使用中历史闪烁 + override 展开态丢失」。
   const hadHistoryRef = useRef(false);
+  // Bug #8 第三批（human 2026-11-15）：滚动游标跨设备保留——打开会话恢复到上次
+  // 阅读位置（游标前 N 条 + 定位），滚动时 debounce 存服务端 drafts（scroll:<sid>）。
+  const SCROLL_KEY_PREFIX = "scroll:";
+  const scrollAnchorRef = useRef<string | null>(null);
+  const scrollSaveTimerRef = useRef<number | null>(null);
+  /** 视口锚回调（MessageList rangeChanged）——debounce 1s 存服务端（跨设备恢复） */
+  const handleViewportAnchor = useCallback(
+    (anchorId: string | null) => {
+      scrollAnchorRef.current = anchorId;
+      if (!anchorId) return;
+      if (scrollSaveTimerRef.current !== null) window.clearTimeout(scrollSaveTimerRef.current);
+      scrollSaveTimerRef.current = window.setTimeout(() => {
+        scrollSaveTimerRef.current = null;
+        // DEBUG（游标记录链路定位）：saveDraft 成败可见
+        void api.saveDraft(SCROLL_KEY_PREFIX + sessionId, anchorId)
+          .then(() => console.log("[scroll-cursor] saved:", anchorId))
+          .catch(() => {});
+      }, 1000);
+    },
+    [sessionId],
+  );
+  // 首次打开的定位锚（历史加载 effect 内拉游标后设置——**时序修复**：此前游标
+  // getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到永远
+  // 不生效（human 实测复现）。现并入同一 effect：先 await 游标 → 再决定拉取参数。
+  const [initialScrollAnchor, setInitialScrollAnchor] = useState<string | null>(null);
+  // 性能优化：游标判定完成前不渲染消息列表（消除「先贴底→scrollToIndex 跳中间」的闪烁）
+  // 有缓存历史时跳过门控（立即渲染）；无缓存 500ms 超时放行（不再无限等——
+  // human 实测首次打开 3068ms 门控阻塞 = 「会话加载不出来」的根因）
+  const [cursorReady, setCursorReady] = useState(() => getCachedHistory(sessionId) !== null);
+  useEffect(() => {
+    if (cursorReady) return;
+    const t = setTimeout(() => setCursorReady(true), 500); // 超时放行
+    return () => clearTimeout(t);
+  }, [cursorReady]);
   useEffect(() => {
     let cancelled = false;
     const epoch = resyncCount + historyRefresh;
     if (historyEpochRef.current === epoch) return;
     historyEpochRef.current = epoch;
     const isRebuild = hadHistoryRef.current;
-    api
-      .getEntries(sessionId, isRebuild ? {} : { limit: HISTORY_PAGE_SIZE })
-      .then(async (resp) => {
+    if (isRebuild) setCursorReady(true); // 重建：不等游标
+
+    // 会话历史客户端缓存（多会话切换加速）：fresh cache（TTL 默认 7 天，
+    // Settings 可调）+ 非重建 → 立即渲染缓存数据，后台增量拉取新条目合并
+    // （保持 timeline 一致性——只拉缓存 leaf 之后的 delta，无新条目则滑动续期）。
+    // SSE resync / 过期 → 正常全量拉取覆盖。
+    const cached = getCachedHistory(sessionId);
+    if (cached && isFresh(cached) && !isRebuild) {
+      hadHistoryRef.current = true;
+      setCursorReady(true);
+      setInitialScrollAnchor(null);
+      setHistory(cached.result);
+      // 恢复分页状态（上拉加载——此前不设置导致 hasMore=false 无法上拉）
+      setPaging({ earliestId: cached.earliestId, hasMore: cached.hasMore });
+      // 增量拉取更新（human 2026-11-18 裁决：每次增量拉取，保持 timeline
+      // 一致性）：后台拉缓存 leaf 之后的新条目——有则**增量构建拼接**（不全量
+      // 重建——巨型会话 8MB/626 条全量重建 300ms+ 主线程阻塞 = 切换卡顿根因；
+      // 只 build delta，拼接到既有 result——items 引用稳定 → React 不重挂既有
+      // 项），无则滑动续期（重置 TTL 窗口）。
+      void (async () => {
+        try {
+          const leaf = cached.entries[cached.entries.length - 1] as
+            | { id?: string }
+            | undefined;
+          if (!leaf?.id) {
+            touchCachedHistory(sessionId);
+            return;
+          }
+          const resp = await api.getEntries(sessionId, { since: leaf.id });
+          if (cancelled) return;
+          const sinceEntries = resp.entries as unknown as Array<Record<string, unknown>>;
+          // since 语义含 leaf 本身（首条即 leaf）——过滤后才是真 delta
+          const delta = sinceEntries.filter((e) => e.id !== leaf.id);
+          if (delta.length === 0) {
+            touchCachedHistory(sessionId); // 无新条目——滑动续期
+            return;
+          }
+          // 增量构建：只 build delta（新条目通常少条——构建成本 O(delta)）
+          const deltaBuilt = buildHistoryItems(
+            delta as unknown as Parameters<typeof buildHistoryItems>[0],
+          );
+          // 跨缓存边界工具配对回填：toolCall 在缓存尾部、toolResult 在 delta
+          // 首部（缓存切割恰好落在工具对中间）→ 独立 toolResult 卡（args=null）
+          // 回填到缓存中的 toolCall 卡（新对象引用触发该项重渲染），独立卡丢弃。
+          const baseItems = [...cached.result.items];
+          const deltaItems = [...deltaBuilt.items];
+          for (let i = deltaItems.length - 1; i >= 0; i--) {
+            const it = deltaItems[i];
+            if (it.kind === "tool" && it.args === null && it.toolCallId) {
+              const tIdx = baseItems.findIndex(
+                (b) => b.kind === "tool" && b.toolCallId === it.toolCallId && !b.output,
+              );
+              if (tIdx >= 0) {
+                baseItems[tIdx] = {
+                  ...(baseItems[tIdx] as ToolItem),
+                  output: it.output,
+                  status: it.status,
+                  truncated: it.truncated,
+                  fullOutputPath: it.fullOutputPath,
+                };
+                deltaItems.splice(i, 1);
+              }
+            }
+          }
+          const mergedResult: HistoryBuildResult = {
+            items: [...baseItems, ...deltaItems],
+            fingerprints: new Set([...cached.result.fingerprints, ...deltaBuilt.fingerprints]),
+            meta: deltaBuilt.meta.model
+              ? { ...cached.result.meta, ...deltaBuilt.meta }
+              : cached.result.meta,
+          };
+          if (cancelled) return;
+          setHistory(mergedResult);
+          setCachedHistory(
+            sessionId,
+            mergedResult,
+            [...cached.entries, ...delta],
+            cached.earliestId,
+            cached.hasMore,
+          );
+        } catch {
+          // 增量失败——保持缓存渲染（下次切换重试）
+        }
+      })();
+      return; // 首屏立即渲染（缓存）+ 后台增量更新
+    }
+
+    // Bug #8 第三批时序修复（human 实测复现）：先拉游标（恢复阅读位置）再拉历史——
+    // 此前 getDraft 与历史加载并行竞争，历史先拉完（默认最近 50 贴底），游标后到
+    // 永远不生效。现并入同一 async 流程：await 游标 → 解析 entryId → 决定拉取参数。
+    void (async () => {
+      // Bug #8 第四批（human 反馈 2026-11-16）：① 游标拉取加重试（网络抖动不丢游标）
+      // ② 游标中心懒加载窗口（只渲染游标上下游 N 条——长会话快速首屏；全量加载
+      //    在 500+ entries 时慢且无必要）。无游标时保持默认路径（最近 N + auto-comp）。
+      const CURSOR_RETRIES = 3;
+      const CURSOR_RETRY_DELAY = 200;
+      const fetchCursor = async (): Promise<string | null> => {
+        for (let i = 0; i < CURSOR_RETRIES; i++) {
+          try {
+            const d = await api.getDraft(SCROLL_KEY_PREFIX + sessionId);
+            if (d.content && d.content.length >= 4) return d.content;
+            return null; // 有响应但无游标——不再重试
+          } catch {
+            if (i < CURSOR_RETRIES - 1) await new Promise((r) => setTimeout(r, CURSOR_RETRY_DELAY));
+          }
+        }
+        return null; // 全部重试失败——降级无游标
+      };
+
+      // ① 游标（重试）+ entries **并行**（有游标时用窗口拉取，无游标用默认）
+      const cursorPromise = isRebuild ? Promise.resolve(null) : fetchCursor();
+      // 无游标路径的 entries 先拉（不依赖游标结果）
+      const defaultEntriesPromise = isRebuild
+        ? api.getEntries(sessionId, {})
+        : api.getEntries(sessionId, { limit: HISTORY_PAGE_SIZE });
+
+      const savedAnchor = await cursorPromise;
+      if (cancelled) return;
+      setInitialScrollAnchor(savedAnchor);
+      setCursorReady(true); // 游标判定完成（有锚或无锚都算完成）
+      let anchorEntryId = savedAnchor;
+
+      try {
+        let resp: Awaited<ReturnType<typeof api.getEntries>>;
+        // 性能优化（human 反馈 2026-11-16）：短会话（entries < MAX_HISTORY 500）全量
+        // 加载 + 定位（懒加载窗口在短会话上无收益反而破坏 timeline 体验——窗口小、
+        // 上拉只加几条、滚动位置跳变）。长会话才用游标中心懒加载窗口。
+        // 先全量拉一次看总数，短则直接用；长则丢弃改用窗口（多一次 RTT 但只在
+        // 首次打开时发生，可接受）。
+        if (anchorEntryId && !isRebuild) {
+          // 先试全量拉取——短会话直接用（不进懒加载分支）
+          const fullResp = await api.getEntries(sessionId, {});
+          if (cancelled) return;
+          const fullEntries = fullResp.entries as unknown as Array<Record<string, unknown>>;
+          if (fullEntries.length < MAX_HISTORY) {
+            // 短会话：全量 + 定位（flat 结构一致 → scrollToIndex 精准）
+            resp = fullResp;
+            anchorEntryId = fullEntries.some((e) => e.id === anchorEntryId) ? anchorEntryId : null; // 锚在全量中存在才定位
+            // 跳过懒加载窗口逻辑，直接进后续处理
+            setInitialScrollAnchor(anchorEntryId);
+          } else {
+          // 长会话：游标中心懒加载窗口
+          // ② 游标中心懒加载窗口——**顺序拉取**保证游标 entry 包含在窗口中：
+          //   step1: before=游标前 N/2（strictly before，不含游标）
+          //   step2: since=step1 最后一条的 id → 首条即游标 entry + 后续 N/2
+          //   （此前 since+limit 返回最新 N 而非最近 N → 游标 entry 从未进窗口 →
+          //     anchorToIndex found:false → scrollToIndex 不触发 → 定位失效）
+          const WINDOW = Math.max(20, Math.ceil(window.innerHeight / 48) * 3);
+          const half = Math.ceil(WINDOW / 2);
+          const beforeResp = await api.getEntries(sessionId, { before: anchorEntryId, limit: half });
+          if (cancelled) return;
+          const beforeEntries = beforeResp.entries as unknown as Array<Record<string, unknown>>;
+          const lastBefore = beforeEntries[beforeEntries.length - 1] as { id?: string } | undefined;
+          const sinceResp = await api.getEntries(sessionId, { since: lastBefore?.id ?? anchorEntryId });
+          if (cancelled) return;
+          // since 结果：首条 = 游标 entry 本身，后续 = 游标后的条目
+          // 截取 half+1 条（游标 + 后续 half 条）
+          // since 全部加载（不截取）——消除窗口尾部到 SSE 实时事件的空洞（human
+          // 实测「下拉刷新消息随机展示没有 timeline」：窗口到 entry 66，SSE 从 75
+          // 开始，67-74 缺失→断裂。懒加载收益保留在 before 侧（游标前 N/2 条）。
+          const sinceEntries = sinceResp.entries as unknown as Array<Record<string, unknown>>;
+          const merged = [...beforeEntries, ...sinceEntries];
+          resp = { entries: merged, leaf_id: sinceResp.leaf_id } as typeof resp;
+          } // end 长会话懒加载窗口
+        } else {
+          // 无游标：默认路径（最近 N 或全量）
+          resp = await defaultEntriesPromise;
+        }
         if (cancelled) return;
+        const entriesList = resp.entries as unknown as Array<Record<string, unknown>>;
+
         const firstBuilt = buildHistoryItems(
-          resp.entries as unknown as Parameters<typeof buildHistoryItems>[0],
+          entriesList as unknown as Parameters<typeof buildHistoryItems>[0],
         );
         setHistory(firstBuilt);
-        // 分页游标：entries 时间序，第一条=最早已加载；满页=可能还有更早
-        let earliestId = (resp.entries[0] as { id?: string } | undefined)?.id ?? null;
-        let hasMore =
-          !isRebuild && resp.entries.length === HISTORY_PAGE_SIZE;
+        // 分页游标 + hasMore（窗口模式可向上翻页加载更早；默认模式 auto-compensation）
+        let earliestId = (entriesList[0] as { id?: string } | undefined)?.id ?? null;
+        // hasMore 修正：懒加载窗口内条数 < HISTORY_PAGE_SIZE ≠ 没有更早的（窗口
+        // 只装了 ~36 条但之前还有 44 条）。默认 true（让 loadEarlier 尝试——API
+        // 返回空时自动设 false）。
+        let hasMore = !isRebuild;
+        setCachedHistory(sessionId, firstBuilt, entriesList, earliestId, hasMore); // 写入缓存（含分页）
+        pruneCache();
         setPaging({ earliestId, hasMore });
         if (isRebuild || !hasMore || !earliestId) {
-          // 重建（全量已拿齐）或首次拉到底：历史已完整
-          if (!cancelled) hadHistoryRef.current = true;
+          if (!cancelled) hadHistoryRef.current = isRebuild || !anchorEntryId;
           return;
         }
 
-        // A：挂载自动补拉（方案 A——用户实测 254 条会话首屏只见最近 50 条，
-        // 更早历史要手动滚动才加载，体验不完整）。首屏已渲染，随后循环用
-        // before 游标拉更早页并前置合并，直到：拉到底（不满页）/ 达 MAX_HISTORY
-        // 上限 / 组件卸载。补拉不阻塞首屏；与 loadEarlier 共用 loadingEarlierRef 防重入。
+        // auto-compensation：**所有模式都跑**（游标窗口先快速定位首屏，后台
+        // 补全全量 timeline——用户不需要上拉 N 次才能看全 626 条长会话）
         if (hasMore && earliestId && !cancelled) {
           loadingEarlierRef.current = true;
           setLoadingEarlier(true);
+          // 补拉页收集（缓存更新用）：全量 timeline = 页序列（旧→新）+ 初始窗口
+          const accPages: Record<string, unknown>[][] = [];
+          const accBuilt: HistoryBuildResult[] = [];
           try {
-            let loaded = resp.entries.length;
+            let loaded = entriesList.length;
             while (hasMore && earliestId && !cancelled && loaded < MAX_HISTORY) {
               const pageResp = await api.getEntries(sessionId, {
                 before: earliestId,
@@ -384,30 +610,46 @@ export default function ChatView({ sessionId }: ChatViewProps) {
               const pageEntries = pageResp.entries as unknown as Parameters<
                 typeof buildHistoryItems
               >[0];
-              if (pageEntries.length === 0) {
-                hasMore = false;
-                break;
-              }
+              if (pageEntries.length === 0) { hasMore = false; break; }
+              accPages.push(pageEntries as Record<string, unknown>[]);
               const built = buildHistoryItems(pageEntries);
+              accBuilt.push(built);
               prependHistory(built);
               loaded += pageEntries.length;
               earliestId = (pageEntries[0] as { id?: string } | undefined)?.id ?? null;
               hasMore = pageEntries.length === HISTORY_PAGE_SIZE;
             }
             if (!cancelled) setPaging({ earliestId, hasMore });
-            if (!cancelled) hadHistoryRef.current = true; // 首次补拉完整
-          } catch {
-            // 自动补拉失败：保留已渲染部分（不阻塞 live 流），hasMore 保持可重试
-          } finally {
+            if (!cancelled) hadHistoryRef.current = true;
+            // 补拉页写回缓存（timeline 一致性）：切回时缓存含全量（含 auto-comp
+            // 补拉的更早条目），而非只有初始窗口。**组合已构建页**（零二次全量
+            // 构建——626 条/8MB 会话全量重 build 300ms+ = 首开卡顿放大器）。
+            if (!cancelled && accBuilt.length > 0) {
+              const fullEntries = [...accPages.slice().reverse().flat(), ...entriesList];
+              const fullResult: HistoryBuildResult = {
+                items: [
+                  ...accBuilt.slice().reverse().flatMap((b) => b.items),
+                  ...firstBuilt.items,
+                ],
+                fingerprints: new Set([
+                  ...accBuilt.flatMap((b) => [...b.fingerprints]),
+                  ...firstBuilt.fingerprints,
+                ]),
+                meta: firstBuilt.meta,
+              };
+              setCachedHistory(sessionId, fullResult, fullEntries, earliestId, hasMore);
+              pruneCache();
+            }
+          } catch { /* 保留已渲染部分 */ } finally {
             loadingEarlierRef.current = false;
             if (!cancelled) setLoadingEarlier(false);
           }
         }
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return;
-        setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } }); // 历史拉取失败不阻塞 live 流
-      });
+        setHistory({ items: [], fingerprints: new Set(), meta: { model: null, provider: null, thinkingLevel: null, startedAt: null } });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -577,9 +819,15 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           }
         } else if (cmd.name === "/compact") {
           // 手动压缩：后端转发 pi 的 compact 命令；「压缩中」状态由既有
-          // compaction_start/end 事件驱动（vm.compacting）。
-          await api.compactSession(sessionId, cmd.arg || undefined);
-          setModelHint(cmd.arg ? `压缩已发起（侧重：${cmd.arg}）` : "压缩已发起");
+          // compaction_start/end 事件驱动（vm.compacting，占位卡可见——发起提示
+          // 已删，迭代 3 human 反馈：占位卡已可见，冗余）。
+          // 迭代 3：距上次成功压缩无新对话 → 不再发起（免无谓 resume worker
+          // + pi 调用，pi 会报 Already compacted）。
+          if (hasDialogueSinceLastCompaction(items)) {
+            await api.compactSession(sessionId, cmd.arg || undefined);
+          } else {
+            setModelHint("上次压缩后无新对话，无需压缩");
+          }
         } else if (cmd.name === "/thinking") {
           if (cmd.arg) {
             await api.setSessionThinking(sessionId, cmd.arg);
@@ -589,12 +837,21 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           }
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        // 迭代 3：pi 端压缩错误中文映射（边缘场景：历史分页窗口未含压缩卡时
+        // 前置拦截未触发，由后端 pi 错误兕底——映射为可读提示而非报错条）。
+        if (msg.includes("Already compacted")) {
+          setModelHint("上次压缩后无新对话，无需再压缩");
+        } else if (msg.includes("Nothing to compact")) {
+          setModelHint("会话太短，暂无可压缩内容");
+        } else {
+          setError(msg);
+        }
       } finally {
         setBusy(false);
       }
     },
-    [applyState, sessionId],
+    [applyState, sessionId, items],
   );
 
   const abort = useCallback(async () => {
@@ -690,8 +947,79 @@ export default function ChatView({ sessionId }: ChatViewProps) {
   // 渲染
   // ============================================================
 
-  const sessionType: SessionType = info?.type ?? "plan";
-  const title = info?.title ?? sessionId.slice(0, 8);
+  const sessionType: SessionType = info?.type ?? "easy";
+  // Bug #5 迭代5b（human 反馈）：会话页头部与会话列表共用显示名派生（任务名优先）
+  const display = info ? deriveSessionDisplay(info) : null;
+  const title = display?.title ?? sessionId.slice(0, 8);
+
+  // Bug #8 2C（human 2026-11-14）：token/成本/上下文使用率常驻显示——不展开会话
+  // 信息就能看到（判断是否要 compact）。active 会话轮询 30s + turn_end 后刷新。
+  const [stats, setStats] = useState<SessionStats | null>(null);
+  const refreshStats = useCallback(() => {
+    void api
+      .getSessionStats(sessionId)
+      .then((r) => setStats(r.stats))
+      .catch(() => {});
+  }, [sessionId]);
+  useEffect(() => {
+    if (!info || info.status !== "active") return;
+    refreshStats();
+    const t = setInterval(refreshStats, 30_000);
+    return () => clearInterval(t);
+  }, [info?.status, refreshStats]);
+
+  // Bug #8 2C（human 2026-11-14）：上下文使用率超阈值（默认 80%，Settings 可调）
+  // 自动触发压缩——一次触发后等下一轮 stats 再评估（防抖：压缩中/本轮已触发不重复）。
+  // 阈值配置提升组件级（头部徽标警示色 + 自动压缩共用同一读数）。
+  const [autoCompactCfg, setAutoCompactCfg] = useState({ enabled: true, threshold: 80 });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rick-web:auto-compact");
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (v && typeof v.enabled === "boolean") {
+          setAutoCompactCfg({ enabled: v.enabled, threshold: typeof v.threshold === "number" ? v.threshold : 80 });
+        }
+      }
+    } catch {
+      // 默认
+    }
+  }, []);
+  const autoCompactThreshold = autoCompactCfg.threshold;
+  const autoCompactRef = useRef(0);
+  // 自动压缩前置拦截：距上次压缩无新对话 → 不发起（与手动 /compact 同款护栏）。
+  // 否则 pi 报 "Already compacted" 但 compaction_start/end 事件已发出（pi 在
+  // 检查前就 emit start，失败也 emit end）→ UI 出现「上下文压缩失败（手动）」卡。
+  const hasNewDialogue = useMemo(() => hasDialogueSinceLastCompaction(vm.items), [vm.items]);
+  useEffect(() => {
+    const pct = stats?.contextUsage?.percent;
+    if (pct == null || !info || info.status !== "active") return;
+    if (!autoCompactCfg.enabled || pct < autoCompactCfg.threshold) return;
+    if (vm.compacting) return;
+    if (!hasNewDialogue) return; // 无新对话 → pi 必报 Already compacted，不发起
+    if (autoCompactRef.current === pct) return; // 同一水位只触发一次
+    autoCompactRef.current = pct;
+    void api
+      .compactSession(sessionId, "自动压缩：上下文使用率已达 " + pct + "%")
+      .then(() => refreshStats())
+      .catch(() => {});
+  }, [stats?.contextUsage?.percent, vm.compacting, hasNewDialogue, info?.status, sessionId, refreshStats, info]);
+
+  // Bug #8 2A 终版（human 裁决 2026-11-15）：subagent 子会话右侧栏（只读——输入走
+  // 主页面）。卡片/侧边栏点击 → 打开右侧栏展示完整子会话输出。侧边栏点击经
+  // ui store pendingSubagent 传递（跨组件），挂载时消费。
+  const [openSubagent, setOpenSubagent] = useState<SubagentTarget | null>(() =>
+    useUiStore.getState().consumePendingSubagent(),
+  );
+  // 已在会话页时侧边栏点击（组件不重挂，useState 初始不重跑）——订阅式消费：
+  // pendingSubagent 一旦被设置立即打开并清除。
+  const pendingSubagent = useUiStore((s) => s.pendingSubagent);
+  useEffect(() => {
+    if (pendingSubagent) {
+      setOpenSubagent(pendingSubagent);
+      useUiStore.getState().consumePendingSubagent();
+    }
+  }, [pendingSubagent]);
 
   return (
     <div className="flex h-full min-h-0 w-full">
@@ -711,6 +1039,63 @@ export default function ChatView({ sessionId }: ChatViewProps) {
           <StatusDot status={status} streaming={vm.streaming} />
           {vm.streaming ? "streaming" : STATUS_LABEL[status] ?? status}
         </span>
+        {/* Bug #8 2B（human 2026-11-14 实测要求）：当前模型名常驻显示（此前只在折叠的
+            会话信息区可见——运行时看不到当前用的什么模型）。meta 来自会话 JSONL 的
+            model_change（含初始默认模型，实测首条即 glm-5.3）。 */}
+        {history?.meta.model && (
+          <span
+            className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-2"
+            title={`当前模型：${history?.meta.model}${history?.meta.provider ? `（${history?.meta.provider}）` : ""}`}
+          >
+            {history?.meta.model}
+          </span>
+        )}
+        {/* Bug #8 2C：上下文使用率 + token/成本常驻（≥80% 警示色——该 compact 了）。
+            迭代（human 2026-11-15）：显示模型上下文窗口（如 1M）+ 占比两位小数。 */}
+        {stats?.contextUsage?.percent != null && (() => {
+          const ctx = stats.contextUsage;
+          // 两位小数（pi 的 percent 是整数——自己按 tokens/contextWindow 算精确占比）
+          const used = ctx.tokens ?? 0;
+          const win = ctx.contextWindow || 1;
+          const pct2 = Math.round((used / win) * 10000) / 100;
+          // 窗口人类可读（1M / 256k / 131k …）
+          const fmtWin = (n: number): string => {
+            if (n >= 1_000_000 && n % 1_000_000 === 0) return `${n / 1_000_000}M`;
+            if (n >= 1_000) return `${Math.round(n / 1000)}k`;
+            return String(n);
+          };
+          const high = pct2 >= (autoCompactThreshold ?? 80);
+          return (
+            <span
+              className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+                high ? "border-morty/60 bg-morty/10 text-morty" : "border-line bg-space-2/60 text-ink-2"
+              }`}
+              title={`上下文使用：${used.toLocaleString()} / ${win.toLocaleString()} token（${pct2}%，窗口 ${fmtWin(win)}）——超阈值建议压缩`}
+            >
+              ctx {pct2.toFixed(2)}% / {fmtWin(win)}
+            </span>
+          );
+        })()}
+        {stats && (() => {
+          // human 反馈（2026-11-16）：拆两个数值——会话总消耗（累计）+ 当前上下文（压缩后）
+          const fmt = (n: number): string => (n >= 10000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n));
+          const ctxTokens = stats.contextUsage?.tokens;
+          return (
+            <span
+              className="shrink-0 rounded border border-line bg-space-2/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-3"
+              title={`会话总消耗：${stats.tokens.total.toLocaleString()} token（含 subagent 与压缩生成）；当前上下文：${ctxTokens != null ? ctxTokens.toLocaleString() : "?"} token（压缩后）；成本 $${stats.cost.toFixed(2)}`}
+            >
+              <span title="会话总消耗（含 subagent 与压缩生成）">Σ {fmt(stats.tokens.total)}</span>
+              {ctxTokens != null && (
+                <>
+                  <span className="mx-0.5 text-ink-3/50">·</span>
+                  <span title="当前上下文 token（压缩后）" className="text-ink-2">ctx {fmt(ctxTokens)}</span>
+                </>
+              )}
+              {stats.cost > 0 && <span className="ml-1">· ${stats.cost.toFixed(2)}</span>}
+            </span>
+          );
+        })()}
         {vm.compacting && <span className="text-xs text-morty">压缩中</span>}
         {/* 归档状态可见 + 一键取消归档：归档是「从列表隐藏」，会话页本身不会变化——
             若不在页面上明示，用户会误以为「点了归档没生效」（实测反馈）。 */}
@@ -794,13 +1179,25 @@ export default function ChatView({ sessionId }: ChatViewProps) {
 
       {/* 消息流 */}
       <div className="min-h-0 flex-1">
+        {/* 游标判定完成前显示 skeleton（消除底闪→跳中间的视觉闪烁） */}
+        {!cursorReady ? (
+          <div className="flex flex-1 items-center justify-center py-8 text-sm text-ink-3">
+            <span className="mr-2 inline-block h-2 w-2 animate-rm-pulse rounded-full bg-portal" />
+            恢复会话位置…
+          </div>
+        ) : (
         <MessageList
           items={items}
           streaming={vm.streaming}
           hasMore={paging.hasMore}
           loadingEarlier={loadingEarlier}
           onReachTop={() => void loadEarlier()}
+          onOpenSubagent={(t: SubagentTarget) => setOpenSubagent(t)}
+          onViewportAnchor={handleViewportAnchor}
+          initialAnchor={initialScrollAnchor}
+          onAnchorConsumed={() => setInitialScrollAnchor(null)}
         />
+        )}
       </div>
 
       {/* extension_ui 对话框（agent 阻塞等待——渲染在输入条上方） */}
@@ -827,7 +1224,25 @@ export default function ChatView({ sessionId }: ChatViewProps) {
         />
       </div>
     </div>
-    {/* 阅读器已提升到 App 壳层（job_43 增量 5）——这里不再挂 FileReaderPanel */}
+    {/* Bug #8 2A 终版：subagent 子会话右侧栏（只读，点击卡片/侧边栏打开） */}
+    {openSubagent && (
+      <SubagentPanel
+        target={openSubagent}
+        progress={
+          // 最近匹配的 subagent 卡进度（同 runId 的卡）
+          (() => {
+            const card = vm.items.find(
+              (i): i is Extract<ChatItem, { kind: "tool" }> =>
+                i.kind === "tool" &&
+                i.toolName === "subagent" &&
+                i.subagentProgress?.runId === openSubagent.runId,
+            );
+            return card?.subagentProgress;
+          })()
+        }
+        onClose={() => setOpenSubagent(null)}
+      />
+    )}
     </div>
   );
 }

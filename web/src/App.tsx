@@ -7,18 +7,18 @@
  *   「新建会话」按钮；<768px 折叠 drawer（汉堡切换+遮罩）
  * - 顶部导航：功能区标识 + SSE 连接状态点（绿=open/黄=reconnecting/红=closed）+
  *   Settings 齿轮
- * - 主内容区：路由出口（/ws/:wsId/{sessions|jobs|dreams}、/session/:id、
+ * - 主内容区：路由出口（/ws/:wsId/{sessions、dreams、humans}、/session/:id、
  *   /settings、/ 重定向到首个工作区 sessions）
  * - 全局：TokenGate 锁页（authRequired）+ 全局错误横幅
  *
  * 数据接线（main.tsx 统一 wire）：wireUiEvents/wireSessions/wireSessionEvents/
- * wireJobs + sse.connect()。
+ * sse.connect()（job_53 Bug #5：wireJobs 已随 doing 会话类型移除）。
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
-import RecoveryBanner from "./components/recovery/RecoveryBanner";
+import { MemoryRouter, Navigate, NavLink, Route, Routes, useLocation, useParams } from "react-router-dom";
 import StarfieldBackground from "./components/starfield/StarfieldBackground";
+import { api } from "./api/client";
 import Portal from "./components/starfield/Portal";
 import Saucer from "./components/starfield/Saucer";
 import Button from "./components/common/Button";
@@ -35,7 +35,6 @@ import { useUiStore } from "./stores/ui";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { useSessionsStore } from "./stores/sessions";
 import type { SseConnectionState } from "./api/sse";
-import Jobs from "./routes/Jobs";
 import Dreams from "./routes/Dreams";
 import Humans from "./routes/Humans";
 import SessionPage from "./routes/SessionPage";
@@ -187,8 +186,8 @@ function HomeRedirect() {
   return <Navigate to={`/ws/${list[0].id}/sessions`} replace />;
 }
 
-/** /ws/:wsId/{sessions|jobs|dreams|humans} —— 按路由参数渲染对应工作区视图 */
-function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" | "humans" }) {
+/** /ws/:wsId/{sessions|dreams|humans} —— 按路由参数渲染对应工作区视图 */
+function WorkspaceRoutePage({ kind }: { kind: "sessions" | "dreams" | "humans" }) {
   const { wsId = "" } = useParams<{ wsId: string }>();
   const list = useWorkspacesStore((s) => s.list);
   const loading = useWorkspacesStore((s) => s.loading);
@@ -208,7 +207,6 @@ function WorkspaceRoutePage({ kind }: { kind: "sessions" | "jobs" | "dreams" | "
   }
 
   if (kind === "sessions") return <Sessions workspaceId={wsId} />;
-  if (kind === "jobs") return <Jobs workspaceId={wsId} />;
   if (kind === "dreams") return <Dreams workspaceId={wsId} />;
   return <Humans workspaceId={wsId} />;
 }
@@ -272,10 +270,11 @@ function OpenPathIcon() {
 }
 
 /**
- * OpenFileDialog：工具箱路径输入弹窗（job_43 增量 5，human 方案：
- * 「右上角工具箱 + 输入路径窗口 → 打开 md 阅读」）。
- * - 输入路径（绝对 / 相对工作区 / .rick 相对）→ Enter 或「打开」提交
- * - 空路径不提交；提交后交给全局 reader.open → FileReaderPanel 展示
+ * OpenFileDialog：顶栏「打开文件」弹窗（Bug #8 human 反馈 2026-11-14：不要填路径
+ * ——直接目录/文件选择，文件浏览器式逐级导航）。
+ * - 文件浏览器（fsList 逐级）：目录点击进入、文件点击选定
+ * - 面包屑导航（上级目录 / 当前路径）+ md/文本文件优先高亮
+ * - 选定文件 → 交给全局 reader.open → FileReaderPanel 展示
  */
 function OpenFileDialog({
   open,
@@ -286,54 +285,109 @@ function OpenFileDialog({
   onClose: () => void;
   onOpen: (path: string) => void;
 }) {
-  const [pathInput, setPathInput] = useState("");
+  // 文件浏览器（Bug #8：直接选择——不再路径输入）。初始目录 = 当前工作区
+  // 所在目录（human 反馈 2026-11-15：不要根目录——.rick 等工作区内容在工作区根下）。
+  const location = useLocation();
+  const wsList = useWorkspacesStore((s) => s.list);
+  const initialDir = useMemo(() => {
+    // 当前路由的工作区（/ws/:wsId/…）优先；否则第一个工作区；兜底根目录
+    const m = /^\/ws\/([^/]+)/.exec(location.pathname);
+    const ws = (m && wsList.find((w) => w.id === m[1])) || wsList[0];
+    return ws?.path || "/";
+  }, [location.pathname, wsList]);
+  const [cur, setCur] = useState("");
+  const [parent, setParent] = useState("");
+  const [entries, setEntries] = useState<{ path: string; name: string; is_dir?: boolean }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // 每次打开时清空 + 聚焦（关闭期间保留也无意义——路径是一次性输入）
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    if (open) {
-      setPathInput("");
-      // Dialog 挂载后聚焦（rAF 避开首帧）
-      requestAnimationFrame(() => inputRef.current?.focus());
+  async function loadDir(dir: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.fsList(dir, true);
+      setCur(res.path);
+      setParent(res.parent);
+      setEntries(res.entries);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setEntries([]);
+    } finally {
+      setBusy(false);
     }
+  }
+
+  useEffect(() => {
+    if (open) void loadDir(initialDir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const submit = (): void => {
-    const p = pathInput.trim();
-    if (!p) return; // 空路径不提交（KR12d）
-    onOpen(p);
-    onClose();
-  };
+  const isTextLike = (name: string): boolean =>
+    /\.(md|markdown|txt|json|ya?ml|toml|go|ts|tsx|py|sh|log|csv)$/i.test(name);
 
   return (
     <Dialog open={open} onClose={onClose} title="打开文件" contentClassName="w-full max-w-xl">
-      <div className="flex flex-col gap-3">
-        <label htmlFor="open-file-path" className="text-xs text-ink-3">
-          输入文件路径（md / 文本）——支持绝对路径、相对当前工作区、.rick/… 路径
-        </label>
-        <input
-          ref={inputRef}
-          id="open-file-path"
-          type="text"
-          value={pathInput}
-          onChange={(e) => setPathInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder="如 .rick/jobs/job_43/plan/task1.md 或 /workdir/…/README.md"
-          className="w-full rounded-md border border-line bg-space/70 px-3 py-2 font-mono text-xs text-ink outline-none placeholder:text-ink-3/60 focus:border-portal/60"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <div className="flex justify-end gap-2">
+      <div className="flex flex-col gap-2">
+        {/* 面包屑 + 状态 */}
+        <div className="flex min-w-0 items-center gap-2 text-xs text-ink-3">
+          {parent && (
+            <button
+              type="button"
+              onClick={() => void loadDir(parent)}
+              className="shrink-0 rounded border border-line px-1.5 py-0.5 text-ink-2 hover:border-portal/50 hover:text-portal"
+              title="上一级目录"
+            >
+              ⬆ 上级
+            </button>
+          )}
+          <span className="min-w-0 flex-1 truncate font-mono" title={cur}>
+            {cur}
+          </span>
+          {busy && <span className="shrink-0">…</span>}
+        </div>
+        {error && <ErrorBanner message={error} />}
+        {/* 逐级列表：目录进入 / 文件选定 */}
+        <div className="max-h-[50vh] min-h-40 overflow-y-auto rounded-md border border-line bg-space/60">
+          {entries.length === 0 && !busy && (
+            <p className="px-3 py-6 text-center text-xs text-ink-3">空目录</p>
+          )}
+          {entries.map((e) => {
+            const dir = !!(e as { is_dir?: boolean }).is_dir;
+            const textLike = !dir && isTextLike(e.name);
+            return (
+              <button
+                key={e.path}
+                type="button"
+                onClick={() => {
+                  if (dir) {
+                    void loadDir(e.path);
+                  } else {
+                    onOpen(e.path);
+                    onClose();
+                  }
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-portal/10 ${
+                  textLike ? "text-ink" : "text-ink-3"
+                }`}
+                title={dir ? `进入目录 ${e.name}` : e.path}
+              >
+                <span className="shrink-0" aria-hidden="true">
+                  {dir ? "📂" : textLike ? "📄" : "·"}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono">{e.name}</span>
+                {!dir && !textLike && (
+                  <span className="shrink-0 text-[10px] text-ink-3/60">非文本</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-ink-3">
+          点击目录逐级导航；点击文件直接打开（📄 = 可阅读的文本/Markdown）。
+        </p>
+        <div className="flex justify-end">
           <Button size="sm" variant="ghost" onClick={onClose}>
             取消
-          </Button>
-          <Button size="sm" variant="primary" onClick={submit} disabled={!pathInput.trim()}>
-            打开
           </Button>
         </div>
       </div>
@@ -341,16 +395,45 @@ function OpenFileDialog({
   );
 }
 
+// ui-state draft key：停留位置（路由+查询串）服务端记忆——Bug #6（human
+// 2026-11-14）：单 URL 模式（打开只有 IP:port/，页面切换 URL 不跳转），跨设备
+// 打开恢复到上一次操作停留的页面。
+const UI_STATE_DRAFT_KEY = "ui-state";
+
 export default function App() {
+  // 启动恢复：GET 服务端记忆的停留位置 → MemoryRouter 初始入口（跨设备续接）。
+  // GET 失败/无记忆 → "/" 默认。恢复前渲染极简 loading（GET 通常 <50ms）。
+  const [initialRoute, setInitialRoute] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .getDraft(UI_STATE_DRAFT_KEY)
+      .then((d) => {
+        if (!cancelled) setInitialRoute(d.content.startsWith("/") ? d.content : "/");
+      })
+      .catch(() => {
+        if (!cancelled) setInitialRoute("/");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (initialRoute === null) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-ink-3">
+        恢复上次位置…
+      </div>
+    );
+  }
   return (
-    <BrowserRouter>
+    <MemoryRouter initialEntries={[initialRoute]}>
       <AppShell />
-    </BrowserRouter>
+    </MemoryRouter>
   );
 }
 
 /**
- * AppShell：应用壳实体（BrowserRouter 内层，可用 useLocation）。
+ * AppShell：应用壳实体（MemoryRouter 内层，可用 useLocation）。
  *
  * 路由切换重置主滚动（KR2b）：<main> 是主内容滚动容器，切路由不重置
  * scrollTop 时「长页切短页」视觉上像没刷新。pathname 变化 → mainRef
@@ -360,9 +443,69 @@ export default function App() {
 function AppShell() {
   const location = useLocation();
   const mainRef = useRef<HTMLElement | null>(null);
+
+  // Bug #6：停留位置服务端记忆——路由变化（页面/会话切换）防抖 PUT（跨设备打开
+  // 恢复到这个位置；MemoryRouter 下 URL 恒定，位置只存在于服务端）。
+  useEffect(() => {
+    const route = location.pathname + location.search;
+    const t = setTimeout(() => {
+      void api.saveDraft(UI_STATE_DRAFT_KEY, route).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [location.pathname, location.search]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   /** 桌面端侧栏折叠（用户可切换；默认展开） */
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Bug #3（human 2026-11-14）：侧栏可拖宽——拖动右缘改变宽度（长标题不再被迫截断）。
+  // 宽度 localStorage 持久化；clamp 200–480；拖动中禁用 transition（跟手）。
+  // 桌面生效（md:w-[var(--sidebar-w)]）；移动端 drawer 保持 w-60 固定（小屏拖宽无意义）。
+  const SIDEBAR_W_KEY = "rick-sidebar-w";
+  // Bug #7：视口上限——拖宽值不超视口 60%（手机横屏/平板 ≥768px 视口时
+  // md:w-[var(--sidebar-w)] 生效，电脑端拖的 480 在窄视口占屏大半）。
+  const clampSidebarW = (v: number): number =>
+    Math.min(480, Math.max(200, Math.min(v, Math.floor(window.innerWidth * 0.6))));
+  const [sidebarW, setSidebarW] = useState<number>(() => {
+    const v = Number(localStorage.getItem(SIDEBAR_W_KEY));
+    return Number.isFinite(v) ? clampSidebarW(v) : 240;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeDragRef = useRef<{ startX: number; startW: number } | null>(null);
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_W_KEY, String(sidebarW));
+  }, [sidebarW]);
+  // 视口变化重 clamp（手机转屏/窗口缩小：拖宽值超限自动收敛）
+  useEffect(() => {
+    const onResize = () => setSidebarW((w) => clampSidebarW(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const onSidebarResizeStart = (e: React.MouseEvent) => {
+    resizeDragRef.current = { startX: e.clientX, startW: sidebarW };
+    setIsResizing(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = resizeDragRef.current;
+      if (!d) return;
+      const next = d.startW + (e.clientX - d.startX);
+      setSidebarW(Math.min(480, Math.max(200, next)));
+    };
+    const onUp = () => {
+      if (!resizeDragRef.current) return;
+      resizeDragRef.current = null;
+      setIsResizing(false);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionWs, setNewSessionWs] = useState<string | null>(null);
   const authRequired = useUiStore((s) => s.authRequired);
@@ -419,11 +562,15 @@ function AppShell() {
           />
         )}
 
-        {/* 侧栏：移动端不透明底（job_43：去毛玻璃层省电——canvas 動画时 blur 层每帧 GPU 重合成是发烫主根因之一）；md: 恢复桌面毛玻璃 */}
+        {/* 侧栏：移动端不透明底（job_43：去毛玻璃层省电）；md: 恢复桌面毛玻璃；
+            拖宽（Bug #3）：CSS 变量 --sidebar-w + 右缘拖动手柄，拖动中禁 transition */}
         <aside
-          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur transition-all duration-200 md:static md:translate-x-0 ${
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } ${sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-60"}`}
+          style={{ "--sidebar-w": `${sidebarW}px` } as React.CSSProperties}
+          className={`fixed inset-y-0 left-0 z-30 flex w-60 shrink-0 flex-col border-r border-line bg-space-2 md:bg-space-2/80 md:backdrop-blur md:static md:translate-x-0 md:relative ${
+            isResizing ? "" : "transition-all duration-200"
+          } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"} ${
+            sidebarCollapsed ? "md:w-0 md:border-r-0 md:overflow-hidden md:opacity-0" : "md:w-[var(--sidebar-w)]"
+          }`}
         >
           <div className="flex items-center gap-2 px-4 py-4">
             <Portal size={28} spin />
@@ -447,8 +594,19 @@ function AppShell() {
           </div>
           <div className="flex items-center gap-2 px-4 pb-3 text-xs text-ink-3">
             <Saucer size={20} />
-            <span>guardians of the context</span>
+            {/* Bug #3（human 裁决）：最能体现 Rick and Morty 特色的一句话 */}
+            <span>wubba lubba dub dubs</span>
           </div>
+          {/* 拖宽手柄（Bug #3）：右缘竖条，仅桌面（移动端 drawer 固定宽） */}
+          {!sidebarCollapsed && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖动调整侧栏宽度"
+              onMouseDown={onSidebarResizeStart}
+              className="absolute right-0 top-0 z-10 hidden h-full w-1 cursor-col-resize hover:bg-portal/40 active:bg-portal/60 md:block"
+            />
+          )}
         </aside>
 
         {/* 主区 */}
@@ -493,9 +651,6 @@ function AppShell() {
             </span>
           </header>
 
-          {/* 平台升级/重启后的挂起与恢复台账（人工一键继续；仅在有挂起/失败或 24h 内显示） */}
-          <RecoveryBanner />
-
           {/* 全局错误横幅 */}
           {globalError && (
             <div className="px-4 pt-3">
@@ -511,7 +666,6 @@ function AppShell() {
               <Routes>
                 <Route path="/" element={<HomeRedirect />} />
                 <Route path="/ws/:wsId/sessions" element={<WorkspaceRoutePage kind="sessions" />} />
-                <Route path="/ws/:wsId/jobs" element={<WorkspaceRoutePage kind="jobs" />} />
                 <Route path="/ws/:wsId/dreams" element={<WorkspaceRoutePage kind="dreams" />} />
                 <Route path="/ws/:wsId/humans" element={<WorkspaceRoutePage kind="humans" />} />
                 <Route path="/settings" element={<Settings />} />

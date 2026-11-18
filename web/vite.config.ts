@@ -58,6 +58,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Bug #7（human 2026-11-14）：立即接管——旧 SW 默认等所有 client 关闭才
+        // 激活新 SW（手机 PWA 常驻 → 长期旧 bundle：草稿等服务端功能在手机端
+        // 「不生效」的根因）。skipWaiting+clientsClaim：新 SW 下载即接管。
+        skipWaiting: true,
+        clientsClaim: true,
         // 只缓存 hashed 静态产物（不可变资源——长缓存安全）
         globPatterns: ["assets/**"],
         navigateFallbackDenylist: [/^\/api\//],

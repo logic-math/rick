@@ -90,7 +90,7 @@ func TestRecoveryReportRoundTrip(t *testing.T) {
 	}
 
 	want := newRecoveryReport()
-	want.Suspended = append(want.Suspended, RecoveryItem{ID: "s1", Type: SessionTypeDoing, JobID: "job_1", Reason: "x"})
+	want.Suspended = append(want.Suspended, RecoveryItem{ID: "s1", Type: SessionTypeEasy, JobID: "job_1", Reason: "x"})
 	want.Recovered = append(want.Recovered, RecoveryItem{ID: "s2"})
 	want.Failed = append(want.Failed, RecoveryItem{ID: "s3", Reason: "boom"})
 	if err := WriteRecoveryReport(dir, want); err != nil {
@@ -110,19 +110,19 @@ func TestRecoveryReportRoundTrip(t *testing.T) {
 // 且**不碰** worker（收尸由 CloseAll 负责，顺序在 ShutdownWorkers 里固定）。
 func TestSuspendRunningMarksAndSnapshots(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	// 一个真活的 worker（fake pi），用于验证 LastEntryID 进快照
-	activeID, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	activeID, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	// 一个后台型 running 会话（fake runner 停住）
-	runningID, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "doing", map[string]any{"job": "job_1"})
+	runningID, code, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "dream", map[string]any{"mode": "background", "job_num": 3})
 	if code != 201 {
 		t.Fatalf("create doing: %d", code)
 	}
 	// 一个已结束的会话（不得被改成 suspended）
-	closed := SessionEntry{ID: "closed-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+	closed := SessionEntry{ID: "closed-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
 		Status: SessionStatusClosed, Params: map[string]any{}, CreatedAt: time.Now()}
 	if err := env.sessions.Add(closed); err != nil {
 		t.Fatal(err)
@@ -141,11 +141,11 @@ func TestSuspendRunningMarksAndSnapshots(t *testing.T) {
 	for _, r := range recs {
 		byID[r.SessionID] = r
 	}
-	if r, ok := byID[activeID]; !ok || r.Type != SessionTypePlan || r.PISessionID == "" || r.WorkspaceID != env.wsEntry.ID {
+	if r, ok := byID[activeID]; !ok || r.Type != SessionTypeEasy || r.PISessionID == "" || r.WorkspaceID != env.wsEntry.ID {
 		t.Fatalf("active 记录不完整: %+v", r)
 	}
-	if r, ok := byID[runningID]; !ok || r.JobID != "job_1" {
-		t.Fatalf("doing 记录应带 job id: %+v", r)
+	if r, ok := byID[runningID]; !ok || r.Type != SessionTypeDream {
+		t.Fatalf("background 记录不完整: %+v", r)
 	}
 
 	// 状态落盘
@@ -187,9 +187,9 @@ func TestSuspendRunningMarksAndSnapshots(t *testing.T) {
 // （worker 死亡回调会把 active/running 刷成 error —— 必须不发生）。
 func TestShutdownWorkersSuspendsThenCloses(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "plan", map[string]any{"requirement": "r"})
+	id, _, _ := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{"requirement": "r"})
 	waitLog(t, env.piLog, "开始")
 
 	m.ShutdownWorkers()
@@ -216,9 +216,9 @@ func TestShutdownWorkersSuspendsThenCloses(t *testing.T) {
 // 则从 suspended 移入 recovered；失败则进 failed 并保留在 suspended。
 func TestRecoveryReportRecordsHumanActions(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
-	suspendedEntry := SessionEntry{ID: "s-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypePlan,
+	suspendedEntry := SessionEntry{ID: "s-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
 		Status: SessionStatusSuspended, Title: "t", Params: map[string]any{"requirement": "x"}, CreatedAt: time.Now()}
 	if err := env.sessions.Add(suspendedEntry); err != nil {
 		t.Fatal(err)
@@ -233,7 +233,7 @@ func TestRecoveryReportRecordsHumanActions(t *testing.T) {
 	if len(rep.Suspended) != 0 {
 		t.Fatalf("恢复后不应仍在 suspended: %+v", rep.Suspended)
 	}
-	if len(rep.Recovered) != 1 || rep.Recovered[0].ID != "s-1" || rep.Recovered[0].Type != SessionTypePlan {
+	if len(rep.Recovered) != 1 || rep.Recovered[0].ID != "s-1" || rep.Recovered[0].Type != SessionTypeEasy {
 		t.Fatalf("recovered = %+v", rep.Recovered)
 	}
 	// 幂等：同一会话重复记录不重复入列
@@ -252,7 +252,7 @@ func TestRecoveryReportRecordsHumanActions(t *testing.T) {
 // 必备字段（前端横幅据此渲染）。
 func TestHandleRecoveryReport(t *testing.T) {
 	env := newTestEnv(t)
-	m := env.managerWith(t, nil, nil)
+	m := env.managerWith(t, nil)
 
 	rec := get(t, m.HandleRecoveryReport, "/api/recovery")
 	if rec.Code != 200 {

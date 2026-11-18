@@ -33,6 +33,23 @@ export interface ToolItem extends SeqAnchor {
   /** 结果截断/全文路径（details 字段） */
   truncated: boolean;
   fullOutputPath: string | null;
+  /** Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（subagent_progress
+   * SSE 事件按 toolCallId 匹配注入——多 subagent 多卡各自更新） */
+  subagentProgress?: SubagentProgress;
+}
+
+/** subagent_progress 事件负载（后端投影：pi-subagents status.json） */
+export interface SubagentProgress {
+  runId: string;
+  state: string; // running | complete | ...
+  steps: Array<{
+    agent: string;
+    label: string;
+    status: string;
+    currentTool?: string;
+    lastActivityAt?: number;
+  }>;
+  lastUpdate?: number;
 }
 
 /** envelope 全局序号（Hub 单调 seq）——live 项的**时序锚点**。
@@ -42,6 +59,11 @@ export interface ToolItem extends SeqAnchor {
  *  在上一轮回复尾巴仍在 live 时会把新消息插到它前面 → 用户实测乱序）。 */
 export interface SeqAnchor {
   seq?: number;
+  /** 稳定锚：来源 pi entry id（历史 item 由 buildHistoryItems 填；live item 缺省）。
+   *  Bug #8 第三批（human 实测复现第二轮）：滚动游标恢复用——item.id 含位置序号
+   *  （msg-<seq>-…），恢复窗口重建后 seq 漂移 → id 永远匹配不上 → 定位失败。
+   *  entryId 跨重建稳定（pi JSONL entry id 不变）。 */
+  entryId?: string;
 }
 
 export interface UserItem extends SeqAnchor {
@@ -75,7 +97,31 @@ export interface NoticeItem extends SeqAnchor {
   text: string;
 }
 
-export type ChatItem = UserItem | AssistantTextItem | ThinkingItem | ToolItem | NoticeItem;
+/** 压缩事件卡（compaction_start → 占位；compaction_end → 填充结果）。
+ *  job_53 Bug #1 修复 4：压缩过程可视化——手动/自动压缩都在会话流中可见。 */
+export interface CompactionItem extends SeqAnchor {
+  kind: "compaction";
+  id: string;
+  /** manual | threshold | overflow */
+  reason: string;
+  /** 占位态（压缩进行中——compaction_start 后、end 前） */
+  pending: boolean;
+  /** 中止（compaction_end aborted=true，result=null） */
+  aborted?: boolean;
+  /** 失败原因（compaction_end 失败：result=null + errorMessage） */
+  errorMessage?: string;
+  /** 压缩结果（成功时） */
+  summary?: string;
+  firstKeptEntryId?: string;
+  tokensBefore?: number;
+  estimatedTokensAfter?: number;
+  /** 历史回放的既有压缩点（完整卡，默认收起；迭代 2 human 裁决：一直在会话流中） */
+  historical?: boolean;
+  /** 自定义压缩指令原文（compact_request 合成事件携带；无指令时缺省） */
+  customInstructions?: string;
+}
+
+export type ChatItem = UserItem | AssistantTextItem | ThinkingItem | ToolItem | NoticeItem | CompactionItem;
 
 export interface ChatViewModel {
   items: ChatItem[];
@@ -140,10 +186,18 @@ export function resultText(result: unknown): { text: string; truncated: boolean;
 }
 
 /** 工具参数摘要（单行） */
-export function summarizeArgs(args: unknown): string {
+export function summarizeArgs(args: unknown, toolName?: string): string {
   if (args == null) return "";
   if (typeof args === "string") return args;
   const a = args as Record<string, unknown>;
+  // Bug #8 2A（human 2026-11-14）：subagent 摘要 = agent · task 首行（子代理在
+  // 干什么一眼可见——泛型 JSON 摘要不可读）
+  if (toolName === "subagent") {
+    const agent = typeof a?.agent === "string" ? a.agent : "";
+    const task = typeof a?.task === "string" ? a.task.split("\n")[0] : "";
+    const summary = [agent, task].filter(Boolean).join(" · ");
+    if (summary) return summary.length > 120 ? `${summary.slice(0, 117)}…` : summary;
+  }
   for (const key of ["command", "file_path", "path", "pattern", "query", "url", "name"]) {
     const v = a?.[key];
     if (typeof v === "string" && v) return v.length > 120 ? `${v.slice(0, 117)}…` : v;
@@ -182,6 +236,8 @@ interface BuildState {
   boundarySeq: number;
   /** 历史回放指纹（live 重叠跳过） */
   skip: Set<string> | undefined;
+  /** 待并入下一张压缩卡的自定义指令（compact_request → compaction_start 配对） */
+  pendingCompactArg: string | null;
 }
 
 const MAX_NOTIFICATIONS = 5;
@@ -217,6 +273,7 @@ export function buildChatViewModel(
     idSeq: 0,
     boundarySeq: 0,
     skip: skipFingerprints,
+    pendingCompactArg: null,
   };
 
   for (const env of envelopes) {
@@ -287,12 +344,105 @@ function applyEvent(st: BuildState, ev: Record<string, unknown>, envSeq: number)
       }
       break;
     }
+    case "subagent_progress": {
+      // Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（后端 watcher 轮询
+      // pi-subagents status.json → SSE）——按 toolCallId 匹配 subagent 工具卡注入。
+      const tcid = String(ev.toolCallId ?? "");
+      if (tcid) {
+        const item = st.items.find((i) => i.kind === "tool" && i.toolCallId === tcid);
+        if (item && item.kind === "tool" && item.toolName === "subagent") {
+          item.subagentProgress = {
+            runId: String(ev.runId ?? ""),
+            state: String(ev.state ?? ""),
+            steps: Array.isArray(ev.steps)
+              ? (ev.steps as Array<Record<string, unknown>>).map((s2) => ({
+                  agent: String(s2.agent ?? ""),
+                  label: String(s2.label ?? ""),
+                  status: String(s2.status ?? ""),
+                  currentTool: typeof s2.currentTool === "string" ? s2.currentTool : undefined,
+                  lastActivityAt: typeof s2.lastActivityAt === "number" ? s2.lastActivityAt : undefined,
+                }))
+              : [],
+            lastUpdate: typeof ev.lastUpdate === "number" ? ev.lastUpdate : undefined,
+          };
+        }
+      }
+      break;
+    }
+    case "compact_request": {
+      // rick 合成事件（后端 SessionCompact 发起前广播）：携带自定义指令
+      // 原文——pi 的 compaction_start/end 不带指令，但压缩卡要展示它
+      //（human 裁决：感知「压缩怎么发生」）。暂存，并入随后的占位卡。
+      if (typeof ev.customInstructions === "string" && ev.customInstructions) {
+        st.pendingCompactArg = ev.customInstructions;
+      }
+      break;
+    }
     case "compaction_start": {
       st.compacting = true;
+      // 压缩过程可视化（job_53 修复 4）：占位卡——压缩中状态在会话流内可见，
+      // 而非只右输入区徽标；compaction_end 到达时原地填充（同 id 原地更新）。
+      st.items.push({
+        kind: "compaction",
+        id: `compaction-${st.idSeq || st.seq}`,
+        reason: typeof ev.reason === "string" ? ev.reason : "manual",
+        pending: true,
+        customInstructions: st.pendingCompactArg ?? undefined,
+      });
+      st.pendingCompactArg = null;
       break;
     }
     case "compaction_end": {
       st.compacting = false;
+      // no-op 压缩（Already compacted / Nothing to compact）：pi 在检查前就
+      // emit compaction_start、失败也 emit end——这两类「无事可做」结局不是
+      // 真失败，移除占位卡而非显示「上下文压缩失败」（human 报：自动压缩
+      // 触发后出现一次「手动压缩失败」卡即此路径）。
+      const errMsg = typeof ev.errorMessage === "string" ? ev.errorMessage : "";
+      if (errMsg.includes("Already compacted") || errMsg.includes("Nothing to compact")) {
+        const pIdx = st.items.findIndex(
+          (it) => it.kind === "compaction" && (it as CompactionItem).pending,
+        );
+        if (pIdx >= 0) st.items.splice(pIdx, 1);
+        st.pendingCompactArg = null;
+        break;
+      }
+      // 填充最近一张占位压缩卡（compaction_start → end 配对；无占位时
+      // 兜底新建——历史裁剪后 start 卡可能已不在流内）。
+      const result = (ev.result ?? null) as Record<string, unknown> | null;
+      const slot =
+        [...st.items]
+          .reverse()
+          .find((it): it is CompactionItem => it.kind === "compaction" && it.pending) ??
+        (() => {
+          const fresh: CompactionItem = {
+            kind: "compaction",
+            id: `compaction-${st.idSeq || st.seq}`,
+            reason: typeof ev.reason === "string" ? ev.reason : "manual",
+            pending: false,
+          };
+          st.items.push(fresh);
+          return fresh;
+        })();
+      slot.pending = false;
+      slot.reason = typeof ev.reason === "string" ? ev.reason : slot.reason;
+      if (!slot.customInstructions && st.pendingCompactArg) {
+        slot.customInstructions = st.pendingCompactArg;
+      }
+      st.pendingCompactArg = null;
+      if (ev.aborted === true) {
+        slot.aborted = true;
+      }
+      if (typeof ev.errorMessage === "string" && ev.errorMessage) {
+        slot.errorMessage = ev.errorMessage;
+      }
+      if (result) {
+        if (typeof result.summary === "string") slot.summary = result.summary;
+        if (typeof result.firstKeptEntryId === "string") slot.firstKeptEntryId = result.firstKeptEntryId;
+        if (typeof result.tokensBefore === "number") slot.tokensBefore = result.tokensBefore;
+        if (typeof result.estimatedTokensAfter === "number")
+          slot.estimatedTokensAfter = result.estimatedTokensAfter;
+      }
       break;
     }
     case "message_update": {
@@ -644,12 +794,35 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
       continue;
     }
 
+    // 历史压缩点（compaction entry）：完整压缩卡（迭代 2：human 裁决「压缩卡
+    // 一直在会话流中」——刷新后历史重建同样渲染完整卡，JSONL 条目自带
+    // summary/tokensBefore/firstKeptEntryId；无 estimatedTokensAfter（只在实时
+    // rpc 响应里）——如实展示，不伪造对比。historical 标记驱动默认收起）。
+    if (entry.type === "compaction") {
+      items.push({
+        kind: "compaction",
+        id: eid("compaction"),
+        reason: "historical",
+        pending: false,
+        historical: true,
+        summary: typeof entry.summary === "string" ? entry.summary : undefined,
+        firstKeptEntryId:
+          typeof entry.firstKeptEntryId === "string" ? entry.firstKeptEntryId : undefined,
+        tokensBefore: typeof entry.tokensBefore === "number" ? entry.tokensBefore : undefined,
+        // 迭代 4（human 反馈）：后端 entries 投关注入的 chars/4 估算（与 pi 实时
+        // 口径同族）；历史卡显示压缩后 token + 压缩比例。
+        estimatedTokensAfter:
+          typeof entry.estimatedTokensAfter === "number" ? entry.estimatedTokensAfter : undefined,
+      });
+      continue;
+    }
+
     const m = entry.message;
     if (!m || typeof m.role !== "string") continue;
 
     if (m.role === "user") {
       const text = messageText(m);
-      items.push({ kind: "user", id: eid("user"), text, ts: tsMs(entry.timestamp) });
+      items.push({ kind: "user", id: eid("user"), text, ts: tsMs(entry.timestamp), entryId: typeof entry.id === "string" ? entry.id : undefined });
       fingerprints.add(fingerprint("user", normText(text)));
       if (!meta.startedAt && text) meta.startedAt = entry.timestamp ?? null;
       continue;
@@ -667,6 +840,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
             text: block.text,
             streaming: false,
             ts: tsMs(entry.timestamp),
+            entryId: typeof entry.id === "string" ? entry.id : undefined,
           });
           fingerprints.add(fingerprint("text", normText(block.text)));
           blockIdx += 1;
@@ -676,6 +850,7 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
             id: eid(`think-${blockIdx}`),
             text: block.thinking,
             streaming: false,
+            entryId: typeof entry.id === "string" ? entry.id : undefined,
           });
           fingerprints.add(fingerprint("think", normText(block.thinking)));
           blockIdx += 1;

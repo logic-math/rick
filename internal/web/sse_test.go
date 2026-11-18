@@ -381,17 +381,6 @@ func TestSSEEventConstructors(t *testing.T) {
 		t.Fatalf("SessionStateEvent data: %s", env.Data)
 	}
 
-	// JobsUpdate shape.
-	env = JobsUpdate("ws1", "job_5", []TaskDiff{{TaskID: "task1", From: "pending", To: "running"}},
-		[]TaskBrief{{TaskID: "task1", Name: "n", Status: "running"}})
-	if !strings.Contains(string(env.Data), `"job_id":"job_5"`) ||
-		!strings.Contains(string(env.Data), `"diff":[{"task_id":"task1","from":"pending","to":"running"}]`) {
-		t.Fatalf("JobsUpdate data: %s", env.Data)
-	}
-	if env.SessionID != "" {
-		t.Fatalf("JobsUpdate session_id should be empty: %q", env.SessionID)
-	}
-
 	// FrontendReloadEvent empty object.
 	env = FrontendReloadEvent()
 	if string(env.Data) != "{}" {

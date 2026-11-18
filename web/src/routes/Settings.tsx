@@ -23,6 +23,11 @@ import Button from "../components/common/Button";
 import Dialog from "../components/common/Dialog";
 import ErrorBanner from "../components/common/ErrorBanner";
 import Portal from "../components/starfield/Portal";
+import {
+  readHistoryCacheConfig,
+  HISTORY_CACHE_CONFIG_KEY,
+  type HistoryCacheConfig,
+} from "../lib/sessionHistoryCache";
 
 const FIELD =
   "w-full rounded-lg border border-line bg-space/60 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-portal/60 focus:outline-none";
@@ -53,6 +58,38 @@ export default function Settings() {
   // token
   const [token, setToken] = useState(() => getStoredToken());
   const [tokenSaved, setTokenSaved] = useState(false);
+  // Bug #8 2C（human 2026-11-14）：自动压缩设置（上下文使用率超阈值自动 compact）
+  const AUTO_COMPACT_KEY = "rick-web:auto-compact";
+  const [autoCompact, setAutoCompact] = useState<{ enabled: boolean; threshold: number }>(() => {
+    try {
+      const raw = localStorage.getItem(AUTO_COMPACT_KEY);
+      const v = raw ? JSON.parse(raw) : null;
+      if (v && typeof v.enabled === "boolean") {
+        return { enabled: v.enabled, threshold: typeof v.threshold === "number" ? v.threshold : 80 };
+      }
+    } catch {
+      // localStorage 不可用——默认
+    }
+    return { enabled: true, threshold: 80 };
+  });
+  const saveAutoCompact = (next: { enabled: boolean; threshold: number }) => {
+    setAutoCompact(next);
+    try {
+      localStorage.setItem(AUTO_COMPACT_KEY, JSON.stringify(next));
+    } catch {
+      // 静默
+    }
+  };
+  // 会话历史缓存（human 2026-11-18 裁决：默认 7 天 / 64 会话，Settings 可调）
+  const [historyCache, setHistoryCache] = useState<HistoryCacheConfig>(() => readHistoryCacheConfig());
+  const saveHistoryCache = (next: HistoryCacheConfig) => {
+    setHistoryCache(next);
+    try {
+      localStorage.setItem(HISTORY_CACHE_CONFIG_KEY, JSON.stringify(next));
+    } catch {
+      // 静默
+    }
+  };
   const [testing, setTesting] = useState(false);
   const [testOk, setTestOk] = useState<boolean | null>(null);
   const [testMsg, setTestMsg] = useState<string | null>(null);
@@ -215,14 +252,93 @@ export default function Settings() {
       </Section>
 
       {/* 服务器信息 */}
+      {/* Bug #8 2C：自动压缩（上下文使用率超阈值自动 compact——会话页常驻使用率徽标） */}
+      <Section title="自动压缩" desc="会话上下文使用率超过阈值时自动执行 compact（历史总结为摘要，保留最近消息；会话页头部常驻显示使用率）">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={autoCompact.enabled}
+              onChange={(e) => saveAutoCompact({ ...autoCompact, enabled: e.target.checked })}
+              className="h-4 w-4 accent-portal"
+            />
+            <span className="text-ink">启用自动压缩</span>
+          </label>
+          <label className="flex items-center gap-2 text-ink-2">
+            阈值
+            <input
+              type="number"
+              min={50}
+              max={95}
+              value={autoCompact.threshold}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) saveAutoCompact({ ...autoCompact, threshold: Math.min(95, Math.max(50, v)) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            %
+          </label>
+          <span className="text-xs text-ink-3">（默认 80%——使用率徽标 ≥80% 变警示色）</span>
+        </div>
+      </Section>
+
+      {/* 会话历史缓存（多会话切换加速） */}
+      <Section
+        title="会话历史缓存"
+        desc={`多会话切换加速：切回已打开的会话时立即渲染本地缓存，后台增量拉取新消息保持 timeline 一致。内存缓存（页面刷新后重建）；存储于 localStorage "${HISTORY_CACHE_CONFIG_KEY}"，修改即时生效。`}
+      >
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2 text-ink-2">
+            缓存时长
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={historyCache.ttlDays}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v))
+                  saveHistoryCache({ ...historyCache, ttlDays: Math.min(365, Math.max(1, Math.floor(v))) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            天
+          </label>
+          <label className="flex items-center gap-2 text-ink-2">
+            最多缓存
+            <input
+              type="number"
+              min={1}
+              max={512}
+              value={historyCache.maxSessions}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v))
+                  saveHistoryCache({ ...historyCache, maxSessions: Math.min(512, Math.max(1, Math.floor(v))) });
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+            个会话
+          </label>
+          <span className="text-xs text-ink-3">（默认 7 天 / 64 会话，LRU 淘汰最旧）</span>
+        </div>
+      </Section>
+
       <Section title="服务器" desc="GET /api/config">
         {serverErr ? (
-          <ErrorBanner message={serverErr} />
-        ) : server ? (
+          <ErrorBanner message={serverErr} />        ) : server ? (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
             <div>
               <dt className="text-xs text-ink-3">API 版本</dt>
               <dd className="text-ink">{server.version}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-ink-3">构建</dt>
+              {/* Bug #7 版本探针：跨设备排查新旧 bundle（SW 缓存旧版时两设备 build 不同） */}
+              <dd className="font-mono text-xs text-ink-2" title="服务端构建标识（/api/health 的 build_id）">
+                {server.build_id ?? server.version ?? "?"}
+              </dd>
             </div>
             <div>
               <dt className="text-xs text-ink-3">rick 版本</dt>

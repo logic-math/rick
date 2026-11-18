@@ -34,6 +34,7 @@ import type { ChatItem } from "./viewModel";
 import { AssistantBubble, NoticeCard, UserBubble } from "./MessageBubble";
 import ThinkingBlock from "./ThinkingBlock";
 import ToolCallCard, { ToolElapsed, noteToolRunStart } from "./ToolCallCard";
+import { CompactionCard } from "./CompactionCard";
 import Saucer from "../starfield/Saucer";
 import { ExpandCtx, useExpandState, type ExpandCtrl, type ExpandMode } from "./expand";
 
@@ -46,10 +47,12 @@ function ToolGroup({
   tools,
   groupKey,
   defaultOpen,
+  onOpenSubagent,
 }: {
   tools: Extract<ChatItem, { kind: "tool" }>[];
   groupKey: string;
   defaultOpen: boolean;
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
 }) {
   const { open, onToggle } = useExpandState(groupKey, defaultOpen);
   const running = tools.some((t) => t.status === "running");
@@ -82,7 +85,7 @@ function ToolGroup({
       {open && (
         <div className="mt-1 space-y-0.5 pl-2">
           {tools.map((t) => (
-            <ToolCallCard key={t.id} item={t} />
+            <ToolCallCard key={t.id} item={t} onOpenSubagent={onOpenSubagent} />
           ))}
         </div>
       )}
@@ -95,6 +98,17 @@ interface MessageListProps {
   streaming: boolean;
   /** 滚动到顶部时回调（历史分页：加载更早）——触发方防抖/幂等 */
   onReachTop?: () => void;
+  /** Bug #8 2A 终版：subagent 卡片「查看会话」跳转（右侧栏打开子会话） */
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
+  /** Bug #8 2A 终版追加（human 反馈）：子会话视图的 user 对话者标签（main-agent——
+   *  区分主会话 human；默认 "human"（主会话）） */
+  userSenderLabel?: string;
+  /** Bug #8 第三批：视口顶部条目锚变化回调（游标记录——ChatView debounce 存服务端） */
+  onViewportAnchor?: (anchorId: string | null) => void;
+  /** Bug #8 第三批：初始定位锚（恢复上次阅读位置——挂载后 scrollToIndex 该条目） */
+  initialAnchor?: string | null;
+  /** Bug #8 第三批：定位完成回调（ChatView 清除 initialAnchor——恢复 followOutput） */
+  onAnchorConsumed?: () => void;
   /** 可能还有更早历史（显示顶部「加载更早历史」按钮——显式兑底，不只靠滚动触发） */
   hasMore?: boolean;
   /** 加载更早进行中（按钮「加载中…」禁用态） */
@@ -150,8 +164,15 @@ function buildFlat(items: ChatItem[]): FlatEntry[] {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.kind === "tool") {
-      if (toolRun.length === 0) currentRunStart = i;
-      toolRun.push(item);
+      // Bug #8 2A（human 2026-11-14）：subagent 调用独立成卡（不折叠进
+      // 「N 次工具调用」组——子代理的工作进展一眼可见、点击展开详情）
+      if (item.toolName === "subagent") {
+        flushTools();
+        out.push({ kind: "single", id: item.id, item });
+      } else {
+        if (toolRun.length === 0) currentRunStart = i;
+        toolRun.push(item);
+      }
     } else {
       flushTools();
       // thinking 默认折叠（含流式中的最后一块）：历史+实时都不自动展开。
@@ -168,13 +189,13 @@ function buildFlat(items: ChatItem[]): FlatEntry[] {
 }
 
 /** 单条目渲染（工具组在上方折叠处理） */
-function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): ReactNode {
+function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean, onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void, userSenderLabel?: string): ReactNode {
   const cls = animate ? "chat-item-enter" : undefined;
   switch (item.kind) {
     case "user":
       return (
         <div key={item.id} className={cls}>
-          <UserBubble item={item} />
+          <UserBubble item={item} senderLabel={userSenderLabel} />
         </div>
       );
     case "assistant-text":
@@ -197,13 +218,19 @@ function renderItem(item: ChatItem, defaultOpen: boolean, animate: boolean): Rea
     case "tool":
       return (
         <div key={item.id} className={cls}>
-          <ToolCallCard item={item} />
+          <ToolCallCard item={item} onOpenSubagent={onOpenSubagent} />
         </div>
       );
     case "notice":
       return (
         <div key={item.id} className={cls}>
           <NoticeCard item={item} />
+        </div>
+      );
+    case "compaction":
+      return (
+        <div key={item.id} className={cls}>
+          <CompactionCard item={item} />
         </div>
       );
   }
@@ -230,11 +257,18 @@ export default function MessageList({
   items,
   streaming,
   onReachTop,
+  onOpenSubagent,
+  userSenderLabel,
+  onViewportAnchor,
+  initialAnchor,
+  onAnchorConsumed,
   hasMore = false,
   loadingEarlier = false,
 }: MessageListProps) {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const [pinned, setPinned] = useState(true);
+  // Bug #8 第三批（human 实测）：恢复模式（有 initialAnchor）下初始不贴底——
+  // pinned=true + followOutput="auto" 会在数据追加后把视口拉到最新，覆盖定位
+  const [pinned, setPinned] = useState(!initialAnchor);
 
   // ---- 展开控制（状态提升：overrides 在条目之上 → 虚拟化卸载不丢展开态，KR8e）----
   const [mode, setMode] = useState<ExpandMode>("default");
@@ -254,10 +288,67 @@ export default function MessageList({
   // ---- 虚拟化数据（分组扁平化；items 引用变化即重算——流式 110ms 粒度）----
   const flat = useMemo(() => buildFlat(items), [items]);
 
+  // ---- Bug #8 第三批：视口锚（游标记录）+ 初始定位（恢复上次阅读位置）----
+  // 稳定锚 = pi entryId（item.id 含位置序号，恢复窗口重建后 seq 漂移 → id 匹配
+  // 不上 → 定位失败（human 实测复现第二轮根因）。entryId 跨重建稳定。
+  // flat entry → 首个稳定 entryId（single: item.entryId / 组: 组内首个 toolCallId）。
+  const flatAnchorId = useCallback((f: (typeof flat)[number] | undefined): string | null => {
+    if (!f) return null;
+    if (f.kind === "single") {
+      if ("entryId" in f.item && typeof f.item.entryId === "string" && f.item.entryId) return f.item.entryId;
+      return null;
+    }
+    const t = f.tools.find((x) => x.toolCallId);
+    return t ? t.toolCallId : null;
+  }, []);
+  // entryId → flat index 映射（定位用；每 entry 只记首个出现的 flat 条目）
+  const anchorToIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    flat.forEach((f, i) => {
+      const a = flatAnchorId(f);
+      if (a && !m.has(a)) m.set(a, i);
+    });
+    return m;
+  }, [flat, flatAnchorId]);
+  // 初始定位（挂载 + 有锚）：scrollToIndex 锚条目（非贴底——覆盖默认贴底行为）
+  const didInitialAnchorRef = useRef(false);
+  useEffect(() => {
+    if (didInitialAnchorRef.current || !initialAnchor) return;
+    const idx = anchorToIndex.get(initialAnchor);
+    if (idx === undefined) return;
+    didInitialAnchorRef.current = true;
+    // rAF：等 Virtuoso 完成首帧布局后再定位（立即调用会被重置）
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: "start" });
+      onAnchorConsumed?.();
+    });
+  }, [initialAnchor, anchorToIndex, onAnchorConsumed]);
+  // 视口锚回调（rangeChanged：视口首条 → 稳定 entryId；组/无 entryId 条目向后找）
+  // firstItemIndex 声明序在 handleRangeChanged 之后 → 用 ref 镜像（声明序安全）
+  const firstItemIndexRef = useRef(FIRST_INDEX_BASE);
+  const handleRangeChanged = useCallback(
+    (range: { startIndex: number }) => {
+      // Virtuoso rangeChanged 的 startIndex 是全局索引（含 firstItemIndex 偏移，
+      // 基准 100_000）——必须减去偏移得到 flat 数组的实际索引（human 实测：
+      // startIndex 99992 直接取 flat[99992] 越界 → anchor 永远 null）
+      const idx = range.startIndex - firstItemIndexRef.current;
+      let a = flatAnchorId(flat[idx]);
+      if (!a) {
+        for (let i = idx + 1; i < flat.length && i < idx + 5; i += 1) {
+          a = flatAnchorId(flat[i]);
+          if (a) break;
+        }
+      }
+      if (a) onViewportAnchor?.(a);
+    },
+    [flat, onViewportAnchor, flatAnchorId],
+  );
+
   // ---- 前置插入检测 + firstItemIndex（KR8d：历史前置插入防跳）----
   // 判定：首条 id 变化 + 长度增长 = 前置（追加时首条 id 不变；原地更新长度不变）。
   // 重建（SSE resync 全量重拉）长度可能变化——仅 N>0 时递减，位移漂移无害。
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_INDEX_BASE);
+  firstItemIndexRef.current = firstItemIndex; // ref 镜像（handleRangeChanged 用）
   /** 上一帧快照（firstId + 长度）——渲染期只读，effect 期写入 */
   const prevFrameRef = useRef<{ firstId: string | null; len: number } | null>(null);
   /** 本帧是否为前置插入（渲染期判定，供动画 memo + firstItemIndex effect 复用） */
@@ -382,7 +473,7 @@ export default function MessageList({
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
         {/* 空态静态飞船（job_43 二轮 KR7a，全局不限移动端）：空态常驻飞行动画
             （SMIL 航灯 + 悬停/光束 CSS）是新开会话挂机发烫主根因；空态本就静态，
-            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar/MonitorView）不动——
+            视觉损失≈0。工具运行期指示（ToolGroup/SteerBar）不动——
             那是功能反馈，仅移动端降级（theme.css 窄屏块 + Saucer 内部 SMIL 条件渲染）。 */}
         <Saucer size={64} />
         <p className="text-sm">会话已就绪——发送第一条消息开始</p>
@@ -399,10 +490,11 @@ export default function MessageList({
           data={flat}
           computeItemKey={(_, entry) => entry.id}
           firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={Math.max(0, flat.length - 1)}
-          followOutput="auto"
+          initialTopMostItemIndex={initialAnchor ? 0 : Math.max(0, flat.length - 1)}
+          followOutput={initialAnchor && !didInitialAnchorRef.current ? false : "auto"}
           atBottomStateChange={setPinned}
           startReached={() => onReachTopRef.current?.()}
+          rangeChanged={handleRangeChanged}
           components={components}
           itemContent={(_, entry) =>
             entry.kind === "group" ? (
@@ -413,7 +505,7 @@ export default function MessageList({
                 defaultOpen={entry.defaultOpen}
               />
             ) : (
-              renderItem(entry.item, false, animateIds.has(entry.id))
+              renderItem(entry.item, false, animateIds.has(entry.id), onOpenSubagent, userSenderLabel)
             )
           }
         />

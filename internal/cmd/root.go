@@ -43,7 +43,7 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "rick",
 		Short:   "Rick CLI - A powerful command-line tool for managing development workflows",
-		Long:    `Rick CLI is a comprehensive tool for managing development workflows, including job planning, task execution, and learning documentation.`,
+		Long:    `Rick CLI is a comprehensive tool for managing development workflows.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -57,20 +57,16 @@ func NewRootCmd(version string) *cobra.Command {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Run in dry-run mode without making changes")
 	rootCmd.PersistentFlags().StringVar(&jobID, "job", "", "Specify job ID (e.g., job_1)")
-	rootCmd.PersistentFlags().StringVar(&resume, "resume", "", "Resume a previous pi session (plan/doing: job id; human-loop: loop_N; easy: job id)")
+	rootCmd.PersistentFlags().StringVar(&resume, "resume", "", "Resume a previous pi session (easy: job id; human-loop: loop_N)")
 
 	// Configure version flag
 	rootCmd.Flags().BoolP("version", "V", false, "Show version")
 	rootCmd.SetVersionTemplate("Rick CLI version {{.Version}}\n")
 
 	// Add subcommands
-	rootCmd.AddCommand(NewPlanCmd())
-	rootCmd.AddCommand(NewDoingCmd())
-	rootCmd.AddCommand(NewLearningCmd())
 	rootCmd.AddCommand(NewDreamCmd())
 	rootCmd.AddCommand(NewToolsCmd(version))
 	rootCmd.AddCommand(NewHumanLoopCmd())
-	rootCmd.AddCommand(NewCtrlCmd())
 	rootCmd.AddCommand(NewEasyCmd())
 	rootCmd.AddCommand(NewSuperCmd())
 	rootCmd.AddCommand(NewWebCmd(version))
@@ -89,7 +85,7 @@ func GetDryRun() bool {
 }
 
 // GetResume returns the --resume flag value (session re-entry target: job id
-// for plan/doing, loop_N for human-loop, job id for easy).
+// loop_N for human-loop, job id for easy).
 func GetResume() string {
 	return resume
 }

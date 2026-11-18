@@ -125,7 +125,7 @@ func TestRenameJobHandler(t *testing.T) {
 		t.Fatalf("add workspace: %v", err)
 	}
 	ws = added // 注册表返回真实 id（sha1 of path）
-	m := NewSessionManager(sessions, reg, nil, nil, nil, nil, nil)
+	m := NewSessionManager(sessions, reg, nil, nil, nil, nil)
 	m.SetJobNames(store)
 
 	deps := Deps{Workspaces: reg, Sessions: m, JobNames: store}
@@ -156,14 +156,14 @@ func TestRenameJobHandler(t *testing.T) {
 
 	// 会话投影带上 job_name（侧栏优先显示它）
 	entry := SessionEntry{
-		ID: "s1", WorkspaceID: ws.ID, Type: SessionTypeDoing, Status: SessionStatusClosed,
+		ID: "s1", WorkspaceID: ws.ID, Type: SessionTypeEasy, Status: SessionStatusClosed,
 		Params: map[string]any{"job": "job_1"},
 	}
 	if info := m.toSessionInfo(entry); info.JobName != "修复流式闪烁" {
 		t.Fatalf("toSessionInfo job_name = %q, want the alias", info.JobName)
 	}
 	// 无 job 参数的会话不受影响
-	if info := m.toSessionInfo(SessionEntry{ID: "s2", WorkspaceID: ws.ID, Type: SessionTypePlan}); info.JobName != "" {
+	if info := m.toSessionInfo(SessionEntry{ID: "s2", WorkspaceID: ws.ID, Type: SessionTypeEasy}); info.JobName != "" {
 		t.Fatalf("job-less session job_name = %q, want empty", info.JobName)
 	}
 
@@ -234,7 +234,7 @@ func TestJobParamBackfillAndProjection(t *testing.T) {
 	if err := reg.Add(legacy); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	m := NewSessionManager(reg, nil, nil, nil, nil, nil, nil)
+	m := NewSessionManager(reg, nil, nil, nil, nil, nil)
 
 	// ① 投影补齐（读取路径：无需迁移也能被前端关联）
 	info := m.toSessionInfo(legacy)
@@ -257,7 +257,7 @@ func TestJobParamBackfillAndProjection(t *testing.T) {
 	}
 	// 已有显式 job 的行不被覆盖
 	explicit := SessionEntry{
-		ID: "explicit-1", WorkspaceID: "ws1", Type: SessionTypeDoing, Status: SessionStatusClosed,
+		ID: "explicit-1", WorkspaceID: "ws1", Type: SessionTypeEasy, Status: SessionStatusClosed,
 		Params: map[string]any{"job": "job_1", "_job_id": "job_9"},
 	}
 	if err := reg.Add(explicit); err != nil {
@@ -270,7 +270,7 @@ func TestJobParamBackfillAndProjection(t *testing.T) {
 	}
 
 	// 无 job 的行（plan 等）保持无 job
-	bare := SessionEntry{ID: "bare-1", WorkspaceID: "ws1", Type: SessionTypePlan, Status: SessionStatusClosed}
+	bare := SessionEntry{ID: "bare-1", WorkspaceID: "ws1", Type: SessionTypeEasy, Status: SessionStatusClosed}
 	if info := m.toSessionInfo(bare); info.Params["job"] != nil {
 		t.Fatalf("job-less session must not gain a job param: %v", info.Params["job"])
 	}

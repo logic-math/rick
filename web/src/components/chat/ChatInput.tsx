@@ -8,8 +8,9 @@
  * - textarea 随内容自适应扩大（scrollHeight 驱动——长句自动折行也撑高，
  *   不只按 \n 计数），上限约 6 行（240px），超出内部滚动
  * - agent streaming 时变为 steer 输入（发送即 steer——由 SteerBar 注入 onSend）
- * - 斜杠命令：输入以 / 开头弹出命令面板；/abort /close 实装（调 API），/compact
- *   提示暂不可用
+ * - 斜杠命令：输入以 / 开头弹出命令面板；/model /thinking /abort /compact
+ *   /close 实装（调 API；/compact 含自动恢复 worker——挂起会话也能压，
+ *   非 human 聊天类会话仍 409）
  * - 软键盘适配：VisualViewport resize/scroll 监听——输入条贴软键盘上沿
  *   （fixed 底部 + 底偏移 = innerHeight - (vv.height + vv.offsetTop)）
  */
@@ -30,7 +31,6 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/abort", desc: "中止当前生成", available: true },
   { name: "/compact", desc: "压缩上下文（长会话降 token；可附指令引导摘要侧重点）", available: true },
   { name: "/close", desc: "关闭会话", available: true },
-  { name: "/compact", desc: "压缩上下文（v1 暂不可用）", available: false },
 ];
 
 interface ChatInputProps {
@@ -57,47 +57,26 @@ const TA_MAX_HEIGHT = 240;
 // （隐私模式 / 配额）时 try/catch 静默降级为纯内存（不报错、不影响发送）。
 // ============================================================
 
-/** 草稿 localStorage 键前缀（导出供测试/复用） */
-export const DRAFT_STORAGE_PREFIX = "rick-web-draft:";
+import { api } from "../../api/client";
+
 /** 输入防抖落盘间隔（ms） */
 const DRAFT_SAVE_DEBOUNCE_MS = 500;
 
-function draftKey(sessionId: string): string {
-  return `${DRAFT_STORAGE_PREFIX}${sessionId}`;
-}
+// Bug #5 迭代5b（human 2026-11-14）：草稿改服务端存储（跨设备不中断——
+// localStorage 只在本机浏览器；此前 localStorage 版历史见 git）。key = sessionId。
+// 读取异步（挂载恢复由 useServerDraft 内 GET）；失败静默降级（草稿容忍丢失）。
 
-/** 读草稿；无 sessionId 或 localStorage 不可用时返回空串 */
-function loadDraft(sessionId: string | undefined): string {
-  if (!sessionId) return "";
-  try {
-    return localStorage.getItem(draftKey(sessionId)) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/** 写草稿（空串=删除键）；localStorage 不可用时静默降级 */
+/** 写草稿（空串=清除）；失败静默 */
 function saveDraft(sessionId: string | undefined, text: string): void {
   if (!sessionId) return;
-  try {
-    if (text) {
-      localStorage.setItem(draftKey(sessionId), text);
-    } else {
-      localStorage.removeItem(draftKey(sessionId));
-    }
-  } catch {
-    // localStorage 不可用（隐私模式/配额）——静默降级为纯内存
-  }
+  void api.saveDraft(sessionId, text).catch(() => {
+    // 网络/服务端失败——静默（纯内存兜底）
+  });
 }
 
 /** 删除草稿（发送成功 / 主动清空） */
 function clearDraft(sessionId: string | undefined): void {
-  if (!sessionId) return;
-  try {
-    localStorage.removeItem(draftKey(sessionId));
-  } catch {
-    // 同上——静默降级
-  }
+  saveDraft(sessionId, "");
 }
 
 /** 软键盘高度偏移（px；无 VisualViewport/桌面端为 0） */
@@ -123,8 +102,24 @@ function useKeyboardOffset(): number {
 }
 
 export default function ChatInput({ onSend, onCommand, placeholder, disabled, busy, sessionId }: ChatInputProps) {
-  // 挂载即从 localStorage 恢复草稿（刷新 / location.reload / 路由重挂载后仍在）
-  const [text, setText] = useState<string>(() => loadDraft(sessionId));
+  // 挂载即从服务端恢复草稿（刷新 / location.reload / 路由重挂载 / 跨设备打开后仍在）。
+  // 异步 GET：返回时若用户已输入（text 非空）不覆盖——以现场输入为准。
+  const [text, setText] = useState<string>("");
+  const loadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionId || loadedRef.current === sessionId) return;
+    loadedRef.current = sessionId;
+    let cancelled = false;
+    void api
+      .getDraft(sessionId)
+      .then((d) => {
+        if (!cancelled && d.content && !textRef.current) setText(d.content);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
   const [menuIndex, setMenuIndex] = useState(0);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const keyboardOffset = useKeyboardOffset();
@@ -142,13 +137,8 @@ export default function ChatInput({ onSend, onCommand, placeholder, disabled, bu
     return () => clearTimeout(t);
   }, [text, sessionId]);
 
-  // 会话切换（组件未被 key 重挂时兜底）：旧会话草稿先落盘，再载入新会话草稿
-  useEffect(() => {
-    if (draftSessionRef.current === sessionId) return;
-    saveDraft(draftSessionRef.current, textRef.current);
-    draftSessionRef.current = sessionId;
-    setText(loadDraft(sessionId));
-  }, [sessionId]);
+  // 会话切换（组件未被 key 重挂时兜底）：旧会话草稿先落盘，新会话草稿由上方
+  // 挂载恢复 effect（sessionId 依赖）异步载入——切空再异步填。
 
   // 卸载（路由离开 / 重载前组件拆除）：最后一次落盘，避免 <500ms 编辑窗口丢稿
   useEffect(() => {

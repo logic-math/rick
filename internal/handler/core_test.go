@@ -97,83 +97,6 @@ func TestWorkspaceRoot(t *testing.T) {
 	}
 }
 
-func TestDoingIn_ExplicitRickDir(t *testing.T) {
-	// doingCore resolves the job directory from the explicit rickDir, not the
-	// process cwd: run from an unrelated cwd, target a workspace whose job
-	// exists, and observe the doing-dir (not plan-dir) error message.
-	dir := t.TempDir()
-	rickDir := filepath.Join(dir, ".rick")
-
-	// cwd is an unrelated empty directory with its own .rick (would produce
-	// "job directory not found" if doing used cwd).
-	other := t.TempDir()
-	orig, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(other); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
-	// Target workspace has the job dir but no plan dir → plan error proves
-	// rickDir (not cwd) resolution.
-	if err := os.MkdirAll(filepath.Join(rickDir, "jobs", "job_1"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	err = DoingIn(context.Background(), rickDir, "job_1", Options{}, nil, nil)
-	if err == nil {
-		t.Fatal("expected error for missing plan dir")
-	}
-	want := "plan directory not found: " + filepath.Join(rickDir, "jobs", "job_1", "plan")
-	if err.Error() != want {
-		t.Errorf("error must reference the explicit rickDir:\n want: %s\n got:  %s", want, err.Error())
-	}
-
-	// Empty rickDir is rejected
-	if err := DoingIn(context.Background(), "", "job_1", Options{}, nil, nil); err == nil {
-		t.Error("empty rickDir must be rejected")
-	}
-}
-
-func TestDoingIn_CancelledBeforeRun(t *testing.T) {
-	// A cancelled context surfaces before the first pi attempt.
-	dir := t.TempDir()
-	rickDir := filepath.Join(dir, ".rick")
-	if err := os.MkdirAll(filepath.Join(rickDir, "jobs", "job_1", "plan"), 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := DoingIn(ctx, rickDir, "job_1", Options{}, nil, nil)
-	if err == nil {
-		t.Fatal("expected cancellation error")
-	}
-}
-
-func TestCtrlIn_Validation(t *testing.T) {
-	if err := CtrlIn("", "job_1", Options{}); err == nil {
-		t.Error("empty rickDir must be rejected")
-	}
-	dir := t.TempDir()
-	rickDir := filepath.Join(dir, ".rick")
-	if err := os.MkdirAll(rickDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := CtrlIn(rickDir, "", Options{}); err == nil {
-		t.Error("empty jobID must be rejected")
-	}
-}
-
-func TestPlanIn_Validation(t *testing.T) {
-	if err := PlanIn("", "req", Options{}); err == nil {
-		t.Error("empty rickDir must be rejected")
-	}
-}
-
 func TestPrepareHumanLoopDirsIn(t *testing.T) {
 	rickDir := filepath.Join(t.TempDir(), ".rick")
 	draftDir, rfcDir, loopDir, err := PrepareHumanLoopDirsIn(rickDir)
@@ -215,37 +138,6 @@ func TestPrepareHumanLoopDirsIn(t *testing.T) {
 	}
 	if filepath.Base(loopDir3) != "loop_2" {
 		t.Errorf("after loop_1 exists, next should be loop_2, got %s", loopDir3)
-	}
-}
-
-func TestDiffTaskSnapshots(t *testing.T) {
-	last := taskSnapshot{
-		"task1": {Status: "success", CommitHash: "aaa"},
-		"task2": {Status: "running", CommitHash: ""},
-	}
-	cur := taskSnapshot{
-		"task1": {Status: "success", CommitHash: "bbb"}, // commit churn on rerun
-		"task2": {Status: "success", CommitHash: "ccc"}, // running → success
-		"task3": {Status: "pending", CommitHash: ""},    // new
-	}
-	changes := diffTaskSnapshots(last, cur)
-	if len(changes) != 3 {
-		t.Fatalf("want 3 changes, got %d: %+v", len(changes), changes)
-	}
-	// Sorted by task id
-	if changes[0].id != "task1" || changes[0].from != "success" || changes[0].to != "success" || changes[0].hash != "bbb" {
-		t.Errorf("change[0] = %+v", changes[0])
-	}
-	if changes[1].id != "task2" || changes[1].from != "running" || changes[1].to != "success" {
-		t.Errorf("change[1] = %+v", changes[1])
-	}
-	if changes[2].id != "task3" || changes[2].from != "new" || changes[2].to != "pending" {
-		t.Errorf("change[2] = %+v", changes[2])
-	}
-
-	// No changes → empty
-	if got := diffTaskSnapshots(cur, cur); len(got) != 0 {
-		t.Errorf("identical snapshots must diff empty, got %+v", got)
 	}
 }
 

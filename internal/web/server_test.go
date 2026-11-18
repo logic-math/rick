@@ -89,10 +89,6 @@ func newServerTestEnv(t *testing.T, token string, customize CustomizeFunc, reset
 	})
 	t.Cleanup(sup.CloseAll)
 	sm := NewSessionManager(sessions, workspaces, sup, hub, nil,
-		func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-			<-ctx.Done()
-			return ctx.Err()
-		},
 		func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error {
 			<-ctx.Done()
 			return ctx.Err()
@@ -526,46 +522,6 @@ func TestWatcherFrontendReloadOnDistChange(t *testing.T) {
 	})
 	if len(got) == 0 {
 		t.Fatal("no frontend_reload event after dist change")
-	}
-}
-
-func TestWatcherJobsUpdateOnTasksChange(t *testing.T) {
-	// Workspace with one job.
-	wsRoot := t.TempDir()
-	rick := filepath.Join(wsRoot, ".rick")
-	tasksPath := filepath.Join(rick, "jobs", "job_1", "doing", "tasks.json")
-	writeFileT(t, tasksPath, `{"version":"1.0","updated_at":"2026-08-29T10:00:00+08:00","tasks":[{"task_id":"task1","task_name":"t","status":"pending"}]}`)
-
-	wsReg, err := LoadWorkspaceRegistry(filepath.Join(t.TempDir(), "web.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := wsReg.Add(wsRoot, "ws"); err != nil {
-		t.Fatal(err)
-	}
-
-	hub := NewHub(8)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	StartWatchers(ctx, filepath.Join(t.TempDir(), "none"), hub, wsReg)
-
-	coll := startCollector(hub)
-	defer coll.stop()
-
-	// Wait for baseline (first sighting, no event).
-	time.Sleep(watcherInterval + 200*time.Millisecond)
-
-	// Flip the task status.
-	writeFileT(t, tasksPath, `{"version":"1.0","updated_at":"2026-08-29T10:00:01+08:00","tasks":[{"task_id":"task1","task_name":"t","status":"running"}]}`)
-
-	got := coll.waitMatching(t, 10*time.Second, func(ev Envelope) bool {
-		return ev.Type == EventTypeJobsUpdate && strings.Contains(string(ev.Data), `"to":"running"`)
-	})
-	if len(got) == 0 {
-		t.Fatal("no jobs_update event with task1→running")
-	}
-	if !strings.Contains(string(got[0].Data), `"job_id":"job_1"`) {
-		t.Fatalf("jobs_update job_id: %s", string(got[0].Data))
 	}
 }
 

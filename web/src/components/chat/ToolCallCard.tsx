@@ -211,12 +211,16 @@ function StatusIcon({ status }: { status: ToolItem["status"] }) {
 
 interface ToolCallCardProps {
   item: ToolItem;
+  /** Bug #8 2A 终版：subagent 卡「查看会话」跳转（打开右侧栏子会话） */
+  onOpenSubagent?: (t: { runId: string; label: string; agent: string }) => void;
 }
 
-function ToolCallCardImpl({ item }: ToolCallCardProps) {
+function ToolCallCardImpl({ item, onOpenSubagent }: ToolCallCardProps) {
+  // Bug #8 2A 终版（human 裁决 2026-11-15）：subagent 卡恢复默认折叠（进度区仍
+  // 展开（折叠卡也能看到进度概览）+「查看会话」跳转右侧栏）
   const { open, onToggle } = useExpandState(`tool-${item.toolCallId}`, false);
   const [expandedFull, setExpandedFull] = useState(false);
-  const summary = summarizeArgs(item.args);
+  const summary = summarizeArgs(item.args, item.toolName);
   const isBash = item.toolName === "bash";
   const isEdit = item.toolName === "edit";
   const edit = useMemo(() => (isEdit ? editStrings(item.args) : null), [isEdit, item.args]);
@@ -266,6 +270,55 @@ function ToolCallCardImpl({ item }: ToolCallCardProps) {
       </button>
 
       {/* 展开态：完整参数 + 结果 */}
+      {/* Bug #8 2A 追加（human 裁决 R2）：async subagent 实时进度（subagent_progress
+          SSE 注入——多 subagent 多卡各自更新；不折叠也可看到进度概览） */}
+      {item.subagentProgress && (
+        <div className="border-t border-line/60 px-3 py-1.5">
+          <div className="flex items-center gap-2 text-[10px] text-ink-3">
+            <span className={item.subagentProgress.state === "running" ? "text-portal" : "text-ink-3"}>
+              {item.subagentProgress.state === "running" ? "● 运行中" : item.subagentProgress.state}
+            </span>
+            <span className="font-mono">{item.subagentProgress.runId.slice(0, 8)}</span>
+            {onOpenSubagent && (
+              <button
+                type="button"
+                onClick={() => {
+                  const st = item.subagentProgress?.steps[0];
+                  if (st) onOpenSubagent({ runId: item.subagentProgress!.runId, label: st.label, agent: st.agent });
+                }}
+                className="ml-auto shrink-0 rounded border border-portal/40 bg-portal/10 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/20"
+                title="在右侧栏打开子会话（只读）"
+              >
+                查看会话 ↗
+              </button>
+            )}
+          </div>
+          {item.subagentProgress.steps.map((st, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onOpenSubagent?.({ runId: item.subagentProgress!.runId, label: st.label, agent: st.agent })}
+              className="mt-1 flex min-w-0 w-full items-center gap-2 text-left text-[11px] hover:bg-portal/5"
+              title="打开该 subagent 的会话（右侧栏只读）"
+            >
+              <span className="shrink-0 rounded bg-white/5 px-1 font-mono text-[10px] text-ink-2">{st.agent}</span>
+              <span className="shrink-0 text-ink-3">{st.label}</span>
+              <span
+                className={`shrink-0 text-[10px] ${
+                  st.status === "running" ? "text-portal" : st.status === "completed" ? "text-ink-3" : "text-ink-2"
+                }`}
+              >
+                {st.status === "running" ? "⟳" : st.status === "completed" ? "✓" : st.status}
+              </span>
+              {st.currentTool && (
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-ink-3" title={st.currentTool}>
+                  {st.currentTool}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       {expanded && (
         <div className="border-t border-line">
           {/* 完整参数 */}

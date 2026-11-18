@@ -235,12 +235,17 @@ func handleBrowseWorkspaces(deps Deps) http.HandlerFunc {
 
 // ---- fs 浏览（多级路径选择器——前端目录浏览器数据源）----
 
-// handleFSList serves GET /api/fs/list?path=<dir> — the immediate
+// handleFSList serves GET /api/fs/list?path=<dir>[&files=1] — the immediate
 // subdirectories of path (non-hidden, sorted by name, capped at 100) for
-// multi-level directory navigation. Returns {path, parent, entries:[{path,name}]}
+// multi-level directory navigation. Returns {path, parent, entries:[{path,name,is_dir}]}
 // where parent = filepath.Dir(path) (empty string for the filesystem root).
+//
+// files=1（Bug #8 human 2026-11-14）：文件浏览器模式——entries 含文件（目录在前、
+// 文件在后，各按名排序），is_dir 字段区分。默认（无 files）仅子目录（目录选择器
+// 兼容行为——Sessions 的 DirBrowser 依赖）。
 func handleFSList(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	withFiles := r.URL.Query().Get("files") == "1"
 	if path == "" {
 		writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "path must not be empty"))
 		return
@@ -261,29 +266,33 @@ func handleFSList(w http.ResponseWriter, r *http.Request) {
 		parent = "" // filesystem root
 	}
 
-	var dirs []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(e.Name(), ".") {
-			continue // hidden dirs excluded
-		}
-		dirs = append(dirs, e.Name())
+	type fsEntry struct {
+		Path  string `json:"path"`
+		Name  string `json:"name"`
+		IsDir bool   `json:"is_dir"`
 	}
-	sort.Strings(dirs)
+	var dirs, files []fsEntry
+	for _, e := range entries {
+		name := e.Name()
+		if !withFiles && strings.HasPrefix(name, ".") {
+			continue // hidden entries excluded（默认模式；files=1 文件浏览器显示——.rick 等）
+		}
+		entry := fsEntry{Path: filepath.Join(path, name), Name: name, IsDir: e.IsDir()}
+		if e.IsDir() {
+			dirs = append(dirs, entry)
+		} else if withFiles {
+			files = append(files, entry)
+		}
+	}
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
 	if len(dirs) > 100 {
 		dirs = dirs[:100]
 	}
-
-	type fsEntry struct {
-		Path string `json:"path"`
-		Name string `json:"name"`
+	if len(files) > 200 {
+		files = files[:200]
 	}
-	out := make([]fsEntry, 0, len(dirs))
-	for _, name := range dirs {
-		out = append(out, fsEntry{Path: filepath.Join(path, name), Name: name})
-	}
+	out := append(dirs, files...)
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "parent": parent, "entries": out})
 }
 
@@ -918,6 +927,12 @@ func RegisterRoutes(mux *http.ServeMux, deps Deps) {
 		mux.Handle("POST /api/sessions", authWrap(deps.Token, http.HandlerFunc(sm.CreateSession)))
 		mux.Handle("POST /api/sessions/import", authWrap(deps.Token, http.HandlerFunc(sm.ImportSession)))
 		mux.Handle("GET /api/sessions/{id}", authWrap(deps.Token, http.HandlerFunc(sm.GetSession)))
+		mux.Handle("GET /api/sessions/{id}/stats", authWrap(deps.Token, http.HandlerFunc(sm.SessionStats)))
+		mux.Handle("GET /api/sessions/{id}/subagents", authWrap(deps.Token, http.HandlerFunc(sm.SessionSubagents)))
+		mux.Handle("GET /api/subagent/{runId}/entries", authWrap(deps.Token, http.HandlerFunc(sm.SubagentEntries)))
+		mux.Handle("PUT /api/sessions/{id}/name", authWrap(deps.Token, http.HandlerFunc(sm.SessionRename)))
+		mux.Handle("GET /api/drafts/{key}", authWrap(deps.Token, http.HandlerFunc(sm.SessionDraftGet)))
+		mux.Handle("PUT /api/drafts/{key}", authWrap(deps.Token, http.HandlerFunc(sm.SessionDraftPut)))
 		mux.Handle("POST /api/sessions/{id}/prompt", authWrap(deps.Token, http.HandlerFunc(sm.SessionPrompt)))
 		mux.Handle("POST /api/sessions/{id}/steer", authWrap(deps.Token, http.HandlerFunc(sm.SessionSteer)))
 		mux.Handle("POST /api/sessions/{id}/abort", authWrap(deps.Token, http.HandlerFunc(sm.SessionAbort)))

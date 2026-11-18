@@ -25,6 +25,7 @@ import {
   type SessionEntries,
   type SessionInfo,
   type SessionModelsResult,
+  type SessionStats,
   type SessionPrompt,
   type WorkspaceEntry,
 } from "../types";
@@ -36,7 +37,8 @@ export interface FsListResult {
   path: string;
   /** 上级目录（文件系统根为空串） */
   parent: string;
-  entries: { path: string; name: string }[];
+  /** 子项（files=1 模式含文件并带 is_dir；默认仅目录） */
+  entries: { path: string; name: string; is_dir?: boolean }[];
 }
 
 /** GET /api/fs/status 响应 */
@@ -199,9 +201,9 @@ export class ApiClient {
   // ----------------------------------------------------------
 
   /** GET /api/fs/list?path=<dir> —— 列出子目录（逐级导航） */
-  fsList(path: string): Promise<FsListResult> {
+  fsList(path: string, withFiles = false): Promise<FsListResult> {
     return this.request<FsListResult>("GET", "/api/fs/list", {
-      query: { path: path || "/" },
+      query: { path: path || "/", ...(withFiles ? { files: "1" } : {}) },
     });
   }
 
@@ -461,6 +463,57 @@ export class ApiClient {
     return this.request<{ job_id: string; name: string }>(
       "PUT",
       `/api/workspaces/${encodeURIComponent(workspaceId)}/jobs/${encodeURIComponent(jobId)}/name`,
+      { body: { name } },
+    );
+  }
+
+  /** Bug #5 迭代5b（human 2026-11-14）：草稿服务端存储（跨设备不中断）。
+   * key：sessionID（聊天输入草稿）或 "new-session-<type>"（新建会话弹窗草稿）。 */
+  getDraft(key: string): Promise<{ content: string }> {
+    return this.request<{ content: string }>(
+      "GET",
+      `/api/drafts/${encodeURIComponent(key)}`,
+    );
+  }
+
+  saveDraft(key: string, content: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      "PUT",
+      `/api/drafts/${encodeURIComponent(key)}`,
+      { body: { content } },
+    );
+  }
+
+  /** Bug #8 2A 终版：会话当前活跃 subagent 列表（侧边栏下拉数据源）。 */
+  listSubagents(sessionId: string): Promise<{
+    subagents: Array<{ runId: string; state: string; steps: Array<{ agent: string; label: string; status: string; currentTool?: string }> }>;
+  }> {
+    return this.request("GET", `/api/sessions/${encodeURIComponent(sessionId)}/subagents`);
+  }
+
+  /** Bug #8 2A 终版：subagent 子会话消息流（只读渲染）。 */
+  subagentEntries(runId: string, label?: string): Promise<{ entries: unknown[]; leaf_id?: string | null }> {
+    const q = label ? `?label=${encodeURIComponent(label)}` : "";
+    return this.request("GET", `/api/subagent/${encodeURIComponent(runId)}/entries${q}`);
+  }
+
+  /** Bug #8 2C：token/成本/上下文使用率（get_session_stats 透传）。 */
+  getSessionStats(sessionId: string): Promise<{ ok: boolean; stats: SessionStats }> {
+    return this.request<{ ok: boolean; stats: SessionStats }>(
+      "GET",
+      `/api/sessions/${encodeURIComponent(sessionId)}/stats`,
+    );
+  }
+
+  /** Bug #4（human 2026-11-14）：会话级别名——所有会话类型可重命名（不依赖 job 概念）。
+   * 空 name 清除别名（回到默认标题：job 任务名 / title / 类型·短 id）。 */
+  renameSession(
+    sessionId: string,
+    name: string,
+  ): Promise<{ session_id: string; name: string }> {
+    return this.request<{ session_id: string; name: string }>(
+      "PUT",
+      `/api/sessions/${encodeURIComponent(sessionId)}/name`,
       { body: { name } },
     );
   }

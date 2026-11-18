@@ -12,27 +12,21 @@ import { useState } from "react";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
 import type { SessionInfo, SessionType } from "../../types";
+import { deriveSessionDisplay } from "../../lib/sessionDisplay";
 import Dialog from "../common/Dialog";
 
-const TYPE_LABEL: Record<SessionType, string> = {
-  plan: "PLAN",
+// Bug #5（human 2026-11-14）：已删除类型不显示历史标签（Partial）
+const TYPE_LABEL: Partial<Record<SessionType, string>> = {
   easy: "EASY",
-  ctrl: "CTRL",
   "human-loop": "HUMAN-LOOP",
-  learning: "LEARNING",
   dream: "DREAM",
-  doing: "DOING",
   super: "SUPER",
 };
 
-const TYPE_TONE: Record<SessionType, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
+const TYPE_TONE: Partial<Record<SessionType, string>> = {
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/50 bg-nebula/10 text-nebula",
-  learning: "border-portal/40 bg-portal-soft text-portal",
   dream: "border-nebula/50 bg-nebula/10 text-nebula",
-  doing: "border-rick/40 bg-rick/10 text-rick",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
@@ -55,6 +49,7 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
   }
   // 挂起（平台升级/服务重启）：与「已中断（error=执行失败）」「已完成（closed）」
   // 三态明确区分——人类要求重启后**不自动恢复**，靠这个徽标 + 一键恢复入口。
+  // 文案精简（human 2026-11-15）：只说「挂起」，长描述放 title 悬停。
   if (status === "suspended") {
     return (
       <span
@@ -62,7 +57,7 @@ export function sessionStatusBadge(status: SessionInfo["status"]): React.ReactNo
         title="因平台升级/服务重启挂起：进程不在但状态完整，点「恢复继续」重新拉起（不会自动续跑）"
       >
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink-3" />
-        ⏸ 已挂起（平台升级）
+        ⏸ 已挂起
       </span>
     );
   }
@@ -98,7 +93,7 @@ export default function SessionSettingsDialog({ session, open, onClose, onChange
       open={open && session !== null}
       title={
         session
-          ? `会话设置 · ${session.title || `${session.type} · ${session.id.slice(0, 8)}`}`
+          ? `会话设置 · ${deriveSessionDisplay(session).title}`
           : "会话设置"
       }
       onClose={onClose}
@@ -124,8 +119,8 @@ function SettingsBody({
   const [error, setError] = useState<string | null>(null);
   /** 「恢复继续」结果回显（归一化了几条 task / 已存活） */
   const [continueMsg, setContinueMsg] = useState<string | null>(null);
-  // 任务名（job 展示别名）编辑态：初值 = 服务端当前值
-  const [nameDraft, setNameDraft] = useState<string>(session.job_name ?? "");
+  // 会话名（Bug #4：所有类型可重命名）编辑态：初值 = 会话别名 → job 任务名（兼容旧数据）
+  const [nameDraft, setNameDraft] = useState<string>(session.name ?? session.job_name ?? "");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameMsg, setNameMsg] = useState<string | null>(null);
 
@@ -138,9 +133,8 @@ function SettingsBody({
    * task」而不是 spawn 交互 worker——文案需要区分（与后端 continueSession 分派一致）。
    */
   const isBackground =
-    session.type === "doing" ||
-    (session.type === "dream" &&
-      (session.params as { mode?: unknown } | undefined)?.mode === "background");
+    session.type === "dream" &&
+    (session.params as { mode?: unknown } | undefined)?.mode === "background";
   // Job 归属（doing/ctrl/learning 等）：会话被命名后侧栏不再显示编号，用户需要
   // 一个能查到「这是哪个 job / 它的工作目录在哪」的地方（实测反馈）。
   const jobParamRaw = (session.params as { job?: unknown } | undefined)?.job;
@@ -165,17 +159,16 @@ function SettingsBody({
     }
   }
 
-  // 保存任务名（空串 = 清除别名 → 回到显示 job_N）。成功后 onDone() 刷新列表，
-  // 侧栏会话行随即显示新名字（服务端返回 job_name，前端优先展示它）。
+  // 保存会话名（Bug #4：所有类型可重命名；空串 = 清除 → 回到默认标题）。
+  // 成功后 onDone() 刷新列表，侧栏会话行随即显示新名字。
   async function saveName(next: string): Promise<void> {
-    if (!job) return;
     setNameBusy(true);
     setNameMsg(null);
     setError(null);
     try {
-      const res = await api.setJobName(session.workspace_id, job, next);
+      const res = await api.renameSession(session.id, next);
       setNameDraft(res.name);
-      setNameMsg(res.name ? "已保存 ✓" : "已清除（回到显示 job 编号）✓");
+      setNameMsg(res.name ? "已保存 ✓" : "已清除（回到默认标题）✓");
       onDone();
     } catch (e) {
       setNameMsg(e instanceof Error ? e.message : String(e));
@@ -289,9 +282,10 @@ function SettingsBody({
               </dd>
             </div>
           )}
-          {job && (
-            <div className="flex gap-2">
-              <dt className="w-16 shrink-0 pt-1 text-ink-3">任务名</dt>
+          {/* Bug #4（human 2026-11-14）：会话名——所有会话类型可重命名（避免会话
+              管理混乱；不再 job gating——super/human-loop/dream 等无 job 概念） */}
+          <div className="flex gap-2">
+            <dt className="w-16 shrink-0 pt-1 text-ink-3">会话名</dt>
               <dd className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <input
@@ -336,12 +330,10 @@ function SettingsBody({
                   <span className="text-[10px] text-ink-2">{nameMsg}</span>
                 )}
                 <span className="text-[10px] text-ink-3">
-                  仅 web 展示用的别名（不重命名 job 目录、不动 tasks.json）——侧栏会话行与
-                  Jobs 页会显示它。
+                  仅 web 展示用的别名（不影响会话数据与 CLI）——侧栏会话行会显示它。
                 </span>
               </dd>
             </div>
-          )}
           {jobDir && (
             <div className="flex gap-2">
               <dt className="w-16 shrink-0 text-ink-3">Job 目录</dt>

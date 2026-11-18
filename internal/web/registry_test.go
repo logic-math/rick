@@ -273,12 +273,12 @@ func TestRegistrySessionLifecycle(t *testing.T) {
 
 	now := time.Now()
 	a := SessionEntry{
-		ID: "uuid-a", WorkspaceID: "ws1", Type: SessionTypePlan,
+		ID: "uuid-a", WorkspaceID: "ws1", Type: SessionTypeEasy,
 		Params: map[string]any{"requirement": "do it"}, Status: SessionStatusActive,
 		PISessionID: "pi-uuid-a", CreatedAt: now,
 	}
 	b := SessionEntry{
-		ID: "uuid-b", WorkspaceID: "ws2", Type: SessionTypeDoing,
+		ID: "uuid-b", WorkspaceID: "ws2", Type: SessionTypeEasy,
 		Params: map[string]any{"job": "job_3"}, Status: SessionStatusRunning,
 		PISessionID: "pi-uuid-b", CreatedAt: now,
 	}
@@ -354,25 +354,16 @@ func TestRegistryValidateSessionMatrix(t *testing.T) {
 		params  map[string]any
 		wantErr string // "" = valid; otherwise a substring of the expected error
 	}{
-		// plan
-		{"plan ok", SessionTypePlan, map[string]any{"requirement": "r"}, ""},
-		{"plan ok with job", SessionTypePlan, map[string]any{"requirement": "r", "job": "job_3"}, ""},
-		{"plan missing requirement", SessionTypePlan, map[string]any{}, "requirement"},
-		{"plan empty requirement", SessionTypePlan, map[string]any{"requirement": ""}, "requirement"},
-		{"plan non-string requirement", SessionTypePlan, map[string]any{"requirement": 42}, "requirement"},
-		{"plan non-string job", SessionTypePlan, map[string]any{"requirement": "r", "job": 7}, "job"},
 		// easy
 		{"easy ok", SessionTypeEasy, map[string]any{"requirement": "r"}, ""},
 		{"easy ok ctx", SessionTypeEasy, map[string]any{"requirement": "r", "ctx_path": "/x"}, ""},
 		{"easy missing requirement", SessionTypeEasy, map[string]any{}, "requirement"},
 		{"easy bad ctx", SessionTypeEasy, map[string]any{"requirement": "r", "ctx_path": 1}, "ctx_path"},
-		// ctrl / learning / doing
-		{"ctrl ok", SessionTypeCtrl, map[string]any{"job": "job_1"}, ""},
-		{"ctrl missing job", SessionTypeCtrl, map[string]any{}, "job"},
-		{"learning ok", SessionTypeLearning, map[string]any{"job": "job_2"}, ""},
-		{"learning empty job", SessionTypeLearning, map[string]any{"job": ""}, "job"},
-		{"doing ok", SessionTypeDoing, map[string]any{"job": "job_9"}, ""},
-		{"doing missing job", SessionTypeDoing, map[string]any{}, "job"},
+		// 已删除类型（job_53 Bug #5：plan/doing/learning/ctrl 移除——unknown 拒绝）
+		{"removed plan rejected", "plan", map[string]any{"requirement": "r"}, "unknown session type"},
+		{"removed doing rejected", "doing", map[string]any{"job": "job_9"}, "unknown session type"},
+		{"removed learning rejected", "learning", map[string]any{"job": "job_2"}, "unknown session type"},
+		{"removed ctrl rejected", "ctrl", map[string]any{"job": "job_1"}, "unknown session type"},
 		// human-loop
 		{"human-loop ok", SessionTypeHumanLoop, map[string]any{"topic": "t"}, ""},
 		{"human-loop missing topic", SessionTypeHumanLoop, map[string]any{}, "topic"},
@@ -430,7 +421,7 @@ func TestRegistryValidatePure(t *testing.T) {
 	// Validation is pure: it must not touch the filesystem, so HOME must not
 	// matter. Guards against accidental path resolution sneaking in.
 	t.Setenv("HOME", t.TempDir())
-	if err := ValidateSessionRequest(SessionTypePlan, map[string]any{"requirement": "x"}); err != nil {
+	if err := ValidateSessionRequest(SessionTypeEasy, map[string]any{"requirement": "x"}); err != nil {
 		t.Fatalf("pure validation failed: %v", err)
 	}
 }
@@ -584,7 +575,7 @@ func TestRoutes_ReorderWorkspacesHTTP(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, Deps{
 		Hub:        env.hub,
-		Sessions:   env.managerWith(t, nil, nil),
+		Sessions:   env.managerWith(t, nil),
 		Workspaces: env.workspaces,
 		Token:      "test-token",
 		Static:     http.NotFoundHandler(),

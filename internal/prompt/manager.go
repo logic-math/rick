@@ -19,11 +19,8 @@ type PromptTemplate struct {
 
 // Embedded templates
 var (
-	//go:embed templates/plan.md
-	planTemplate string
-
-	//go:embed templates/doing.md
-	doingTemplate string
+	//go:embed templates/easy.md
+	easyTemplate string
 
 	//go:embed templates/learning.md
 	learningTemplate string
@@ -36,9 +33,6 @@ var (
 
 	//go:embed templates/dream.md
 	dreamTemplate string
-
-	//go:embed templates/ctrl.md
-	ctrlTemplate string
 
 	//go:embed templates/skills
 	skillsFS embed.FS
@@ -114,12 +108,6 @@ func (pm *PromptManager) LoadTemplate(name string) (*PromptTemplate, error) {
 // getEmbeddedTemplate returns the embedded template content by name
 func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 	switch name {
-	case "plan":
-		return planTemplate
-	case "doing":
-		return doingTemplate
-	case "learning":
-		return learningTemplate
 	case "test_python":
 		return testPythonTemplate
 	case "sense_loop":
@@ -127,9 +115,11 @@ func (pm *PromptManager) getEmbeddedTemplate(name string) string {
 	case "dream":
 		return dreamTemplate
 	case "easy":
-		return doingTemplate
-	case "ctrl":
-		return ctrlTemplate
+		return easyTemplate
+	case "learning":
+		// job_53 Bug #5：learning 会话类型已删；模板保留——easy 会话结束后的
+		// Learning Loop prompt 生成（GenerateEasyLearningPromptFile）仍用。
+		return learningTemplate
 	default:
 		return ""
 	}

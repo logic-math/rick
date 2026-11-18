@@ -13,12 +13,11 @@
  * 必填缺失时禁用提交；提交成功跳转 /session/:id。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionsStore } from "../../stores/sessions";
 import { useWorkspacesStore } from "../../stores/workspaces";
 import { api } from "../../api/client";
-import { jobStageInfo, modeFitWarning } from "../../lib/jobStage";
 import { ApiError } from "../../types";
 import type {
   CreateSessionRequest,
@@ -29,7 +28,6 @@ import type {
 import Button from "../common/Button";
 import Dialog from "../common/Dialog";
 import ErrorBanner from "../common/ErrorBanner";
-import Spinner from "../common/Spinner";
 import Saucer from "../starfield/Saucer";
 
 
@@ -49,44 +47,12 @@ const ICON_CLS = (active: boolean) =>
 
 const CMD_META: CmdMeta[] = [
   {
-    type: "plan",
-    label: "plan",
-    desc: "需求 → 开发计划（job 分解 + task.md 产出）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
     type: "easy",
     label: "easy",
     desc: "轻量直通执行（单需求一把梭）",
     icon: (a) => (
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "doing",
-    label: "doing",
-    desc: "门禁化执行 job（监控型：task 看板 + 事件流）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "ctrl",
-    label: "ctrl",
-    desc: "干预运行中的 job（追加指令/重置 task）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <path d="M5 5v14l6-7-6-7zM13 5v14l6-7-6-7z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -98,16 +64,6 @@ const CMD_META: CmdMeta[] = [
       <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
         <path d="M12 3a6 6 0 0 1 6 6c0 2.5-1.5 3.7-2.5 5-.8 1-1.5 2.2-1.5 4h-4c0-1.8-.7-3-1.5-4C7.5 12.7 6 11.5 6 9a6 6 0 0 1 6-6z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
         <path d="M10 21h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    type: "learning",
-    label: "learning",
-    desc: "单 job 知识沉淀（SUMMARY + skills/loops）",
-    icon: (a) => (
-      <svg viewBox="0 0 24 24" fill="none" className={ICON_CLS(a)} aria-hidden="true">
-        <path d="M4 19V5a2 2 0 0 1 2-2h13v14H6a2 2 0 0 0-2 2zm0 0a2 2 0 0 0 2 2h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -191,17 +147,7 @@ function useJobOptions(workspaceId: string | null, active: boolean): {
     return list
       .slice()
       .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
-      .map((j) => {
-        const archivedMark = j.archived ? ` 📦` : "";
-        // 状态徽标 + **下一步模式**指引（用户反馈：选 job 时应标记状态并指引
-        // 下一步该用哪个模式，而不是只给进度数字）。
-        const info = jobStageInfo(j);
-        const nextMark = info.nextMode ? ` · 下一步 ${info.nextMode}` : "";
-        return {
-          job_id: j.job_id,
-          label: `${j.job_id}${j.name ? ` · ${j.name}` : ""}（${info.badge}${nextMark}${archivedMark}）`,
-        };
-      });
+      .map((j) => ({ job_id: j.job_id, label: j.job_id }));
   }, [list]);
 
   const dreamPending = useMemo(() => {
@@ -244,7 +190,6 @@ export default function NewSessionModal({
 
   // plan
   const [requirement, setRequirement] = useState("");
-  const [planJob, setPlanJob] = useState("");
   // easy
   const [ctxPath, setCtxPath] = useState("");
   // human-loop
@@ -258,31 +203,59 @@ export default function NewSessionModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 弹窗开启时重置（预填项以 props 为准）
+  // 弹窗开启时恢复/重置（预填项以 props 为准）。Bug #5 迭代5b：requirement/topic
+  // 输入是用户最贵的上下文——服务端草稿（key=new-session:requirement / topic）：
+  // 弹窗误关 / 刷新 / 换设备打开都不丢，重新打开即恢复。
   useEffect(() => {
     if (open) {
       setWorkspaceId(presetWorkspaceId ?? null);
       setCmdType(presetType ?? null);
-      setRequirement("");
-      setPlanJob("");
       setCtxPath("");
-      setTopic("");
       setJobId(presetJob ?? "");
       setJobNum(5);
       setTitle("");
       setError(null);
       setSubmitting(false);
+      void api
+        .getDraft("new-session:requirement")
+        .then((d) => setRequirement(d.content))
+        .catch(() => setRequirement(""));
+      void api
+        .getDraft("new-session:topic")
+        .then((d) => setTopic(d.content))
+        .catch(() => setTopic(""));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presetWorkspaceId, presetType, presetJob]);
 
-  const jobActive = cmdType !== null && (needsJob(cmdType) || cmdType === "dream");
-  const {
-    jobs: jobOptions,
-    raw: rawJobs,
-    loading: jobsLoading,
-    dreamPending,
-    checked: dreamChecked,
-  } = useJobOptions(jobActive ? workspaceId : null, jobActive);
+  // 输入防抖落草稿（~500ms）+ 关闭/卸载即时 flush（Bug #6：防抖窗口内关闭弹窗
+  // 会丢最后一段输入——跨设备打开时草稿不完整；关闭与卸载路径立即 PUT）。
+  const flushDrafts = useCallback(() => {
+    void api.saveDraft("new-session:requirement", requirement).catch(() => {});
+    void api.saveDraft("new-session:topic", topic).catch(() => {});
+  }, [requirement, topic]);
+  useEffect(() => {
+    const t = setTimeout(flushDrafts, 500);
+    return () => clearTimeout(t);
+  }, [flushDrafts]);
+  // 卸载（弹窗整体拆除/路由变化）即时 flush（保存——清除只在提交成功路径）
+  useEffect(() => {
+    return () => {
+      flushDrafts();
+    };
+  }, [flushDrafts]);
+  // 关闭（取消/遮罩/Esc）flush 后再关——草稿保留（跨设备继续）
+  const handleCloseWithFlush = useCallback(() => {
+    flushDrafts();
+    onClose();
+  }, [flushDrafts, onClose]);
+
+  // dream 素材预检（job_53 Bug #5：job 下拉已随四类型删除；dream 的
+  // 「无可学习 job」预检仍需 job 计数——raw 全量 + dreamPending）。
+  const { dreamPending, checked: dreamChecked } = useJobOptions(
+    cmdType === "dream" ? workspaceId : null,
+    cmdType === "dream",
+  );
 
   // ----------------------------------------------------------
   // 校验 + 提交
@@ -291,11 +264,10 @@ export default function NewSessionModal({
   const missing: string[] = [];
   if (!workspaceId) missing.push("工作区");
   if (!cmdType) missing.push("命令类型");
-  if (cmdType === "plan" || cmdType === "easy" || cmdType === "super") {
+  if (cmdType === "easy" || cmdType === "super") {
     if (!requirement.trim()) missing.push("需求描述");
   }
   if (cmdType === "human-loop" && !topic.trim()) missing.push("主题");
-  if (needsJob(cmdType) && !jobId) missing.push("job");
   if (cmdType === "dream" && jobNum < 1) missing.push("job 数量");
   // dream 无可学习 job：明确阻塞（提示已给出，后端 409 兜底）
   const dreamBlocked = cmdType === "dream" && !!workspaceId && dreamChecked && dreamPending === 0;
@@ -311,7 +283,6 @@ export default function NewSessionModal({
       const params = buildParams({
         type: cmdType,
         requirement,
-        planJob,
         ctxPath,
         topic,
         jobId,
@@ -324,6 +295,9 @@ export default function NewSessionModal({
         ...(title.trim() ? { title: title.trim() } : {}),
       };
       const info = await create(req);
+      // 提交成功：草稿已消费——清除（下次新建不残留旧输入）
+      void api.saveDraft("new-session:requirement", "").catch(() => {});
+      void api.saveDraft("new-session:topic", "").catch(() => {});
       onClose();
       navigate(`/session/${info.id}`);
     } catch (err) {
@@ -344,7 +318,7 @@ export default function NewSessionModal({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleCloseWithFlush}
       title={
         <span className="flex items-center gap-2">
           <Saucer size={20} />
@@ -408,7 +382,7 @@ export default function NewSessionModal({
               参数（{cmdType}）
             </span>
 
-            {(cmdType === "plan" || cmdType === "easy" || cmdType === "super") && (
+            {(cmdType === "easy" || cmdType === "super") && (
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm text-ink-2">
                   需求描述 <span className="text-portal">*</span>
@@ -418,22 +392,10 @@ export default function NewSessionModal({
                   placeholder={
                     cmdType === "super"
                       ? "优化 512×512 矩阵乘的性能，从纯 Python 三重循环起点开始进化"
-                      : "描述本次要完成的需求（plan：将分解为 jobs/tasks；easy：直接执行）"
+                      : "描述本次要完成的需求（easy：直接执行；可多行）"
                   }
                   value={requirement}
                   onChange={(e) => setRequirement(e.target.value)}
-                />
-              </label>
-            )}
-
-            {cmdType === "plan" && (
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm text-ink-2">复用已有 job（可选）</span>
-                <input
-                  className={FIELD_CLS}
-                  placeholder="如 job_5——留空则创建新 job"
-                  value={planJob}
-                  onChange={(e) => setPlanJob(e.target.value)}
                 />
               </label>
             )}
@@ -455,9 +417,9 @@ export default function NewSessionModal({
                 <span className="text-sm text-ink-2">
                   思考主题 <span className="text-portal">*</span>
                 </span>
-                <input
-                  className={FIELD_CLS}
-                  placeholder="要深度思考的问题（SENSE 五阶段）"
+                <textarea
+                  className={`${FIELD_CLS} min-h-24 resize-y`}
+                  placeholder="要深度思考的问题（SENSE 五阶段；可多行）"
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                 />
@@ -473,88 +435,7 @@ export default function NewSessionModal({
               </p>
             )}
 
-            {needsJob(cmdType) && (
-              <label className="flex flex-col gap-1.5">
-                <span className="text-sm text-ink-2">
-                  job <span className="text-portal">*</span>
-                </span>
-                {jobsLoading && jobOptions.length === 0 ? (
-                  <span className="flex items-center gap-2 text-xs text-ink-3">
-                    <Spinner size={14} /> 加载 jobs…
-                  </span>
-                ) : jobOptions.length === 0 ? (
-                  <span className="text-xs text-ink-3">
-                    该工作区暂无 job（先跑 plan 或手写 plan 目录）
-                  </span>
-                ) : (
-                  <>
-                  <select
-                    className={FIELD_CLS}
-                    value={jobId}
-                    onChange={(e) => setJobId(e.target.value)}
-                  >
-                    <option value="">选择 job…</option>
-                    {jobOptions.map((j) => (
-                      <option key={j.job_id} value={j.job_id}>
-                        {j.label}
-                      </option>
-                    ))}
-                  </select>
-                  {/* 选中 job 的状态 + 下一步指引（含与所选模式不匹配的警告与一键切换） */}
-                  {(() => {
-                    const sel = rawJobs.find((j) => j.job_id === jobId);
-                    if (!sel) return null;
-                    const info = jobStageInfo(sel);
-                    const warn = modeFitWarning(cmdType, sel);
-                    const suggest = info.nextMode && info.nextMode !== cmdType ? info.nextMode : null;
-                    const tone =
-                      info.tone === "portal"
-                        ? "text-portal"
-                        : info.tone === "morty"
-                          ? "text-morty"
-                          : info.tone === "danger"
-                            ? "text-danger"
-                            : "text-ink-3";
-                    return (
-                      <div className="flex flex-col gap-1">
-                        <p className={`text-[11px] leading-relaxed ${tone}`}>
-                          当前状态：{info.badge} —— {info.hint}
-                        </p>
-                        {warn && (
-                          <p className="rounded-md border border-morty/40 bg-morty/10 px-2 py-1 text-[11px] leading-relaxed text-ink-2">
-                            ⚠ {warn}
-                            {suggest && (
-                              <button
-                                type="button"
-                                onClick={() => setCmdType(suggest as SessionType)}
-                                className="ml-1.5 rounded border border-portal/50 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10"
-                              >
-                                改用 {suggest}
-                              </button>
-                            )}
-                          </p>
-                        )}
-                        {!warn && suggest && (
-                          <p className="text-[11px] text-ink-3">
-                            建议下一步：
-                            <button
-                              type="button"
-                              onClick={() => setCmdType(suggest as SessionType)}
-                              className="ml-1 rounded border border-portal/50 px-1.5 py-0.5 text-[10px] text-portal hover:bg-portal/10"
-                            >
-                              改用 {suggest}
-                            </button>
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  </>
-                )}
-              </label>
-            )}
-
-            {cmdType === "dream" && (
+                        {cmdType === "dream" && (
               <>
                 {/* 素材可用性预检：无素材时提交前就告知（避免裸 409）；交互/后台都需要素材 */}
                 <div className="flex flex-col gap-1">
@@ -638,34 +519,20 @@ export default function NewSessionModal({
 // 纯函数：类型 → 参数构造
 // ============================================================
 
-function needsJob(type: SessionType | null): boolean {
-  return type === "ctrl" || type === "learning" || type === "doing";
-}
-
 function buildParams(input: {
   type: SessionType;
   requirement: string;
-  planJob: string;
   ctxPath: string;
   topic: string;
   jobId: string;
   jobNum: number;
 }): CreateSessionRequest["params"] {
   switch (input.type) {
-    case "plan":
-      return {
-        requirement: input.requirement.trim(),
-        ...(input.planJob.trim() ? { job: input.planJob.trim() } : {}),
-      };
     case "easy":
       return {
         requirement: input.requirement.trim(),
         ...(input.ctxPath.trim() ? { ctx_path: input.ctxPath.trim() } : {}),
       };
-    case "ctrl":
-    case "learning":
-    case "doing":
-      return { job: input.jobId };
     case "human-loop":
       return { topic: input.topic.trim() };
     case "super":
@@ -683,5 +550,8 @@ function buildParams(input: {
       };
       return params;
     }
+    default:
+      // 已删除类型（job_53 Bug #5）——类型层防御
+      return {};
   }
 }

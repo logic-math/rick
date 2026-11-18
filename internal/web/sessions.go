@@ -49,10 +49,6 @@ import (
 
 // ---- 可注入的后台执行器（测试 fake 化） ----
 
-// DoingRunner runs one doing job in the background (web 的 doing 执行桥).
-// 生产实现包 handler.DoingIn；测试注入 fake 以断言 progress→Hub 链路。
-type DoingRunner func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error
-
 // DreamRunner runs one dream pass in the background (non-interactive).
 type DreamRunner func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error
 
@@ -64,7 +60,6 @@ type SessionManager struct {
 	sup        *runtime.Supervisor
 	hub        *Hub
 
-	doingRunner DoingRunner
 	dreamRunner DreamRunner
 
 	// pending routes correlated rpc responses (get_entries) back to the
@@ -74,6 +69,10 @@ type SessionManager struct {
 	// jobNames holds user-assigned job display names（任务名），由
 	// SetJobNames 注入（nil 时优雅降级：不显示别名）。侧栏/Jobs 页展示用。
 	jobNames *JobNameStore
+	// sessionNames（会话名，Bug #4：所有类型可重命名——与 job 概念解耦）
+	sessionNames *SessionNameStore
+	// drafts（草稿，Bug #5 迭代5b：服务端存储，跨设备不中断）
+	drafts *SessionDraftStore
 
 	// progressLog keeps the recent background-progress notes per session
 	// (bounded; in-memory — 重启后后台任务本就终止，无需持久化)。GetSession 返回它，
@@ -91,10 +90,54 @@ type SessionManager struct {
 // before the server starts serving.
 func (m *SessionManager) SetJobNames(s *JobNameStore) { m.jobNames = s }
 
-// NewSessionManager wires the dependencies. doingRunner/dreamRunner may be
-// nil — defaults wrap handler.DoingIn / handler.DreamIn with the CLI
+// sessionNames holds user-assigned session display names（「会话名」，Bug #4：
+// 所有会话类型可重命名——与 job 概念解耦）。
+
+// SetSessionNames wires the session display-name store (会话名，Bug #4).
+func (m *SessionManager) SetSessionNames(s *SessionNameStore) { m.sessionNames = s }
+
+// drafts（草稿，Bug #5 迭代5b：跨设备输入不中断——存服务端）。
+func (m *SessionManager) SetDrafts(s *SessionDraftStore) { m.drafts = s }
+
+// SessionDraftGet handles GET /api/drafts/{key} → {"content": "..."}.
+func (m *SessionManager) SessionDraftGet(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := validateDraftKey(key); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"content": m.drafts.Get(key)})
+}
+
+// SessionDraftPut handles PUT /api/drafts/{key} {"content": "..."}（空串=清除）。
+func (m *SessionManager) SessionDraftPut(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	if err := validateDraftKey(key); err != nil {
+		writeError(w, err)
+		return
+	}
+	if m.drafts == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "draft store is not configured"))
+		return
+	}
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_body", "request body must be JSON: {\"content\": \"...\"}"))
+		return
+	}
+	if err := m.drafts.Set(key, req.Content); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// NewSessionManager wires the dependencies. dreamRunner may be
+// nil — defaults wrap handler.DreamIn with the CLI
 // runtime (the same Runtime the composition root injects elsewhere).
-func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry, sup *runtime.Supervisor, hub *Hub, rt runtime.Runtime, doing DoingRunner, dream DreamRunner) *SessionManager {
+func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry, sup *runtime.Supervisor, hub *Hub, rt runtime.Runtime, dream DreamRunner) *SessionManager {
 	m := &SessionManager{
 		sessions:    sessions,
 		workspaces:  workspaces,
@@ -105,12 +148,6 @@ func NewSessionManager(sessions *SessionRegistry, workspaces *WorkspaceRegistry,
 		cancels:     make(map[string]context.CancelFunc),
 		closing:     make(map[string]bool),
 		bgWaits:     make(map[string]chan struct{}),
-	}
-	m.doingRunner = doing
-	if m.doingRunner == nil {
-		m.doingRunner = func(ctx context.Context, rickDir, jobID string, progress func(handler.DoingEvent)) error {
-			return handler.DoingIn(ctx, rickDir, jobID, handler.Options{}, rt, progress)
-		}
 	}
 	m.dreamRunner = dream
 	if m.dreamRunner == nil {
@@ -132,12 +169,6 @@ func (m *SessionManager) BackfillTitles() {
 			continue
 		}
 		switch e.Type {
-		case SessionTypeDoing:
-			job := paramString(e.Params, "job")
-			if job == "" {
-				continue // 无 job 参数（异常行）——不编造
-			}
-			e.Title = "doing " + job
 		case SessionTypeDream:
 			n := DreamDefaultJobNum
 			if v, ok := paramInt(e.Params, "job_num"); ok {
@@ -169,7 +200,7 @@ func (m *SessionManager) ReconcileOnStart() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue
 		}
-		if e.Type == SessionTypeDoing || e.Type == SessionTypeDream {
+		if e.Type == SessionTypeDream {
 			// 后台型 goroutine 随进程消亡——掉起（可人工继续重跑剩余 task）
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
 			continue
@@ -256,6 +287,10 @@ type sessionInfo struct {
 	// 侧栏会话行优先显示它——「doing job_3」看不出在干什么，用户实测要求
 	// 能给 job 起有意义的名字。
 	JobName string `json:"job_name,omitempty"`
+	// Name is the user-assigned session display name（「会话名」）——Bug #4
+	//（human 2026-11-14）：所有会话类型可重命名（super/human-loop/dream 等无
+	// job 概念的类型也能起名）。侧栏优先级：Name > JobName > title。
+	Name string `json:"name,omitempty"`
 	// Progress carries the session's recent background progress notes
 	// (doing/dream) — populated by GetSession only. Background progress events
 	// are otherwise **live-only** (hub ring buffer), so opening the monitor
@@ -314,6 +349,7 @@ func (m *SessionManager) toSessionInfo(e SessionEntry) sessionInfo {
 		Archived:    e.Archived,
 		Busy:        e.Status == SessionStatusActive && e.Busy,
 		JobName:     m.jobNames.Get(e.WorkspaceID, jobParamOf(e)),
+		Name:        m.sessionNames.Get(e.WorkspaceID, e.ID),
 	}
 	if !e.ClosedAt.IsZero() {
 		closed := e.ClosedAt
@@ -389,25 +425,15 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 	}
 
 	// Background types never spawn an rpc worker.
-	if req.Type == SessionTypeDoing || (req.Type == SessionTypeDream && dreamMode(req.Params) == DreamModeBackground) {
-		// 后台型会话不走 prepareInteractive（无 prep.title）——此前 title 为空，前端
-		// 只能回退成「doing · d56134af（会话 id）」，侧栏看不到 job 编号
-		// （用户实测反馈）。此处按参数生成有意义默认标题。
+	if req.Type == SessionTypeDream && dreamMode(req.Params) == DreamModeBackground {
+		// 后台型会话不走 prepareInteractive（无 prep.title）——按参数生成
+		// 有意义默认标题（此前 title 为空，侧栏只显示会话 id 截断）。
 		if strings.TrimSpace(entry.Title) == "" {
-			switch req.Type {
-			case SessionTypeDoing:
-				if job := paramString(req.Params, "job"); job != "" {
-					entry.Title = "doing " + job
-				} else {
-					entry.Title = "doing"
-				}
-			case SessionTypeDream:
-				n := DreamDefaultJobNum
-				if v, ok := paramInt(req.Params, "job_num"); ok {
-					n = v
-				}
-				entry.Title = fmt.Sprintf("dream ×%d", n)
+			n := DreamDefaultJobNum
+			if v, ok := paramInt(req.Params, "job_num"); ok {
+				n = v
 			}
+			entry.Title = fmt.Sprintf("dream ×%d", n)
 		}
 		if err := m.sessions.Add(entry); err != nil {
 			return nil, err
@@ -437,6 +463,11 @@ func (m *SessionManager) createSessionLocked(ws WorkspaceEntry, req struct {
 		// 投影时被剥离）→ 前端**完全看不到 job 归属**（用户实测：easy job_72 的会话
 		// 在侧栏无法重命名、没有 job 徽标）。
 		entry.Params["job"] = prep.JobID
+	}
+	// IDTag（Bug #5 迭代5b）：标识徽标显式传递（human-loop: loop_N / super: env_N）
+	// ——title 已改为可读任务描述，标识不再从 title 提取。
+	if prep.IDTag != "" {
+		entry.Params["id_tag"] = prep.IDTag
 	}
 
 	if err := m.sessions.Add(entry); err != nil {
@@ -491,41 +522,6 @@ func (m *SessionManager) startBackground(entry *SessionEntry, rickDir string, ws
 		defer close(done)
 		var err error
 		switch entry.Type {
-		case SessionTypeDoing:
-			jobID := paramString(entry.Params, "job")
-			err = m.doingRunner(ctx, rickDir, jobID, func(ev handler.DoingEvent) {
-				// 进度/说明事件（无 task 变更）：作为会话事件流出，让监控视图有活性
-				// 信号（否则 doing 长时间只显示空白事件流）。
-				if ev.Note != "" {
-					m.recordProgress(entry.ID, "doing_note", ev.Note)
-					m.hub.Publish(Envelope{
-						Type:      EventTypeSessionEvent,
-						SessionID: entry.ID,
-						Data: mustMarshal(map[string]any{
-							"kind":   "doing_note",
-							"job_id": ev.JobID,
-							"note":   ev.Note,
-						}),
-					})
-					return
-				}
-				m.recordProgress(entry.ID, "doing_progress", fmt.Sprintf("%s %s: %s → %s", ev.JobID, ev.TaskID, ev.From, ev.To))
-				m.hub.Publish(JobsUpdate(ws.ID, ev.JobID, []TaskDiff{
-					{TaskID: ev.TaskID, From: ev.From, To: ev.To},
-				}, nil))
-				// doing 的任务态变更同时作为会话事件流出（监控视图主体）。
-				m.hub.Publish(Envelope{
-					Type:      EventTypeSessionEvent,
-					SessionID: entry.ID,
-					Data: mustMarshal(map[string]any{
-						"kind":    "doing_progress",
-						"job_id":  ev.JobID,
-						"task_id": ev.TaskID,
-						"from":    ev.From,
-						"to":      ev.To,
-					}),
-				})
-			})
 		case SessionTypeDream:
 			jobNum := DreamDefaultJobNum
 			if v, ok := paramInt(entry.Params, "job_num"); ok {
@@ -755,7 +751,7 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 	cancel := m.cancels[entry.ID]
 	m.mu.Unlock()
 
-	if entry.Type == SessionTypeDoing || entry.Type == SessionTypeDream {
+	if entry.Type == SessionTypeDream {
 		if cancel != nil {
 			cancel()
 			// Give the goroutine a moment to observe cancellation; the state
@@ -936,7 +932,7 @@ func (m *SessionManager) ImportSession(w http.ResponseWriter, r *http.Request) {
 
 	// Infer session type from the doing directory layout.
 	// easy_prompt.md may be at doing/easy_prompt.md OR doing/prompts/easy_prompt.md
-	sessionType := SessionTypeDoing // default
+	sessionType := SessionTypeEasy // default
 	for _, p := range []string{
 		filepath.Join(doingDir, "easy_prompt.md"),
 		filepath.Join(doingDir, "prompts", "easy_prompt.md"),
@@ -1053,8 +1049,7 @@ func (m *SessionManager) SessionContinue(w http.ResponseWriter, r *http.Request)
 //   - 交互型（plan/easy/ctrl/human-loop/learning/交互 dream）：spawn
 //     `--session <pi_session_id>`（既有 resume 语义）
 func (m *SessionManager) continueSession(w http.ResponseWriter, entry SessionEntry) {
-	if entry.Type == SessionTypeDoing ||
-		(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
+	if entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground {
 		m.continueBackground(w, entry)
 		return
 	}
@@ -1071,39 +1066,16 @@ func (m *SessionManager) continueBackground(w http.ResponseWriter, entry Session
 		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
 		return
 	}
+	if entry.Type == SessionTypeDream && m.dreamRunner == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "dream runner is not configured"))
+		return
+	}
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
 		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
 		return
 	}
-	if entry.Type == SessionTypeDoing && m.doingRunner == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "doing runner is not configured"))
-		return
-	}
-	if entry.Type == SessionTypeDream && m.dreamRunner == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "dream runner is not configured"))
-		return
-	}
-
 	rickDir := filepath.Join(ws.Path, workspace.RickDirName)
-	normalized := []string{}
-	if entry.Type == SessionTypeDoing {
-		jobID := jobParamOf(entry)
-		if jobID == "" {
-			writeError(w, newWebError(http.StatusBadRequest, "invalid_params", "doing session has no job id"))
-			return
-		}
-		moved, err := handler.NormalizeRunningTasks(rickDir, jobID)
-		if err != nil {
-			reason := "normalize tasks failed: " + err.Error()
-			m.updateStatus(entry, SessionStatusError, reason)
-			m.recordFailed(recoveryItemOf(entry, reason))
-			writeError(w, newWebError(http.StatusInternalServerError, "normalize_failed", "%v", err))
-			return
-		}
-		normalized = moved
-	}
-
 	current, ok := m.sessions.Get(entry.ID)
 	if !ok {
 		current = entry
@@ -1111,29 +1083,57 @@ func (m *SessionManager) continueBackground(w http.ResponseWriter, entry Session
 	m.startBackground(&current, rickDir, ws)
 	m.recordRecovered(recoveryItemOf(entry, "continued by human"))
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"ok":               true,
-		"resumed":          true,
-		"kind":             entry.Type,
-		"job":              jobParamOf(entry),
-		"normalized_tasks": normalized,
+		"ok":      true,
+		"resumed": true,
+		"kind":    entry.Type,
 	})
 }
 
 // continueInteractive 人工继续一个交互型会话：spawn `--session <pi_session_id>`。
 func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry SessionEntry) {
+	wk, already, err := m.ensureInteractiveWorker(entry)
+	switch {
+	case errors.Is(err, errWorkspaceGone):
+		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+	case errors.Is(err, errNoSupervisor):
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
+	case err != nil:
+		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
+	case already && wk != nil:
+		// 幂等：worker 仍在 → 视为「已恢复」，202 并重播状态让客户端收敛。
+		m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
+	default:
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "resumed": true})
+	}
+}
+
+var (
+	// errWorkspaceGone / errNoSupervisor：ensureInteractiveWorker 的可识别失败
+	//（HTTP 投影由调用方决定——continueInteractive 404/501，compact 降级 409）。
+	errWorkspaceGone = errors.New("workspace is no longer registered")
+	errNoSupervisor  = errors.New("supervisor is not configured")
+)
+
+// ensureInteractiveWorker 保证交互型会话有一个活 worker（幂等），是
+// continueInteractive（人工「恢复继续」）与 compact-on-non-active
+// （COMPACT_RESUME_MARKER，job_53 Bug #1 修复 2）的共享核心：
+//   - active/running 且 worker 存活 → 直接返回（already=true，无副作用）
+//   - active/running 但 worker 已死（崩溃逃过 markWorkerLost 等异常路径）
+//     → 先修正为 suspended 再 spawn 自愈（避免永久卡在「active 但不可用、
+//     resume 又 409」）
+//   - 非 active（suspended/error）→ spawn（--session 既有 resume 语义）
+//
+// 成功副作用：状态 → active、归档标记清除（恢复使用语义）、pumpWorker、
+// 恢复记录。spawn 失败副作用：状态 → error + 失败记录。返回的 worker 非
+// nil 时保证存活；err 非 nil 时 worker 必为 nil。
+func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.Worker, bool, error) {
 	if entry.Status == SessionStatusActive || entry.Status == SessionStatusRunning {
-		// 幂等：worker 仍在 → 视为「已恢复」，202 成功并重播状态让客户端收敛。
-		// 前端可能因陈旧列表/其他标签页仍显示挂起——重复点击不应冲突
-		//（用户实测：会话其实在跑（worker 存活 5h+），点 Resume 却报 409 且 UI 不刷新）。
 		if m.sup != nil {
 			if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
-				m.hub.Publish(SessionStateEvent(entry.ID, entry.Status, "already_active"))
-				writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
-				return
+				return wk, true, nil
 			}
 		}
-		// active/running 但 worker 已不存在（崩溃逃过 markWorkerLost 等异常路径）：
-		// 先修正状态再走 spawn 自愈，避免会话永久卡在「active 但不可用、resume 又 409」。
 		m.updateStatus(entry, SessionStatusSuspended, "worker missing; recovering on resume")
 		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
 			entry = e2
@@ -1141,12 +1141,10 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	ws, ok := m.workspaces.Get(entry.WorkspaceID)
 	if !ok {
-		writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
-		return
+		return nil, false, errWorkspaceGone
 	}
 	if m.sup == nil {
-		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
-		return
+		return nil, false, errNoSupervisor
 	}
 
 	spec := runtime.SpawnSpec{
@@ -1159,20 +1157,18 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	worker, err := m.sup.Spawn(spec)
 	if err != nil {
-		// 并发 continue（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
-		// **活 worker** → 说明另一个请求已成功恢复——视为 already_active（202），
-		// 不再把状态误标 error（旧行为造成「error + worker 存活」永久不一致：
-		// 之后每次 resume 都 500 already has a worker，会话卡死不可恢复）。
+		// 并发恢复（多标签页/重复点击）或残留 worker：supervisor 已有该会话的
+		// **活 worker** → 另一个请求已成功恢复——视为 already，不再把状态
+		// 误标 error（旧行为造成「error + worker 存活」永久不一致：之后每次
+		// resume 都 500 already has a worker，会话卡死不可恢复）。
 		if wk := m.sup.Get(entry.ID); wk != nil && !wk.IsDead() {
 			m.updateStatus(entry, SessionStatusActive, "resumed (worker already present)")
-			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "already_active": true})
-			return
+			return wk, true, nil
 		}
 		reason := "resume spawn failed: " + err.Error()
 		m.updateStatus(entry, SessionStatusError, reason)
 		m.recordFailed(recoveryItemOf(entry, reason))
-		writeError(w, newWebError(http.StatusInternalServerError, "spawn_failed", "%v", err))
-		return
+		return nil, false, fmt.Errorf("%s", reason)
 	}
 	m.updateStatus(entry, SessionStatusActive, "resumed")
 	// Resuming an archived session means the user wants it back in active use:
@@ -1186,7 +1182,7 @@ func (m *SessionManager) continueInteractive(w http.ResponseWriter, entry Sessio
 	}
 	m.pumpWorker(entry.ID, worker)
 	m.recordRecovered(recoveryItemOf(entry, "resumed by human"))
-	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "resumed": true})
+	return worker, false, nil
 }
 
 // SessionUIResponse handles POST /api/sessions/{id}/ui_response: answer a
@@ -1288,6 +1284,8 @@ func (m *SessionManager) SessionEntries(w http.ResponseWriter, r *http.Request) 
 
 	if entry.Status == SessionStatusActive {
 		if resp, err := m.rpcGetEntries(entry.ID, since); err == nil {
+			// 注入压缩估算（裁剪前；rpc 增量窗口缺 kept 边界时函数内部自降级跳过）。
+			injectCompactionEstimates(resp.Entries)
 			applyPagination(resp, limit, before)
 			writeJSON(w, http.StatusOK, resp)
 			return
@@ -1592,8 +1590,34 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if entry.Status != SessionStatusActive {
-		writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
-		return
+		// COMPACT_RESUME_MARKER（job_53 Bug #1 修复 2，human 裁决方案 C）：
+		// web 重启后旧会话全变 suspended/error，而用户最想压缩的恰是用完的
+		// 长会话——旧行为一律 409 导致「总是压缩失败」（实测 dev 29 会话 0
+		// active）。交互型会话（plan/easy/ctrl/human-loop/learning/交互 dream）
+		// 自动 resume worker 再压缩；closed（用户明确关闭，不自动复活）与
+		// 后台型（doing/后台 dream，worker 由后台 runner 管理）维持 409。
+		if entry.Status == SessionStatusClosed ||
+			(entry.Type == SessionTypeDream && dreamMode(entry.Params) == DreamModeBackground) {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session is %s, compact requires active", entry.Status))
+			return
+		}
+		if _, _, err := m.ensureInteractiveWorker(entry); err != nil {
+			if errors.Is(err, errWorkspaceGone) {
+				writeError(w, newWebError(http.StatusNotFound, "not_found", "workspace %s is no longer registered", entry.WorkspaceID))
+				return
+			}
+			if errors.Is(err, errNoSupervisor) {
+				writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "supervisor is not configured"))
+				return
+			}
+			// resume 失败（spawn 失败等）：降级回原 409 语义，前端显示具体原因。
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "compact auto-resume failed: %v", err))
+			return
+		}
+		// resume 成功：刷新本地拷贝（store 内状态已更新为 active）。
+		if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
+			entry = e2
+		}
 	}
 	var req struct {
 		CustomInstructions string `json:"custom_instructions"`
@@ -1601,6 +1625,14 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req) // 空 body 合法（全部字段可选）
 	}
+	// 广播 compact 请求事件（job_53 修复 4）：pi 的 compaction_start/end 事件
+	// 不携带自定义指令，但 human 要求压缩卡展示指令原文（感知「压缩怎么
+	// 发生」）——rick 在发起前广播合成事件，前端把它并入占位压缩卡。
+	m.hub.Publish(SessionEvent(entry.ID, nil, map[string]any{
+		"type":               "compact_request",
+		"customInstructions": req.CustomInstructions,
+	}))
+
 	ev, err := m.rpcRequestTimeout(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
 		return c.Compact(req.CustomInstructions)
 	}, 180*time.Second)
@@ -1613,6 +1645,62 @@ func (m *SessionManager) SessionCompact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "result": json.RawMessage(ev.Data)})
+}
+
+// SessionRename handles PUT /api/sessions/{id}/name {"name": "..."} →
+// 200 {"session_id","name"}. Bug #4（human 2026-11-14）：所有会话类型可重命名
+// （会话级别名，与 job 概念解耦——super/human-loop/dream 无 job 目录也能起名）。
+// 空/纯空白 name 清除别名（回到默认标题：job 任务名 / title / 类型·短 id）。
+// 纯展示层别名：不动会话 registry 的 title，不影响 CLI/正在跑的会话。
+func (m *SessionManager) SessionRename(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	if m.sessionNames == nil {
+		writeError(w, newWebError(http.StatusNotImplemented, "not_implemented", "session name store is not configured"))
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+		writeError(w, newWebError(http.StatusBadRequest, "invalid_body", "request body must be JSON: {\"name\": \"...\"}"))
+		return
+	}
+	normalized, err := ValidateJobName(req.Name)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := m.sessionNames.Set(entry.WorkspaceID, entry.ID, normalized); err != nil {
+		writeError(w, newWebError(http.StatusInternalServerError, "internal", "save session name: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session_id": entry.ID, "name": normalized})
+}
+
+// SessionStats handles GET /api/sessions/{id}/stats — pi get_session_stats
+// 透传（Bug #8 2C human 2026-11-14）：token 用量/成本（全 session 含工具与
+// compact 生成——subagent 消耗计入）+ contextUsage（上下文窗口使用率，compact
+// 判定的实际口径）。active worker 直查；非 active 降级（会话结束后无 worker）。
+func (m *SessionManager) SessionStats(w http.ResponseWriter, r *http.Request) {
+	entry, ok := m.lookup(w, r)
+	if !ok {
+		return
+	}
+	ev, err := m.rpcRequestTimeout(entry.ID, func(c *runtime.RpcClient) ([]byte, error) {
+		return c.GetSessionStats()
+	}, 10*time.Second)
+	if err != nil {
+		if err == errNoWorker {
+			writeError(w, newWebError(http.StatusConflict, "state_conflict", "session worker is not alive"))
+			return
+		}
+		writeError(w, newWebError(http.StatusBadRequest, "stats_failed", "%v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "stats": json.RawMessage(ev.Data)})
 }
 
 // SessionSetThinking handles POST /api/sessions/{id}/thinking {level}:
@@ -1744,6 +1832,8 @@ func parseSessionEntries(file, since string, limit int, before string) (*entries
 	if leaf != "" {
 		resp.LeafID = &leaf
 	}
+	// 全量注入压缩估算（必须在分页/since裁剪前：kept 范围可能跨窗口）。
+	injectCompactionEstimates(resp.Entries)
 	if since == "" {
 		applyPagination(resp, limit, before)
 		return resp, nil
@@ -1768,6 +1858,111 @@ func parseSessionEntries(file, since string, limit int, before string) (*entries
 	}
 	applyPagination(resp, limit, before)
 	return resp, nil // cursor not found → full list
+}
+
+// injectCompactionEstimates 为 entries 中的 compaction 条目注入 estimatedTokensAfter
+// （human 2026-11-14 反馈：历史压缩卡要显示压缩后 token 与压缩比例）。pi 的 JSONL
+// 不持久化该字段（只在实时 rpc 响应里）；此处后端复刻 pi 的 chars/4 估算口径：
+//   est = ceil(len(summary)/4) + Σ ceil(messageChars/4)，其中消息范围 =
+//   firstKeptEntryId 起 → 该压缩点为止的 message 条目（kept 范围）。
+// 与 pi 实时值同族（均不含 system prompt 的启发式估算）。
+// 必须在分页/since 裁剪前的全量列表上调用（kept 范围可能跨窗口）；窗口受限时
+// kept 边界缺失的条目自降级跳过（前端如实显示压缩前规模）。
+func injectCompactionEstimates(entries []json.RawMessage) {
+	type compactionRef struct {
+		pos              int
+		summary          string
+		firstKeptEntryID string
+	}
+	posByID := make(map[string]int, len(entries))
+	var compactions []compactionRef
+	for i, raw := range entries {
+		var probe struct {
+			Type             string `json:"type"`
+			ID               string `json:"id"`
+			Summary          string `json:"summary"`
+			FirstKeptEntryID string `json:"firstKeptEntryId"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			continue
+		}
+		if probe.ID != "" {
+			posByID[probe.ID] = i
+		}
+		if probe.Type == "compaction" {
+			compactions = append(compactions, compactionRef{pos: i, summary: probe.Summary, firstKeptEntryID: probe.FirstKeptEntryID})
+		}
+	}
+	for _, c := range compactions {
+		start := 0
+		if c.firstKeptEntryID != "" {
+			p, ok := posByID[c.firstKeptEntryID]
+			if !ok {
+				continue // kept 边界缺失（窗口受限/旧文件）：跳过，前端降级显示
+			}
+			start = p
+		}
+		est := int64((len(c.summary) + 3) / 4) // ceil
+		for j := start; j < c.pos; j++ {
+			est += (messageCharsEstimate(entries[j]) + 3) / 4
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(entries[c.pos], &obj); err != nil {
+			continue
+		}
+		if _, exists := obj["estimatedTokensAfter"]; exists {
+			continue // 已有（未来 pi 持久化该字段后天然兼容）
+		}
+		obj["estimatedTokensAfter"] = est
+		if out, err := json.Marshal(obj); err == nil {
+			entries[c.pos] = out
+		}
+	}
+}
+
+// messageCharsEstimate 估算一条 message 条目的字符量（pi estimateTokens 同族口径：
+// text/thinking 长度 + toolCall 的 name+JSON(arguments) 长度；content 兼容
+// 数组与 string 简写两种形态）。非 message 条目返回 0。
+func messageCharsEstimate(raw json.RawMessage) int64 {
+	var entry struct {
+		Type    string          `json:"type"`
+		Message json.RawMessage `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &entry); err != nil || entry.Type != "message" {
+		return 0
+	}
+	var msg struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(entry.Message, &msg); err != nil {
+		return 0
+	}
+	var blocks []struct {
+		Type      string          `json:"type"`
+		Text      string          `json:"text"`
+		Thinking  string          `json:"thinking"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+		var chars int64
+		for _, b := range blocks {
+			switch b.Type {
+			case "text":
+				chars += int64(len(b.Text))
+			case "thinking":
+				chars += int64(len(b.Thinking))
+			case "toolCall":
+				chars += int64(len(b.Name) + len(b.Arguments))
+			}
+		}
+		return chars
+	}
+	var s string
+	if err := json.Unmarshal(msg.Content, &s); err == nil {
+		return int64(len(s))
+	}
+	return 0
 }
 
 // pumpWorker relays a worker's event stream into the Hub for the session's
@@ -1977,6 +2172,25 @@ type prep struct {
 	// jobID of the rick job this interactive session drives (easy: close-time
 	// tasks.json status flip; empty for other types).
 	JobID string
+
+	// IDTag 会话标识徽标（Bug #5 迭代5b human 裁决：title 用可读任务描述，
+	// 标识改为显式传递——human-loop: loop_N / super: env_N；写 params.id_tag，
+	// 前端右侧徽标显示，替代从 title 正则提取）。
+	IDTag string
+}
+
+// prepTitleFromInput 从用户输入构造可读任务标题（requirement/topic 截断 60 rune——
+// Bug #5 迭代5b：会话列表显示任务名信息，而不是「类型 + 编号」）。
+func prepTitleFromInput(input, fallback string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return fallback
+	}
+	runes := []rune(trimmed)
+	if len(runes) > 60 {
+		runes = runes[:60]
+	}
+	return string(runes)
 }
 
 // prepareInteractive produces the prompt artifacts for a session type using
@@ -1985,30 +2199,6 @@ type prep struct {
 func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params map[string]any) (*prep, error) {
 	pb := builder.NewPIBuilder()
 	switch sessionType {
-	case SessionTypePlan:
-		requirement := paramString(params, "requirement")
-		jobID := paramString(params, "job")
-		if jobID == "" {
-			var err error
-			jobID, err = scanNextJobID(rickDir)
-			if err != nil {
-				return nil, err
-			}
-		}
-		jobPlanDir := filepath.Join(rickDir, "jobs", jobID, "plan")
-		if err := os.MkdirAll(jobPlanDir, 0755); err != nil {
-			return nil, fmt.Errorf("create plan dir: %w", err)
-		}
-		promptFile, method, err := pb.SavePlanPrompt(requirement, jobPlanDir, rickDir)
-		if err != nil {
-			return nil, fmt.Errorf("build plan prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(jobPlanDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: jobPlanDir, title: "plan " + jobID}, nil
-
 	case SessionTypeEasy:
 		requirement := paramString(params, "requirement")
 		ctxPath := paramString(params, "ctx_path")
@@ -2044,24 +2234,13 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		// jobID 经 prep.JobID 携带——createSessionLocked 会写入 entry.Params
 		// （reserved _job_id，wire 投影过滤）：SessionClose 时据此把 easy 的
 		// tasks.json 标 success（dream 只学完成的 job）。
-		return &prep{promptFile: promptFile, methodFile: methodFile, persistDir: doingDir, title: "easy " + jobID, JobID: jobID}, nil
-
-	case SessionTypeCtrl:
-		jobID := paramString(params, "job")
-		doingDir := filepath.Join(rickDir, "jobs", jobID, "doing")
-		if _, err := os.Stat(doingDir); os.IsNotExist(err) {
-			return nil, newWebError(http.StatusNotFound, "not_found", "doing directory not found for job %s", jobID)
-		}
-		promptFile, method, err := pb.SaveCtrlPrompt(jobID, rickDir)
-		if err != nil {
-			return nil, fmt.Errorf("build ctrl prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(doingDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, title: "ctrl " + jobID}, nil
-
+		return &prep{
+			promptFile: promptFile,
+			methodFile: methodFile,
+			persistDir: doingDir,
+			title:      prepTitleFromInput(requirement, fmt.Sprintf("easy %s", jobID)),
+			JobID:      jobID,
+		}, nil
 	case SessionTypeHumanLoop:
 		topic := paramString(params, "topic")
 		draftDir, rfcDir, loopDir, err := handler.PrepareHumanLoopDirsIn(rickDir)
@@ -2076,24 +2255,13 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		if err != nil {
 			return nil, err
 		}
-		return &prep{promptFile: mainFile, methodFile: methodFile, persistDir: loopDir, title: "human-loop " + filepath.Base(loopDir)}, nil
-
-	case SessionTypeLearning:
-		jobID := paramString(params, "job")
-		lp, err := buildLearningParams(rickDir, jobID)
-		if err != nil {
-			return nil, err
-		}
-		promptFile, method, err := pb.SaveLearningPrompt(lp)
-		if err != nil {
-			return nil, fmt.Errorf("build learning prompt: %w", err)
-		}
-		methodFile, err := writeMethodFile(lp.LearningDir, method)
-		if err != nil {
-			return nil, err
-		}
-		return &prep{promptFile: promptFile, methodFile: methodFile, title: "learning " + jobID}, nil
-
+		return &prep{
+			promptFile: mainFile,
+			methodFile: methodFile,
+			persistDir: loopDir,
+			title:      prepTitleFromInput(topic, filepath.Base(loopDir)),
+			IDTag:      filepath.Base(loopDir),
+		}, nil
 	case SessionTypeSuper:
 		// super 中控会话（目录模型 v2，job_48 迭代2）：严格加载 super-loop +
 		// gen_env skill（缺失 → 创建失败显式报错，不静默降级）；工作区 =
@@ -2136,7 +2304,9 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 			return nil, fmt.Errorf("build super prompt: %w", err)
 		}
 		return &prep{promptFile: promptFile, methodFile: methodFile,
-			persistDir: filepath.Dir(promptFile), title: orDefault(title, "super "+envID)}, nil
+			persistDir: filepath.Dir(promptFile),
+			title: prepTitleFromInput(orDefault(title, ""), prepTitleFromInput(requirement, "super "+envID)),
+			IDTag: envID}, nil
 
 	case SessionTypeDream:
 		// interactive dream: same prompt as the CLI dream run

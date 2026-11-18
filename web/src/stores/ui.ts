@@ -23,6 +23,12 @@ export interface UiState {
   setAuthRequired: (v: boolean) => void;
   setGlobalError: (msg: string | null) => void;
   setConnection: (state: SseConnectionState) => void;
+
+  /** Bug #8 2A 终版：待打开的 subagent 子会话（侧边栏点击 → 会话页右侧栏）。
+   *  ChatView 挂载时消费（take-and-clear）。 */
+  pendingSubagent: { runId: string; label: string; agent: string } | null;
+  openSubagentFromSidebar: (t: { runId: string; label: string; agent: string }) => void;
+  consumePendingSubagent: () => { runId: string; label: string; agent: string } | null;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -30,6 +36,17 @@ export const useUiStore = create<UiState>((set) => ({
   globalError: null,
   connection: "connecting",
   retryCount: 0,
+
+  pendingSubagent: null,
+  openSubagentFromSidebar: (t) => set({ pendingSubagent: t }),
+  consumePendingSubagent: () => {
+    let out: { runId: string; label: string; agent: string } | null = null;
+    set((st) => {
+      out = st.pendingSubagent;
+      return st.pendingSubagent ? { pendingSubagent: null } : st;
+    });
+    return out;
+  },
 
   setAuthRequired: (v) => set({ authRequired: v }),
   setGlobalError: (msg) => set({ globalError: msg }),

@@ -68,7 +68,7 @@ function LongText({ text }: { text: string }) {
 }
 
 export const UserBubble = memo(
-  function UserBubble({ item }: { item: UserItem }) {
+  function UserBubble({ item, senderLabel }: { item: UserItem; senderLabel?: string }) {
     // 用户消息作为事件流的一种类型（左侧上下文流布局，与 AssistantBubble 对齐）：
     // - user 标签 + 时间戳（不是靠右特殊布局）——用户反馈：不要右侧特殊展示
     // - `w-fit max-w-full`：气泡宽=内容宽、上限全宽；flex 项内不塌缩（修复「继续」
@@ -81,7 +81,7 @@ export const UserBubble = memo(
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 flex items-center gap-2 text-[10px] text-ink-3">
-            <span className="font-semibold uppercase tracking-wide text-nebula">human</span>
+            <span className="font-semibold uppercase tracking-wide text-nebula">{senderLabel ?? "human"}</span>
             <TimeStamp ts={item.ts} />
           </div>
           <div className="w-max max-w-full rounded-2xl rounded-tl-sm border border-nebula/50 bg-nebula/[0.08] px-4 py-2.5">

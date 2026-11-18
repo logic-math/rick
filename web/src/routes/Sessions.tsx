@@ -15,6 +15,7 @@ import { useSessionsStore } from "../stores/sessions";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ApiError } from "../types";
 import type { SessionInfo, WorkspaceEntry } from "../types";
+import { deriveSessionDisplay } from "../lib/sessionDisplay";
 
 // 稳定引用兑底常量：selector 里 ?? [] 每次返回新数组 → React #185 黑屏（job_36 实测）。
 const EMPTY_SESSIONS: SessionInfo[] = [];
@@ -30,30 +31,21 @@ import { useIsMobile } from "./hooks";
 // 会话卡片
 // ============================================================
 
+// Bug #5（human 2026-11-14 裁决）：已删除类型（plan/doing/learning/ctrl）不显示历史标签
 const TYPE_TONE: Record<string, string> = {
-  plan: "border-rick/50 bg-rick/10 text-rick",
   easy: "border-portal/50 bg-portal-soft text-portal",
-  ctrl: "border-morty/50 bg-morty/10 text-morty",
   "human-loop": "border-nebula/60 bg-nebula/15 text-ink",
-  learning: "border-rick/50 bg-rick/10 text-rick",
   dream: "border-nebula/60 bg-nebula/15 text-ink",
-  doing: "border-morty/50 bg-morty/10 text-morty",
   super: "border-morty/60 bg-morty/15 text-morty",
 };
 
 function sessionSubtitle(s: SessionInfo): string {
   const p = s.params as Record<string, unknown>;
   switch (s.type) {
-    case "plan":
-      return typeof p?.requirement === "string" ? p.requirement.slice(0, 90) : "";
     case "easy":
       return typeof p?.requirement === "string" ? p.requirement.slice(0, 90) : "";
     case "human-loop":
       return typeof p?.topic === "string" ? p.topic.slice(0, 90) : "";
-    case "doing":
-    case "ctrl":
-    case "learning":
-      return typeof p?.job === "string" ? p.job : "";
     case "dream":
       return `job_num=${String(p?.job_num ?? "?")} mode=${String(p?.mode ?? "?")}`;
     case "super":
@@ -108,16 +100,15 @@ function SessionCard({
       className="group flex flex-col gap-2 rounded-xl border border-line bg-surface/60 p-4 transition-colors hover:border-portal/40 hover:bg-surface-raised/60"
     >
       <div className="flex items-center gap-2">
-        <span
-          className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${TYPE_TONE[session.type] ?? "border-line text-ink-2"}`}
-        >
-          {session.type}
-        </span>
+        {TYPE_TONE[session.type] && (
+          <span
+            className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${TYPE_TONE[session.type]}`}
+          >
+            {session.type}
+          </span>
+        )}
         <span className="truncate text-sm font-medium text-ink group-hover:text-portal">
-          {session.title ||
-            (typeof (session.params as { job?: unknown } | undefined)?.job === "string"
-              ? `${session.type} ${(session.params as { job?: string }).job}`
-              : `${session.type} 会话`)}
+          {deriveSessionDisplay(session).title}
         </span>
         <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-ink-3">
           {session.status}
@@ -125,7 +116,7 @@ function SessionCard({
         {/* ⋮ 会话设置（归档/恢复）——不触发卡片导航 */}
         <button
           type="button"
-          aria-label={`${session.title || session.id} 设置`}
+          aria-label={`${deriveSessionDisplay(session).title} 设置`}
           title="会话设置（归档/恢复）"
           onClick={(e) => {
             e.preventDefault();
@@ -690,12 +681,12 @@ function ArchivedSessionsSection({
                   title={`打开 ${s.id}`}
                 >
                   <span
-                    className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${TYPE_TONE[s.type] ?? "border-line text-ink-2"}`}
+                    className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider ${TYPE_TONE[s.type] ?? ""}`}
                   >
                     {s.type}
                   </span>
                   <span className="truncate text-ink-2 group-hover:text-portal">
-                    {s.title || `${s.type} · ${s.id.slice(0, 8)}`}
+                    {deriveSessionDisplay(s).title}
                   </span>
                 </Link>
                 <span className="shrink-0 rounded-full border border-ink-3/30 bg-ink-3/10 px-1.5 py-0.5 text-[9px] leading-none text-ink-3">

@@ -14,7 +14,6 @@ const (
 	EventTypeServerInfo     = "server_info"     // 连接建立即发：{"version","rick_version","time"}
 	EventTypeSessionEvent   = "session_event"   // pi rpc 事件透传：{"event":<pi 原始 rpc 事件对象>}
 	EventTypeSessionState   = "session_state"   // 会话状态变更：{"status":"...","reason"?}
-	EventTypeJobsUpdate     = "jobs_update"     // tasks.json 变更：{"job_id","diff":[...],"snapshot":[...]}
 	EventTypeFrontendReload = "frontend_reload" // 覆盖层 dist 变更：{}
 )
 
@@ -375,36 +374,6 @@ func SessionStateEvent(sessionID, status, reason string) Envelope {
 	}
 }
 
-// JobsUpdateEvent reports a tasks.json change (contract jobs_update:
-// {"job_id","diff":[{task_id,from,to}],"snapshot":[...]}).
-type TaskDiff struct {
-	TaskID string `json:"task_id"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-}
-
-// TaskBrief is shared with jobs.go (the jobs listing projection of a task);
-// the jobs_update snapshot reuses that shape.
-
-// JobsUpdate builds a jobs_update envelope. snapshot may be nil (diff-only).
-func JobsUpdate(workspaceID, jobID string, diff []TaskDiff, snapshot []TaskBrief) Envelope {
-	if diff == nil {
-		diff = []TaskDiff{}
-	}
-	if snapshot == nil {
-		snapshot = []TaskBrief{}
-	}
-	return Envelope{
-		Type:      EventTypeJobsUpdate,
-		SessionID: "", // jobs are workspace-scoped, not session-scoped
-		Data: mustMarshal(map[string]any{
-			"workspace_id": workspaceID,
-			"job_id":       jobID,
-			"diff":         diff,
-			"snapshot":     snapshot,
-		}),
-	}
-}
 
 // FrontendReloadEvent signals the browser to reload (overlay dist changed).
 func FrontendReloadEvent() Envelope {
