@@ -61,9 +61,18 @@
 - **可写**：代码路径 / `.git` / `bin`（不含 releases）/ `~/.rick`
 - **不可写**：`.rick/jobs/job_44|45|46`（属主 sankuai，ACL mask r-x）
 - **bin/releases 曾不可写**（属主 sankuai，ACL mask r-x）——现已授权：`sudo -n -u sankuai setfacl ... && sudo -n -u sankuai chmod 775`（775 生效后 agent 可写）
+- **bin/releases 可写 job_53 实证**（2026-11-18）：release 直落 `bin/releases/91d7a76-261118202445/` 成功（mkdir+产物+换链全链）——`rick_release_ops_skill` 条目 1 的 `RICK_RELEASES_DIR=/home/hadoop-recsys/.rick/releases` 重定向前提**已过时**；skill 条目 6 的「release 前落点可写性体检」（RELEASE_PREFLIGHT 逐项探测）仍建议保留执行
+  - 来源: job_53 / release 91d7a76-261118202445  状态: ✅ 已确认
 - **sudo 事实**：`sudo -n -u sankuai` 免密可用；sudo 到 root 需密码（不可用）
   - 验证命令: `getfacl <dir> | grep mask`（#effective:r-x = 被锁）；`sudo -n -u sankuai true && echo SUDO_OK`
   - 来源: job_44  状态: ✅ 已确认
+
+## release 提升事实（job_53 实测，2026-11-18）
+
+- **`--merge-source` 冲突即中止报错**（release 帮助语义：冲突中止零改动，交 AI 修复后重跑）；预演协议：**release 前 clone 生产树到 /tmp 干跑 merge 检测冲突**（`git clone -q <prodRepo> /tmp/merge-test && git -C /tmp/merge-test merge --no-commit --no-ff <dev HEAD>`；注意 clone 无 git config user.email 时 merge 会拒绝，先 `git config user.email/user.name`）
+- **修改/删除冲突裁决先例（loop_18/judgment.md）**：生产侧先前的 human 批准清理删除（job_50 loop 清理）vs dev 侧 `git add -A` 顺手带入的追加 → **维持生产删除**（复活已清理内容才是意外动作；dev 侧追加保留在 dev git 历史可追溯）。两侧同名文件若 blob 相同（如 cmd/rick/main.go 的 VERSION bump）git 自动合并零冲突
+- **release 前 dev-web down**（既有纪律，job_53 再次执行）：门禁 HOME=dev-home 与 dev web 活动会话竞争 → 必须先 down（详见 env.md「release 门禁环境」节 + rick_release_ops_skill 条目 8）
+- **本 job release 记录**：merge commit 7f04c57（含 loop_18 冲突裁决）→ `release --merge-source --detach --yes` → 生产 6137 现跑 91d7a76-261118202445（health build_id 验证通过；会话挂起预期内，human 点「恢复继续」）
 
 ## .git/info/exclude 为 dev/main 两个 worktree 共享（job_44）
 

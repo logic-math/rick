@@ -87,6 +87,7 @@ gate 断言惯例（job_43 十条 gate 提炼）：存在性断言 + 否定断�
 
 ```bash
 RICK_DEV_HOME=<dev-home> ./bin/rick tools dev-web restart   # 后端改动时
+curl -s --noproxy '*' http://127.0.0.1:8414/api/health   # 指纹前置：build_id 前缀 == dev 树 HEAD sha7，不符禁止跑测试（job_53 实证：up --no-build 复用 dev-home/bin 旧产物 + 手动 rick web 启动报 build_id:dev 均使 bundle 检查假绿——见 .rick/skills/dev_web_fingerprint_skill/skill.md）
 curl -s --noproxy '*' http://127.0.0.1:8414/ | grep -o 'index-[^"]*\.js'
 ```
 渲染层/交互改动 → 请 human 在 dev UI（8414 + DEV_TOKEN）走主路径（**gate 绿 ≠ 可用**：静态断言测不到运行时协议破坏，job_43 P0 实证）。纪律细节见 `.rick/skills/render_layer_acceptance_skill/skill.md`。

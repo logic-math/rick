@@ -71,6 +71,7 @@ assert ".py" not in skills_section  # 只检查 section 内容，不全文搜索
 | 6 | 全文搜索被 tools section 误判 | 提取目标 section 范围后再断言 |
 | 7 | `check_variadic_api.py` 不支持 method | 改用 grep 匹配 method 签名 |
 | 8 | `~/.rick/config.json` 高 max_retries 导致测试超时 | 测试开头 `t.Setenv("HOME", t.TempDir())` + 写入 `{"max_retries":2}` |
+| 9 | python `str.replace()` 做代码编辑时 oldText 不匹配**静默无操作**（job_53 task49 实证：fix 写了没生效，tsc/build 全绿，靠 gate 断言才抓住） | 代码编辑一律用 `edit` 工具（不命中即报错）；若必须 python replace，写后自检 `assert newText in s` |
 
 ### 标准测试脚本模板
 

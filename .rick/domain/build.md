@@ -23,6 +23,15 @@
   - 来源: job_35 / task7
   - 状态: ✅ 已确认
 
+- **前端类型检查**: `cd web && npx tsc --noEmit`（TS 错误即输出 src/…/…(行,列): error TS…；零输出=绿）
+  - 来源: job_43→53 每轮 gate 惯例
+  - 状态: ✅ 已确认
+
+- **前端 dev 构建（禁 SW）**: `cd web && RICK_DEV_NO_PWA=1 npm run build`——RICK_DEV_NO_PWA=1 使 vite 构建期跳过 PWA/SW 生成（web/vite.config.ts:30 disablePwa），避免 SW 缓存干扰 dev 8414 热更排障；Go 构建会把 web/dist embed 进二进制（改前端必须重跑 npm build + go build 才生效）
+  - 验证命令: `RICK_DEV_NO_PWA=1 npm run build 2>&1 | tail -1`（输出 built in N ms）
+  - 来源: job_43 / job_53（每轮验证部署）
+  - 状态: ✅ 已确认
+
 ### 测试
 
 - **精确范围单元测试**: `go test ./internal/<pkg>/... -timeout 60s`（禁止无脑 `go test ./...` 全量，会混入依赖真实环境的测试）
@@ -78,6 +87,9 @@ git commit -m "chore(taskX): rebuild bin/rick"
   - 验证命令: `ls -la /home/hadoop-recsys/.rick/releases/current`（软链 → 版本目录）
   - 来源: job_43 / 迭代 1 S5（失败→重试成功）
   - 状态: ✅ 已确认
+- **⚠️ 上条已过时（job_53 实证，2026-11-18）**：`bin/releases` 已可写（job_44 授权 775 后）——release 直落 `<prodRepo>/bin/releases/<ver>/` 成功（91d7a76-261118202445 全链验证），**无需 RICK_RELEASES_DIR 重定向**；但 release 前落点可写性体检（RELEASE_PREFLIGHT 逐项探测：ReleasesRoot/bin 软链/overlay dist/state 文件/start-script）仍建议执行（见 rick_release_ops_skill 条目 6）
+  - 验证命令: `curl -s --noproxy '*' http://127.0.0.1:6137/api/health`（build_id == 本次 release version）
+  - 来源: job_53 / release 91d7a76-261118202445  状态: ✅ 已确认
 - **release 版本号语义**：version = `<devHEAD sha7>-<构建时刻 ts>`——S4 批准留痕提交会推进 dev HEAD，实际提升版本 sha7 与 S3 演练版不同属正常（内容=task + 证据提交）
   - 来源: job_43 / 迭代 1-6 六次实测
   - 状态: ✅ 已确认

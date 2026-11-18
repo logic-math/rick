@@ -858,3 +858,37 @@ rick tools dev-web up --no-build
 代码级根治 backlog（二选一，未做）：① web 测试 cleanup 前 wait worker 进程退出（internal/web 测试基建同步）；② release 门禁前自动 down/恢复 dev web（internal/env/release/release.go）。
 
 **首次发现**: job_50（2026-11-09，release 连挂 ×4 + HOME 对照实验定位）  **验证状态**: ⚠️ 规避已沉淀（dev-web down）；代码级根治未做
+
+### dev-web up --no-build 复用 dev-home/bin 旧二进制——多轮验证全跑旧代码 + human 误报往返
+
+**症状**: dev 树 `go build -o bin/rick` 后 `dev-web up --no-build` 重启 8414，跑无头浏览器验证/提请 human 验收——实际跑的是 dev-home/bin 里的旧版本（health 一直报旧 build_id 如 `f6d7f45-...`，但 health「ok」掩盖版本不一致）；human 报「还是不行」而代码确实改了 → 误判修复无效继续盲查。job_53 task46-49 连踩 3 轮（约 30-60 分钟 + 1 次 human 信任损耗）。兄弟案例：bugs.md「theme 旧 embed」条（同为「二进制静默旧版」家族，机制不同）。
+
+**根因**: `up --no-build` 空二进制走 `LatestBin`（internal/env/devweb/devweb.go:707/756）——只扫 **dev-home/bin** 里 `rick.dev.*` 前缀产物取字典序最新（时间戳命名=时间序）；而 `go build -o bin/rick` 的产物落在 **dev 树** bin/，从不进 dev-home/bin。两个产物位置静默分叉，`--no-build` 无「dev 树 HEAD 比 bin 更新」告警。另：手动 `./bin/rick web --port 8414` 启动报 `build_id: "dev"`（无 -ldflags 注入）——指纹校验全失效等于裸奔。
+
+**精确解决步骤**:
+```bash
+# ① 指纹前置检查（任何验证/提请验收前必做）：build_id 前缀 ≠ dev HEAD sha7 就禁止跑测试
+curl -s --noproxy '*' http://127.0.0.1:8414/api/health   # 看 build_id 前缀
+git -C /Users/logic/workdir/rick-dev rev-parse --short HEAD   # 对照 sha7
+# ② 手动构建后的正确 up（产物先入 dev-home/bin 保住指纹）：
+cp /Users/logic/workdir/rick-dev/bin/rick /Users/logic/workdir/rick-dev-home/bin/rick.dev.$(git -C /Users/logic/workdir/rick-dev rev-parse --short HEAD)-$(date +%y%m%d%H%M%S)
+RICK_DEV_HOME=/Users/logic/workdir/rick-dev-home ./bin/rick tools dev-web up --no-build
+```
+
+**首次发现**: job_53（2026-11-17/18，task46-49 三轮实证；skill 已沉淀 .rick/skills/dev_web_fingerprint_skill/skill.md，loop 已补 web-feedback-iteration-loop 步骤 5 指纹行）  **验证状态**: ✅ 流程规避已沉淀（检查点层）；工具级根治（up --no-build 新度校验警告/拒绝）backlog 未做
+
+### pi compact() 事件契约：compaction_start 在检查前 emit、失败也 emit compaction_end——no-op 压缩渲染成「失败卡」
+
+**症状**: 上下文使用率超阈值自动压缩触发到已压缩过的会话（无新对话）→ pi 报 "Already compacted" → web UI 会话流出现「上下文压缩失败（手动）」卡。同理 "Nothing to compact (session too small)"。
+
+**根因**: pi 的 `compact(customInstructions)`（~/.rick/pi/agent/runtime/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:1370）在**任何检查之前**就 `this._emit({ type: "compaction_start", reason: "manual" })`；catch 块里失败也 `compaction_end`（`errorMessage: "Compaction failed: <原因>"`，aborted 单列）。即：先发占位卡事件、后发失败事件——前端若把 errorMessage 一律渲染成失败卡，no-op 结局（Already compacted / Nothing to compact，无事可做不是真失败）就会闪现失败卡。另注意 reason 恒为 "manual"（pi 不区分 rick 侧自动/手动 RPC 来源）。
+
+**精确解决步骤**:
+```bash
+# 前端两层防护（job_53 task49，commit 66f4f0f）：
+# ① 发起护栏：auto-compact effect 前置 hasDialogueSinceLastCompaction(vm.items) 检查（无新对话不发起）
+# ② 渲染护栏：viewModel compaction_end 处理器——errorMessage 含 "Already compacted"/"Nothing to compact" → 移除占位卡（splice）而非填成失败卡
+grep -n 'Already compacted' web/src/components/chat/viewModel.ts   # 验证 no-op 移除逻辑在位
+```
+
+**首次发现**: job_53（2026-11-18，task49；无头浏览器+代码分析双重实锤）  **验证状态**: ✅ 已修复（66f4f0f，两层防护 + E2E bundle 断言）
