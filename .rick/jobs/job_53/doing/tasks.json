@@ -3,553 +3,553 @@
   "tasks": [
     {
       "attempts": 1,
+      "commit_hash": "366eaa8f1a4b1f82be205c5aa261bf6e7dcee96e",
       "created_at": "2026-11-12T21:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task1",
       "task_name": "Bug #1: compact 全链路修复（双条目/非active拒/piMessage string/压缩可视化卡）",
-      "updated_at": "2026-11-13T15:43:44.483Z",
-      "commit_hash": "366eaa8f1a4b1f82be205c5aa261bf6e7dcee96e"
+      "updated_at": "2026-11-19T15:29:13+08:00"
     },
     {
       "attempts": 1,
+      "commit_hash": "0cbe96d12d1e6f7d3f37fa588b7473ac376bf2e0",
       "created_at": "2026-11-14T00:05:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task2",
       "task_name": "Bug #1 迭代2: 压缩卡持久化(历史重建完整卡)+整卡折叠",
-      "updated_at": "2026-11-13T18:26:55.518Z",
-      "commit_hash": "0cbe96d12d1e6f7d3f37fa588b7473ac376bf2e0"
+      "updated_at": "2026-11-13T18:26:55.518Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "f6d7f4583b803c7177b01891136b66df27ae6404",
       "created_at": "2026-11-14T03:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task3",
       "task_name": "Bug #1 迭代3: 删「压缩已发起」冗余通知+无新对话压缩拦截+错误中文映射",
-      "updated_at": "2026-11-14T00:47:50.960Z",
-      "commit_hash": "f6d7f4583b803c7177b01891136b66df27ae6404"
+      "updated_at": "2026-11-14T00:47:50.960Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "b1b3da3cd668952d15668a07dcb211d97effbcb6",
       "created_at": "2026-11-14T09:10:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task4",
       "task_name": "Bug #1 迭代4: 历史压缩卡注入 estimatedTokensAfter（后端复刻 chars/4 估算）+ 前端显示压缩后 token/比例",
-      "updated_at": "2026-11-14T05:55:58.682Z",
-      "commit_hash": "b1b3da3cd668952d15668a07dcb211d97effbcb6"
+      "updated_at": "2026-11-14T05:55:58.682Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "e937defaea52865165aad2d234c1201bcc244ebd",
       "created_at": "2026-11-14T14:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task5",
       "task_name": "Bug #2: 导航去 Jobs+横排 + super/human-loop env_/loop_ 徽标（title 提取）",
-      "updated_at": "2026-11-14T06:25:34.046Z",
-      "commit_hash": "e937defaea52865165aad2d234c1201bcc244ebd"
+      "updated_at": "2026-11-14T06:25:34.046Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "7aa03af3ffc579c0a5c36fe4a0f47abbc7bdd7ef",
       "created_at": "2026-11-14T15:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task6",
       "task_name": "Bug #3: 侧栏可拖宽（localStorage 持久化+clamp）+ 右下角台词 wubba lubba dub dubs",
-      "updated_at": "2026-11-14T08:21:43.325Z",
-      "commit_hash": "7aa03af3ffc579c0a5c36fe4a0f47abbc7bdd7ef"
+      "updated_at": "2026-11-14T08:21:43.325Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "5b1ae0f08f3314282da7b31e5c56cee2eb247040",
       "created_at": "2026-11-14T16:40:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task7",
       "task_name": "Bug #4: 所有会话类型可重命名会话名（SessionNameStore + PUT /api/sessions/{id}/name + 全类型入口）",
-      "updated_at": "2026-11-14T09:27:36.136Z",
-      "commit_hash": "5b1ae0f08f3314282da7b31e5c56cee2eb247040"
+      "updated_at": "2026-11-14T09:27:36.136Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "4abbc85c7a7bac824f19564115d709a198a527e6",
       "created_at": "2026-11-14T18:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task8",
       "task_name": "Bug #5: Go 侧大删除——plan/doing/learning/ctrl 四类型全链路（CLI+模板+builder+web+watcher）",
-      "updated_at": "2026-11-14T10:23:26.661Z",
-      "commit_hash": "4abbc85c7a7bac824f19564115d709a198a527e6"
+      "updated_at": "2026-11-14T10:23:26.661Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "78179afe28848bf9bed2db2d106abc56b258af2a",
       "created_at": "2026-11-14T19:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task9",
       "task_name": "Bug #5: 前端大删除——模态四类型选项/MonitorView/TaskBoard/jobs store 死代码清理",
-      "updated_at": "2026-11-14T10:25:26.192Z",
-      "commit_hash": "78179afe28848bf9bed2db2d106abc56b258af2a"
+      "updated_at": "2026-11-14T10:25:26.192Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "f34987172680d19ba21ca28a87bc121c444605bb",
       "created_at": "2026-11-14T19:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task10",
       "task_name": "Bug #5 迭代5b: 历史标签删除+创建title任务化+模态多行+草稿服务端化",
-      "updated_at": "2026-11-14T10:58:56.992Z",
-      "commit_hash": "f34987172680d19ba21ca28a87bc121c444605bb"
+      "updated_at": "2026-11-14T10:58:56.992Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "42226ea4e02567fc4b2fefab1d7d4b3d7ed62122",
       "created_at": "2026-11-14T19:15:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task11",
       "task_name": "Bug #5 追加: 会话页头部也显示任务名（deriveSessionDisplay 公共单源——侧栏/会话页共用）",
-      "updated_at": "2026-11-14T11:08:02.715Z",
-      "commit_hash": "42226ea4e02567fc4b2fefab1d7d4b3d7ed62122"
+      "updated_at": "2026-11-14T11:08:02.715Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "e5797aeaced6337a5f608ea921a77c86282a0550",
       "created_at": "2026-11-14T19:35:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task12",
       "task_name": "Bug #5 追加2: Sessions 列表页（含归档区）卡片也显示任务名（deriveSessionDisplay 全接入）",
-      "updated_at": "2026-11-14T11:14:51.814Z",
-      "commit_hash": "e5797aeaced6337a5f608ea921a77c86282a0550"
+      "updated_at": "2026-11-14T11:14:51.814Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "1ad5b95173ac21081e80f2c32165b4aad4cac0eb",
       "created_at": "2026-11-14T19:45:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task13",
       "task_name": "Bug #5 追加3: 次要显示位统一（aria-label/设置弹窗标题也走派生）",
-      "updated_at": "2026-11-14T11:15:56.741Z",
-      "commit_hash": "1ad5b95173ac21081e80f2c32165b4aad4cac0eb"
+      "updated_at": "2026-11-14T11:15:56.741Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "5f1062be349c07d61d3afd13565c2b90e1973109",
       "created_at": "2026-11-14T20:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task14",
       "task_name": "Bug #6: 弹窗草稿关闭 flush + 单 URL 模式（MemoryRouter + ui-state 位置服务端记忆跨设备恢复）",
-      "updated_at": "2026-11-14T14:24:54.928Z",
-      "commit_hash": "5f1062be349c07d61d3afd13565c2b90e1973109"
+      "updated_at": "2026-11-14T14:24:54.928Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "0fc5810e1ea6d020127eafa40d144d94fb004beb",
       "created_at": "2026-11-14T22:50:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task15",
       "task_name": "Bug #7: SW skipWaiting 立即接管（手机端旧 bundle 根因）+ 侧栏视口 clamp + 版本探针",
-      "updated_at": "2026-11-14T14:41:17.830Z",
-      "commit_hash": "0fc5810e1ea6d020127eafa40d144d94fb004beb"
+      "updated_at": "2026-11-14T14:41:17.830Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "b1ca5b350ec3e4fe3b659ec58a9c71ea6dd496f0",
       "created_at": "2026-11-14T23:10:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task16",
       "task_name": "Bug #7 追加: aside relative 覆盖 fixed（手机端 drawer 定位破坏）→ md:relative",
-      "updated_at": "2026-11-14T14:59:34.734Z",
-      "commit_hash": "b1ca5b350ec3e4fe3b659ec58a9c71ea6dd496f0"
+      "updated_at": "2026-11-14T14:59:34.734Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "8c0a0e0486589f65a0865e921c5740e49d660639",
       "created_at": "2026-11-15T00:10:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task17",
       "task_name": "Bug #8 第一批: 打开文件改目录/文件直接选择 + 会话头部常驻模型名",
-      "updated_at": "2026-11-14T16:32:55.098Z",
-      "commit_hash": "8c0a0e0486589f65a0865e921c5740e49d660639"
+      "updated_at": "2026-11-14T16:32:55.098Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "5089dbcd9f44e0e520fa66302020fd62a787f80d",
       "created_at": "2026-11-15T01:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task18",
       "task_name": "Bug #8 追加: 文件选择器逐级修复（fsList files=1 模式——is_dir+文件混合列表）",
-      "updated_at": "2026-11-14T16:55:45.777Z",
-      "commit_hash": "5089dbcd9f44e0e520fa66302020fd62a787f80d"
+      "updated_at": "2026-11-14T16:55:45.777Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "b1e4119970ab92b8b6e6a3c29986ee77d1a996d4",
       "created_at": "2026-11-15T01:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task19",
       "task_name": "Bug #8 追加: 文件选择器显示隐藏目录(.rick 等) + 初始目录=当前工作区",
-      "updated_at": "2026-11-15T01:08:55.492Z",
-      "commit_hash": "b1e4119970ab92b8b6e6a3c29986ee77d1a996d4"
+      "updated_at": "2026-11-15T01:08:55.492Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "ac4f88bfeab6ce35fea8de1081c32ba6a67ea493",
       "created_at": "2026-11-15T10:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task20",
       "task_name": "Bug #8 第二批: 2A subagent 独立卡+任务摘要 + 2C stats API/常驻徽标/自动压缩(阈值可调)",
-      "updated_at": "2026-11-15T01:27:42.132Z",
-      "commit_hash": "ac4f88bfeab6ce35fea8de1081c32ba6a67ea493"
+      "updated_at": "2026-11-15T01:27:42.132Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "de1e1e5f52200a768574a926022ef539eccd68fd",
       "created_at": "2026-11-15T11:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task21",
       "task_name": "Bug #8 追加: ctx 徽标显示窗口大小+两位小数占比（阈值配置提升组件级）",
-      "updated_at": "2026-11-15T03:06:32.189Z",
-      "commit_hash": "de1e1e5f52200a768574a926022ef539eccd68fd"
+      "updated_at": "2026-11-15T03:06:32.189Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "04f2c3eeab2fa4a5a5c3925aee2db258bc6beab3",
       "created_at": "2026-11-15T12:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task22",
       "task_name": "Bug #8 2A R2: subagent 进度 SSE 推送（后端 watcher 轮询 status.json→subagent_progress 事件→前端多卡渲染默认不折叠）",
-      "updated_at": "2026-11-15T04:09:33.775Z",
-      "commit_hash": "04f2c3eeab2fa4a5a5c3925aee2db258bc6beab3"
+      "updated_at": "2026-11-15T04:09:33.775Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "195f0083ffa3c27b1bcc00cade71583f1be497d2",
       "created_at": "2026-11-15T12:40:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task23",
       "task_name": "Bug #8 2A R2 追加: subagent_progress 事件形状修复（Envelope kind→SessionEvent {event:{type}} camelCase——replace 静默失败修正）",
-      "updated_at": "2026-11-15T04:24:00.142Z",
-      "commit_hash": "195f0083ffa3c27b1bcc00cade71583f1be497d2"
+      "updated_at": "2026-11-15T04:24:00.142Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "0a6059c6c8b5424e7f927a4110ba2625c79b9ccd",
       "created_at": "2026-11-15T13:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task24",
       "task_name": "Bug #8 2A 终版: subagent 会话深度展示（右侧栏只读+侧边栏活跃列表+卡片跳转+默认折叠）",
-      "updated_at": "2026-11-15T06:33:41.080Z",
-      "commit_hash": "0a6059c6c8b5424e7f927a4110ba2625c79b9ccd"
+      "updated_at": "2026-11-15T06:33:41.080Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "73743954c91abc32ed7dbfb9d55d8264f29cde57",
       "created_at": "2026-11-15T15:10:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task25",
       "task_name": "Bug #8 2A 终版修复: 侧边栏跳转缺 navigate + ChatView pending 消费 effect + agent 短名显示",
-      "updated_at": "2026-11-15T07:31:35.272Z",
-      "commit_hash": "73743954c91abc32ed7dbfb9d55d8264f29cde57"
+      "updated_at": "2026-11-15T07:31:35.272Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "c3101ff4146a51c7a420f88dc31ec2e85f3390c8",
       "created_at": "2026-11-15T16:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task26",
       "task_name": "Bug #8 2A UI 打磨: 侧边栏去 currentTool/去映射名留原 agent 名/图标改霓虹 sub/子会话对话者 main-agent",
-      "updated_at": "2026-11-15T07:58:56.415Z",
-      "commit_hash": "c3101ff4146a51c7a420f88dc31ec2e85f3390c8"
+      "updated_at": "2026-11-15T07:58:56.415Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "d0589d6c46a590013bb4a203046f4d6a94b788a2",
       "created_at": "2026-11-15T16:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task27",
       "task_name": "Bug #8 2A UI 修复: 侧边栏下拉展开布局混乱（⋮ absolute 锚容器漂移+下拉插 flex row 重叠）——结构重构",
-      "updated_at": "2026-11-15T10:07:20.137Z",
-      "commit_hash": "d0589d6c46a590013bb4a203046f4d6a94b788a2"
+      "updated_at": "2026-11-15T10:07:20.137Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "69adec86726faf50f2d7b71ca5dca25834bde33c",
       "created_at": "2026-11-15T18:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task28",
       "task_name": "Bug #8 UI 打磨2: 无活跃 subagent 隐藏 sub 图标 + 挂起状态文案精简为「挂起」",
-      "updated_at": "2026-11-15T10:22:43.002Z",
-      "commit_hash": "69adec86726faf50f2d7b71ca5dca25834bde33c"
+      "updated_at": "2026-11-15T10:22:43.002Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "96da012799cab3d53e835870cf76e0600fb57c9d",
       "created_at": "2026-11-15T19:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task29",
-      "task_name": "Bug #8 第三批: 消息懒加载（游标前 N 条屏幕适配）+ 滚动游标跨设备保留（drafts scroll:<sid>）",
-      "updated_at": "2026-11-15T10:58:38.274Z",
-      "commit_hash": "96da012799cab3d53e835870cf76e0600fb57c9d"
+      "task_name": "Bug #8 第三批: 消息懒加载（游标前 N 条屏幕适配）+ 滚动游标跨设备保留（drafts scroll:\u003csid\u003e）",
+      "updated_at": "2026-11-15T10:58:38.274Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "74c60310e7445dcb030790d4b1026041acaf0776",
       "created_at": "2026-11-15T19:40:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task30",
       "task_name": "Bug #8 第三批修复: 游标恢复时序竞争（getDraft 并行先于历史加载→串行 await）+ 组锚 entryId 兜底 + 恢复模式真懒加载（跳过自动补拉）",
-      "updated_at": "2026-11-15T13:19:07.493Z",
-      "commit_hash": "74c60310e7445dcb030790d4b1026041acaf0776"
+      "updated_at": "2026-11-15T13:19:07.493Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "6c49696789d06622b1f0fc72e52a75b80ade1c75",
       "created_at": "2026-11-15T20:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task31",
       "task_name": "Bug #8 第三批修复2: 锚改稳定 entryId（item.id 含位置序号跨重建漂移）+ before/since 严格排他补锚（since=锚前一条）",
-      "updated_at": "2026-11-15T13:39:17.552Z",
-      "commit_hash": "6c49696789d06622b1f0fc72e52a75b80ade1c75"
+      "updated_at": "2026-11-15T13:39:17.552Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "38c06590b572f630ec8b244c70faa030c058799d",
       "created_at": "2026-11-15T21:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task32",
       "task_name": "Bug #8 第三批修复3: SW 缓存死锁根因（旧 SW 拦截 HTML→旧 JS 永远跑不到）——dev 构建禁 SW + main.tsx 自动注销残留 SW + 调试日志三环",
-      "updated_at": "2026-11-15T16:32:23.668Z",
-      "commit_hash": "38c06590b572f630ec8b244c70faa030c058799d"
+      "updated_at": "2026-11-15T16:32:23.668Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "0588f5ff9c714a9600764ddbfc8b69e499cfd7f2",
       "created_at": "2026-11-16T00:40:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task33",
       "task_name": "Bug #8 修复4: dev-web 构建注入 RICK_DEV_NO_PWA=1（dev 树所有 npm build 一律禁 SW）",
-      "updated_at": "2026-11-15T16:33:58.777Z",
-      "commit_hash": "0588f5ff9c714a9600764ddbfc8b69e499cfd7f2"
+      "updated_at": "2026-11-15T16:33:58.777Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "5c86a74db3ae1b234abac44a952afc4408dc8699",
       "created_at": "2026-11-16T01:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task34",
       "task_name": "Bug #8 修复5: Virtuoso rangeChanged 全局索引偏移（firstItemIndex 100_000）→ flat 数组实际索引换算（rangeChanged startIndex 99992 直接取 flat[99992] 越界→ anchor 永远 null）",
-      "updated_at": "2026-11-16T04:00:01.312Z",
-      "commit_hash": "5c86a74db3ae1b234abac44a952afc4408dc8699"
+      "updated_at": "2026-11-16T04:00:01.312Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "ce4cff2c64526027f36f940f32ad496f350b08f3",
       "created_at": "2026-11-16T01:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task35",
       "task_name": "Bug #8 修复6: followOutput/pinned 自动贴底覆盖定位——恢复模式下禁用（followOutput=false + pinned=false）",
-      "updated_at": "2026-11-16T06:42:15.539Z",
-      "commit_hash": "ce4cff2c64526027f36f940f32ad496f350b08f3"
+      "updated_at": "2026-11-16T06:42:15.539Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "4ac1f1b8a0f6953a58eeec544bfdbe3122b23bf0",
       "created_at": "2026-11-16T02:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task36",
       "task_name": "Bug #8 第三批终极修复: pi entry ID 是 8 位 hex（无连字符）——includes('-') 恒 false 导致恢复永不生效 + E2E 无头浏览器验证通过（33.1%）",
-      "updated_at": "2026-11-16T08:41:14.981Z",
-      "commit_hash": "4ac1f1b8a0f6953a58eeec544bfdbe3122b23bf0"
+      "updated_at": "2026-11-16T08:41:14.981Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "33cbcee672fc9af8f96cab721701b1f15b0156e1",
       "created_at": "2026-11-16T13:35:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task37",
       "task_name": "Bug #9: 刷新弹「平台升级」通知——RecoveryBanner 移除（human 裁决：没必要每次刷新都显示）",
-      "updated_at": "2026-11-16T11:49:52.283Z",
-      "commit_hash": "33cbcee672fc9af8f96cab721701b1f15b0156e1"
+      "updated_at": "2026-11-16T11:49:52.283Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "b94d6dea4c0c1c5e8f216ee9a40022c75892c68c",
       "created_at": "2026-11-16T13:45:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task38",
       "task_name": "Bug #9 追加: 挂起→已挂起（与其他状态名对齐）",
-      "updated_at": "2026-11-16T11:56:25.246Z",
-      "commit_hash": "b94d6dea4c0c1c5e8f216ee9a40022c75892c68c"
+      "updated_at": "2026-11-16T11:56:25.246Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "14c6b439986cfd8b94768ff0f08ccdfadf94332e",
       "created_at": "2026-11-16T14:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task39",
       "task_name": "Bug #8 第四批: 刷新流畅度——游标与 entries 并行拉取（省一次 RTT）+ entries 全量统一（{} 消除分窗口 flat 结构不一致）+ E2E 验证 26%",
-      "updated_at": "2026-11-16T13:46:34.175Z",
-      "commit_hash": "14c6b439986cfd8b94768ff0f08ccdfadf94332e"
+      "updated_at": "2026-11-16T13:46:34.175Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "28f613fedddd9a3ac4a40b6b31fa895b62e776f0",
       "created_at": "2026-11-16T15:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task40",
       "task_name": "Bug #8 第四批: 游标重试（3次200ms退避）+ 游标中心懒加载窗口（before/since 各 N/2 条——长会话快速首屏）",
-      "updated_at": "2026-11-16T14:00:49.135Z",
-      "commit_hash": "28f613fedddd9a3ac4a40b6b31fa895b62e776f0"
+      "updated_at": "2026-11-16T14:00:49.135Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "be15912ceca2b17201df8f1b94519e4c6aca2e67",
       "created_at": "2026-11-16T16:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task41",
       "task_name": "Bug #8 修复: 游标 entry 从未进窗口（since+limit 返回最新 N 而非最近 N→顺序拉取 before→since from lastBefore 保证游标 entry 是 since 首条）+ cursorReady 门控消除底闪",
-      "updated_at": "2026-11-17T02:53:42.302Z",
-      "commit_hash": "be15912ceca2b17201df8f1b94519e4c6aca2e67"
+      "updated_at": "2026-11-17T02:53:42.302Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "170d15fe9e1c24a0b5e85afde1399dab8f1c0c06",
       "created_at": "2026-11-16T17:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task42",
       "task_name": "Bug #8 修复: 懒加载窗口 timeline 空洞（since 截取 N/2 → 窗口尾到 SSE 实时事件之间缺条目→断裂；since 全部加载消除空洞，懒加载收益保留在 before 侧）",
-      "updated_at": "2026-11-17T03:25:24.589Z",
-      "commit_hash": "170d15fe9e1c24a0b5e85afde1399dab8f1c0c06"
+      "updated_at": "2026-11-17T03:25:24.589Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "6b1221890b08024adeac15e75371d0e43558dc72",
       "created_at": "2026-11-16T17:30:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task43",
       "task_name": "token 徽标拆分：会话总消耗（Σ）+ 当前上下文（ctx）",
-      "updated_at": "2026-11-17T05:29:47.414Z",
-      "commit_hash": "6b1221890b08024adeac15e75371d0e43558dc72"
+      "updated_at": "2026-11-17T05:29:47.414Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "760d44dfa061202ebd2853e598e6942b937a3478",
       "created_at": "2026-11-16T18:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task44",
-      "task_name": "Bug #8 修复: 短会话全量加载（<500 entries 跳过懒加载窗口——timeline 完整无需上拉）+ 长会话保留懒加载窗口",
-      "updated_at": "2026-11-17T06:05:47.487Z",
-      "commit_hash": "760d44dfa061202ebd2853e598e6942b937a3478"
+      "task_name": "Bug #8 修复: 短会话全量加载（\u003c500 entries 跳过懒加载窗口——timeline 完整无需上拉）+ 长会话保留懒加载窗口",
+      "updated_at": "2026-11-17T06:05:47.487Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "d6d8c6d90a7b83b796c90948543b8ad1bae517b4",
       "created_at": "2026-11-16T19:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task45",
       "task_name": "Bug #8 修复: 长会话 auto-compensation 始终运行（游标窗口快速首屏 + 后台补全全量 timeline——626 条不再需要上拉 12 次）",
-      "updated_at": "2026-11-17T06:29:54.264Z",
-      "commit_hash": "d6d8c6d90a7b83b796c90948543b8ad1bae517b4"
+      "updated_at": "2026-11-17T06:29:54.264Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "5ca5797f086db78efde99819474482c9153ce61c",
       "created_at": "2026-11-17T21:20:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task46",
       "task_name": "性能优化: 会话历史客户端缓存（多会话切换加速——切回来 0ms 渲染 vs 300-800ms REST 拉取；TTL 60s + LRU 20 会话上限）",
-      "updated_at": "2026-11-17T13:13:06.540Z",
-      "commit_hash": "5ca5797f086db78efde99819474482c9153ce61c"
+      "updated_at": "2026-11-17T13:13:06.540Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "9852679687fe516d84ea7bdd0b8e0582e27afa69",
       "created_at": "2026-11-17T22:10:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task47",
       "task_name": "性能优化追加: cursorReady 有缓存时跳过门控（消除加载态闪烁）+ E2E 验证 205ms",
-      "updated_at": "2026-11-17T14:05:20.366Z",
-      "commit_hash": "9852679687fe516d84ea7bdd0b8e0582e27afa69"
+      "updated_at": "2026-11-17T14:05:20.366Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "0554410b1026e700da2e65a34e5b62a732337cd4",
       "created_at": "2026-11-18T05:55:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task48",
-      "task_name": "Bug 修复: 缓存丢失分页状态（hasMore=false 无法上拉）+ 懒加载窗口 hasMore 判定错误（窗口内条数 < 50 ≠ 没有更早的）",
-      "updated_at": "2026-11-17T21:52:49.282Z",
-      "commit_hash": "0554410b1026e700da2e65a34e5b62a732337cd4"
+      "task_name": "Bug 修复: 缓存丢失分页状态（hasMore=false 无法上拉）+ 懒加载窗口 hasMore 判定错误（窗口内条数 \u003c 50 ≠ 没有更早的）",
+      "updated_at": "2026-11-17T21:52:49.282Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "66f4f0f88e82bc1613cc6ac9b7e1e954145b5cc3",
       "created_at": "2026-11-18T12:09:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task49",
       "task_name": "Bug 修复: 自动压缩触发后 UI 出现「上下文压缩失败（手动）」卡——pi 在检查前 emit compaction_start、失败也 emit end",
-      "updated_at": "2026-11-18T04:09:14.204Z",
-      "commit_hash": "66f4f0f88e82bc1613cc6ac9b7e1e954145b5cc3"
+      "updated_at": "2026-11-18T04:09:14.204Z"
     },
     {
       "attempts": 1,
+      "commit_hash": "8ecd99e9cb05a77b72195da5a98df75c2fc2ca09",
       "created_at": "2026-11-18T13:59:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "",
       "task_id": "task50",
       "task_name": "会话缓存升级: 默认 7 天/64 会话 + Settings 可配置 + 增量拉取保持 timeline 一致性 + auto-comp 页写回缓存",
-      "updated_at": "2026-11-18T05:59:10.103Z",
-      "commit_hash": "8ecd99e9cb05a77b72195da5a98df75c2fc2ca09"
+      "updated_at": "2026-11-18T05:59:10.103Z"
     },
     {
       "attempts": 0,
@@ -562,6 +562,6 @@
       "updated_at": "2026-11-18T15:50:00+08:00"
     }
   ],
-  "updated_at": "2026-11-18T15:50:00+08:00",
+  "updated_at": "2026-11-19T15:29:13+08:00",
   "version": "1.0"
 }

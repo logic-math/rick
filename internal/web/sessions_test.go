@@ -25,6 +25,7 @@ import (
 
 	"github.com/sunquan/rick/internal/handler"
 	"github.com/sunquan/rick/internal/runtime"
+	superpkg "github.com/sunquan/rick/internal/super"
 	"github.com/sunquan/rick/internal/workspace"
 )
 
@@ -2038,6 +2039,15 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 	seedSuperAssets(t, env.rickDir)
 	m := env.managerWith(t, nil)
 
+	// job_55：资产缺失时先走自动分发（deploySuperAssets seam）；本用例固化
+	// 「分发不可用 → 原显式报错」契约——stub 成失败，下面的 400 行为与
+	// job_48 严格加载时代一字不差。
+	oldDeploy := deploySuperAssets
+	deploySuperAssets = func(string) ([]string, error) {
+		return nil, fmt.Errorf("no rick tree")
+	}
+	defer func() { deploySuperAssets = oldDeploy }()
+
 	// 缺 gen_env skill → 400 invalid_params，错误含缺失路径（严格加载，
 	// 不静默降级）。
 	if err := os.Remove(filepath.Join(env.rickDir, "skills", "gen_env_skill", "skill.md")); err != nil {
@@ -2071,6 +2081,39 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 	// 失败也不消耗编号）。
 	if _, err := os.Stat(filepath.Join(env.rickDir, "super")); !os.IsNotExist(err) {
 		t.Fatalf("super/ must not be created when assets missing: %v", err)
+	}
+}
+
+// TestSessionCreateSuper_AutoDeploysAssets（job_55）：裸 .rick 工作区（无
+// super 资产）创建 super session 时，自动从 rick 树分发 9 件标准资产
+// （deploySuperAssets 生产实现：resolveRepoRoot 从测试进程 cwd 上溯命中
+// 真实 repo 树）→ 创建成功且资产落盘——外部工作区首次用 super 不再撞
+// 「缺失 super-loop.md」400。
+func TestSessionCreateSuper_AutoDeploysAssets(t *testing.T) {
+	env := newTestEnv(t)
+	// 不 seed：裸 .rick（newTestEnv 只建空目录，super 资产全缺）
+	m := env.managerWith(t, nil)
+
+	coll := startCollector(env.hub)
+	defer coll.stop()
+	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
+		map[string]any{"requirement": "外部工作区首次创建 super 会话：资产应自动分发"})
+	if code != http.StatusCreated {
+		t.Fatalf("create super session (bare .rick): status %d body %v, want 201", code, body)
+	}
+	if _, ok := env.sessions.Get(id); !ok {
+		t.Fatal("session not persisted in registry")
+	}
+	// 9 件标准资产全部自动分发落盘（单源清单：前置检查 2 件 + 运行期 7 件）
+	for _, rel := range superpkg.SuperAssetPaths {
+		p := filepath.Join(env.rickDir, filepath.FromSlash(rel))
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("auto-deployed asset missing %s: %v", p, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("auto-deployed asset empty: %s", p)
+		}
 	}
 }
 
