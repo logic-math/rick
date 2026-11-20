@@ -106,6 +106,17 @@ func Ensure() error {
 		fmt.Println("✅ pi web-access extension ready")
 	}
 
+	// Step 3.5: 固定版本 spec 归一（job_55）。历史遗留的裸名 spec
+	// （"npm:pi-subagents"）会被 pi 解析为 @latest（pi update --extensions
+	// 会升到最新）；带版本的 spec 才被视为 fixed。把 rick 管控扩展的裸名
+	// 条目重写为 pin spec，非致命。
+	if err := NormalizePinnedPackageSpecs(); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  pinned package specs: %v\n", err)
+		fmt.Fprintf(os.Stderr, "   rick works without it, but pi update may upgrade pinned extensions.\n")
+	} else {
+		fmt.Println("✅ pinned package specs normalized (settings.json)")
+	}
+
 	// Step 4: 从托管配置清除 Tokyo Night 包。非致命。
 	if err := PurgeTokyoNight(); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  tokyo-night purge: %v\n", err)

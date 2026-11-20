@@ -744,3 +744,306 @@ func TestRuntimeEnv_Seam(t *testing.T) {
 	// CheckReady 汇总四职责，返回未就绪点清单（可能非空，类型正确即可）。
 	_ = pi.CheckReady()
 }
+
+// ---------------------------------------------------------------------------
+// 版本固定（job_55：pi + pi 扩展锁版本）
+// ---------------------------------------------------------------------------
+
+// writeExtensionManifest 在 <agentDir>/npm/node_modules/<pkg>/package.json 落盘
+// 指定 version（模拟 pi install 后的实装形态）。
+func writeExtensionManifest(t *testing.T, agentDir, pkg, version string) {
+	t.Helper()
+	dir := filepath.Join(agentDir, "npm", "node_modules", pkg)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name": "` + pkg + `", "version": "` + version + `"}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInstalledExtensionVersion 验证从实装 package.json 读版本：读到版本 /
+// 未安装返回空 / 空包名返回空 / 坏 JSON 返回空。
+func TestInstalledExtensionVersion(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	t.Setenv("HOME", home)
+	t.Setenv("RICK_PI_AGENT_DIR", agentDir)
+
+	writeExtensionManifest(t, agentDir, "pi-subagents", "0.51.0")
+	if got := InstalledExtensionVersion("pi-subagents"); got != "0.51.0" {
+		t.Errorf("InstalledExtensionVersion(pi-subagents) = %q, want 0.51.0", got)
+	}
+	if got := InstalledExtensionVersion("pi-web-access"); got != "" {
+		t.Errorf("InstalledExtensionVersion(未安装) = %q, want \"\"", got)
+	}
+	if got := InstalledExtensionVersion(""); got != "" {
+		t.Errorf("InstalledExtensionVersion(\"\") = %q, want \"\"", got)
+	}
+
+	// 坏 JSON：容错返回空。
+	dir := filepath.Join(agentDir, "npm", "node_modules", "bad-json")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{not json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := InstalledExtensionVersion("bad-json"); got != "" {
+		t.Errorf("InstalledExtensionVersion(坏 JSON) = %q, want \"\"", got)
+	}
+}
+
+// TestEnsureNpmExtension_DriftHealsToPin 验证版本漂移自愈：已注册但版本与
+// pin 表不符时，用 pin spec 重装并校验（job_55：pi-subagents 0.89.1 → 0.51.0）。
+func TestEnsureNpmExtension_DriftHealsToPin(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("RICK_PI_AGENT_DIR", agentDir)
+
+	// 假 pi：list 报已注册；install 把 spec 里的版本写回 package.json
+	//（模拟真实 pi install 的安装效果），并记录调用参数。
+	logPath := filepath.Join(home, "pi-calls.log")
+	manifest := filepath.Join(agentDir, "npm", "node_modules", "pi-subagents", "package.json")
+	script := `#!/bin/sh
+echo "$@" >> "` + logPath + `"
+case "$1" in
+  list) echo "User packages:"; echo "  npm:pi-subagents@0.89.1";;
+  install)
+    ver=$(echo "$2" | sed 's/.*@//')
+    mkdir -p "$(dirname "` + manifest + `")"
+    printf '{"name":"pi-subagents","version":"%s"}' "$ver" > "` + manifest + `"
+    ;;
+esac
+`
+	writeFakePi(t, binDir, script)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	// 实装版本 0.89.1（漂移态）。
+	writeExtensionManifest(t, agentDir, "pi-subagents", "0.89.1")
+
+	if err := EnsureNpmExtension("pi-subagents", "pi-subagents"); err != nil {
+		t.Fatalf("EnsureNpmExtension(漂移自愈): %v", err)
+	}
+	// 漂移自愈必须用 pin spec 重装。
+	calls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("假 pi 未被调用: %v", err)
+	}
+	if !strings.Contains(string(calls), "install npm:pi-subagents@0.51.0") {
+		t.Errorf("期望 pin spec 重装（install npm:pi-subagents@0.51.0），got: %s", string(calls))
+	}
+	// 重装后版本归位。
+	if got := InstalledExtensionVersion("pi-subagents"); got != "0.51.0" {
+		t.Errorf("自愈后版本 = %q, want 0.51.0", got)
+	}
+}
+
+// TestEnsureNpmExtension_PinnedInstallWhenMissing 验证未注册时按 pin spec 安装
+// （不再是无版本安装——无版本会被 pi 解析为 latest）。
+func TestEnsureNpmExtension_PinnedInstallWhenMissing(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("RICK_PI_AGENT_DIR", agentDir)
+
+	logPath := filepath.Join(home, "pi-calls.log")
+	manifest := filepath.Join(agentDir, "npm", "node_modules", "pi-web-access", "package.json")
+	// 假 pi（带状态）：list 安装前置空、touch 状态文件后报已注册；
+	// install 落盘实装 manifest 并置状态。
+	script := `#!/bin/sh
+echo "$@" >> "` + logPath + `"
+state="` + home + `/installed"
+case "$1" in
+  list)
+    if [ -f "$state" ]; then echo "User packages:"; echo "  npm:pi-web-access@0.24.0"; else echo "No packages installed."; fi
+    ;;
+  install)
+    mkdir -p "$(dirname "` + manifest + `")"
+    printf '{"name":"pi-web-access","version":"0.24.0"}' > "` + manifest + `"
+    touch "$state"
+    ;;
+esac
+`
+	writeFakePi(t, binDir, script)
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	if err := EnsureNpmExtension("pi-web-access", "pi-web-access"); err != nil {
+		t.Fatalf("EnsureNpmExtension(未注册→pin 安装): %v", err)
+	}
+	calls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("假 pi 未被调用: %v", err)
+	}
+	if !strings.Contains(string(calls), "install npm:pi-web-access@0.24.0") {
+		t.Errorf("期望 pin spec 安装（install npm:pi-web-access@0.24.0），got: %s", string(calls))
+	}
+	if strings.Contains(string(calls), "install npm:pi-web-access\n") {
+		t.Errorf("不得出现无版本安装（install npm:pi-web-access），got: %s", string(calls))
+	}
+}
+
+// TestNormalizePinnedPackageSpecs 覆盖 settings.json packages 的 pin spec 归一：
+// 裸名→pin、对象形态 source 裸名→pin、已 pin 不动、非管控包不动、幂等。
+func TestNormalizePinnedPackageSpecs(t *testing.T) {
+	agentDir := func(t *testing.T) string {
+		t.Helper()
+		home := t.TempDir()
+		dir := filepath.Join(home, ".rick", "pi", "agent")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", home)
+		t.Setenv("RICK_PI_AGENT_DIR", dir)
+		return dir
+	}
+
+	t.Run("bare_string_normalized", func(t *testing.T) {
+		dir := agentDir(t)
+		s := map[string]any{
+			"theme":    "rick",
+			"packages": []any{"npm:pi-subagents", "npm:user-random-thing"},
+		}
+		data, _ := json.MarshalIndent(s, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Fatalf("NormalizePinnedPackageSpecs: %v", err)
+		}
+		got := readManagedSettings(t)
+		pkgs := got["packages"].([]any)
+		if pkgs[0] != "npm:pi-subagents@0.51.0" {
+			t.Errorf("packages[0] = %v, want npm:pi-subagents@0.51.0", pkgs[0])
+		}
+		if pkgs[1] != "npm:user-random-thing" {
+			t.Errorf("非管控包被误改: packages[1] = %v", pkgs[1])
+		}
+		if got["theme"] != "rick" {
+			t.Errorf("theme 被误改: %v", got["theme"])
+		}
+	})
+
+	t.Run("object_form_source_normalized", func(t *testing.T) {
+		dir := agentDir(t)
+		s := map[string]any{
+			"packages": []any{
+				map[string]any{"source": "npm:pi-web-access"},
+				map[string]any{"source": "npm:other-pkg"},
+			},
+		}
+		data, _ := json.MarshalIndent(s, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Fatalf("NormalizePinnedPackageSpecs: %v", err)
+		}
+		got := readManagedSettings(t)["packages"].([]any)
+		if got[0].(map[string]any)["source"] != "npm:pi-web-access@0.24.0" {
+			t.Errorf("对象形态 source 未归一: %v", got[0])
+		}
+		if got[1].(map[string]any)["source"] != "npm:other-pkg" {
+			t.Errorf("非管控对象被误改: %v", got[1])
+		}
+	})
+
+	t.Run("already_pinned_noop_and_idempotent", func(t *testing.T) {
+		dir := agentDir(t)
+		s := map[string]any{
+			"packages": []any{"npm:pi-subagents@0.51.0", "npm:pi-web-access@0.24.0"},
+		}
+		data, _ := json.MarshalIndent(s, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Fatalf("NormalizePinnedPackageSpecs: %v", err)
+		}
+		// 幂等：跑两次内容不变。
+		before, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Fatalf("second run: %v", err)
+		}
+		after, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+		if string(before) != string(after) {
+			t.Error("幂等性破坏：第二次运行改动了内容")
+		}
+	})
+
+	t.Run("drift_version_rewritten_to_pin", func(t *testing.T) {
+		dir := agentDir(t)
+		s := map[string]any{
+			"packages": []any{"npm:pi-subagents@0.99.0"},
+		}
+		data, _ := json.MarshalIndent(s, "", "  ")
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Fatalf("NormalizePinnedPackageSpecs: %v", err)
+		}
+		got := readManagedSettings(t)["packages"].([]any)
+		if got[0] != "npm:pi-subagents@0.51.0" {
+			t.Errorf("漂移版本未归一: %v, want npm:pi-subagents@0.51.0", got[0])
+		}
+	})
+
+	t.Run("no_settings_or_no_packages_noop", func(t *testing.T) {
+		dir := agentDir(t)
+		// 无 settings.json → nil。
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Errorf("无 settings.json 应返回 nil, got %v", err)
+		}
+		// 无 packages 字段 → nil 不改写。
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"theme":"rick"}`), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := NormalizePinnedPackageSpecs(); err != nil {
+			t.Errorf("无 packages 字段应返回 nil, got %v", err)
+		}
+		got := readManagedSettings(t)
+		if _, ok := got["packages"]; ok {
+			t.Error("不应凭空创建 packages 字段")
+		}
+	})
+}
+
+// TestCheckExtensionVersionDrift 验证版本漂移核对：漂移报出、一致为空、
+// 读不到版本（未实装）容忍为空。
+func TestCheckExtensionVersionDrift(t *testing.T) {
+	home := t.TempDir()
+	agentDir := filepath.Join(home, ".rick", "pi", "agent")
+	t.Setenv("HOME", home)
+	t.Setenv("RICK_PI_AGENT_DIR", agentDir)
+
+	// 未实装：无法判定，不报。
+	if drift := CheckExtensionVersionDrift(); len(drift) != 0 {
+		t.Errorf("未实装时应无漂移报告, got %v", drift)
+	}
+
+	// 一致：不报。
+	writeExtensionManifest(t, agentDir, "pi-subagents", "0.51.0")
+	writeExtensionManifest(t, agentDir, "pi-web-access", "0.24.0")
+	if drift := CheckExtensionVersionDrift(); len(drift) != 0 {
+		t.Errorf("版本一致时应无漂移报告, got %v", drift)
+	}
+
+	// 漂移：报出。
+	writeExtensionManifest(t, agentDir, "pi-subagents", "0.89.1")
+	drift := CheckExtensionVersionDrift()
+	if len(drift) != 1 || !strings.Contains(drift[0], "pi-subagents") ||
+		!strings.Contains(drift[0], "0.89.1") || !strings.Contains(drift[0], "0.51.0") {
+		t.Errorf("漂移应报 pi-subagents 0.89.1 ≠ pinned 0.51.0, got %v", drift)
+	}
+}

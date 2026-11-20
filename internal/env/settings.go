@@ -146,6 +146,71 @@ func ExtensionManagedByRick(pkg string) bool {
 	return false
 }
 
+// NormalizePinnedPackageSpecs rewrites rick-managed extension entries in the
+// managed settings.json packages list from their BARE form ("npm:pi-subagents"
+// / "pi-subagents" / {"source": "npm:pi-subagents"}) to the PINNED spec form
+// ("npm:pi-subagents@0.51.0"). Bare specs are resolved as @latest by pi
+// (pi update --extensions upgrades them); pinned specs are treated as fixed
+// (job_55). Non-rick packages are left untouched. Idempotent; no settings /
+// no packages field → no-op. Non-fatal: returns nil when there is nothing to
+// rewrite and an error only on unreadable/malformed managed settings.
+func NormalizePinnedPackageSpecs() error {
+	path := PiSettingsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil // no managed settings yet — nothing to normalize
+	}
+	var s map[string]any
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+	pkgs, ok := s["packages"].([]any)
+	if !ok {
+		return nil // no packages field — nothing to normalize
+	}
+	changed := false
+	for i, p := range pkgs {
+		switch v := p.(type) {
+		case string:
+			if pinned := pinnedSpecForSource(v); pinned != "" && v != pinned {
+				pkgs[i] = pinned
+				changed = true
+			}
+		case map[string]any:
+			if src, ok := v["source"].(string); ok {
+				if pinned := pinnedSpecForSource(src); pinned != "" && src != pinned {
+					v["source"] = pinned
+					changed = true
+				}
+			}
+		}
+	}
+	if !changed {
+		return nil
+	}
+	s["packages"] = pkgs
+	out, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// pinnedSpecForSource maps a packages entry source to its pinned spec: a
+// bare rick-managed source ("npm:pi-subagents", "pi-subagents", or the same
+// with a non-pinned version suffix) resolves to "npm:pi-subagents@0.51.0";
+// anything else (already pinned, unknown package) returns "".
+func pinnedSpecForSource(source string) string {
+	pkg := packageNameFromSource(source)
+	if pkg == "" {
+		return ""
+	}
+	return PinnedExtensionSpec(pkg)
+}
+
 // EnsureHideThinkingBlock merges "hideThinkingBlock": true into an existing
 // managed settings.json, preserving all other fields.
 func EnsureHideThinkingBlock(path string) error {

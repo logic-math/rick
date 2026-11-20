@@ -116,8 +116,9 @@ func (e *fakeUpdatePiEnv) piCalls(t *testing.T) []string {
 	return calls
 }
 
-// TestUpdatePi_One_PathPi 验证单扩展更新：源名解析为注册形态（npm: 前缀），
-// `pi update npm:<name>` 确实被调用，且结果记录 OneUpdated。
+// TestUpdatePi_One_PathPi 验证单扩展更新：pin 表扩展（pi-subagents）重装固定
+// 版本 spec（pi update 对裸名/未固定 spec 会升 latest，job_55）；
+// 结果记录 OneUpdated = pin spec。
 func TestUpdatePi_One_PathPi(t *testing.T) {
 	env := setupFakeUpdatePiEnv(t,
 		"User packages:\n  npm:pi-subagents\n  npm:pi-web-access\n", "0.84.1")
@@ -126,13 +127,35 @@ func TestUpdatePi_One_PathPi(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdatePi(One, pi-subagents): %v", err)
 	}
-	if res.OneUpdated != "npm:pi-subagents" {
-		t.Errorf("OneUpdated = %q, want npm:pi-subagents", res.OneUpdated)
+	if res.OneUpdated != PinnedExtensionSpec("pi-subagents") {
+		t.Errorf("OneUpdated = %q, want %q", res.OneUpdated, PinnedExtensionSpec("pi-subagents"))
 	}
 	calls := env.piCalls(t)
 	joined := strings.Join(calls, "\n")
-	if !strings.Contains(joined, "update npm:pi-subagents") {
-		t.Errorf("expected `pi update npm:pi-subagents` call, got calls:\n%s", joined)
+	if !strings.Contains(joined, "install "+PinnedExtensionSpec("pi-subagents")) {
+		t.Errorf("expected `pi install %s` call, got calls:\n%s", PinnedExtensionSpec("pi-subagents"), joined)
+	}
+	if strings.Contains(joined, "update npm:pi-subagents") {
+		t.Errorf("pin 表扩展不得走 pi update（会升 latest），got calls:\n%s", joined)
+	}
+}
+
+// TestUpdatePi_One_NonPinnedExtension 验证非 pin 表的已注册扩展保持原有
+// `pi update <source>` 路径（用户自装的其它包不受 pin 约束）。
+func TestUpdatePi_One_NonPinnedExtension(t *testing.T) {
+	env := setupFakeUpdatePiEnv(t,
+		"User packages:\n  npm:pi-subagents\n  npm:some-user-pkg\n", "0.84.1")
+
+	res, err := UpdatePi(UpdateOne, "some-user-pkg")
+	if err != nil {
+		t.Fatalf("UpdatePi(One, some-user-pkg): %v", err)
+	}
+	if res.OneUpdated != "npm:some-user-pkg" {
+		t.Errorf("OneUpdated = %q, want npm:some-user-pkg", res.OneUpdated)
+	}
+	calls := strings.Join(env.piCalls(t), "\n")
+	if !strings.Contains(calls, "update npm:some-user-pkg") {
+		t.Errorf("expected `pi update npm:some-user-pkg` call, got:\n%s", calls)
 	}
 }
 
@@ -315,5 +338,30 @@ func TestQuickCheck_ReadyAndNotReady(t *testing.T) {
 	}
 	if len(res2.NotReady) == 0 {
 		t.Error("NotReady should be non-empty (agents missing)")
+	}
+}
+
+// TestQuickCheck_ExtensionVersionDrift 验证快速自检的扩展版本漂移字段：
+// 版本一致时空、漂移时报出（job_55：pi-subagents 0.89.1 ≠ pinned 0.51.0）。
+func TestQuickCheck_ExtensionVersionDrift(t *testing.T) {
+	env := setupFakeUpdatePiEnv(t,
+		"User packages:\n  npm:pi-subagents\n  npm:pi-web-access\n", "0.84.2")
+
+	// 实装版本与 pin 表一致 → 无漂移。
+	writeExtensionManifest(t, env.agentDir, "pi-subagents", "0.51.0")
+	writeExtensionManifest(t, env.agentDir, "pi-web-access", "0.24.0")
+	if drift := QuickCheck().ExtensionVersionDrift; len(drift) != 0 {
+		t.Errorf("版本一致时应无漂移, got %v", drift)
+	}
+
+	// pi-subagents 漂移到 0.89.1 → 报出且包含两侧版本号。
+	writeExtensionManifest(t, env.agentDir, "pi-subagents", "0.89.1")
+	drift := QuickCheck().ExtensionVersionDrift
+	if len(drift) != 1 {
+		t.Fatalf("漂移应报 1 条, got %v", drift)
+	}
+	if !strings.Contains(drift[0], "pi-subagents") ||
+		!strings.Contains(drift[0], "0.89.1") || !strings.Contains(drift[0], "0.51.0") {
+		t.Errorf("漂移描述应含包名与两侧版本, got %q", drift[0])
 	}
 }

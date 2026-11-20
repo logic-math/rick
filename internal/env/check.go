@@ -1,6 +1,7 @@
 package env
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 
@@ -52,6 +53,22 @@ func CheckPIInstalled() []string {
 // 注册。就绪返回 nil，缺失时返回未注册扩展名。
 func CheckEcosystemExtensions() []string {
 	return VerifyExtensions()
+}
+
+// CheckExtensionVersionDrift 核对已注册的固定扩展版本是否与 pin 表一致
+// （job_55：pi-subagents 0.89.1 vs pinned 0.51.0 的不兼容即此类漂移）。
+// 返回漂移描述清单（空 = 全部一致）。未注册的扩展不报（那是
+// MissingExtensions 的事）；installed 版本读不到时不报（无法判定，容总）。
+func CheckExtensionVersionDrift() []string {
+	var drift []string
+	for _, p := range PinnedExtensions {
+		got := InstalledExtensionVersion(p.Pkg)
+		if got == "" || got == p.Version {
+			continue
+		}
+		drift = append(drift, fmt.Sprintf("%s installed %s ≠ pinned %s", p.Pkg, got, p.Version))
+	}
+	return drift
 }
 
 // CheckRickAgents 检查 rick 自定义 agent（v7.x 四 agent：research + 三个重生型

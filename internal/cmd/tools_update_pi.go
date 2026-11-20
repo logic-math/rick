@@ -120,6 +120,13 @@ func printQuickCheck(check env.QuickCheckResult) {
 		fmt.Printf("  ⚠️  extensions      : missing %s\n",
 			strings.Join(check.MissingExtensions, ", "))
 	}
+	if len(check.ExtensionVersionDrift) == 0 {
+		fmt.Println("  extension versions : all match pins")
+	} else {
+		fmt.Printf("  ⚠️  extension versions: drift %s\n",
+			strings.Join(check.ExtensionVersionDrift, "; "))
+		fmt.Println("     → run `rick tools init-pi` to reinstall pinned versions")
+	}
 	if len(check.NotReady) == 0 {
 		fmt.Println("  rick customizations: ready (agents + rick-gates deployed)")
 	} else {

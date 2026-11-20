@@ -27,27 +27,19 @@ func PiCommand(args ...string) *exec.Cmd {
 }
 
 // EnsurePI returns the path to rick's self-contained pi runtime binary,
-// installing it via npm into ~/.rick/pi/agent/runtime if missing. When an
-// existing global pi is on PATH, its version is matched so behavior stays
-// identical (the global install itself is never modified). The second return is
-// true iff pi was installed this call. Returns an error only if pi is still
-// missing.
+// installing it via npm into ~/.rick/pi/agent/runtime if missing. The install
+// is always the PINNED version (PinnedPiVersion) — never latest (job_55:
+// unpinned installs randomly break the pi-ecosystem version pairing; the
+// global pi on PATH, if any, is not matched and not modified). The second
+// return is true iff pi was installed this call. Returns an error only if pi
+// is still missing.
 func EnsurePI() (string, bool, error) {
 	if bin := runtime.RuntimeBin(); runtime.FileExists(bin) {
 		return bin, false, nil
 	}
-	// Prefer matching the version of an existing global pi (preserves known
-	// behavior); otherwise install the latest.
-	version := ""
-	if p, err := exec.LookPath("pi"); err == nil {
-		version = PiVersion(p)
-	}
-	fmt.Printf("⚠️  rick's managed pi runtime missing — installing self-contained pi under %s", runtime.RuntimeDir())
-	if version != "" {
-		fmt.Printf(" (matching global v%s)", version)
-	}
-	fmt.Println(" ...")
-	if err := InstallManagedPI(version); err != nil {
+	fmt.Printf("⚠️  rick's managed pi runtime missing — installing self-contained pi under %s (pinned v%s) ...\n",
+		runtime.RuntimeDir(), PinnedPiVersion)
+	if err := InstallManagedPI(); err != nil {
 		return "", false, fmt.Errorf("install managed pi: %w", err)
 	}
 	bin := runtime.RuntimeBin()
@@ -57,35 +49,25 @@ func EnsurePI() (string, bool, error) {
 	return bin, true, nil
 }
 
-// InstallManagedPI installs the pi package into rick's self-contained runtime
-// dir (~/.rick/pi/agent/runtime) via `npm install --prefix`, so rick's pi is
-// fully isolated from the user's global/standalone pi. version may be "" for
-// latest; a failed pinned install falls back to latest (registry may have
-// dropped the exact version).
-func InstallManagedPI(version string) error {
+// InstallManagedPI installs the PINNED pi package (PinnedPiVersion) into
+// rick's self-contained runtime dir (~/.rick/pi/agent/runtime) via
+// `npm install --prefix`, so rick's pi is fully isolated from the user's
+// global/standalone pi. Version changes are a deliberate code change in
+// internal/env/pins.go (pi + extensions must move together and be fully
+// re-verified) — a failed pinned install is a hard error, NEVER a silent
+// fallback to latest (job_55: latest fallback is exactly how the
+// pi-subagents 0.89.1 / pi 0.84.2 incompatibility slipped in).
+func InstallManagedPI() error {
 	prefix := runtime.RuntimeDir()
 	if err := os.MkdirAll(prefix, 0755); err != nil {
 		return fmt.Errorf("create runtime dir: %w", err)
 	}
-	spec := "@earendil-works/pi-coding-agent"
-	if version != "" {
-		spec += "@" + version
-	}
+	spec := "@earendil-works/pi-coding-agent@" + PinnedPiVersion
 	cmd := exec.Command("npm", "install", "--prefix", prefix, "--no-fund", "--no-audit", spec)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		if version != "" {
-			fmt.Println("⚠️  pinned install failed — retrying with latest version...")
-			cmd = exec.Command("npm", "install", "--prefix", prefix, "--no-fund", "--no-audit", "@earendil-works/pi-coding-agent")
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err2 := cmd.Run(); err2 != nil {
-				return fmt.Errorf("npm install @earendil-works/pi-coding-agent (pinned: %v): %w", err, err2)
-			}
-			return nil
-		}
-		return fmt.Errorf("npm install %s: %w", spec, err)
+		return fmt.Errorf("npm install %s: %w（固定版本不可用：检查网络/registry；升级请显式修改 internal/env/pins.go 的 PinnedPiVersion 并全量回归，绝不静默回退 latest）", spec, err)
 	}
 	return nil
 }

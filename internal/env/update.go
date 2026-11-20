@@ -87,12 +87,15 @@ type UpdateResult struct {
 // UpdatePi 执行 pi runtime / 扩展 / 模型目录的更新（env 职责 1+2）。
 //
 // pi runtime：托管 runtime（AgentDir/runtime）存在时用 rick 自己的
-// InstallManagedPI 重装最新版（npm --prefix，语义与 init-pi 一致，绕开
-// `pi update --self` 对非全局 npm 安装的 guard）；无托管 runtime（用户 PATH
-// pi）时委托 `pi update --self`，由 pi 自行判断可行性。
+// InstallManagedPI 重装固定版本（npm --prefix，版本由 internal/env/pins.go
+// 固定——版本变更是显式代码决策，不在这里升 latest）；无托管 runtime（用户
+// PATH pi）时委托 `pi update --self`，由 pi 自行判断可行性。
 //
-// 扩展：`pi update --extensions`（全部）或 `pi update <source>`（单个），
-// 均经 PiCommand 注入 PI_CODING_AGENT_DIR，作用于 rick 托管的 agent 目录。
+// 扩展：先归一固定版本 spec + 对 pin 表扩展漂移自愈（EnsureNpmExtension），
+// 再 `pi update --extensions`（pi 对带版本 spec 视为 fixed，只更新用户的
+// 其它包）或 `pi install <pin spec>`（单个 pin 扩展，update 对裸名会升
+// latest）。均经 PiCommand 注入 PI_CODING_AGENT_DIR，作用于 rick 托管的
+// agent 目录。
 //
 // 模型目录：`pi update --models`。
 //
@@ -116,8 +119,8 @@ func UpdatePi(target UpdateTarget, one string) (*UpdateResult, error) {
 			managed := runtime.FileExists(runtime.RuntimeBin())
 			res.ManagedRuntime = managed
 			if managed {
-				fmt.Println("→ updating rick's managed pi runtime (npm --prefix latest) ...")
-				if err := InstallManagedPI(""); err != nil {
+				fmt.Printf("→ updating rick's managed pi runtime (npm --prefix pinned v%s) ...\n", PinnedPiVersion)
+				if err := InstallManagedPI(); err != nil {
 					return res, fmt.Errorf("update managed pi runtime: %w", err)
 				}
 			} else {
@@ -135,16 +138,36 @@ func UpdatePi(target UpdateTarget, one string) (*UpdateResult, error) {
 			res.PiUpdated = true
 		case "extensions":
 			fmt.Println("→ updating all registered extensions (`pi update --extensions`) ...")
+			// 先归一 pin spec + 漂移自愈（job_55）：裸名 spec 会被 pi 升 latest，
+			// 带版本 spec 才是 fixed；EnsureNpmExtension 把 pin 表扩展拉回固定版本。
+			if err := NormalizePinnedPackageSpecs(); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  pinned package specs normalize: %v\n", err)
+			}
+			for _, p := range PinnedExtensions {
+				if err := EnsureNpmExtension(p.Pkg, p.Pkg); err != nil {
+					fmt.Fprintf(os.Stderr, "⚠️  pinned extension %s: %v\n", p.Pkg, err)
+				}
+			}
 			if err := runPiUpdate("--extensions"); err != nil {
 				return res, fmt.Errorf("pi update --extensions: %w", err)
 			}
 			res.ExtensionsUpdated = true
 		case "one":
-			fmt.Printf("→ updating extension %s (`pi update %s`) ...\n", step.source, step.source)
-			if err := runPiUpdate(step.source); err != nil {
-				return res, fmt.Errorf("pi update %s: %w", step.source, err)
+			// pin 表扩展：pi update 对裸名/未固定 spec 会升 latest（job_55 实证），
+			//改为重装固定版本 spec。
+			if pinned := PinnedExtensionSpec(packageNameFromSource(step.source)); pinned != "" {
+				fmt.Printf("→ updating extension %s (pinned → reinstall %s) ...\n", step.source, pinned)
+				if err := installNpmSpec(pinned); err != nil {
+					return res, fmt.Errorf("pi install %s: %w", pinned, err)
+				}
+				res.OneUpdated = pinned
+			} else {
+				fmt.Printf("→ updating extension %s (`pi update %s`) ...\n", step.source, step.source)
+				if err := runPiUpdate(step.source); err != nil {
+					return res, fmt.Errorf("pi update %s: %w", step.source, err)
+				}
+				res.OneUpdated = step.source
 			}
-			res.OneUpdated = step.source
 		case "models":
 			fmt.Println("→ refreshing model catalogs (`pi update --models`) ...")
 			if err := runPiUpdate("--models"); err != nil {
@@ -216,17 +239,20 @@ func registeredExtensionSources() []string {
 // 变体：只检「更新可能破坏的东西」——pi 可用性、扩展注册、定制落盘、
 // rick-gates hook 可解析）。
 type QuickCheckResult struct {
-	PiVersion         string   // 更新后 pi 版本（探测失败为 ""）
-	MissingExtensions []string // 未注册的必需扩展（空 = 全部就绪）
-	NotReady          []string // CheckReady 未就绪项（空 = 全部就绪）
-	GatesHelperOK     bool     // rick-gates helper.py 可被 python3 解析
-	GatesHelperNote   string   // 不可解析/无法检查的原因
+	PiVersion             string   // 更新后 pi 版本（探测失败为 ""）
+	MissingExtensions     []string // 未注册的必需扩展（空 = 全部就绪）
+	ExtensionVersionDrift []string // 已注册但版本与固定表不符的扩展（空 = 全部一致；
+	// 形如 "pi-subagents installed 0.89.1 ≠ pinned 0.51.0"；空串 installed 值表示版本读不到）
+	NotReady        []string // CheckReady 未就绪项（空 = 全部就绪）
+	GatesHelperOK   bool     // rick-gates helper.py 可被 python3 解析
+	GatesHelperNote string   // 不可解析/无法检查的原因
 }
 
 // QuickCheck 在 update-pi 后对 rick 的 pi 环境做快速功能检查。纯检查、无副作用。
 func QuickCheck() QuickCheckResult {
 	res := QuickCheckResult{PiVersion: PiVersion("")}
 	res.MissingExtensions = VerifyExtensions()
+	res.ExtensionVersionDrift = CheckExtensionVersionDrift()
 	res.NotReady = CheckReady()
 
 	helper := filepath.Join(runtime.AgentDir(), "extensions", "rick-gates", "helper.py")
