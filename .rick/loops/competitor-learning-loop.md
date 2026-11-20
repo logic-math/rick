@@ -10,6 +10,10 @@ scope: "doing / easy / human-loop（跨 job 可复用）"
 > 定位：**竞品学习的标准循环**——学习不是抄作业（跟随型），而是「吸收对手验证过的 + 守住自己独有的 + 原创对手没有的」三层产出。
 > 方法论纪律由 skill:competitor-learning 承载（信源分级/三层对比/费曼纪律/数学化检验/五要素清单）——本 loop 只做阶段编排与产出物门禁。
 
+## 目标（Goal）
+
+系统学习竞品/同类工作并产出**原创转化**：吸收对手验证过的 + 守住自己独有的 + 原创对手没有的——三层产出缺一不可（没有第三分的学习只是跟随）。收口判据：anchors.md 蒸馏完成（下次 loop 可直接从 anchors 出发）。
+
 ## 总体流程（五阶段 + 蒸馏收口）
 
 ```
@@ -64,7 +68,18 @@ Step 6  蒸馏收口（anchors.md）
 - 蒸馏内容：理论名片（一段话）/ 核心（协议/机制/数学——按 human 指定重点详略）/ 实证义务（可证伪预言）/ 文档地图（全程产出索引）/ 下次起点（实现/论文/沉淀三选项）
 - **门禁**：不看全程只看 anchors 能复述核心结论 + 下次 loop 可直接从 anchors 出发
 
-## 上下文管理
+## 可调用工具
+
+- `subagent agent:research`：Step 1 多轮靶向调研（简报落盘/回执格式按 skill:grilling 派发规范）
+- `read` / `grep` / `bash`：仓库考古与代码事实自查；skill:competitor-learning / skill:exploration_stream 的方法纪律按需加载
+- human 追问通道：Step 0/2/5 判断节点上呈（推荐答案必附）
+
+## 产出评估（Output Evaluation）
+
+- 评估类型：客观（产出物门禁可验证）。
+- 检查表：①每阶段有门禁结论（Step 0 分层清单 / Step 1 可复述全貌 / Step 2 三层对比表+反向坚守清单 / Step 3 anchors 级蒸馏 / Step 4 可证伪预言+定理映射 / Step 5 五要素方向清单+Job 骨架改动面互斥）②改进项验收判据为可验证断言 ③anchors.md 不看全程能复述核心结论。
+
+## 上下文管理（Context Management）
 
 - **保留**：human 原话（judgment.md 全程）、各阶段门禁结论、可证伪预言清单、优先级裁决
 - **压缩**：research 简报细节（anchors 只留索引与关键结论）、竞品机制细节（速查表保留）

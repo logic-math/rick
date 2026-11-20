@@ -24,6 +24,7 @@
 运行：python3 super/tests/e2e_test.py -v（分钟级）
 stdlib-only，Python >=3.9。
 """
+import glob
 import json
 import os
 import shutil
@@ -285,6 +286,195 @@ def next_count(role):
     return n
 
 
+def _extract_rendered_path(prompt_path, marker):
+    """从已渲染 prompt 内容提取真路径（job_56 task5：字符串扫描，不用 re）。"""
+    try:
+        with open(prompt_path, encoding="utf-8") as f:
+            for line in f:
+                i = line.find(marker)
+                if i < 0:
+                    continue
+                j = i
+                while j < len(line) and (line[j].isalnum() or line[j] in "/._-"):
+                    j += 1
+                while i > 0 and (line[i - 1].isalnum() or line[i - 1] in "/._-"):
+                    i -= 1
+                return line[i:j]
+    except OSError:
+        pass
+    return None
+
+
+PIPELINE_DECISIONS_MD = """# adjust 决策记录 · 迭代（e2e mock 流水线）
+
+## 1. 事实与期望
+现状：库级派发已证实；human 期望深挖分块。
+
+## 6. 格动作
+冠军格升权 + 新格提案。
+
+```json
+{"primary_contradiction": {"statement": "内存布局未分块", "logic_basis": "演绎", "fact_confidence": [{"fact": "库级派发有效", "confidence": "high"}]}, "secondary_contradictions": ["调度开销", "数值稳定性"], "critique_ranking": [{"contradiction": "内存布局", "logical_certainty": "高", "rank": 1}], "cell_actions": [{"action": "upweight", "cell": "impl_strategy=blocked_loops|memory_layout=standard", "method": "", "reason": "已证实", "orthogonality": ""}]}
+```
+"""
+
+
+def adjust_pipeline_role(prompt, role):
+    """job_56 task5：adjust 7 步流水线（pipeline 模式）——每步产物落盘
+    （cwd=adjust_dir）+ 步骤 JSON（六字段基座 + 各步契约字段）。"""
+    base = {"valid": True, "score": None, "perf_value": None,
+            "perf_type": None, "perf_desc": None}
+    if role == "adjust_fact":
+        _write("facts.md", """# 事实与期望 · 迭代（e2e mock）
+
+## 1. 现状事实
+- 迭代 1：库级派发 gate_check 通过（已证实）。
+
+## 2. human 期望
+- 深挖分块组织。
+
+## 3. 差距与空白
+- 分块组织方向空白。
+""")
+        base.update({"summary": "e2e：库级派发已证实，分块组织空白",
+                     "facts_path": os.path.abspath("facts.md")})
+        final(base)
+    elif role == "adjust_perspective":
+        _write("perspectives.md", """# 视角记录 · 迭代（e2e mock）
+
+## 视角 1：内存布局（数据局部性）
+- 逻辑链：小矩阵驻 L1 时分块收益大于算法替换（演绎）
+
+## 视角 2：调度开销
+- 逻辑链：归纳
+
+## 视角 3：数值稳定性
+- 逻辑链：归纳
+""")
+        base.update({"summary": "三视角：内存布局/调度开销/数值稳定性",
+                     "perspectives_path": os.path.abspath("perspectives.md"),
+                     "perspectives": ["内存布局视角（数据局部性）",
+                                      "调度开销视角（Python 层循环）",
+                                      "数值稳定性视角（精度换速度边界）"]})
+        final(base)
+    elif role.startswith("adjust_contradiction"):
+        suffix = role.rsplit("_", 1)[-1]
+        try:
+            idx = int(suffix)
+        except ValueError:
+            idx = 1
+        _write("contradiction_%d.md" % idx, """# 矛盾记录 · 视角 %d（e2e mock）
+
+## 1. 活跃约束集
+- 精度容差：活跃
+
+## 2. 影子价格评估
+- 内存布局：高（分块未尝试）
+
+## 3. 主要矛盾
+- 陈述：内存布局未分块
+""" % idx)
+        base.update({"summary": "视角 %d 主要矛盾：内存布局未分块" % idx,
+                     "perspective_index": idx,
+                     "contradiction_path": os.path.abspath(
+                         "contradiction_%d.md" % idx),
+                     "primary_contradiction": "内存布局未分块，局部性收益未释放",
+                     "logic_basis": "库级派发有效（已证实）+ 分块方向空白（演绎）",
+                     "fact_confidence": [{"fact": "库级派发有效",
+                                          "confidence": "high"}]})
+        final(base)
+    elif role == "adjust_judge":
+        _write("judgment.md", """# 主要矛盾判定 · 迭代（e2e mock）
+
+## 3. 主要矛盾
+内存布局未分块（全局性，影子价格最大）。
+
+## 4. 次要矛盾 ×2
+调度开销 / 数值稳定性。
+""")
+        base.update({"summary": "主要矛盾：内存布局未分块",
+                     "judgment_path": os.path.abspath("judgment.md"),
+                     "primary_contradiction": "内存布局未分块，局部性收益未释放",
+                     "secondary_contradictions": ["调度开销（规模依赖）",
+                                                  "数值稳定性（硬约束监控）"],
+                     "critique_ranking": [
+                         {"contradiction": "内存布局",
+                          "logical_certainty": "高（演绎完整）", "rank": 1}]})
+        final(base)
+    elif role == "adjust_reversal":
+        _write("reversal.md", """# 辩证逆转 · 迭代（e2e mock）
+
+## 2. 解决方法
+1. 分块组织（tile=32）——布局约束重新定价为性能杠杆。
+""")
+        base.update({"summary": "逆转：布局约束 → 性能杠杆（分块组织）",
+                     "reversal_path": os.path.abspath("reversal.md"),
+                     "methods": ["分块组织（tile=32）"]})
+        final(base)
+    elif role == "adjust_space":
+        dpath = _extract_rendered_path(prompt, "decisions/iter")
+        if dpath:
+            try:
+                os.makedirs(os.path.dirname(dpath) or ".", exist_ok=True)
+            except OSError:
+                pass
+            _write(dpath, PIPELINE_DECISIONS_MD)
+        base.update({
+            "summary": "e2e：冠军格升权 + 新格提案（分块组织）",
+            "decision_path": dpath or "",
+            "proposals": [
+                {"type": "soft_weight",
+                 "target_cell": "impl_strategy=blocked_loops|memory_layout=standard",
+                 "action": "weight=1.5",
+                 "evidence": "iter 1 库级派发证实有效",
+                 "rule_id": "pipeline_upweight"},
+                {"type": "new_cell", "action": "create",
+                 "descriptor": {"impl_strategy": "blocked_loops",
+                                "memory_layout": "fused_transpose"},
+                 "name": "分块+转置融合",
+                 "method": "tile=32 分块组织 + 转置复用（builder 行动指南："
+                           "将矩阵按 32x32 分块逐块 np.matmul，块间累积；"
+                           "从主要矛盾（内存布局未分块）辩证逆转而来）",
+                 "source_refs": ["decisions（e2e mock 流水线）"],
+                 "orthogonality_rationale": "现有格为整阵直派发；分块+转置"
+                                           "组合未被现有格覆盖",
+                 "evidence": "视角 1 矛盾记录：分块方向空白且影子价格最大",
+                 "rule_id": "pipeline_expand"}],
+            "cell_actions": [
+                {"action": "upweight",
+                 "cell": "impl_strategy=blocked_loops|memory_layout=standard",
+                 "method": "", "reason": "已证实（iter 1）",
+                 "orthogonality": ""}]})
+        final(base)
+    elif role == "adjust_env":
+        dk = _extract_rendered_path(prompt, "domain_knowledge.md")
+        appended = False
+        if dk:
+            try:
+                os.makedirs(os.path.dirname(dk) or ".", exist_ok=True)
+                with open(dk, "a", encoding="utf-8") as f:
+                    f.write("""
+## adjust 实验知识沉淀 · iter（e2e mock）
+- bug：多次计时不取中位 → 结论漂移；解法：中位计时。
+""")
+                appended = True
+            except OSError:
+                pass
+        base.update({"summary": "沉淀 1 条知识 + 1 条验证器提案",
+                     "domain_knowledge_appended": appended,
+                     "env_proposals": [
+                         {"kind": "noise", "title": "计时中位数入 domain_knowledge",
+                          "finding": "iter 1：单次计时波动 ~5%",
+                          "proposal": "benchmark 计时提到 5 次取中位",
+                          "risk": "耗时略增"}]})
+        final(base)
+    else:
+        emit(message_end("user", "按系统提示词完成任务"))
+        emit(message_end("assistant", "unknown pipeline role: %s" % role,
+                         usage(10, 5)))
+        emit({"type": "agent_settled", "reason": "end_turn"})
+
+
 def role_of(prompt_path):
     base = os.path.basename(prompt_path or "")
     if base.startswith("prompt_") and base.endswith(".md"):
@@ -324,6 +514,11 @@ def main():
         emit(message_end("assistant", "维持现状，无提案。",
                          usage(50, 20, cost=0.005)))
         emit({"type": "agent_settled", "reason": "end_turn"})
+    elif role.startswith("adjust_"):
+        # job_56 task5：7 步流水线（adjust_fact/adjust_perspective/
+        # adjust_contradiction_{1..3}/adjust_judge/adjust_reversal/
+        # adjust_space/adjust_env）
+        adjust_pipeline_role(prompt, role)
     elif role == "coding":
         # 迭代8/KR5：TDD 痕迹 + 编码计划 + 实验记录追加（所有分支都写）
         _write("test_solution.py", TEST_SRC)
@@ -1181,6 +1376,149 @@ class TestRecheckTriggers(unittest.TestCase):
         dec_events = [e["payload"] for e in read_events(ws)
                       if e["type"] == "adjust_decision"]
         self.assertTrue(dec_events, "应有 adjust_decision 事件")
+        self.assertTrue(any(p.get("decision_path") for p in dec_events),
+                        "adjust_decision 应携带 decision_path")
+
+
+# --------------------------------------------------------------------------- #
+# 用例 ①b+（job_56 task5）：adjust 7 步流水线全链路 e2e
+# --------------------------------------------------------------------------- #
+
+class TestAdjustPipelineE2E(unittest.TestCase):
+    """job_56 task5 KR-B：adjust 7 步 subagent 流水线全链路。
+
+    真调度器子进程 + mock pi（pipeline 分支）：跑两轮迭代（第二轮边界触发
+    adjust 流水线，与迭代并行；run 收尾 _join_adjust 等完成）——断言：
+    ① events 步骤序列（step1-7，step3 三视角并行 ×3）②步骤产物落盘
+    ③decisions schema 落盘（primary_contradiction/cell_actions）
+    ④humans 提案队列（step7 env_proposals → queue_type=proposal）
+    ⑤cells 权重变化（step6 soft_weight 应用）⑥experiments 行回写。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if _ensure_master_venv() is None:
+            raise unittest.SkipTest("numpy venv 不可用：%s"
+                                    % _MASTER.get("reason", ""))
+        cls.mock_pi = _write_mock_pi(
+            os.path.join(_master_root(), "mock-state-pipeline"))
+
+    def _make(self, tag: str, *, max_iterations: int = 2,
+              adjust_interval: int = 1):
+        ws = os.path.join(_master_root(), "ws-pipeline-%s" % tag)
+        if os.path.exists(ws):
+            shutil.rmtree(ws)
+        state = os.path.join(_master_root(), "mock-state-pipe-%s" % tag)
+        os.makedirs(state, exist_ok=True)
+        for role in ("builder", "coding", "debug", "adjust",
+                     "adjust_fact", "adjust_perspective",
+                     "adjust_contradiction_1", "adjust_contradiction_2",
+                     "adjust_contradiction_3", "adjust_judge",
+                     "adjust_reversal", "adjust_space", "adjust_env"):
+            p = os.path.join(state, role + ".count")
+            if os.path.exists(p):
+                os.unlink(p)
+        env_dir = make_env_dir(ws)
+        make_gates_dir(ws)
+        write_super_json(ws, env_dir, self.mock_pi,
+                         max_iterations=max_iterations,
+                         config_overrides={"adjust_interval": adjust_interval})
+        return ws, state
+
+    def _run(self, ws: str, state: str, *, max_iterations: int = 2) -> None:
+        env = dict(os.environ)
+        env["PYTHONPATH"] = _SUPER
+        env["MOCK_STATE_DIR"] = state
+        env.pop("MOCK_DEBUG_VERDICT", None)
+        env.pop("MOCK_CODING_MODE", None)
+        r = subprocess.run(
+            [sys.executable, "-m", "superopt", "--workdir", ws,
+             "--max-iterations", str(max_iterations)],
+            capture_output=True, text=True, timeout=900, env=env)
+        self.assertEqual(r.returncode, 0, "调度器应自然完成（exit 0）: %s%s"
+                         % (r.stdout[-600:], r.stderr[-1500:]))
+
+    def test_adjust_pipeline_full_round(self):
+        ws, state = self._make("round", max_iterations=2, adjust_interval=1)
+        self._run(ws, state, max_iterations=2)
+        evs = read_events(ws)
+
+        # ① 步骤事件序列：每个 adjust 轮次 7 步全走完（step3 三视角 ×3）
+        # （adjust_interval=1 + max_iterations=2 → 两轮流水线；按 iteration 分组断言）
+        rounds = {}  # type: Dict[Any, List[int]]
+        for e in evs:
+            if e["type"] == "adjust_step_started":
+                it = e["payload"].get("iteration_id")
+                rounds.setdefault(it, []).append(e["payload"]["step"])
+        self.assertTrue(rounds, "应有 adjust_step_started 事件")
+        for it, steps in sorted(rounds.items(), key=lambda kv: str(kv[0])):
+            self.assertEqual(sorted(steps), [1, 2, 3, 3, 3, 4, 5, 6, 7],
+                             "iter %s 的 7 步流水线应完整（step3 三次）：%r"
+                             % (it, steps))
+        ended = [e for e in evs if e["type"] == "adjust_step_ended"]
+        self.assertEqual(len(ended), 9)
+        self.assertTrue(all(e["payload"].get("valid") for e in ended),
+                        "mock 流水线各步应 valid")
+        # step3 并行：三视角 role 均有派发（agent_started 事件）
+        roles = {e["payload"].get("role") for e in evs
+                 if e["type"] == "agent_started"}
+        for r in ("adjust_fact", "adjust_perspective", "adjust_judge",
+                  "adjust_reversal", "adjust_space", "adjust_env"):
+            self.assertIn(r, roles, "角色 %s 应有 agent_started" % r)
+        c_roles = [e["payload"].get("role") for e in evs
+                   if e["type"] == "agent_started"
+                   and str(e["payload"].get("role", "")).startswith(
+                       "adjust_contradiction")]
+        self.assertEqual(len(c_roles), 3, "step3 三视角各一次派发：%r" % c_roles)
+
+        # ② 步骤产物落盘（adjust_dir=codes/adjust/iter_*/）
+        adirs = sorted(glob.glob(os.path.join(ws, "codes", "adjust",
+                                              "iter_*")))
+        self.assertTrue(adirs, "adjust_dir 应存在")
+        adir = adirs[-1]
+        for fname in ("facts.md", "perspectives.md",
+                      "contradiction_1.md", "contradiction_2.md",
+                      "contradiction_3.md", "judgment.md", "reversal.md"):
+            self.assertTrue(os.path.isfile(os.path.join(adir, fname)),
+                            "步骤产物缺失：%s" % fname)
+
+        # ③ decisions schema 落盘（markdown 七节 + 内嵌 schema JSON）
+        dfiles = sorted(glob.glob(os.path.join(ws, "decisions", "iter*.md")))
+        self.assertTrue(dfiles, "decisions/iter{N}.md 应落盘")
+        with open(dfiles[-1], encoding="utf-8") as f:
+            dtext = f.read()
+        for key in ("primary_contradiction", "cell_actions",
+                    "secondary_contradictions", "critique_ranking"):
+            self.assertIn(key, dtext, "decisions schema 缺 %s" % key)
+
+        # ④ humans 提案队列（step7 env_proposals → queue_type=proposal）
+        from superopt.db import db_for_ws as _db_for_ws
+        db = _db_for_ws(ws)
+        proposals = db.pending_proposals()
+        self.assertTrue(proposals, "step7 env_proposals 应入 humans 提案队列")
+        self.assertEqual(proposals[0]["queue_type"], "proposal")
+        self.assertIn("计时中位数", str(proposals[0]["content"]))
+        # 干预队列（intervention）与提案队列隔离
+        self.assertEqual(db.pending_interventions(), [])
+
+        # ⑤ cells 权重变化（step6 soft_weight=1.5 应用）
+        cells = db.load_cells()
+        target = "impl_strategy=blocked_loops|memory_layout=standard"
+        self.assertIn(target, cells, "目标格应在 cells 表：%r" % list(cells))
+        self.assertEqual(float(cells[target].get("weight", 0.0)), 1.5,
+                         "step6 soft_weight=1.5 应应用（实际 %r）"
+                         % cells[target].get("weight"))
+
+        # ⑥ experiments 行回写（record_path/score）
+        rows = db.recent_experiments(5)
+        self.assertTrue(rows, "experiments 表应有行")
+        self.assertTrue(any(r.get("record_path") for r in rows),
+                        "sub loop 应回写 record_path：%r" % rows[:2])
+
+        # ⑦ adjust_decision 事件携带 decision_path
+        dec_events = [e["payload"] for e in evs
+                      if e["type"] == "adjust_decision"]
+        self.assertTrue(dec_events)
         self.assertTrue(any(p.get("decision_path") for p in dec_events),
                         "adjust_decision 应携带 decision_path")
 

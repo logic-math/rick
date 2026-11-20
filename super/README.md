@@ -12,10 +12,10 @@ human ←→ [rick super 中控会话]（super-loop + gen_env skill 默认加载
 [Go PySupervisor] ──Setpgid/文件心跳/kill梯/游标重启──▶ [py 调度器 superopt]（本目录，stdlib-only）
                                                           │ 唯一写者              │ subprocess
                                                           ▼                       ▼  pi --mode json
-                                              [events.jsonl + archive.json]   [agent 池 ×4]
+                                              [super.db sqlite 五表]          [agent 池]
                                                           ▲                       │
                               [级联门 gates.py ◀──────────┴── 框架终验（agent 自检仅参考）]
-                              [干预队列 interventions/ + 外置裁决 adjudicator]
+                              [humans 表两类队列（干预/提案） + 外置裁决 adjudicator]
 ```
 
 - **Go 层**（`internal/super`、`internal/cmd/super.go`）：监督与命令面，不碰进化逻辑
@@ -27,7 +27,7 @@ human ←→ [rick super 中控会话]（super-loop + gen_env skill 默认加载
 
 ```
 super/
-├── superopt/            # py 调度器包（events/archive/sampler/agents/gates/loop/...）
+├── superopt/            # py 调度器包（db/events/archive/sampler/agents/gates/loop/...）
 ├── prompts/             # 4-agent prompt 模板（adjust/builder/coding/debug）
 ├── env_templates/       # env 模板（matmul 为第一个）
 │   └── matmul/          #   env.json/feature_space.json/code//data//skills//domain_knowledge.md
@@ -76,25 +76,53 @@ rick super stop --name demo            # 优雅停（落完当前事件）
 stage3 性能 + 软门禁（K=3 次计时中位数；容差带内通过但标记 `tolerance_band` 触发延迟入库）。
 门禁**阈值全部来自 env.json**，框架零硬编码。
 
-## events.jsonl 事件类型（单写者：py 调度器）
+## super.db（sqlite 五表——job_56 全量 DB 化）
 
-`session_started/ended`、`iteration_started/ended`、`cell_sampled`、`agent_started/ended`、
-`candidate_produced`、`gate_result`、`elite_admitted/elite_replaced`、`weight_changed`、
-`proposal`、`adjudicated`、`invalidation`、`resurrection`、`intervention`、`heartbeat`、
-`env_failure_concluded`——每条 `{ts, seq, type, source, payload}`，append-only + fsync，
-**全系统状态可从事件流重放恢复**（lineage 重建、崩溃游标恢复、北极星计算）。
+进化元信息的**唯一真相源**（py 调度器单写者 + WAL；Go 侧与 tools 只读 SQL）：
 
-## archive.json 概览
+| 表 | 内容 |
+|---|---|
+| `cells` | 特征格（cell_id/name/method_desc 优化方法/best_experiment_id/weight；格状态经 `state_json` 兼容投影） |
+| `experiments` | 实验（experiment_id=`<迭代号>-<YYYYMMDDHHMM>` 时间戳编号=工作目录名/record_path/pi session_id/score/status） |
+| `humans` | 人类价值判断**两类队列**：`intervention` 干预队列（human 提交，adjust step1 注入）+ `proposal` 提案队列（runtime 产出待 human 裁决） |
+| `events` | 系统级事件日志（seq/ts/type/source/experiment_id/payload JSON）——**查此表即感知系统状态变化** |
+| `resources` | 槽位资源（`experiment_slot` 并行实验总上限 / `env_slot` 同环境并发上限——二级限额；调度器仅管资源分配，同环境分时复用是 env 设计责任） |
+
+事件类型沿用 jsonl 时代全集 + v2 新增（`adjust_step_started/ended/degraded`、
+`env_proposal_queued`、`experiment_failed_confirmed` 等）。py 调度器进程锁
+（`env/scheduler.pid` 存活检测）保证一会话一 env 唯一调度器——重启必先回收旧进程。
+旧 json/jsonl 工作区保留不迁移（检测到旧布局 → 明确报错指引新建 env）。
+
+## adjust 7 步 subagent 协议（解空间自改进）
+
+每 `adjust_interval` 迭代触发一次 7 步流水线（每步独立上下文 answer-isolation，
+产物落盘传递；`adjust_mode: legacy` 可回退单 agent 旧模式）：
 
 ```
-{meta: {env, feature_axes, perf_desc, updated_at},
- cells: {<cell_id>: {descriptor, elite: {code_path, perf_value, perf_type, score,
-                lineage, confidence, admitted_at, gen},
-          history: [...], weight, visit, sample_count, last_sampled_at}},
- pending: [{cell_id, code_path, reason, added_at}]}   # 延迟入库队列（重评估前不入正式格）
+①adjust_fact 问题还原   实验记录+humans 未应用干预（human 价值判断）→ facts.md
+②adjust_perspective 视角 3 相关+3 不相关关键词→检索→3 视角（理论解释+归纳/演绎证明）→ perspectives.md
+③adjust_contradiction 矛盾 每视角 1 个并行 subagent → 活跃约束集→影子价格最大约束 → contradiction_{1..3}.md
+④adjust_judge 判定      3 矛盾逻辑审查排序（全局性/根本性/决定性）→ judgment.md
+⑤adjust_reversal 逆转   主要矛盾辩证逆转（阻碍→手段）→ reversal.md
+⑥adjust_space 解空间    格动作（生 new_cell/灭 weight=0/升权/降权 + 2 次要矛盾多样性配权）
+                         → 结构化 proposals JSON（过 pi hook schema 结构检）→ decisions schema 落盘
+⑦adjust_env 实验自改进  bug 解法→直接追加 domain_knowledge.md；skill/验证器反思→humans 提案队列
 ```
 
-精英代码实体在 `codes/{uuid}/`（档案只存引用）；`weight=0` = 功能性灭绝（**不删格**）。
+## 验证金字塔（分层验证——最低成本排除无效解）
+
+`verify`/`benchmark` skill 带**层次验证参数**：`L1-M0`（系统 L1 层 M0 模块单验）/
+`L{n}`（层验证）/`E2E`（端到端）——先分钟级快速验证论证改动有效，再端到端：
+- 实验链（builder 风险推演+可选 L1 预检 → coding 一次写对+自验 → debug 完整四节实验记录）
+  在 **agent 侧**用 L1 级快检自排除无效解（分钟级成本）
+- **框架侧**调度器跑 `env/gates/gate_check.py`（E2E：基于 code 部署→预热→端到端测试）：
+  stdout JSON 携带**多维优化目标**具体值（tp99/qps/ttft/tpot 等指标字典+constraints 约束），
+  **score<0=未通过拒绝，score≥0=通过且为进化分数**（多目标加权平均/融合公式）
+- **debug 主动上报 `experiment_failed: true` → 调度器跳过 E2E 验证**（失败路径加速迭代）
+
+`env/gates/` 目录对 builder/coding/debug **禁读**（superopt-json-guard hook 按
+SUPEROPT_ROLE 拦截——防针对验证器优化作弊）；adjust 可读写（反思验证器）；
+verify/benchmark skill 直接调用 gates/ 内实现。
 
 ## 测试
 

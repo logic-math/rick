@@ -32,6 +32,7 @@ research_report.md；ok_coding 写 test_solution.py + coding_plan.md 并追加�
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -409,10 +410,309 @@ def scenario_ok_debug_failed():
     _emit({"type": "agent_settled", "reason": "end_turn"})
 
 
+def _pipeline_prompt_path():
+    """argv 解析 --append-system-prompt 的 prompt 文件路径（流水线步骤判定锚）。"""
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--append-system-prompt" and i + 1 < len(args):
+            return args[i + 1]
+    return ""
+
+
+def _extract_rendered_path(prompt_path, pattern):
+    """从已渲染 prompt 内容提取真路径（decisions_path / domain_knowledge_path）。
+
+    prompt 是框架渲染后的系统提示词文件：占位符已替换为真路径，
+    mock 用正则从内容里提取（比硬编码路径稳——不依赖 ws 布局）。"""
+    try:
+        with open(prompt_path, encoding="utf-8") as f:
+            m = re.search(pattern, f.read())
+            return m.group(0) if m else None
+    except OSError:
+        return None
+
+
+def _final_payload(step_payload):
+    """六字段基座 + 步骤字段（AgentResult 契约 + 各步模板输出契约）。"""
+    payload = {
+        "valid": True, "score": None, "perf_value": None,
+        "perf_type": None, "perf_desc": None,
+    }
+    payload.update(step_payload)
+    return payload
+
+
+def _emit_final(payload, inp=80, out=25, cost=0.004):
+    fenced = "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
+    _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
+    _emit(_message_end("assistant", "完成：\n" + fenced,
+                       _usage(inp, out, cost_total=cost)))
+    _emit({"type": "agent_settled", "reason": "end_turn"})
+
+
+PIPELINE_FACTS_MD = """# 事实与期望 · 迭代（mock）
+
+## 1. 现状事实（逐实验一行 + 已证伪/已证实假设清单）
+- 迭代 1：库级整阵乘替换逐元素循环，gate_check 通过，runtime_ms 下降（已证实）。
+- 小规模下调用开销主导（已证实，多次计时取中位）。
+
+## 2. human 期望（未应用干预的意图还原）
+- （mock）希望当前格继续深挖分块组织。
+
+## 3. 差距与空白（现状 vs 期望；重复失败模式；空白方向）
+- 分块组织方向尚无实验（空白）。
+"""
+
+PIPELINE_PERSPECTIVES_MD = """# 视角记录 · 迭代（mock）
+
+## 视角 1：内存布局视角——数据局部性主导小矩阵乘性能
+- 关键词：cache blocking（相关）/ 分块（相关）/ 食谱推荐（不相关）
+- 逻辑链：小矩阵驻 L1 时循环重排收益大于算法替换（演绎）。
+- 信源：事实推理
+
+## 视角 2：调度开销视角——Python 层循环开销主导
+- 关键词：python overhead（相关）/ 循环展开（相关）/ 天气预报（不相关）
+- 逻辑链：多次计时中位下降且调用次数未变 → 开销在库内（归纳）。
+- 信源：事实推理
+
+## 视角 3：数值稳定性视角——精度换速度的边界
+- 关键词：float32 精度（相关）/ 容差带（相关）/ 音乐节奏（不相关）
+- 逻辑链：float16 截断被门禁拒 → 精度约束是活跃约束（归纳）。
+- 信源：事实推理
+"""
+
+
+def _pipeline_contradiction_md(idx):
+    return """# 矛盾记录 · 视角 %d（mock）
+
+## 1. 活跃约束集（约束 + 当前状态）
+- 精度容差：活跃（float16 被拒）。
+- 内存带宽：未测（活跃待证）。
+
+## 2. 影子价格评估（各约束的边际收益与理由）
+- 精度容差：低（已满足，放松无收益）。
+- 内存布局：高（分块组织未尝试，预期收益最大）。
+
+## 3. 主要矛盾（影子价格最大的约束）
+- 陈述：内存布局未分块，数据局部性收益未被释放。
+- 证明逻辑：已证实库级派发有效 + 分块组织方向空白（演绎）。
+- 事实置信度：库级派发有效（high）/ 分块收益（medium）。
+""" % idx
+
+
+PIPELINE_JUDGMENT_MD = """# 主要矛盾判定 · 迭代（mock）
+
+## 1. 三矛盾逻辑审查
+- 视角 1（内存布局）：演绎链完整，确定性高。
+- 视角 2（调度开销）：归纳样本单一，确定性中。
+- 视角 3（数值稳定性）：约束已满足非瓶颈，确定性中。
+
+## 2. 排序（全局性/根本性/决定性 + 影子价格论证）
+1. 内存布局（全局性：适用于所有后续迭代）。
+2. 调度开销（局部：依赖规模）。
+3. 数值稳定性（已满足）。
+
+## 3. 主要矛盾（选定理由）
+内存布局未分块：影子价格最大且全局适用。
+
+## 4. 次要矛盾 ×2（保留理由）
+- 调度开销：规模变化时可能上升。
+- 数值稳定性：作为硬约束保留监控。
+"""
+
+PIPELINE_REVERSAL_MD = """# 辩证逆转 · 迭代（mock）
+
+## 1. 主要矛盾的辩证逆转（阻碍 → 手段的重新定价）
+内存未分块是阻碍 → 分块本身是手段：将「布局约束」重新定价为「性能杠杆」。
+
+## 2. 解决方法
+1. 分块组织（tile=32）：消解逻辑——局部性提升；证伪条件——分块后 perf 不降。
+2. 转置复用：消解逻辑——减少跨步读取；证伪条件——无改善。
+"""
+
+
+PIPELINE_DECISIONS_MD = """# adjust 决策记录 · 迭代（mock 流水线）
+
+## 1. 事实与期望（step1 摘要）
+库级派发已证实；human 期望深挖分块组织。
+
+## 2. 视角（step2 三视角）
+内存布局 / 调度开销 / 数值稳定性。
+
+## 3. 矛盾（step3 三矛盾）
+内存布局未分块（主）/ 调度开销（次）/ 数值稳定性（次）。
+
+## 4. 判定（step4 主要/次要）
+主要：内存布局未分块（影子价格最大，全局性）。
+
+## 5. 逆转（step5 方法）
+布局约束 → 性能杠杆：分块组织（tile=32）。
+
+## 6. 格动作（step6 动作+理由）
+冠军格升权 1.5（证实有效）+ 新格「分块组织」（正交性：tile 尺度维度）。
+
+## 7. 实验自改进（step7 摘要）
+沉淀计时中位知识；验证器噪声提案入队列。
+
+```json
+{
+  "primary_contradiction": {"statement": "内存布局未分块，局部性收益未释放",
+    "logic_basis": "库级派发有效 + 分块方向空白（演绎）",
+    "fact_confidence": [{"fact": "库级派发有效", "confidence": "high"}]},
+  "secondary_contradictions": ["调度开销（规模依赖）", "数值稳定性（硬约束监控）"],
+  "perspectives_used": [{"viewpoint": "内存布局（数据局部性）", "source": "事实推理"}],
+  "critique_ranking": [{"contradiction": "内存布局", "logical_certainty": "高", "rank": 1}],
+  "cell_actions": [
+    {"action": "upweight", "cell": "impl=blocked|mem=tiled", "method": "",
+     "reason": "iter 1 证实有效", "orthogonality": ""},
+    {"action": "create", "cell": "impl=tiled|mem=blocked",
+     "method": "tile=32 分块组织", "reason": "主要矛盾解法无格承载",
+     "orthogonality": "tile 尺度维度未被现有格覆盖"}],
+  "saturation_evidence_consumed": ["（mock）无饱和信号注入"]
+}
+```
+"""
+
+
+def scenario_ok_adjust_pipeline():
+    """7 步 adjust 流水线场景（job_56 task5 KR-A）：按 prompt 文件名分派。
+
+    派发侧每步独立 prompt 文件（prompt_adjust_fact.md /
+    prompt_adjust_contradiction_{1..3}.md / …），mock 从 argv 解析
+    --append-system-prompt 的文件名判定步骤；cwd=adjust_dir
+    （codes/adjust/iter_N/），产物落盘 + 六字段基座 JSON。
+    """
+    prompt_path = _pipeline_prompt_path()
+    base = os.path.basename(prompt_path or "")
+    role = base[len("prompt_"):-len(".md")] if (
+        base.startswith("prompt_") and base.endswith(".md")) else ""
+
+    if role == "adjust_fact":
+        _write_text("facts.md", PIPELINE_FACTS_MD)
+        _emit_final(_final_payload({
+            "summary": "现状：库级派发已证实；空白：分块组织",
+            "facts_path": os.path.abspath("facts.md"),
+        }))
+    elif role == "adjust_perspective":
+        _write_text("perspectives.md", PIPELINE_PERSPECTIVES_MD)
+        _emit_final(_final_payload({
+            "summary": "三视角：内存布局/调度开销/数值稳定性",
+            "perspectives_path": os.path.abspath("perspectives.md"),
+            "perspectives": ["内存布局视角（数据局部性）",
+                             "调度开销视角（Python 层循环）",
+                             "数值稳定性视角（精度换速度边界）"],
+        }))
+    elif role.startswith("adjust_contradiction"):
+        m = re.search(r"_(\d+)$", role)
+        idx = int(m.group(1)) if m else 1
+        _write_text("contradiction_%d.md" % idx,
+                    _pipeline_contradiction_md(idx))
+        _emit_final(_final_payload({
+            "summary": "视角 %d 主要矛盾：内存布局未分块" % idx,
+            "perspective_index": idx,
+            "contradiction_path": os.path.abspath(
+                "contradiction_%d.md" % idx),
+            "primary_contradiction": "内存布局未分块，局部性收益未释放",
+            "logic_basis": "库级派发有效（已证实）+ 分块方向空白（演绎）",
+            "fact_confidence": [{"fact": "库级派发有效", "confidence": "high"},
+                                {"fact": "分块收益", "confidence": "medium"}],
+        }))
+    elif role == "adjust_judge":
+        _write_text("judgment.md", PIPELINE_JUDGMENT_MD)
+        _emit_final(_final_payload({
+            "summary": "主要矛盾：内存布局未分块",
+            "judgment_path": os.path.abspath("judgment.md"),
+            "primary_contradiction": "内存布局未分块，局部性收益未释放",
+            "secondary_contradictions": ["调度开销（规模依赖）",
+                                         "数值稳定性（硬约束监控）"],
+            "critique_ranking": [
+                {"contradiction": "内存布局", "logical_certainty": "高（演绎完整）", "rank": 1},
+                {"contradiction": "调度开销", "logical_certainty": "中（样本单一）", "rank": 2},
+                {"contradiction": "数值稳定性", "logical_certainty": "中（已满足）", "rank": 3}],
+        }))
+    elif role == "adjust_reversal":
+        _write_text("reversal.md", PIPELINE_REVERSAL_MD)
+        _emit_final(_final_payload({
+            "summary": "逆转：布局约束 → 性能杠杆（分块组织）",
+            "reversal_path": os.path.abspath("reversal.md"),
+            "methods": ["分块组织（tile=32）", "转置复用"],
+        }))
+    elif role == "adjust_space":
+        # decisions 落盘：从已渲染 prompt 提取 decisions_path（占位符已替换）
+        decisions_path = _extract_rendered_path(
+            prompt_path, r"[\w/.\-]+/decisions/iter\d*(?:_\d+)?\.md")
+        if decisions_path:
+            try:
+                os.makedirs(os.path.dirname(decisions_path) or ".",
+                            exist_ok=True)
+            except OSError:
+                pass
+            _write_text(decisions_path, PIPELINE_DECISIONS_MD)
+        _emit_final(_final_payload({
+            "summary": "主要矛盾（内存布局）→ 新格（分块组织）+ 冠军格升权",
+            "decision_path": decisions_path or "",
+            "proposals": [
+                {"type": "soft_weight", "target_cell": "impl=blocked|mem=tiled",
+                 "action": "weight=1.5", "evidence": "iter 1 库级派发证实有效",
+                 "rule_id": "pipeline_upweight"},
+                {"type": "new_cell", "action": "create",
+                 "descriptor": {"impl": "tiled", "mem": "blocked"},
+                 "name": "分块组织",
+                 "method": "tile=32 分块组织 + 转置复用：将矩阵按 32×32 分块"
+                           "逐块 np.matmul（局部性杠杆），块间累积；从主要矛盾"
+                           "（内存布局未分块）辩证逆转而来（布局约束→性能杠杆）",
+                 "source_refs": ["decisions（mock 流水线）"],
+                 "orthogonality_rationale": "现有格均为整阵直派发（无分块维度）；"
+                                           "分块组织引入 tile 尺度维度，正交",
+                 "evidence": "视角 1 矛盾记录：分块方向空白且影子价格最大",
+                 "rule_id": "pipeline_expand"}],
+            "cell_actions": [
+                {"action": "upweight", "cell": "impl=blocked|mem=tiled",
+                 "method": "", "reason": "库级派发已证实（iter 1）",
+                 "orthogonality": ""},
+                {"action": "create", "cell": "impl=tiled|mem=blocked",
+                 "method": "tile=32 分块组织", "reason": "主要矛盾解法无格承载",
+                 "orthogonality": "tile 尺度维度未被现有格覆盖"}],
+        }))
+    elif role == "adjust_env":
+        # domain_knowledge 追加：从 prompt 提取目标路径
+        dk_path = _extract_rendered_path(
+            prompt_path, r"[\w/.\-]+env/domain_knowledge\.md")
+        appended = False
+        if dk_path:
+            try:
+                os.makedirs(os.path.dirname(dk_path) or ".", exist_ok=True)
+                section = ("\n## adjust 实验知识沉淀 · iter（mock）\n\n"
+                           "- bug：小规模下多次计时不取中位 → 结论漂移；"
+                           "解法：中位数计时（已被 gates 采纳）。\n")
+                mode = "a" if os.path.exists(dk_path) else "w"
+                with open(dk_path, mode, encoding="utf-8") as f:
+                    f.write(section)
+                appended = True
+            except OSError:
+                appended = False
+        _emit_final(_final_payload({
+            "summary": "沉淀 1 条计时中位知识 + 1 条验证器噪声提案",
+            "domain_knowledge_appended": appended,
+            "env_proposals": [
+                {"kind": "noise", "title": "多次计时中位数入 domain_knowledge",
+                 "finding": "iter 1：单次计时波动 ~5%",
+                 "proposal": "benchmark skill 计时次数提到 5 次取中位",
+                 "risk": "耗时略增"}],
+        }))
+    else:
+        # 未知角色：诚实无 JSON 终话（客户端降级——不炸协议）
+        _emit(_message_end("user", "按系统提示词完成任务"))
+        _emit(_message_end("assistant", "（mock）未知步骤角色：%r" % role,
+                           _usage(20, 5, cost_total=0.001)))
+        _emit({"type": "agent_settled", "reason": "end_turn"})
+
+
 SCENARIOS = {
     "ok_builder": scenario_ok_builder,
     "ok_debug": scenario_ok_debug,
     "ok_debug_failed": scenario_ok_debug_failed,
+    "ok_adjust_pipeline": scenario_ok_adjust_pipeline,
     "ok_coding": scenario_ok_coding,
     "zero_usage": scenario_zero_usage,
     "all_zero": scenario_all_zero,
