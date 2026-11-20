@@ -542,6 +542,10 @@ class PiAgentClient:
         # （agent_end 时检查最终回复缺 JSON → sendUserMessage(followUp) 续跑
         # 修复轮，同进程同会话；实测见 job_47 迭代13 验证记录）
         env["SUPEROPT_JSON_GUARD"] = "1"
+        # job_56 task3（KR-E 要点 6）：角色标识注入——json-guard hook 按
+        # 角色白名单（builder/coding/debug）拦截 env/gates/ 禁读 + adjust_space
+        # 的 proposals schema 结构检。缺省（空）= 非 superopt 步骤角色，不拦截。
+        env["SUPEROPT_ROLE"] = str(role or "")
 
         cmd = self._build_cmd(prompt_path, model, session_id, message, resume)
         state = _StreamState()

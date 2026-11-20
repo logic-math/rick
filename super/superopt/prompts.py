@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional
 
 __all__ = [
     "ROLES",
+    "ADJUST_STEP_SEQUENCE",
     "DEFAULT_TEMPLATE_DIR",
     "template_candidates",
     "find_template",
@@ -47,8 +48,26 @@ __all__ = [
     "write_prompt",
 ]
 
-# 四个默认角色（模板查找不限于这四个——env/工作区可自带新角色模板）。
-ROLES = ("adjust", "builder", "coding", "debug")
+# 默认角色（模板查找不限于这些——env/工作区可自带新角色模板）。
+# adjust 7 步流水线角色（job_56 task3）：每步独立上下文、产物落盘传递；
+# adjust 本体保留为 legacy 单 agent 兼容回退（adjust_mode=legacy）。
+ROLES = ("adjust", "adjust_fact", "adjust_perspective",
+         "adjust_contradiction", "adjust_judge", "adjust_reversal",
+         "adjust_space", "adjust_env", "builder", "coding", "debug")
+
+# adjust 流水线步骤序（步骤号 / 角色 / 主产物文件名）——loop.py 调度与
+# 模板目录共用（task3 KR-A；step3 每视角并行 subagent）。None=无固定 md
+# 产物（step6 产 proposals JSON+decisions 落盘；step7 产 domain_knowledge
+# 追加+humans 提案队列写入）。
+ADJUST_STEP_SEQUENCE = (
+    (1, "adjust_fact", "facts.md"),
+    (2, "adjust_perspective", "perspectives.md"),
+    (3, "adjust_contradiction", "contradictions.md"),
+    (4, "adjust_judge", "judgment.md"),
+    (5, "adjust_reversal", "reversal.md"),
+    (6, "adjust_space", None),
+    (7, "adjust_env", None),
+)
 
 # 仓内默认模板目录：super/prompts/（模块位置推导，不依赖 cwd）。
 _SUPEROPT_DIR = os.path.dirname(os.path.abspath(__file__))

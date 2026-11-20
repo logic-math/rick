@@ -59,6 +59,12 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+
+class _PipelineBudgetExhausted(Exception):
+    """adjust 流水线总预算耗尽（job_56 task3）——已完成步骤产物保留，
+    跳至 step6/收尾（保守空提案合成）。"""
+
+
 from superopt.agents import PiAgentClient
 from superopt.archive import Archive
 from superopt.budget import CostLedger
@@ -2140,27 +2146,37 @@ class Scheduler:
     # ------------------------------------------------------------------ #
 
     def _maybe_start_adjust(self) -> None:
-        """边界触发：后台派发 adjust agent（优化空间⑤：与下一迭代并行）。
+        """边界触发：后台派发 adjust 决策层（job_56 task3 双模式）。
 
-        行为约束：同一时刻至多 1 个在飞；在飞未收时到边界不重触发；
-        ctx 组装与 agent_started 事件在主线程（快且共享状态安全），
-        线程只跑 client.run（独立子进程，无共享可变状态）。
+        - ``adjust_mode=pipeline``（默认）：7 步 subagent 串行流水线（step3 每
+          视角并行 subagent）——每步独立上下文、产物落盘传递（answer-isolation）
+        - ``adjust_mode=legacy``：原单 agent 单次调用（兼容回退，deprecated）
+
+        行为约束（两模式共用）：同一时刻至多 1 个在飞；在飞未收时到边界
+        不重触发；线程只跑 client.run 子进程链（无共享可变状态，除 agg
+        聚合器——线程内串行访问，主线程不碰）；agent_started 总事件在
+        主线程（事件序确定性）。
         """
         if self.stop_requested:
             return
         with self._adjust_lock:
             if self._adjust_thread is not None:
                 return  # 在飞未收：不重触发
-        ctx = {
+        iteration_id = self.iteration_cursor
+        adjust_dir = os.path.join(self.codes_dir, "adjust",
+                                  "iter_%d" % iteration_id)
+        os.makedirs(adjust_dir, exist_ok=True)
+        mode = str(self.conf.get("adjust_mode") or "pipeline").strip().lower()
+        if mode not in ("pipeline", "legacy"):
+            mode = "pipeline"
+        # ---- 共享 ctx（两模式共用；legacy 用全集，pipeline 按步分发）----
+        shared = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
             "feature_axes": self.fs.axes,
-            "iteration_id": self.iteration_cursor,
+            "iteration_id": iteration_id,
             "cells_status": self._cells_status(),
-            # 迭代5（env_8 审计 P0）：recent_events 给真值（原实现只给字段名，
-            # 「决策须引用事件证据」的纪律无从执行）；条数 12 → 15
             "recent_events": self._recent_events_summary(15),
-            # 迭代5：饱和信号 + 历史/预算/领域/台账/自己的决策史
             "saturation": self._or_default(self._saturation_signal(), "（未饱和）"),
             "perf_timeline": self._perf_timeline(10),
             "budget_status": self._budget_status(),
@@ -2168,46 +2184,43 @@ class Scheduler:
             "ledger_brief": self._ledger_brief(8),
             "own_decisions": self._or_default(self._own_decisions("adjust", 5), "（暂无历史决策）"),
             "interventions": self._recent_interventions(3),
-            # 迭代6：三要素门禁命令（可选——判断某方向是否还有潜力时可实证）
             "gate_check_cmd": self._element_cmds()["gate_check_cmd"],
-            # 迭代7：检索（role=adjust：创新点/研究趋势；cell 空=全局视野）
             "research_cmd": self._research_cmd("adjust"),
             "research_brief": self._or_default(
                 self._research_brief("adjust"),
                 "（未提供检索指引——跳过检索）"),
-            # ---- 迭代8：四步 loop 的输入（全局实验分析 → SENSE → research → 格管理） ----
-            # 区间：上次 adjust（含）→ 本次（全局实验分析的范围，规格 a）
             "experiment_records": self._or_default(
                 self._experiment_records(self._last_adjust_iter,
                                          self.iteration_cursor),
                 "（区间内尚无实验记录——首轮或 builder 未落盘）"),
-            "experiment_sessions": self._experiment_sessions_count(self._last_adjust_iter, self.iteration_cursor),
+            "experiment_sessions": self._experiment_sessions_count(
+                self._last_adjust_iter, self.iteration_cursor),
             "decision_history": self._or_default(
                 self._decision_history(3), "（暂无历史决策记录）"),
             "cell_descriptions": self._cell_descriptions(),
-            "decisions_path": self._decisions_path(self.iteration_cursor),
+            "decisions_path": self._decisions_path(iteration_id),
+            "adjust_dir": adjust_dir,
         }
-        prompt = render("adjust", self.ws, ctx)
-        # 决策快照按迭代归档（task19：codes/adjust/iter_{N}/，不覆盖写——
-        # 轨迹可回溯是自改进的地基；agent 工作目录与快照同目录）
-        iteration_id = self.iteration_cursor
-        adjust_dir = os.path.join(self.codes_dir, "adjust",
-                                  "iter_%d" % iteration_id)
-        os.makedirs(adjust_dir, exist_ok=True)
-        prompt_path = write_prompt(adjust_dir, "adjust", prompt)
-        # agent_started 在主线程（事件序确定性：started 先于下一迭代的任何事件）
+        # agent_started（总事件，role=adjust——聚合视图；各步另有细粒度
+        # agent_started/adjust_step_* 事件）在主线程（事件序确定性）
         self.events.append("agent_started", {
             "role": "adjust", "iteration_id": iteration_id,
-            "workdir": adjust_dir,
+            "workdir": adjust_dir, "mode": mode,
         }, "scheduler", experiment_id=make_experiment_id("adjust", iteration_id))
-        model = (self.conf.get("agent_models") or {}).get("adjust")
-        timeout_s = int(self.conf.get("agent_timeout_s", 1800))
-        max_turns = self._role_max_turns("adjust")
 
         def _worker():
             try:
-                result = self._call_client("adjust", prompt_path, adjust_dir,
-                                           timeout_s, model, max_turns)
+                if mode == "legacy":
+                    prompt = render("adjust", self.ws, shared)
+                    prompt_path = write_prompt(adjust_dir, "adjust", prompt)
+                    result = self._call_client(
+                        "adjust", prompt_path, adjust_dir,
+                        int(self.conf.get("agent_timeout_s", 1800)),
+                        (self.conf.get("agent_models") or {}).get("adjust"),
+                        self._role_max_turns("adjust"))
+                else:
+                    result = self._run_adjust_pipeline(
+                        adjust_dir, iteration_id, shared)
             except Exception as exc:  # noqa: BLE001 线程绝不向上抛
                 from superopt.agents import AgentResult as _AR
                 result = _AR(role="adjust", valid=False,
@@ -2228,7 +2241,395 @@ class Scheduler:
         self.events.append("adjust_dispatched", {
             "iteration": iteration_id,
             "window_since": iteration_id - old_last,
+            "mode": mode,
         }, "scheduler")
+
+    # ---- adjust 7 步流水线（job_56 task3；pipeline 模式）----
+
+    def _adjust_step_model(self, role: str) -> Optional[str]:
+        """步骤超参数（KR-C）：env.json agent_hyperparams > agent_models 链。
+
+        hyperparams[role] = {model, thinking}：两者都有 → ``--model id:thinking``
+        （pi 官方语法）；仅 model → model；仅 thinking → 无法脱离 model 传递
+        （跟随 agent_models 链，prompt 老化风险由 gen_env 校验提示）；
+        无配置 → agent_models[role] → agent_models["adjust"] → None。
+        """
+        hp = self._load_env_meta().get("agent_hyperparams")
+        h = hp.get(role) if isinstance(hp, dict) and isinstance(
+            hp.get(role), dict) else {}
+        model = str(h.get("model") or "").strip() or None
+        thinking = str(h.get("thinking") or "").strip() or None
+        if model and thinking:
+            return "%s:%s" % (model, thinking)
+        if model:
+            return model
+        am = self.conf.get("agent_models") or {}
+        return am.get(role) or am.get("adjust")
+
+    def _pipeline_step(self, step_no: int, role: str, ctx: Dict[str, Any],
+                       adjust_dir: str, iteration_id: int,
+                       step_timeout: int, deadline: float,
+                       agg: Dict[str, Any],
+                       prompt_suffix: str = "") -> Any:
+        """单步派发（含事件与降级）：render → write_prompt → client.run。
+
+        prompt_suffix：步骤内并行的文件名隔离（step3 每视角
+        ``_{index}``——同 role 并行写 prompt_{role}.md 会覆盖冲突）。
+
+        失败降级（KR-A）：跳过+默认值继续+``adjust_step_degraded`` 事件记账
+        （不整链重跑）；总预算耗尽 → 抛 _PipelineBudgetExhausted 由调用方收尾。
+        events.append 线程安全（EventWriter 复用 DB 实例锁——task1）。
+        """
+        from superopt.agents import AgentResult as _AR
+        try:
+            remaining = deadline - time.time()
+            if remaining <= 120:
+                raise _PipelineBudgetExhausted(
+                    "adjust 总预算耗尽（剩余 %.0fs）——跳至收尾" % remaining)
+            timeout = int(min(step_timeout, remaining))
+            prompt = render(role, self.ws, ctx)
+            prompt_role = ("%s%s" % (role, prompt_suffix)) if prompt_suffix else role
+            prompt_path = write_prompt(adjust_dir, prompt_role, prompt)
+            self.events.append("adjust_step_started", {
+                "step": step_no, "role": role,
+                "iteration_id": iteration_id,
+            }, "scheduler", experiment_id=make_experiment_id(
+                role, iteration_id))
+            self.events.append("agent_started", {
+                "role": role, "iteration_id": iteration_id,
+                "workdir": adjust_dir, "step": step_no,
+            }, "scheduler", experiment_id=make_experiment_id(
+                role, iteration_id))
+            result = self._call_client(
+                role, prompt_path, adjust_dir, timeout,
+                self._adjust_step_model(role), self._role_max_turns(role))
+            ep_payload = result.to_payload()
+            # agent_ended 必填字段（events.py 校验）：iteration_id（原管道由
+            # _collect_adjust/_dispatch_agent 在 append 前补——流水线同构）
+            ep_payload["iteration_id"] = iteration_id
+            ep_payload["step"] = step_no
+            self.events.append("agent_ended", ep_payload,
+                               "scheduler",
+                               experiment_id=make_experiment_id(
+                                   role, iteration_id))
+            self.events.append("adjust_step_ended", {
+                "step": step_no, "role": role,
+                "valid": bool(result.valid),
+                "wall_ms": int(result.wall_ms or 0),
+            }, "scheduler", experiment_id=make_experiment_id(
+                role, iteration_id))
+            # 聚合（agg 仅本流水线线程访问——step3 并行子线程也只写自己段）
+            u = result.usage or {}
+            agg["wall_ms"] += float(result.wall_ms or 0)
+            agg["tokens"] += float(u.get("total_tokens", 0) or 0)
+            agg["cost_usd"] += float(u.get("cost_usd", 0) or 0)
+            agg["tool_calls"] += float(len(result.tool_calls or []))
+            agg["truncated"] = agg["truncated"] or bool(result.truncated)
+            if not result.valid:
+                agg["valid"] = False
+            return result
+        except _PipelineBudgetExhausted:
+            raise
+        except Exception as exc:  # noqa: BLE001 单步失败不杀流水线
+            self.events.append("adjust_step_degraded", {
+                "step": step_no, "role": role,
+                "reason": str(exc)[:300],
+            }, "scheduler", experiment_id=make_experiment_id(
+                role, iteration_id))
+            agg["degraded_steps"] = agg.get("degraded_steps", 0) + 1
+            return _AR(role=role, valid=False,
+                       summary="step degraded: %s" % exc)
+
+    def _hindsight_evidence(self) -> List[Dict[str, Any]]:
+        """上轮 adjust 决策的事后验证（KR-G）——主要矛盾判断对错的证据。
+
+        读 super.db events 表：最近一次 adjust_decision 的 proposals digest →
+        对每个 target cell 查该决策之后的采样/入格/权重事件 →
+        被升权格后续产出 / 被杀格事后引用 / 新格存活，注入下轮 step1 ctx。
+        """
+        try:
+            evs = self.db.read_events()
+        except Exception:  # noqa: BLE001 事后验证是辅助证据——失败不炸主链
+            return []
+        last_seq = None
+        proposals = []  # type: List[Dict[str, Any]]
+        for e in reversed(evs):
+            if e.get("type") == "adjust_decision":
+                last_seq = int(e.get("seq") or 0)
+                pd = (e.get("payload") or {}).get("proposals")
+                if isinstance(pd, list):
+                    proposals = [p for p in pd if isinstance(p, dict)]
+                break
+        if last_seq is None:
+            return []
+        # 决策后事件索引（cell_id → 采样/入格计数）
+        sampled = {}  # type: Dict[str, int]
+        admitted = {}  # type: Dict[str, int]
+        for e in evs:
+            if int(e.get("seq") or 0) <= last_seq:
+                continue
+            p = e.get("payload") or {}
+            cid = p.get("cell_id")
+            if not cid:
+                continue
+            if e.get("type") == "cell_sampled":
+                sampled[cid] = sampled.get(cid, 0) + 1
+            elif e.get("type") in ("elite_admitted", "elite_replaced"):
+                admitted[cid] = admitted.get(cid, 0) + 1
+        out = []
+        for p in proposals:
+            cell = p.get("target_cell") or ""
+            if not cell:
+                d = p.get("descriptor")
+                if isinstance(d, dict):
+                    cell = "|".join("%s=%s" % kv for kv in sorted(d.items()))
+            if not cell:
+                continue
+            action = str(p.get("action") or p.get("type") or "")
+            out.append({
+                "cell": cell, "last_action": action,
+                "subsequent_sampled": sampled.get(cell, 0),
+                "subsequent_admitted": admitted.get(cell, 0),
+                # 语义：升权后无产出=判断存疑；杀格后被采样=误杀候选；
+                # 新格存活=方向正确（下游编码事实由 step1 归纳）
+            })
+        return out
+
+    def _run_adjust_pipeline(self, adjust_dir: str, iteration_id: int,
+                             shared: Dict[str, Any]) -> Any:
+        """7 步流水线主体（线程内执行；输出合成 AgentResult role=adjust）。
+
+        步骤串行（step3 每 perspective 并行 subagent）；产物落盘传递
+        （answer-isolation）；step6 的 proposals 是下游消费管道的输入
+        （_collect_adjust 的 proposals 应用/裁决链零改动）；step7 在
+        step6 后执行（env 知识沉淀+提案入队，不阻塞 proposals）。
+        """
+        from superopt.agents import AgentResult as _AR
+        agg = {"wall_ms": 0.0, "tokens": 0.0, "cost_usd": 0.0,
+               "tool_calls": 0.0, "truncated": False, "valid": True,
+               "degraded_steps": 0}  # type: Dict[str, Any]
+        step_timeout = max(60, int(self.conf.get("adjust_step_timeout_s", 900)))
+        deadline = time.time() + max(
+            120, int(self.conf.get("adjust_total_timeout_s", 5400)))
+        briefs = []  # type: List[Dict[str, Any]]
+        try:
+            # ---- step1 问题还原（humans 表未应用干预 = human 价值判断）----
+            pi = []  # type: List[Dict[str, Any]]
+            try:
+                pi = self.db.pending_interventions()
+            except Exception:  # noqa: BLE001 humans 表是期望锚点——失败降级
+                pass
+            ctx1 = {**shared,
+                    "pending_interventions": self._or_default(
+                        pi, "（无未应用干预）"),
+                    "hindsight_evidence": self._or_default(
+                        self._hindsight_evidence(), "（首轮——无事后验证证据）")}
+            r1 = self._pipeline_step(1, "adjust_fact", ctx1, adjust_dir,
+                                     iteration_id, step_timeout, deadline, agg)
+            facts_path = str((r1.data or {}).get("facts_path") or
+                             os.path.join(adjust_dir, "facts.md"))
+            briefs.append({"step": 1, "role": "adjust_fact",
+                           "valid": bool(r1.valid),
+                           "summary": str(r1.summary or "")[:200]})
+
+            # ---- step2 视角生成（启发式跳跃点）----
+            ctx2 = {"task": shared["task"],
+                    "iteration_id": iteration_id,
+                    "facts_path": facts_path,
+                    "research_brief": shared["research_brief"],
+                    "research_cmd": shared["research_cmd"],
+                    "adjust_dir": adjust_dir}
+            r2 = self._pipeline_step(2, "adjust_perspective", ctx2,
+                                     adjust_dir, iteration_id, step_timeout,
+                                     deadline, agg)
+            perspectives_path = str((r2.data or {}).get(
+                "perspectives_path") or os.path.join(
+                    adjust_dir, "perspectives.md"))
+            perspectives = (r2.data or {}).get("perspectives")
+            if not isinstance(perspectives, list) or not perspectives:
+                # 降级默认：三占位视角（step3/step4 仍可跑——事实视角兜底）
+                perspectives = ["（视角降级默认——step2 失败，基于事实直判）"
+                                "视角 A", "视角 B（同上）", "视角 C（同上）"]
+            perspectives = [str(p) for p in perspectives][:3]
+            while len(perspectives) < 3:
+                perspectives.append("（视角 %d 降级默认）" % (len(perspectives) + 1))
+            briefs.append({"step": 2, "role": "adjust_perspective",
+                           "valid": bool(r2.valid),
+                           "perspectives": perspectives})
+
+            # ---- step3 矛盾生成（每视角 1 个并行 subagent）----
+            step3_results = [None] * len(perspectives)
+
+            def _run_one(idx: int, perspective: str) -> None:
+                ctx3 = {"task": shared["task"],
+                        "iteration_id": iteration_id,
+                        "perspective_index": idx + 1,
+                        "perspective": perspective,
+                        "facts_path": facts_path,
+                        "perspectives_path": perspectives_path,
+                        "adjust_dir": adjust_dir}
+                step3_results[idx] = self._pipeline_step(
+                    3, "adjust_contradiction", ctx3, adjust_dir,
+                    iteration_id, step_timeout, deadline, agg,
+                    prompt_suffix="_%d" % (idx + 1))
+
+            ths = [threading.Thread(target=_run_one, args=(i, p),
+                                    name="superopt-adjust-c%d" % (i + 1),
+                                    daemon=True)
+                   for i, p in enumerate(perspectives)]
+            for t in ths:
+                t.start()
+            for t in ths:
+                t.join()
+            contradictions_brief = []  # type: List[Dict[str, Any]]
+            for i, r3 in enumerate(step3_results):
+                d = (r3.data or {}) if r3 is not None else {}
+                contradictions_brief.append({
+                    "perspective_index": i + 1,
+                    "perspective": perspectives[i],
+                    "primary_contradiction": d.get("primary_contradiction")
+                    or "（该视角矛盾生成失败降级）",
+                    "logic_basis": d.get("logic_basis") or "",
+                })
+            briefs.append({"step": 3, "role": "adjust_contradiction",
+                           "parallel": len(perspectives),
+                           "contradictions": contradictions_brief})
+
+            # ---- step4 主要矛盾判断 ----
+            ctx4 = {"task": shared["task"],
+                    "iteration_id": iteration_id,
+                    "contradiction_path_1": os.path.join(
+                        adjust_dir, "contradiction_1.md"),
+                    "contradiction_path_2": os.path.join(
+                        adjust_dir, "contradiction_2.md"),
+                    "contradiction_path_3": os.path.join(
+                        adjust_dir, "contradiction_3.md"),
+                    "contradictions_brief": contradictions_brief,
+                    "facts_path": facts_path,
+                    "decision_history": shared["decision_history"],
+                    "adjust_dir": adjust_dir}
+            r4 = self._pipeline_step(4, "adjust_judge", ctx4, adjust_dir,
+                                     iteration_id, step_timeout, deadline, agg)
+            judgment_path = str((r4.data or {}).get("judgment_path") or
+                                os.path.join(adjust_dir, "judgment.md"))
+            judgment_brief = {
+                "primary_contradiction": (r4.data or {}).get(
+                    "primary_contradiction") or "（判定降级——step4 失败）",
+                "secondary_contradictions": (r4.data or {}).get(
+                    "secondary_contradictions") or [],
+                "summary": str(r4.summary or "")[:200],
+            }
+            briefs.append({"step": 4, "role": "adjust_judge",
+                           "valid": bool(r4.valid), "judgment": judgment_brief})
+
+            # ---- step5 辩证逆转 ----
+            ctx5 = {"task": shared["task"],
+                    "iteration_id": iteration_id,
+                    "judgment_path": judgment_path,
+                    "judgment_brief": judgment_brief,
+                    "facts_path": facts_path,
+                    "adjust_dir": adjust_dir}
+            r5 = self._pipeline_step(5, "adjust_reversal", ctx5, adjust_dir,
+                                     iteration_id, step_timeout, deadline, agg)
+            reversal_brief = {
+                "methods": (r5.data or {}).get("methods") or [],
+                "summary": str(r5.summary or "")[:200],
+            }
+            briefs.append({"step": 5, "role": "adjust_reversal",
+                           "valid": bool(r5.valid), "reversal": reversal_brief})
+
+            # ---- step6 解空间自改进（输出步：proposals）----
+            ctx6 = {"task": shared["task"],
+                    "perf_desc": self.perf_desc,
+                    "iteration_id": iteration_id,
+                    "judgment_brief": judgment_brief,
+                    "reversal_brief": reversal_brief,
+                    "feature_axes": shared["feature_axes"],
+                    "cells_status": shared["cells_status"],
+                    "cell_descriptions": shared["cell_descriptions"],
+                    "decisions_path": shared["decisions_path"],
+                    "adjust_dir": adjust_dir}
+            r6 = self._pipeline_step(6, "adjust_space", ctx6, adjust_dir,
+                                     iteration_id, step_timeout, deadline, agg)
+            proposals = (r6.data or {}).get("proposals")
+            if not isinstance(proposals, list):
+                proposals = []
+            briefs.append({"step": 6, "role": "adjust_space",
+                           "valid": bool(r6.valid),
+                           "n_proposals": len(proposals)})
+        except _PipelineBudgetExhausted as exc:
+            # 总预算耗尽：已完成步骤产物保留；step6 未跑 → 保守空提案合成
+            briefs.append({"step": 0, "role": "pipeline",
+                           "degraded": "budget_exhausted",
+                           "reason": str(exc)[:200]})
+            proposals = []
+            r6 = None  # type: ignore
+        # ---- step7 实验自改进（env 沉淀+提案；预算外也尽力跑——快步）----
+        env_proposals = []  # type: List[Dict[str, Any]]
+        try:
+            ctx7 = {"task": shared["task"],
+                    "iteration_id": iteration_id,
+                    "experiment_records": shared["experiment_records"],
+                    "recent_events": shared["recent_events"],
+                    "domain_knowledge_path": os.path.join(
+                        self.env_dir, "domain_knowledge.md"),
+                    "hindsight_evidence": self._or_default(
+                        self._hindsight_evidence(), "（无）"),
+                    "adjust_dir": adjust_dir}
+            r7 = self._pipeline_step(7, "adjust_env", ctx7, adjust_dir,
+                                     iteration_id, step_timeout, deadline, agg)
+            ep = (r7.data or {}).get("env_proposals")
+            if isinstance(ep, list):
+                env_proposals = [p for p in ep if isinstance(p, dict)]
+            briefs.append({"step": 7, "role": "adjust_env",
+                           "valid": bool(r7.valid),
+                           "n_env_proposals": len(env_proposals),
+                           "domain_knowledge_appended": bool(
+                               (r7.data or {}).get("domain_knowledge_appended"))})
+        except _PipelineBudgetExhausted:
+            briefs.append({"step": 7, "role": "adjust_env",
+                           "degraded": "budget_exhausted"})
+        except Exception as exc:  # noqa: BLE001
+            briefs.append({"step": 7, "role": "adjust_env",
+                           "degraded": str(exc)[:200]})
+        # env_proposals → humans 表提案队列（queue_type=proposal；KR-B）
+        for p in env_proposals:
+            try:
+                self.db.push_proposal({
+                    "title": str(p.get("title") or "")[:200],
+                    "kind": str(p.get("kind") or "skill"),
+                    "finding": str(p.get("finding") or "")[:2000],
+                    "proposal": str(p.get("proposal") or "")[:2000],
+                    "risk": str(p.get("risk") or "")[:1000],
+                    "iteration": iteration_id,
+                })
+                self.events.append("env_proposal_queued", {
+                    "iteration": iteration_id,
+                    "kind": p.get("kind"), "title": p.get("title"),
+                }, "scheduler")
+            except Exception:  # noqa: BLE001 提案入队失败不炸流水线
+                pass
+        # ---- 合成 AgentResult（role=adjust——_collect_adjust 消费管道零改动）----
+        data = {
+            "proposals": proposals,
+            "decision_path": shared["decisions_path"],
+            "pipeline": {
+                "mode": "pipeline",
+                "steps": briefs,
+                "degraded_steps": agg.get("degraded_steps", 0),
+            },
+        }
+        return _AR(
+            role="adjust",
+            valid=bool(agg["valid"]) and (r6 is not None and r6.valid),
+            summary=str((r6.summary if r6 is not None else "") or
+                        "adjust pipeline（预算耗尽降级——空提案）")[:500],
+            data=data,
+            wall_ms=int(agg["wall_ms"]),
+            usage={"input_tokens": 0, "output_tokens": 0,
+                   "total_tokens": int(agg["tokens"]),
+                   "cost_usd": float(agg["cost_usd"])},
+            tool_calls=[], truncated=bool(agg["truncated"]))
 
     def _collect_adjust(self) -> None:
         """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。
@@ -2271,7 +2672,11 @@ class Scheduler:
         payload = pending.to_payload()
         payload["iteration_id"] = iteration_id
         # prompt 物证：本轮快照目录（iter_N）下的 prompt_adjust.md
+        # prompt 物证：legacy=prompt_adjust.md；pipeline=各步 prompt_adjust_*.md
+        # （adjust_dir 内）——目录本身即快照根（prompt_path 指向目录）
         payload["prompt_path"] = os.path.join(adjust_dir, "prompt_adjust.md")
+        if not os.path.isfile(payload["prompt_path"]):
+            payload["prompt_path"] = adjust_dir
         self.events.append("agent_ended", payload, "scheduler",
                            experiment_id=make_experiment_id("adjust",
                                                             iteration_id))
@@ -2298,7 +2703,9 @@ class Scheduler:
         # 框架按提案合成最小记录（标注 framework_synthesized），保证
         # 「每次决策都有可解释档案」不被 agent 的疏漏破坏
         decision_path = self._ensure_decision_file(
-            iteration_id, proposals, bool(pending.valid))
+            iteration_id, proposals, bool(pending.valid),
+            pipeline=(pending.data or {}).get("pipeline")
+            if isinstance(pending.data, dict) else None)
         # adjust_decision 事件（task19）：结构化决策日志——输入（cells_status
         # 摘要）+ 输出（proposals 摘要）同帧落事件流；自改进分析（adjust_trace）
         # 与崩溃恢复均可消费
@@ -3119,18 +3526,95 @@ class Scheduler:
         return out
 
     def _ensure_decision_file(self, iteration_id: int,
-                              proposals: List[Any], valid: bool) -> str:
-        """决策记录保底（KR3）：agent 未落盘 → 框架按提案合成最小记录。
+                              proposals: List[Any], valid: bool,
+                              pipeline: Optional[Dict[str, Any]] = None) -> str:
+        """决策记录保底（KR3/KR-F）：agent 未落盘 → 框架按提案合成最小记录。
 
+        pipeline 模式（job_56 task3）：七节骨架 + 内嵌 schema JSON（从流水线
+        briefs 提取——上游步骤产物已落盘，schema 块按步骤摘要合成）。
         返回 decisions 文件路径（存在即返回；不存在则合成后返回）。
         """
         path = self._decisions_path(iteration_id)
         if os.path.isfile(path):
             return path
-        lines = ["# adjust 决策记录 · 迭代 %d" % iteration_id, "",
-                 "> framework_synthesized: true"
-                 "（agent 未落盘决策记录，框架按提案合成）", "",
-                 "- agent_valid: %s" % bool(valid), "", "## 动作"]
+        steps = ((pipeline or {}).get("steps")) or []
+        def _step_brief(step_no: int, key: str, default: str = "（步骤降级/未产出）") -> str:
+            for s in steps:
+                if s.get("step") == step_no:
+                    v = s.get(key)
+                    return str(v) if v not in (None, "") else default
+            return default
+        judgment = {}
+        for s in steps:
+            if s.get("step") == 4:
+                judgment = s.get("judgment") or {}
+                break
+        schema = {
+            "primary_contradiction": {
+                "statement": judgment.get("primary_contradiction")
+                or "（框架合成——step4 未产出）",
+                "logic_basis": _step_brief(4, "summary", ""),
+                "fact_confidence": [],
+            },
+            "secondary_contradictions": judgment.get(
+                "secondary_contradictions") or [],
+            "perspectives_used": [
+                {"viewpoint": p.get("perspective"), "source": "pipeline step2"}
+                for p in steps if p.get("step") == 3
+                for _ in [p]  # noqa: FURB118
+            ][:0] or [
+                {"viewpoint": str(c.get("perspective")),
+                 "source": "pipeline step3"}
+                for s in steps if s.get("step") == 3
+                for c in (s.get("contradictions") or [])
+            ],
+            "critique_ranking": [
+                {"contradiction": c.get("primary_contradiction"),
+                 "logical_certainty": c.get("logic_basis") or "",
+                 "rank": i + 1}
+                for s in steps if s.get("step") == 3
+                for i, c in enumerate(s.get("contradictions") or [])
+            ],
+            "cell_actions": [
+                {"action": {"new_cell": "create", "soft_weight": "upweight"}.get(
+                    str(p.get("type")), str(p.get("action") or "adjust")),
+                 "cell": p.get("target_cell") or p.get("descriptor") or "",
+                 "reason": str(p.get("evidence") or p.get("rationale") or "")[:300]}
+                for p in proposals if isinstance(p, dict)
+            ],
+            "saturation_evidence_consumed": [],
+        }
+        lines = [
+            "# adjust 决策记录 · 迭代 %d" % iteration_id, "",
+            "> framework_synthesized: true"
+            "（agent 未落盘决策记录，框架按提案与流水线步骤摘要合成）", "",
+            "- agent_valid: %s" % bool(valid),
+            "- mode: %s" % ((pipeline or {}).get("mode") or "legacy"), "",
+            "## 1. 事实与期望（step1 摘要）", "",
+            "- %s" % _step_brief(1, "summary"), "",
+            "## 2. 视角（step2/step3 摘要）", "",
+        ]
+        for s in steps:
+            if s.get("step") == 3:
+                for i, c in enumerate(s.get("contradictions") or []):
+                    lines.append("- 视角 %d：%s" % (
+                        i + 1, str(c.get("perspective"))[:150]))
+        lines += ["", "## 3. 矛盾（step3 摘要）", ""]
+        for s in steps:
+            if s.get("step") == 3:
+                for i, c in enumerate(s.get("contradictions") or []):
+                    lines.append("- 矛盾 %d：%s" % (
+                        i + 1, str(c.get("primary_contradiction"))[:200]))
+        lines += [
+            "", "## 4. 判定（step4 摘要）", "",
+            "- 主要矛盾：%s" % str(
+                judgment.get("primary_contradiction") or "（降级）")[:300],
+            "- 次要矛盾：%s" % str(
+                judgment.get("secondary_contradictions") or [])[:300], "",
+            "## 5. 逆转（step5 摘要）", "",
+            "- %s" % _step_brief(5, "summary"), "",
+            "## 6. 格动作", "",
+        ]
         if not proposals:
             lines.append("- （无提案）")
         for p in proposals:
@@ -3143,6 +3627,12 @@ class Scheduler:
             ev = p.get("evidence") or p.get("rationale")
             if ev:
                 lines.append("  - 依据：%s" % str(ev)[:300])
+        lines += ["", "## 7. 实验自改进（step7 摘要）", "",
+                  "- %s" % _step_brief(7, "summary"), "",
+                  "## schema（机器可读——adjust_trace/Step7 复盘消费）", "",
+                  "```json",
+                  json.dumps(schema, ensure_ascii=False, indent=2),
+                  "```", ""]
         try:
             os.makedirs(self.decisions_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:

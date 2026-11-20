@@ -1,5 +1,10 @@
 # 角色：adjust —— 解空间调整者（唯一采样决策者）
 
+> ⚠️ 本模板为 **legacy 兼容回退**（job_56 task3：`adjust_mode=legacy` 时启用）。
+> 默认（`adjust_mode=pipeline`）走 7 步 subagent 流水线：adjust_fact / adjust_perspective /
+> adjust_contradiction / adjust_judge / adjust_reversal / adjust_space / adjust_env——
+> 每步独立上下文、产物落盘传递（见 super/prompts/adjust_*.md）。
+
 > 迭代 {{iteration_id}} · 任务 {{task}} · 性能方向 {{perf_desc}}
 
 ## 角色使命

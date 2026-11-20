@@ -204,7 +204,43 @@ class TestDefaultTemplateContracts(unittest.TestCase):
             return f.read()
 
     def test_roles_constant(self):
-        self.assertEqual(ROLES, ("adjust", "builder", "coding", "debug"))
+        # job_56 task3：7 步流水线角色加入（adjust 保留为 legacy 回退）
+        self.assertEqual(ROLES[:8], (
+            "adjust", "adjust_fact", "adjust_perspective",
+            "adjust_contradiction", "adjust_judge", "adjust_reversal",
+            "adjust_space", "adjust_env"))
+        self.assertEqual(ROLES[8:], ("builder", "coding", "debug"))
+
+    def test_adjust_step_sequence(self):
+        """job_56 task3：7 步序列结构（步骤号/角色/产物）——调度与模板同源。"""
+        from superopt.prompts import ADJUST_STEP_SEQUENCE
+        self.assertEqual(len(ADJUST_STEP_SEQUENCE), 7)
+        self.assertEqual([r for _, r, _ in ADJUST_STEP_SEQUENCE], [
+            "adjust_fact", "adjust_perspective", "adjust_contradiction",
+            "adjust_judge", "adjust_reversal", "adjust_space", "adjust_env"])
+        self.assertEqual([k for k, _, _ in ADJUST_STEP_SEQUENCE],
+                         [1, 2, 3, 4, 5, 6, 7])
+
+    def test_adjust_pipeline_step_templates_keywords(self):
+        """7 步模板的关键契约：产物落盘 + JSON 块 + 核心语义。"""
+        checks = {
+            "adjust_fact": ("facts.md", "pending_interventions",
+                            "hindsight_evidence", "事实与期望"),
+            "adjust_perspective": ("perspectives.md", "perspectives",
+                                   "不相关", "归纳或演绎"),
+            "adjust_contradiction": ("contradiction_{{perspective_index}}.md",
+                                     "活跃约束集", "影子价格", "perspective_index"),
+            "adjust_judge": ("judgment.md", "全局性", "根本性", "决定性"),
+            "adjust_reversal": ("reversal.md", "辩证逆转", "methods"),
+            "adjust_space": ("proposals", "orthogonality_rationale",
+                             "decisions_path", "次要矛盾"),
+            "adjust_env": ("domain_knowledge_path", "env_proposals",
+                           "只追加"),
+        }
+        for role, kws in checks.items():
+            s = self._tpl(role)
+            for kw in kws:
+                self.assertIn(kw, s, "%s 缺 %r" % (role, kw))
 
     def test_adjust_keywords(self):
         s = self._tpl("adjust")

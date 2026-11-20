@@ -274,6 +274,9 @@ class LoopTestBase(unittest.TestCase):
             "preverify_red": False,
             "config": {
                 "adjust_interval": 0,       # 测试默认关掉 adjust
+                # job_56 task3：旧 adjust 测试默认 legacy（旧单 agent 语义
+                # 回归）；pipeline 行为由 TestAdjustPipeline 显式开
+                "adjust_mode": "legacy",
                 "debug_max_attempts": 3,
                 "soft_gate_k": 3,
                 "heartbeat_interval_s": 0,  # 每迭代都写心跳（测试可断言）
@@ -528,6 +531,212 @@ class TestDebugLoop(LoopTestBase):
 # --------------------------------------------------------------------------- #
 # ⑤ adjust 软/硬动作
 # --------------------------------------------------------------------------- #
+
+class TestAdjustPipeline(LoopTestBase):
+    """job_56 task3：adjust 7 步 subagent 流水线（pipeline 模式）。"""
+
+    _BASE = {"valid": True, "score": None, "perf_value": None,
+             "perf_type": None, "perf_desc": None}
+
+    def _queue_pipeline(self, proposals: List[Dict[str, Any]],
+                        perspectives: Optional[List[str]] = None,
+                        env_proposals: Optional[List[Dict[str, Any]]] = None,
+                        skip_roles: Optional[List[str]] = None) -> None:
+        """queue 7 步角色脚本（skip_roles 留空脚本 → FakeClient 报错 → 降级）。"""
+        skip = set(skip_roles or [])
+        ps = perspectives or ["视角A：算法复杂度主导", "视角B：内存带宽主导",
+                              "视角C：运行时调度主导"]
+        if "adjust_fact" not in skip:
+            self.client.queue("adjust_fact", [_agent_result("adjust_fact", {
+                "facts_path": os.path.join(self.ws, "codes", "adjust",
+                                           "iter_1", "facts.md"),
+                "summary": "事实与期望", **self._BASE})])
+        if "adjust_perspective" not in skip:
+            self.client.queue("adjust_perspective", [_agent_result(
+                "adjust_perspective", {
+                    "perspectives": ps, "summary": "三视角", **self._BASE})])
+        if "adjust_contradiction" not in skip:
+            self.client.queue("adjust_contradiction", [
+                _agent_result("adjust_contradiction", {
+                    "perspective_index": i, "primary_contradiction": "矛盾%d" % i,
+                    "logic_basis": "演绎链%d" % i, "summary": "m%d" % i,
+                    **self._BASE})
+                for i in (1, 2, 3)])
+        if "adjust_judge" not in skip:
+            self.client.queue("adjust_judge", [_agent_result("adjust_judge", {
+                "primary_contradiction": "主矛盾：瓶颈在访存",
+                "secondary_contradictions": ["次矛盾1：分支预测", "次矛盾2：向量化率"],
+                "summary": "判定", **self._BASE})])
+        if "adjust_reversal" not in skip:
+            self.client.queue("adjust_reversal", [_agent_result("adjust_reversal", {
+                "methods": ["分块重构提离寄存器压力"], "summary": "逆转",
+                **self._BASE})])
+        if "adjust_space" not in skip:
+            self.client.queue("adjust_space", [_agent_result("adjust_space", {
+                "proposals": proposals, "summary": "格动作", **self._BASE})])
+        if "adjust_env" not in skip:
+            self.client.queue("adjust_env", [_agent_result("adjust_env", {
+                "env_proposals": env_proposals or [],
+                "domain_knowledge_appended": False, "summary": "沉淀",
+                **self._BASE})])
+
+    def test_pipeline_steps_order_and_proposals_applied(self):
+        """7 步串行（step3 并行 3 视角）+ proposals 沿用下游应用管道。"""
+        target = self.fs_all_cells()[0]
+        self._queue_pipeline([
+            {"type": "soft_weight", "target_cell": target,
+             "action": "weight 2.0", "evidence": "iter 1 访存矛盾",
+             "rule_id": "R1"}])
+        self.gate.queue(_gate_pass())
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1,
+            "adjust_mode": "pipeline"})
+        sched.run()
+        # 步骤序列：step1→2→3×3（并行）→4→5→6→7（step3 位置 3 次连续）
+        roles = [c["role"] for c in self.client.calls
+                 if c["role"].startswith("adjust_")]
+        self.assertEqual(roles[0], "adjust_fact")
+        self.assertEqual(roles[1], "adjust_perspective")
+        self.assertEqual(roles[2:5], ["adjust_contradiction"] * 3)
+        self.assertEqual(roles[5], "adjust_judge")
+        self.assertEqual(roles[6], "adjust_reversal")
+        self.assertEqual(roles[7], "adjust_space")
+        self.assertEqual(roles[8], "adjust_env")
+        self.assertEqual(len(roles), 9)
+        # 事件：每步 started/ended（step3 三个）+ dispatched(mode=pipeline)
+        started = self.events_of("adjust_step_started")
+        ended = self.events_of("adjust_step_ended")
+        self.assertEqual(len(started), 9)
+        self.assertEqual(len(ended), 9)
+        disp = self.events_of("adjust_dispatched")
+        self.assertEqual(disp[0]["payload"]["mode"], "pipeline")
+        # proposals 应用：soft_weight 生效（weight_changed，source=agent:adjust）
+        adj_wcs = [w for w in self.events_of("weight_changed")
+                   if w["source"] == "agent:adjust"]
+        self.assertEqual(len(adj_wcs), 1)
+        self.assertEqual(adj_wcs[0]["payload"]["cell_id"], target)
+        self.assertEqual(adj_wcs[0]["payload"]["new_weight"], 2.0)
+        # adjust_decision 事件（下游消费链路保留）
+        self.assertTrue(self.events_of("adjust_decision"))
+        # step3 并行 prompt 文件隔离（prompt_adjust_contradiction_{1,2,3}.md）
+        adir = os.path.join(self.ws, "codes", "adjust", "iter_1")
+        for i in (1, 2, 3):
+            self.assertTrue(os.path.isfile(
+                os.path.join(adir, "prompt_adjust_contradiction_%d.md" % i)))
+
+    def test_pipeline_degraded_step_continues(self):
+        """单步失败（无脚本→FakeClient 报错）→ 降级记账 + 后续步照跑。"""
+        self._queue_pipeline([], skip_roles=["adjust_perspective"])
+        self.gate.queue(_gate_pass())
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1,
+            "adjust_mode": "pipeline"})
+        sched.run()
+        # step2 降级：adjust_step_degraded 事件 + perspectives 默认占位 3 个
+        degraded = self.events_of("adjust_step_degraded")
+        self.assertEqual(len(degraded), 1)
+        self.assertEqual(degraded[0]["payload"]["role"], "adjust_perspective")
+        # 后续步照跑（step3×3 占位视角 + step4-7）
+        roles = [c["role"] for c in self.client.calls
+                 if c["role"].startswith("adjust_")]
+        self.assertIn("adjust_judge", roles)
+        self.assertIn("adjust_space", roles)
+        self.assertIn("adjust_env", roles)
+        self.assertEqual(roles.count("adjust_contradiction"), 3)
+        self.assertTrue(self.events_of("adjust_decision"))
+
+    def test_pipeline_humans_interventions_injected_to_step1(self):
+        """humans 表未应用干预（human 价值判断）注入 step1 prompt。"""
+        from superopt.db import db_for_ws as _db_for
+        _db_for(self.ws).push_intervention("test", {
+            "content": "优先优化端到端延迟而非峰值吞吐"})
+        self._queue_pipeline([])
+        self.gate.queue(_gate_pass())
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1,
+            "adjust_mode": "pipeline"})
+        sched.run()
+        p = os.path.join(self.ws, "codes", "adjust", "iter_1",
+                         "prompt_adjust_fact.md")
+        self.assertTrue(os.path.isfile(p))
+        text = open(p, encoding="utf-8").read()
+        self.assertIn("优先优化端到端延迟", text)
+
+    def test_pipeline_env_proposals_queued_to_humans(self):
+        """step7 的 env_proposals → humans 表提案队列 + 事件。"""
+        from superopt.db import db_for_ws as _db_for
+        self._queue_pipeline([], env_proposals=[{
+            "kind": "verifier", "title": "gate_check 噪声带过窄",
+            "finding": "iter 1 连续 2 次容差带内波动被误判",
+            "proposal": "噪声带校准从 3 样本升 5 样本",
+            "risk": "校准成本微增"}])
+        self.gate.queue(_gate_pass())
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1,
+            "adjust_mode": "pipeline"})
+        sched.run()
+        queued = self.events_of("env_proposal_queued")
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(queued[0]["payload"]["kind"], "verifier")
+        pending = _db_for(self.ws).pending_proposals()
+        self.assertEqual(len(pending), 1)
+        self.assertIn("噪声带", str(pending[0].get("content")))
+
+    def test_pipeline_step_model_hyperparams(self):
+        """env.json agent_hyperparams → 派发 model（id:thinking 语法）。"""
+        import json as _json
+        env_dir = os.path.join(self.ws, "env")
+        os.makedirs(env_dir, exist_ok=True)
+        meta_path = os.path.join(env_dir, "env.json")
+        meta = {"agent_hyperparams": {
+            "adjust_perspective": {"model": "gpt-x", "thinking": "high"},
+            "adjust_fact": {"model": "gpt-y"}}}
+        with open(meta_path, "w", encoding="utf-8") as f:
+            _json.dump(meta, f)
+        self._queue_pipeline([])
+        self.gate.queue(_gate_pass())
+        self.gate.queue(_gate_pass())
+        sched = self.make_scheduler(cfg_overrides={
+            "max_iterations": 2, "adjust_interval": 1,
+            "adjust_mode": "pipeline"})
+        sched.run()
+        by_role = {c["role"]: c for c in self.client.calls}
+        self.assertEqual(by_role["adjust_perspective"]["model"], "gpt-x:high")
+        self.assertEqual(by_role["adjust_fact"]["model"], "gpt-y")
+
+    def test_hindsight_evidence_unit(self):
+        """事后验证计算：上轮动作 → 后续采样/入格证据。"""
+        target = self.fs_all_cells()[0]
+        # 直接写事件：adjust_decision（soft_weight 升权 target）→ 后续采样×2
+        from superopt.events import EventWriter as _EW
+        with _EW(self.events_path) as _w:
+            _w.append("adjust_decision", {
+                "iteration": 1, "agent_valid": True,
+                "proposals": [{"type": "soft_weight",
+                               "target_cell": target,
+                               "action": "weight 2.0"}],
+            }, "scheduler")
+            _w.append("cell_sampled", {"iteration_id": 2, "cell_id": target,
+                                       "visit": 1, "weight_share": 0.5},
+                      "scheduler")
+            _w.append("cell_sampled", {"iteration_id": 3, "cell_id": target,
+                                       "visit": 2, "weight_share": 0.5},
+                      "scheduler")
+            _w.append("elite_admitted", {"iteration_id": 3, "cell_id": target,
+                                          "perf_value": 90.0,
+                                          "code_path": "codes/x/sol.py"},
+                      "scheduler")
+        sched = self.make_scheduler()
+        out = sched._hindsight_evidence()
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["cell"], target)
+        self.assertEqual(out[0]["subsequent_sampled"], 2)
+        self.assertEqual(out[0]["subsequent_admitted"], 1)
+
 
 class TestAdjust(LoopTestBase):
 

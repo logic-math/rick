@@ -90,6 +90,10 @@ EVENT_TYPES = frozenset({
     "experiment_failed",          # slot/iteration_id/cell_id/error（实验异常）
     # ---- 迭代11/task54：adjust 饥饿修复可观测 ----
     "adjust_dispatched",          # iteration/window_since（跨边界触发证据）
+    "adjust_step_started",        # step/role/iteration_id（job_56 task3：流水线步骤起航）
+    "adjust_step_ended",          # step/role/valid/wall_ms（步骤完成）
+    "adjust_step_degraded",       # step/role/reason（单步失败降级——跳过+默认值继续）
+    "env_proposal_queued",        # iteration/kind/title（step7 env 提案入 humans 队列）
     # ---- 迭代12/task56：软监控 + 断连 + 约束 ----
     "turn_budget_alert",          # role/consecutive/soft_warn（连续软告警）
     "api_outage_detected",
@@ -143,6 +147,11 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "experiment_failed": ("slot", "iteration_id", "cell_id", "error"),
     # 迭代11/task54：adjust 跨边界触发可观测
     "adjust_dispatched": ("iteration", "window_since"),
+    # job_56 task3：adjust 7 步流水线（步骤事件 + env 提案入队）
+    "adjust_step_started": ("step", "role", "iteration_id"),
+    "adjust_step_ended": ("step", "role", "valid", "wall_ms"),
+    "adjust_step_degraded": ("step", "role", "reason"),
+    "env_proposal_queued": ("iteration", "kind", "title"),
     "parallel_degraded": ("requested", "effective", "reason"),
     "cell_created": ("cell_id", "descriptor"),
     "cell_modified": ("cell_id", "method"),
