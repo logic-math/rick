@@ -278,6 +278,8 @@ _ITER_TL_FIELDS = (
     "_recheck_verdict", "_last_admit_verdict", "_last_reject_reason",
     "_record_this_iter", "_best_perf_before_iter",
     "_iter_self_check_real",  # task57 R1：agent 是否真实报告了自检内容（outcome 分类）
+    "_chain_slot",             # job_56 task4：本实验链的槽位号（ctx 注入用）
+    "_exp_failed",             # job_56 task4：debug 确认实验失败（跳过终验标记）
 )
 
 
@@ -323,6 +325,8 @@ class Scheduler:
     _record_this_iter = _iter_tl_property('_record_this_iter')
     _best_perf_before_iter = _iter_tl_property('_best_perf_before_iter')
     _iter_self_check_real = _iter_tl_property('_iter_self_check_real')
+    _chain_slot = _iter_tl_property('_chain_slot')
+    _exp_failed = _iter_tl_property('_exp_failed')
 
     def __init__(self, ws: str, cfg: Dict[str, Any],
                  agent_client: Optional[Any] = None,
@@ -697,11 +701,12 @@ class Scheduler:
 
         workdir_id（job_56 task1）：工作目录实验 ID（experiments 表 PK）——
         资源位持有标识；结束时归还资源位（实验槽+环境槽）。
+        slot（job_56 task4）：实验槽位号（ctx 注入 builder/coding/debug）。
         """
         t0 = time.time()
         try:
             self._step_locked(cell_id, cursor=cursor, exp_id=exp_id,
-                              workdir_id=workdir_id)
+                              workdir_id=workdir_id, slot=slot)
         except Exception as exc:  # noqa: BLE001 —— 单实验失败不杀调度器
             try:
                 self.events.append("experiment_failed", {
@@ -1295,12 +1300,15 @@ class Scheduler:
     def _step_locked(self, cell_id: str,
                      cursor: Optional[int] = None,
                      exp_id: Optional[str] = None,
-                     workdir_id: Optional[str] = None) -> None:
+                     workdir_id: Optional[str] = None,
+                     slot: Optional[int] = None) -> None:
         """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。
 
         task49：本迭代 = 一次实验，唯一标记 ``experiment_id``（格+迭代号）；
         迭代内全部事件都带该标记（并行写入时用 read_experiment / grep 还原
         单实验事件流），运维事件（心跳/干预/裁决）不带。
+        slot（job_56 task4 KR-F）：实验槽位号（ctx 注入三角色；串行路径
+        None = 串行模式独占）。
         """
         # 并发槽（task50）：迭代号与实验标记由主线程在起槽时分配（原子），
         # 串行路径（_step）未传入时在此分配——两条路径语义一致。
@@ -1330,6 +1338,9 @@ class Scheduler:
         self._recheck_verdict = None
         # task57 R1：outcome 分类的本迭代标记（agent 是否真实报告了自检内容）
         self._iter_self_check_real = False
+        # job_56 task4：本实验链的槽位号（ctx 注入）+ debug 确认失败标记
+        self._chain_slot = slot
+        self._exp_failed = False
         self.events.append("iteration_started",
                            {"iteration_id": cursor, "cell_id": cell_id},
                            "scheduler", experiment_id=self._cur_exp_id)
@@ -1432,6 +1443,80 @@ class Scheduler:
         self.archive.save()
         # 实验台账（task23 G 段）：跨迭代档案——idea→实现→门禁→结论一行
         self._append_ledger_entry(cursor, cell_id, plan, gr)
+        # sub loop 写回 DB（job_56 task4 KR-E）：实验表 UPDATE
+        # （record_path/session_id/score/status）——失败路径（debug 确认失败
+        # /无候选）也写回（KR-D：status='failed'，score=NULL）
+        self._writeback_experiment(workdir_id, iter_dir, gr, candidate)
+
+    def _writeback_experiment(self, workdir_id: Optional[str],
+                              iter_dir: str, gr: Any,
+                              candidate: Optional[str]) -> None:
+        """实验链收尾写回 experiments 表（job_56 task4 KR-E）。
+
+        状态语义（KR-D）：
+          - admitted：候选入格（gate 融合分写入 score）
+          - rejected：候选存在但门禁拒（score=NULL）
+          - failed：无候选 / debug 确认失败（experiment_failed_confirmed
+            事件已落——区别于普通失败，可查 events 表）
+        session_id：实验链主 agent 的 pi session（优先 debug > coding >
+        builder——最后行为轨迹的会话；_finish_dispatch 存入 by_role）。
+        """
+        if not workdir_id:
+            return
+        try:
+            status = "failed"
+            score = None
+            if candidate is not None and gr is not None and gr.passed:
+                status = "admitted"
+                perf = (getattr(gr, "metrics", None) or {}).get("perf") or {}
+                score = perf.get("score")
+                if score is None:
+                    score = perf.get("value")
+                if isinstance(score, (int, float)):
+                    score = float(score)
+            elif candidate is not None:
+                status = "rejected"
+            session_id = ""
+            for role in ("debug", "coding", "builder"):
+                acc = self._iter_agents.get(role) or {}
+                sid = acc.get("session_id") or ""
+                if sid:
+                    session_id = sid
+                    break
+            record_path = experiment_record.path_for(iter_dir)
+            self.db.update_experiment(
+                workdir_id,
+                record_path=record_path if os.path.isfile(record_path)
+                else "",
+                session_id=session_id,
+                score=score,
+                status=status)
+        except Exception:  # noqa: BLE001 DB 故障不炸实验链（事件已可诊断）
+            pass
+
+    def _slot_info_text(self) -> str:
+        """实验槽位信息（ctx 注入三角色，job_56 task4 KR-F）。"""
+        try:
+            slot = self._chain_slot
+        except AttributeError:
+            slot = None
+        if slot is None:
+            return "串行模式（独占运行环境，无并发实验）"
+        return "实验槽位 %d（并行实验位，当前实验池上限 %d）" % (
+            int(slot), self.max_parallel_experiments)
+
+    def _env_slot_info_text(self) -> str:
+        """运行环境槽位信息（ctx 注入三角色，job_56 task4 KR-F）。
+
+        调度器仅管资源分配（两实验可否同环境并发）；同环境实验如何交错
+        使用独占资源（分时复用）是 ENV 的设计问题（见 domain_knowledge.md）。
+        """
+        raw = int(self.conf.get("env_slots_per_env", 0) or 0)
+        n = raw if raw > 0 else self.max_parallel_experiments
+        return ("运行环境：本 env 工作区（%s）；同环境并发实验上限 %d——"
+                "与其他实验共享本环境时的独占资源分时复用规则，见"
+                " domain_knowledge.md（调度器仅管资源分配，复用机制由 env"
+                " 设计定义）" % (os.path.basename(self.ws.rstrip("/")), n))
 
     # ---- builder ----
 
@@ -1459,8 +1544,18 @@ class Scheduler:
             "perf_type": self.perf_type,
             "feature_axes": self.fs.axes,
             "iteration_id": cursor,
+            # job_56 task4 KR-F：实验 ID（=工作目录名）+ 资源槽位注入
+            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "slot_info": self._slot_info_text(),
+            "env_slot_info": self._env_slot_info_text(),
             "cell_id": cell_id,
             "cell_descriptor": self.fs.describe_cell(cell_id) or {},
+            # 特征格方法描述（cells 表 method_desc——本次实验要推进的方法论方向）
+            "cell_method_desc": str(
+                (entry.get("description") if isinstance(
+                    entry.get("description"), dict) else {}).get("method")
+                or "") or (
+                "（无 method 描述——按描述子与精英代码推断，并在 reasoning 里说明）"),
             "cell_elite": self._or_default(elite_ctx or None, "（无精英——本格首访）"),
             "cell_visit": entry.get("visit", 0),
             "cell_weight": entry.get("weight", 1.0),
@@ -1637,6 +1732,10 @@ class Scheduler:
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
             "iteration_id": cursor,
+            # job_56 task4 KR-F：实验 ID + 资源槽位注入（coding）
+            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "slot_info": self._slot_info_text(),
+            "env_slot_info": self._env_slot_info_text(),
             "experiment_plan": plan,
             "workdir": iter_dir,
             "env_dir": self.env_dir,
@@ -1761,6 +1860,19 @@ class Scheduler:
             }, "agent:debug", experiment_id=self._cur_exp_id)
             if dcheck.get("passed"):
                 return dpath or candidate
+            # job_56 task4 KR-C/D：debug 反思后确认实验失败（主动上报）→
+            # 跳过 gate_check 端到端验证（debug 已完成完整反思，终验不会再
+            # 产生新信息；省部署/预热/测试全流程，加速迭代）。实验表收尾
+            # 记 status='failed'（score=NULL）+实验记录 path 写回。
+            if debug_result.data.get("experiment_failed"):
+                self._exp_failed = True
+                self.events.append("experiment_failed_confirmed", {
+                    "iteration_id": cursor, "cell_id": cell_id,
+                    "attempt": attempt, "role": "debug",
+                    "reason": "debug agent 反思后确认实验失败（完整四节"
+                              "实验记录已落盘），跳过端到端验证",
+                }, "agent:debug", experiment_id=self._cur_exp_id)
+                return None
             # task57 R2：debug 产物抢救——debug agent 改了代码但没发 JSON
             #（截断/空回/无效）→ 修复产物直接交终验，不再追加 debug 重做
             if not debug_result.valid or debug_result.truncated:
@@ -1791,6 +1903,10 @@ class Scheduler:
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
             "iteration_id": cursor,
+            # job_56 task4 KR-F：实验 ID + 资源槽位注入（debug）
+            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "slot_info": self._slot_info_text(),
+            "env_slot_info": self._env_slot_info_text(),
             "experiment_plan": plan,
             "workdir": iter_dir,
             "env_dir": self.env_dir,
@@ -1973,6 +2089,16 @@ class Scheduler:
                                  attempt=100, max_attempts=1,
                                  self_check=self_check, last_err=last_err,
                                  gate_failure=failure)
+        # job_56 task4 KR-D：门禁失败触发的 debug 也可能确认实验失败
+        #（例如根因是验证机制问题/作弊行为——终验不会再产生新信息）
+        if result.data.get("experiment_failed"):
+            self._exp_failed = True
+            self.events.append("experiment_failed_confirmed", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "attempt": 100, "role": "debug",
+                "reason": "门禁失败 debug 反思后确认实验失败，跳过端到端重验",
+            }, "agent:debug", experiment_id=self._cur_exp_id)
+            return None
         dpath = self._candidate_path(result, iter_dir)
         self.events.append("candidate_produced", {
             "iteration_id": cursor, "cell_id": cell_id,
@@ -4281,6 +4407,11 @@ class Scheduler:
             result.tool_calls or [])
         acc["truncated"] = bool(acc["truncated"]) or bool(
             getattr(result, "truncated", False))
+        # job_56 task4 KR-E：pi session id 存入 by_role（实验链收尾写回
+        # experiments 表 session_id 列——行为轨迹还原的入口）
+        _sid = getattr(result, "session_id", "") or ""
+        if _sid:
+            acc["session_id"] = _sid
         # task57 R1：infra 标记进入 by_role 内部口径（outcome 分类用；
         # iteration_ended.by_role 载荷仍只投影 tokens/wall_ms/tool_calls）
         acc["infra_failure"] = bool(acc.get("infra_failure")) or bool(

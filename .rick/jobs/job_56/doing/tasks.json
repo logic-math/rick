@@ -63,11 +63,12 @@
         "task1",
         "task2"
       ],
-      "status": "pending",
+      "status": "success",
       "task_file": "plan/task3.md",
-      "attempts": 0,
+      "attempts": 1,
       "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-30T00:00:00+08:00"
+      "updated_at": "2026-11-20T21:32:37.088Z",
+      "commit_hash": "bca145d6e09f422222bd8f699cf58e2687108448"
     },
     {
       "task_id": "task4",
@@ -94,5 +95,5 @@
       "updated_at": "2026-11-30T00:00:00+08:00"
     }
   ],
-  "updated_at": "2026-11-20T21:05:44.658Z"
+  "updated_at": "2026-11-20T21:32:37.088Z"
 }

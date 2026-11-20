@@ -528,6 +528,128 @@ class TestDebugLoop(LoopTestBase):
         self.assertEqual(len(debug_runs), 2)
 
 
+class TestExperimentChainTask4(LoopTestBase):
+    """job_56 task4：实验执行链强化——失败跳过验证 / DB 写回 / ctx 注入。"""
+
+    def _experiments_row(self, sched_run: int = 1) -> Dict[str, Any]:
+        from super.superopt.db import db_for_ws
+        rows = db_for_ws(self.ws).recent_experiments(5)
+        self.assertTrue(rows, "experiments 表应有本次实验行")
+        return rows[-1]  # 最近一行（串行模式只一行）
+
+    # ---- KR-D：debug 主动上报失败 → 跳过 gate_check 端到端验证 ----
+
+    def test_debug_confirms_failure_skips_gate_and_writes_db(self):
+        # coding 自检失败 → debug 反思后确认实验失败（experiment_failed:true）
+        # → 调度器跳过端到端验证 + 实验表记 failed
+        self.client.queue("coding", [_coding_result(passed=False)])
+        self.client.queue("debug", [_agent_result("debug", {
+            "fix_report": {"attempts": 1, "root_cause": "计划假设错误",
+                           "changes": "未改动"},
+            "verdict": "experiment_failed",
+            "experiment_failed": True,
+            "three_hypotheses": [],
+            "final_self_check": {"passed": False, "stage": "verify",
+                                 "metrics": {}},
+            "diff_path": "solution.py",
+        })])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1,
+                                                   "debug_max_attempts": 3})
+        sched.run()
+        # ① experiment_failed_confirmed 事件（主动上报可观测）
+        confirmed = self.events_of("experiment_failed_confirmed")
+        self.assertEqual(len(confirmed), 1)
+        self.assertEqual(confirmed[0]["payload"]["role"], "debug")
+        # ② 门禁没跑（跳过端到端验证——省部署/预热/测试全流程）
+        self.assertEqual(self.gate.verify_calls, [])
+        # ③ 无 elite 入格
+        self.assertEqual(self.events_of("elite_admitted"), [])
+        # ④ 实验表写回：status='failed' + score=NULL + record_path 引用
+        row = self._experiments_row()
+        self.assertEqual(row["status"], "failed")
+        self.assertIsNone(row["score"])
+        # ⑤ debug 确认失败后不再追加 debug 尝试（attempt 1 即停）
+        debug_runs = [e for e in self.events_of("agent_started")
+                      if e["payload"]["role"] == "debug"]
+        self.assertEqual(len(debug_runs), 1)
+
+    # ---- KR-E：sub loop 写回 DB（正常/拒收路径）----
+
+    def test_admitted_writes_score_and_status(self):
+        # 正常链路：builder+coding 过 → gate 过 → 入格 → status='admitted'+score
+        self.client.queue("builder", [_builder_result()])
+        self.client.queue("coding", [_coding_result(passed=True)])
+        self.gate.queue(_gate_pass(value=100.0))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        self.assertEqual(len(self.events_of("elite_admitted")), 1)
+        row = self._experiments_row()
+        self.assertEqual(row["status"], "admitted")
+        self.assertIsNotNone(row["score"])
+        # record_path 写回（实验记录文件引用；builder 未落盘时为空串）
+        self.assertIn("record_path", row)
+
+    def test_rejected_writes_status(self):
+        # coding 过但门禁拒（stage1_env 不可修复，不走 gate→debug 链）
+        # → status='rejected'
+        self.client.queue("builder", [_builder_result()])
+        self.client.queue("coding", [_coding_result(passed=True)])
+        self.gate.queue(_gate_fail("stage1_env"))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        row = self._experiments_row()
+        self.assertEqual(row["status"], "rejected")
+        self.assertIsNone(row["score"])
+
+    def test_all_agents_failed_writes_failed_status(self):
+        # coding/debug 全失败（未确认失败路径）→ status='failed'
+        self.client.queue("coding", [_coding_result(passed=False)])
+        self.client.queue("debug", [_debug_result(passed=False)])
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1,
+                                                   "debug_max_attempts": 1})
+        sched.run()
+        row = self._experiments_row()
+        self.assertEqual(row["status"], "failed")
+        self.assertEqual(self.gate.verify_calls, [])
+
+    # ---- KR-F：实验 ID + 资源槽位 ctx 注入三角色 ----
+
+    def test_ctx_injects_experiment_id_and_slot_info(self):
+        self.client.queue("builder", [_builder_result()])
+        self.client.queue("coding", [_coding_result(passed=True)])
+        self.gate.queue(_gate_pass(value=100.0))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        # 三角色的 prompt 文件都含实验 ID 与槽位信息（串行模式文案）
+        for call in self.client.calls:
+            role = call["role"]
+            if role not in ("builder", "coding", "debug"):
+                continue
+            with open(call["prompt_path"], encoding="utf-8") as f:
+                prompt = f.read()
+            self.assertIn("实验 ID（= 工作目录名", prompt,
+                          "%s prompt 应含实验 ID 注入节" % role)
+            self.assertIn("资源槽位", prompt,
+                          "%s prompt 应含资源槽位信息" % role)
+        # 串行模式：槽位文案为「串行模式」
+        bcall = [c for c in self.client.calls if c["role"] == "builder"][0]
+        with open(bcall["prompt_path"], encoding="utf-8") as f:
+            self.assertIn("串行模式", f.read())
+
+    def test_experiment_id_matches_workdir_name(self):
+        # 实验 ID（events 表 PK）= 工作目录名（KR-E：目录名即实验 ID）
+        self.client.queue("builder", [_builder_result()])
+        self.client.queue("coding", [_coding_result(passed=True)])
+        self.gate.queue(_gate_pass(value=100.0))
+        sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
+        sched.run()
+        row = self._experiments_row()
+        self.assertTrue(row["workdir"])
+        self.assertTrue(os.path.isdir(os.path.join(self.ws, "codes",
+                                                   row["workdir"])),
+                        "工作目录名应与 experiments 表 workdir 一致")
+
+
 # --------------------------------------------------------------------------- #
 # ⑤ adjust 软/硬动作
 # --------------------------------------------------------------------------- #

@@ -94,6 +94,7 @@ EVENT_TYPES = frozenset({
     "adjust_step_ended",          # step/role/valid/wall_ms（步骤完成）
     "adjust_step_degraded",       # step/role/reason（单步失败降级——跳过+默认值继续）
     "env_proposal_queued",        # iteration/kind/title（step7 env 提案入 humans 队列）
+    "experiment_failed_confirmed", # iteration_id/cell_id/attempt/role/reason（job_56 task4：debug 主动上报实验失败——调度器跳过端到端验证）
     # ---- 迭代12/task56：软监控 + 断连 + 约束 ----
     "turn_budget_alert",          # role/consecutive/soft_warn（连续软告警）
     "api_outage_detected",
@@ -152,6 +153,8 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "adjust_step_ended": ("step", "role", "valid", "wall_ms"),
     "adjust_step_degraded": ("step", "role", "reason"),
     "env_proposal_queued": ("iteration", "kind", "title"),
+    "experiment_failed_confirmed": ("iteration_id", "cell_id", "attempt",
+                                     "role", "reason"),
     "parallel_degraded": ("requested", "effective", "reason"),
     "cell_created": ("cell_id", "descriptor"),
     "cell_modified": ("cell_id", "method"),

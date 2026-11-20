@@ -81,6 +81,8 @@ class TestConstants(unittest.TestCase):
             # job_56 task3：adjust 7 步流水线
             "adjust_step_started", "adjust_step_ended", "adjust_step_degraded",
             "env_proposal_queued",
+            # job_56 task4：debug 主动上报实验失败（跳过端到端验证）
+            "experiment_failed_confirmed",
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))

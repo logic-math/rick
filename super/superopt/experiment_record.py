@@ -1,24 +1,28 @@
-"""experiment_record.py — 实验记录（KR1 / 迭代8：跨 agent 恒常上下文）
+"""experiment_record.py — 实验记录（KR1 / 迭代8：跨 agent 恒常上下文；job_56 task4：四节结构）
 
-一个「实验」= 在一个特征格上的一次迭代。实验记录是这次迭代的**完整上下文文件**：
-  - builder 建（六段：背景与价值 / 实验假设 / 验证逻辑 / 具体实验步骤 / 观测现象 / 执行过程与结论（占位））
-  - coding 补（执行过程与结论：实现要点 / TDD 红绿 / 门禁结果）
-  - debug 补（卡点 / 根因 / 解决）
+一个「实验」= 在一个特征格上的一次迭代。实验记录是这次迭代的**完整事实记录**（全部事实：设计/过程/结论/反思）：
+  - builder 建（frontmatter + 四节：实验设计[背景/假设/验证逻辑/步骤/观测预期/风险预演]占位主体）
+  - coding 补（第 2 节执行过程：实现与自验；第 3 节实验结论）
+  - debug 补（第 4 节反思：根因/教训/信息增量；失败时补全全部四节）
   - adjust 全局实验分析读「区间内全部实验记录」（recent）
 
-落盘位置（J-i8-2 裁决）：`<iter_dir>/experiment_record.md`，iter_dir = `<ws>/codes/iter{N}-{uuid>/`。
+落盘位置：`<iter_dir>/experiment_record.md`，iter_dir = `<ws>/codes/<experiment_id>/`
+（experiment_id = `<iteration>-<YYYYMMDDHHMM>`，job_56 task1 新编号 = 工作目录名）。
 
 设计契约：
   - **恒常上下文**：三个执行 agent 的 ctx 都注入本文件（read/digest），保证「实验意图」不丢
+  - **四节结构**（job_56 task4 KR-C）：实验设计 / 执行过程 / 实验结论 / 反思——
+    完整事实记录，格式过 pi hook 完整性检查（四节标题校验）
+  - **frontmatter**：experiment_id / cell_id / hypothesis / status / score（机器可读）
   - **幂等追加**：同段名再次写入 = 替换该段内容（agent 重试/多轮修复不产生重复段）
   - **stdlib-only，py ≥3.9**（禁 PEP604 联合类型注解）
 
 对外 API：
     path_for(iter_dir) -> str
-    create(iter_dir, meta: dict) -> str           # 六段模板；返回落盘路径
+    create(iter_dir, meta: dict) -> str           # 四节模板；返回落盘路径
     append_section(iter_dir, title, body) -> bool # 幂等（同名段替换）；False=无可写文件
     read(iter_dir) -> str                         # 缺文件 → ""
-    digest(iter_dir, limit=1200) -> str           # 摘要（第 1-3 段 + 结论段）
+    digest(iter_dir, limit=1200) -> str           # 摘要（第 1 节 + 第 3 节）
     recent(ws, since_iter, until_iter, limit_chars=4000) -> list[dict]
 """
 import os
@@ -27,20 +31,19 @@ from typing import Any, Dict, List, Optional
 
 RECORD_NAME = "experiment_record.md"
 
-# 六段标准标题（顺序即模板顺序；第 6 段由 coding/debug 补）
+# 四节标准标题（顺序即模板顺序；job_56 task4：完整事实记录——设计/过程/结论/反思）
 SECTION_TITLES = (
-    "1. 背景与价值",
-    "2. 实验假设",
-    "3. 验证逻辑",
-    "4. 具体实验步骤",
-    "5. 观测现象",
-    "6. 执行过程与结论",
+    "1. 实验设计",
+    "2. 执行过程",
+    "3. 实验结论",
+    "4. 反思",
 )
 
 _PLACEHOLDER = "（待 %s 填写）"
 
-# iter 目录名：iter{N}-{uuid}（也兼容 iter{N}）
-_ITER_DIR_RE = re.compile(r"^iter(\d+)(?:-|$)")
+# iter 目录名：`<N>-<YYYYMMDDHHMM>`（job_56 task1 新编号 = 工作目录名）；
+# 兼容旧形态 `iter{N}` / `iter{N}-{uuid}`（历史工作区归档直读）
+_ITER_DIR_RE = re.compile(r"^(?:iter)?(\d+)(?:-|$)")
 
 
 def path_for(iter_dir: str) -> str:
@@ -48,10 +51,34 @@ def path_for(iter_dir: str) -> str:
     return os.path.join(iter_dir, RECORD_NAME)
 
 
+def _frontmatter_block(meta: Dict[str, Any]) -> str:
+    """frontmatter（机器可读：experiment_id/cell_id/hypothesis/status/score）。"""
+    def _v(key: str) -> str:
+        v = meta.get(key)
+        if v is None or v == "":
+            return ""
+        return str(v).replace("\n", " ").replace('"', "'")
+
+    def _kv(key: str) -> str:
+        v = _v(key)
+        return "%s: \"%s\"" % (key, v) if v else "%s: " % key
+
+    return "\n".join([
+        "---",
+        _kv("experiment_id"),
+        _kv("cell_id"),
+        _kv("hypothesis"),
+        "status: running",
+        "score: ",
+        "---",
+    ])
+
+
 def _meta_block(meta: Dict[str, Any]) -> str:
     it = meta.get("iteration_id")
     cell = meta.get("cell_id") or ""
-    lines = ["- 迭代：%s" % (it if it is not None else "?")]
+    lines = ["- 迭代：%s" % (it if it is not None else "?"),
+             "- 实验 ID：%s" % (meta.get("experiment_id") or "?")]
     if cell:
         lines.append("- 特征格：%s" % cell)
     parents = meta.get("parents")
@@ -61,34 +88,66 @@ def _meta_block(meta: Dict[str, Any]) -> str:
 
 
 def create(iter_dir: str, meta: Dict[str, Any]) -> str:
-    """按六段模板创建实验记录（builder 建）。返回落盘路径。
+    """按四节模板创建实验记录（builder 建）。返回落盘路径。
 
-    meta 约定：{iteration_id, cell_id, idea, parents}
-      - idea 写进第 1 段「背景与价值」（为什么做这个实验）
-      - 其余段留占位（builder 在实验中填，coding/debug 补第 6 段）
+    meta 约定：{iteration_id, experiment_id, cell_id, idea, hypothesis, parents}
+      - idea 写进第 1 节「实验设计」（背景小节：为什么做这个实验）
+      - hypothesis 写进第 1 节「实验假设」小节 + frontmatter
+      - 第 2/3/4 节留占位（coding 补 2/3，debug 补 4）
     已存在 → 覆盖重建（新迭代目录天然不冲突；重试场景以最新意图为准）。
     """
     if not isinstance(meta, dict):
         raise ValueError("meta 必须是 dict，收到 %r" % (meta,))
     it = meta.get("iteration_id")
     cell = meta.get("cell_id") or ""
-    title = "# 实验记录 iter%s · %s" % (it if it is not None else "?", cell or "?")
-    idea = str(meta.get("idea") or "").strip() or "（待 builder 填写）"
+    exp = meta.get("experiment_id") or ""
+    title = "# 实验记录 %s · %s" % (exp or ("iter%s" % it if it is not None else "?"),
+                                 cell or "?")
+    idea = str(meta.get("idea") or "").strip() or _PLACEHOLDER % "builder"
+    hyp = str(meta.get("hypothesis") or "").strip()
+    if not hyp:
+        hyp = _PLACEHOLDER % "builder"
+    # 第 1 节「实验设计」的完整子结构（设计即事实：背景/假设/验证逻辑/步骤/观测/风险预演）
+    design_body = "\n".join([
+        "### 背景（为什么现在做这个实验：来自现状轨迹/台账/research 的证据）",
+        idea,
+        "",
+        "### 实验假设（一句话，可证伪）",
+        hyp,
+        "",
+        "### 验证逻辑（什么结果支持假设、什么结果否定它）",
+        _PLACEHOLDER % "builder",
+        "",
+        "### 具体实验步骤（可复现：改哪、怎么改、跑什么命令）",
+        _PLACEHOLDER % "builder",
+        "",
+        "### 观测预期（预期指标与量级，与 gate_defs 同尺度）",
+        _PLACEHOLDER % "builder",
+        "",
+        "### 仿真预演（风险点推演：执行过程可能遇到的风险 + 每个风险的预防/解决措施）",
+        _PLACEHOLDER % "builder",
+        "",
+        "### 证伪性论证（无论实验成功还是失败，各能获得什么信息增量）",
+        _PLACEHOLDER % "builder",
+    ])
     parts = [
         title,
+        "",
+        _frontmatter_block(dict(meta, hypothesis=hyp
+                                if hyp != _PLACEHOLDER % "builder" else "")),
         "",
         _meta_block(meta),
         "",
         "## %s" % SECTION_TITLES[0],
         "",
-        "%s" % idea,
+        design_body,
         "",
     ]
-    fillers = ("builder", "builder", "builder", "builder", "builder", "coding/debug")
+    fillers = ("coding", "coding/debug", "debug")
     for i, sec in enumerate(SECTION_TITLES[1:], start=1):
         parts.append("## %s" % sec)
         parts.append("")
-        parts.append(_PLACEHOLDER % fillers[i])
+        parts.append(_PLACEHOLDER % fillers[i - 1])
         parts.append("")
     os.makedirs(iter_dir, exist_ok=True)
     path = path_for(iter_dir)
@@ -166,7 +225,7 @@ def append_section(iter_dir: str, title: str, body: str) -> bool:
 
 
 def digest(iter_dir: str, limit: int = 1200) -> str:
-    """供 ctx 注入的摘要：前 3 段（背景/假设/验证逻辑）+ 结论段（执行过程与结论）。
+    """供 ctx 注入的摘要：第 1 节（实验设计）+ 第 3 节（实验结论）。
 
     缺文件 → ""；段缺失跳过；总长截断到 limit（超长在尾部标注省略）。
     """
@@ -174,11 +233,18 @@ def digest(iter_dir: str, limit: int = 1200) -> str:
     if not text:
         return ""
     header, sections = _split_sections(text)
-    want = (SECTION_TITLES[0], SECTION_TITLES[1], SECTION_TITLES[2], SECTION_TITLES[5])
+    want = (SECTION_TITLES[0], SECTION_TITLES[2])
     picked = []
     for title, body in sections:
         if title in want:
             picked.append("## %s\n%s" % (title, body))
+    if not picked:
+        # 旧六段记录（历史工作区）：取前 3 段 + 第 6 段
+        legacy = ("1. 背景与价值", "2. 实验假设", "3. 验证逻辑",
+                  "6. 执行过程与结论")
+        for title, body in sections:
+            if title in legacy:
+                picked.append("## %s\n%s" % (title, body))
     if not picked:
         picked = [text]
     out = "\n\n".join(picked)
@@ -198,7 +264,10 @@ def _iter_of(dirname: str) -> Optional[int]:
 
 
 def _cell_of(text: str) -> str:
-    """从标题行 `# 实验记录 iter{N} · {cell_id}` 提取格 id。"""
+    """格 id：frontmatter cell_id 优先；旧记录从标题行 `# 实验记录 · {cell_id}` 提取。"""
+    fm = re.search(r"^cell_id:\s*\"?([^\"\n]*)\"?", text, re.M)
+    if fm and fm.group(1).strip():
+        return fm.group(1).strip()
     for line in text.splitlines():
         if line.startswith("# 实验记录"):
             if "·" in line:

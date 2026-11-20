@@ -94,28 +94,57 @@ def _tool_exec(name, ok=True):
 # 产物落盘（迭代8：实验记录 / 调研报告 / TDD 测试 / 编码计划）
 # --------------------------------------------------------------------------- #
 
-EXPERIMENT_RECORD_TEMPLATE = """# 实验记录 iter={iteration_id} · {cell_id}
+EXPERIMENT_RECORD_TEMPLATE = """# 实验记录 {experiment_id} · {cell_id}
 
-## 1. 背景与价值
+---
+experiment_id: "{experiment_id}"
+cell_id: "{cell_id}"
+hypothesis: "用库级整阵乘替换逐元素循环可显著降低 runtime_ms"
+status: running
+score: 
+---
+
+- 迭代：{iteration_id}
+- 实验 ID：{experiment_id}
+- 特征格：{cell_id}
+
+## 1. 实验设计
+
+### 背景（为什么现在做这个实验：来自现状轨迹/台账/research 的证据）
 {mock}目标格需要一次可复现的改进实验。
 
-## 2. 实验假设
+### 实验假设（一句话，可证伪）
 假设：用库级整阵乘替换逐元素循环可显著降低 runtime_ms。
 
-## 3. 验证逻辑
+### 验证逻辑（什么结果支持假设、什么结果否定它）
 若成立：gate_check 的 perf 值下降且 verify 通过；若否：perf 持平或正确性失败。
 
-## 4. 具体实验步骤
+### 具体实验步骤（可复现：改哪、怎么改、跑什么命令）
 1) 读父本；2) 实现整阵乘；3) 跑 verify/benchmark；4) 交框架终验。
 
-## 5. 观测现象
+### 观测预期（预期指标与量级，与 gate_defs 同尺度）
 预期 runtime_ms 下降、max_error=0。
 
-## 6. 执行过程与结论
-（待 coding/debug 追加）
+### 仿真预演（风险点推演：执行过程可能遇到的风险 + 每个风险的预防/解决措施）
+风险：小规模下调用开销主导，收益被掩盖 → 多次计时取中位数。
+
+### 证伪性论证（无论实验成功还是失败，各能获得什么信息增量）
+成功：整阵乘方向有效，后续可叠加分块；失败：瓶颈不在逐元素循环，转 profile 重新定位。
+
+## 2. 执行过程
+
+（待 coding 填写）
+
+## 3. 实验结论
+
+（待 coding/debug 填写）
+
+## 4. 反思
+
+（待 debug 填写）
 """
 
-RESEARCH_REPORT_TEMPLATE = """# 调研报告 iter={iteration_id} · {cell_id}
+RESEARCH_REPORT_TEMPLATE = """# 调研报告 {experiment_id} · {cell_id}
 
 （{mock}）
 - 现有代码：父本为逐元素实现，热点在內层循环。
@@ -123,24 +152,12 @@ RESEARCH_REPORT_TEMPLATE = """# 调研报告 iter={iteration_id} · {cell_id}
 - 论文实验细节：单次整阵乘在小规模下受调用开销主导，需多次计时取中位。
 """
 
-CODING_PLAN_TEMPLATE = """# 编码执行计划 iter={iteration_id} · {cell_id}
+CODING_PLAN_TEMPLATE = """# 编码执行计划 {experiment_id}
 
 （{mock}）
-1) 写单元测试 test_solution.py（正确性 + 形状）；
-2) 先看到红（未实现）；
-3) 实现 matmul（np.matmul 直派发）；
-4) 绿 → 重构 → 保绿。
-"""
-
-TEST_SOLUTION_SRC = """import numpy as np
-
-
-def test_matmul_matches_numpy():
-    a = np.arange(64, dtype=np.float32).reshape(8, 8)
-    b = np.arange(64, dtype=np.float32).reshape(8, 8)
-    from solution import matmul
-    out = matmul(a, b)
-    assert np.allclose(out, np.matmul(a, b), atol=1e-3)
+1) 按 plan_steps 实现整阵乘（np.matmul 直派发，一次写对）；
+2) 自验：verify → benchmark → gate_check（L1 快检优先）；
+3) 补全实验记录第 2/3 节。
 """
 
 
@@ -172,9 +189,10 @@ def _append_record(title, body):
 
 
 def _record_meta():
-    """从 cwd/父目录名推断 iteration/cell（mock 尽力而为，失败用占位）。"""
+    """从 cwd/父目录名推断 experiment_id/iteration/cell（mock 尽力而为，失败用占位）。"""
     cwd = os.path.basename(os.getcwd())
-    return {"iteration_id": cwd or "?", "cell_id": "mock-cell", "mock": "mock"}
+    return {"iteration_id": cwd or "?", "experiment_id": cwd or "?",
+            "cell_id": "mock-cell", "mock": "mock"}
 
 
 SIX_FIELDS_BUILDER = {
@@ -221,7 +239,7 @@ SIX_FIELDS_CODING = {
 
 
 def scenario_ok_builder():
-    # 迭代8：实验记录（六段）+ 调研报告落盘（cwd=迭代工作目录）
+    # 迭代8/job_56 task4：实验记录（四节+frontmatter）+ 调研报告落盘（cwd=迭代工作目录）
     meta = _record_meta()
     _write_text("experiment_record.md",
                 EXPERIMENT_RECORD_TEMPLATE.format(**meta))
@@ -243,13 +261,14 @@ def scenario_ok_builder():
 
 
 def scenario_ok_coding():
-    # 迭代8/KR5：TDD 痕迹 + 编码计划 + 实验记录追加（cwd=迭代工作目录）
+    # 迭代8/KR5 + job_56 task4：编码计划 + 实验记录四节补全（cwd=迭代工作目录）
     meta = _record_meta()
-    _write_text("test_solution.py", TEST_SOLUTION_SRC)
     _write_text("coding_plan.md", CODING_PLAN_TEMPLATE.format(**meta))
-    _append_record("coding：执行过程与结论",
-                   "先写 test_solution.py 看到红 → 实现 np.matmul → 绿 → 重构保绿；"
-                   "自检 passed，max_error≈0。")
+    _append_record("实现与自验（coding）",
+                   "一次写对 np.matmul 直派发实现；自验 verify/benchmark/gate_check"
+                   "均通过，max_error≈0。")
+    _append_record("实验结论（coding）",
+                   "结论：成功。gate_check perf=98.7（基线 123.4），支持实验假设。")
     _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
     _emit(_tool_exec("read"))
     _emit(_tool_exec("bash"))
@@ -322,11 +341,11 @@ def scenario_many_turns():
 
 
 def scenario_ok_debug():
-    """debug 修复场景（迭代8/KR6）：fix_report + three_hypotheses + 追加实验记录。"""
+    """debug 修复场景（迭代8/KR6）：fix_report + three_hypotheses + 补全四节实验记录。"""
     meta = _record_meta()
-    _append_record("debug：卡点/根因/解决",
+    _append_record("反思（debug）",
                    "卡点：门禁 perf 未达预期；三假设逐一验证后根因=未走库级派发；"
-                   "解决：改用 np.matmul。")
+                   "解决：改用 np.matmul；教训：小规模下调用开销主导，多次计时取中位。")
     payload = {
         "valid": True,
         "score": None, "perf_value": None, "perf_type": None, "perf_desc": None,
@@ -342,6 +361,7 @@ def scenario_ok_debug():
              "verified": False},
         ],
         "verdict": "fixed",
+        "experiment_failed": False,
         "final_self_check": {"passed": True, "stage": "self_check",
                              "metrics": {"max_error": 0.0}},
     }
@@ -352,9 +372,47 @@ def scenario_ok_debug():
     _emit({"type": "agent_settled", "reason": "end_turn"})
 
 
+def scenario_ok_debug_failed():
+    """debug 主动上报失败（job_56 task4 KR-C/D）：experiment_failed=true
+    + 完整四节实验记录落盘——调度器据此跳过 gate_check 端到端验证。"""
+    meta = _record_meta()
+    _append_record("反思（debug）",
+                   "复现两次：perf 持平且 verify 失败（max_error 超容差）；"
+                   "三假设验证后根因=实验计划的数据类型假设错误（fp16 精度"
+                   "不满足容差）；处置：主动上报 experiment_failed（计划方向"
+                   "不可行，修复价值低于信息增量）。")
+    payload = {
+        "valid": True,
+        "score": None, "perf_value": None, "perf_type": None, "perf_desc": None,
+        "summary": "实验失败（根因=计划数据类型假设错误），已主动上报并补全四节记录",
+        "verdict": "experiment_failed",
+        "experiment_failed": True,
+        "three_hypotheses": [
+            {"hypothesis": "实现错误", "if_true": "修 dtype 后 verify 过",
+             "verified": False},
+            {"hypothesis": "fp16 精度不满足容差（计划假设错误）",
+             "if_true": "fp32 下 verify 过、fp16 恒不过 → 计划方向错误",
+             "verified": True},
+            {"hypothesis": "计时噪声", "if_true": "重复计时方差大",
+             "verified": False},
+        ],
+        "fix_report": {"attempts": 1,
+                       "root_cause": "实验计划的 fp16 数据类型假设错误",
+                       "changes": "未改动（experiment_failed：跳过端到端验证）"},
+        "final_self_check": {"passed": False, "stage": "verify",
+                             "metrics": {"max_error": 0.05, "tolerance": 1e-3}},
+    }
+    fenced = "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```"
+    _emit(_message_end("user", "按系统提示词完成任务，输出约定 JSON"))
+    _emit(_message_end("assistant", "实验失败，主动上报：\n" + fenced,
+                       _usage(100, 30, cost_total=0.005)))
+    _emit({"type": "agent_settled", "reason": "end_turn"})
+
+
 SCENARIOS = {
     "ok_builder": scenario_ok_builder,
     "ok_debug": scenario_ok_debug,
+    "ok_debug_failed": scenario_ok_debug_failed,
     "ok_coding": scenario_ok_coding,
     "zero_usage": scenario_zero_usage,
     "all_zero": scenario_all_zero,
