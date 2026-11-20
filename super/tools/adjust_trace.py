@@ -6,7 +6,7 @@
 
     python3 super/tools/adjust_trace.py --workdir <ws> [--window 5]
 
-解析 <ws>/events.jsonl，输出 markdown 表到 stdout：每次 adjust 决策一行，
+解析 <ws>/super.db 的 events 表（job_56 task1 DB 化），输出 markdown 表到 stdout：每次 adjust 决策一行，
 含「决策内容（迭代号 / proposals 摘要：格+旧新权重 / 决策时格状态）」与
 「效果（决策后 K 迭代窗口内受影响格的：是否被采 / gate 通过率 / perf 变化）」。
 
@@ -42,23 +42,14 @@ EV_ITERATION_ENDED = "iteration_ended"
 
 
 def _read_events(workdir: str) -> List[Dict[str, Any]]:
-    """全量读取 events.jsonl（坏行跳过——与 EventWriter.read_all 同容错）。"""
-    path = os.path.join(workdir, "events.jsonl")
-    out: List[Dict[str, Any]] = []
-    if not os.path.exists(path):
-        return out
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-                if isinstance(ev, dict) and "type" in ev:
-                    out.append(ev)
-            except ValueError:
-                continue  # 半写行/坏行
-    return out
+    """全量读取 super.db 的 events 表（job_56 task1 DB 化：jsonl 废弃）。"""
+    try:
+        import sqlite3
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from superopt.db import db_for_ws
+        return db_for_ws(workdir).read_events()
+    except Exception:  # noqa: BLE001 坏库容错（与 jsonl 时代坏行跳过同语义）
+        return []
 
 
 def _payload(ev: Dict[str, Any]) -> Dict[str, Any]:
@@ -327,7 +318,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="adjust 决策-效果对照（自改进归因工具）")
     ap.add_argument("--workdir", required=True,
-                    help="super 工作区目录（含 events.jsonl）")
+                    help="super 工作区目录（含 super.db）")
     ap.add_argument("--window", type=int, default=5,
                     help="效果观察窗口（决策后 K 迭代，默认 5）")
     args = ap.parse_args()
@@ -338,8 +329,8 @@ def main() -> int:
         return 2
     events = _read_events(ws)
     if not events:
-        print("error: %s 无可读事件（events.jsonl 缺失或为空）"
-              % os.path.join(ws, "events.jsonl"), file=sys.stderr)
+        print("error: %s 无可读事件（super.db 缺失或 events 表为空）"
+              % os.path.join(ws, "super.db"), file=sys.stderr)
         return 2
 
     print(render_markdown(events, max(1, args.window)))

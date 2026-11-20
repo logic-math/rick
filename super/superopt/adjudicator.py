@@ -30,9 +30,9 @@
   - 文件驱动、无锁：调度器或 human 在任意时刻跑本进程都安全
 
 证据读取（只读）：
-  - `<ws>/events.jsonl`：迭代游标与各格末次采样迭代（连续未采样间隔）、
+  - `<ws>/super.db` events 表：迭代游标与各格末次采样迭代（连续未采样间隔）、
     weight_changed 兜底
-  - `<ws>/archive.json`：格现状（weight/visit/精英）
+  - `<ws>/super.db` cells 表：格现状（weight/visit/精英）
   - `<ws>/gates/golden_examples/`：金样例保护比对
   - `<ws>/gates/exploit_registry.json`：exploit 引用（提示性，不阻断）
 
@@ -71,40 +71,22 @@ _REGRESSION_KEYS = ("elite_replay", "exploit_regression")
 # --------------------------------------------------------------------------
 
 def _read_events(ws: str) -> List[Dict[str, Any]]:
-    """逐行读 events.jsonl（坏行跳过——与 EventWriter.read_all 同容错，但
-    **只读不落句柄**：裁决进程不得对真相源有任何写副作用）。"""
-    path = os.path.join(ws, "events.jsonl")
-    events = []            # type: List[Dict[str, Any]]
+    """读 super.db 的 events 表（job_56 task1 DB 化——裁决进程只读：SELECT，
+    无写副作用；坏档概念退役——DB 行总是合法 JSON）。"""
+    from .db import db_for_ws
     try:
-        f = open(path, "r", encoding="utf-8")
-    except OSError:
-        return events
-    with f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                ev = json.loads(stripped)
-            except ValueError:
-                continue
-            if isinstance(ev, dict):
-                events.append(ev)
-    return events
+        return db_for_ws(ws).read_events()
+    except Exception:  # noqa: BLE001 坏库按「无证据」保守处理
+        return []
 
 
 def _read_archive_cells(ws: str) -> Dict[str, Dict[str, Any]]:
-    """读 archive.json 的 cells（损坏/缺失 → 空表，由事件流兜底）。"""
-    path = os.path.join(ws, "archive.json")
+    """读 super.db 的 cells 表完整状态（缺失/坏库 → 空表，由事件流兜底）。"""
+    from .db import db_for_ws
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
+        return db_for_ws(ws).load_cells()
+    except Exception:  # noqa: BLE001
         return {}
-    if not isinstance(data, dict):
-        return {}
-    cells = data.get("cells")
-    return cells if isinstance(cells, dict) else {}
 
 
 def _scan_cell_facts(events: List[Dict[str, Any]],
@@ -246,7 +228,7 @@ def _adjudicate_delete(proposal: dict, ws: str) -> Dict[str, Any]:
         "目标格 %s weight=0 且%s（游标 %d）——休眠格可删"
         % (target, dormant_note, cursor),
         conditions=["删除后格定义仍保留在事件流（append-only 可追溯）",
-                    "若需恢复，从 events.jsonl 重放重建"])
+                    "若需恢复，从 super.db events 表重建"])
 
 
 def _regression_evidence(proposal: dict) -> Optional[Dict[str, Any]]:
@@ -392,7 +374,7 @@ def adjudicate(proposal: dict, ws: str) -> Dict[str, Any]:
     参数：
       proposal：提案 dict（adjust agent 输出的 proposal 项 + proposal_id 等
                 元信息；字段宽容——缺关键字段按保守拒绝处理）
-      ws：super 工作区路径（读 events.jsonl / archive.json / gates/）
+      ws：super 工作区路径（读 super.db[events/cells 表] / gates/）
 
     返回：{"decision": "approve"|"reject", "reason": str, "conditions": [str]}
     """
@@ -449,7 +431,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="superopt.adjudicator",
         description="superopt 外置裁决：硬动作提案（删格/改格定义/修门）的独立"
-                    "裁决进程。文件驱动、无锁、不写 events.jsonl。")
+                    "裁决进程。DB 只读、无锁、不写事件（单写者=py 调度器）。")
     parser.add_argument("--proposal", required=True,
                         help="提案文件路径（<ws>/proposals/<id>.json）")
     parser.add_argument("--workdir", required=True,

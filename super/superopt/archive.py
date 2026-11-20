@@ -24,10 +24,11 @@ Python ≥3.9 兼容（禁 PEP604 X|Y 注解，用 Optional[...]）。
 import copy
 import json
 import os
-import tempfile
 import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+
+from .db import db_for_ws
 
 # 东八区（项目惯例，见 domain/bugs.md：tasks.json updated_at 用 +08:00）
 _TZ = timezone(timedelta(hours=8))
@@ -70,6 +71,21 @@ def _empty_data(perf_desc: str) -> dict:
     }
 
 
+def _fill_cell_defaults(cell: dict) -> None:
+    """格状态缺省键补齐（json 时代 load 的 setdefault 逻辑——DB 化保留）。"""
+    cell.setdefault("descriptor", {})
+    cell.setdefault("description", {})
+    cell.setdefault("history", [])
+    cell.setdefault("weight", 1.0)
+    cell.setdefault("visit", 0)
+    cell.setdefault("sample_count", 0)
+    cell.setdefault("last_sampled_at", None)
+    cell.setdefault("elite_code_path", None)
+    cell.setdefault("elite_record_path", None)
+    cell.setdefault("elite_code_hash", None)
+    cell.setdefault("method_stale", False)
+
+
 def _elite_from_entry(entry: dict) -> dict:
     """从 admit entry 提取精英字段。
 
@@ -92,16 +108,23 @@ def _is_better(new_value, old_value, perf_desc: str) -> bool:
 
 
 class Archive:
-    """精英格档案。
+    """精英格档案（DB 后端：super.db 的 cells 表 + archive_meta 投影）。
 
-    用法（持有方 = 调度器/测试）：
+    用法（持有方 = 调度器/测试；签名与 json 时代完全兼容——path 保留，
+    内部转 DB，ws = dirname(path)）：
         a = Archive(path, perf_desc="low")
-        a.load()                       # 读档（文件缺失 = 从空档开始）
+        a.load()                       # 读档（DB 缺行 = 从空档开始）
         a.admit(cell_id, entry)        # 内存变更
         a.set_weight(...); a.add_pending(...)
-        a.save()                       # 持久化（tmp + fsync + rename 原子替换）
+        a.save()                       # 持久化（DB 事务）
 
-    变更方法只改内存；save() 才落盘（调用方控制持久化时机）。
+    变更方法只改内存；save() 才落库（调用方控制持久化时机）。
+
+    存储布局（job_56 task1）：
+      - cells 表：核心列（cell_id/name/method_desc/best_experiment_id/
+        weight）可 SQL 直查 + state_json 列存完整格状态（本类的兼容投影）
+      - archive_meta 表：meta / pending 投影
+      - 精英代码/diff 仍在实验目录（codes/）——cells 存引用不存正文
     """
 
     HISTORY_LIMIT = HISTORY_LIMIT
@@ -109,7 +132,12 @@ class Archive:
     def __init__(self, path: str, perf_desc: str = "low"):
         if perf_desc not in ("low", "high"):
             raise ValueError("perf_desc must be 'low' or 'high', got %r" % (perf_desc,))
+        # path 兼容两种形态：json 时代文件路径（取 dirname 定位 super.db）
+        # 或工作区目录直传（DB 时代形态）。
+        _p = os.path.abspath(path)
         self.path = path
+        self._ws = _p if os.path.isdir(_p) else (os.path.dirname(_p) or ".")
+        self._db = db_for_ws(self._ws)
         self._perf_desc = perf_desc
         self._data = _empty_data(perf_desc)
         # 并发实验（task44/task45）：多 worker 线程读写档案 → 全部公开方法加锁。
@@ -119,62 +147,48 @@ class Archive:
     # ---- 读档 / 落盘 ----
 
     def load(self) -> None:
-        """读档。文件不存在 → 空档；损坏（非法 JSON）→ 抛错（档案是事件流投影，
-        宁可炸也不静默清空——由调用方决定从事件流重建）。"""
-        if not os.path.exists(self.path):
-            with self._lock:
-                self._data = _empty_data(self._perf_desc)
-            return
-        with open(self.path, encoding="utf-8") as f:
-            data = json.load(f)
-        # 补齐缺省键（向后兼容旧档）
-        data.setdefault("meta", {})
+        """读档（DB）。空库 → 空档；格状态缺省键补齐（与 json 时代同语义）。"""
+        data = {
+            "meta": dict(self._db.get_meta()),
+            "cells": {},
+            "pending": list(self._db.get_pending()),
+        }
+        # 补齐缺省键（向后兼容旧档语义）
         data["meta"].setdefault("env", "")
         data["meta"].setdefault("feature_axes", [])
         data["meta"].setdefault("perf_desc", self._perf_desc)
         data["meta"].setdefault("updated_at", _now())
-        data.setdefault("cells", {})
-        data.setdefault("pending", [])
-        for cell in data["cells"].values():
-            # 迭代8 向后兼容：旧档无 description（四要素之方法描述）→ 补空 dict
-            cell.setdefault("description", {})
-            cell.setdefault("history", [])
-            cell.setdefault("weight", 1.0)
-            cell.setdefault("visit", 0)
-            cell.setdefault("sample_count", 0)
-            cell.setdefault("last_sampled_at", None)
-            # 迭代9/五要素兼容：旧档无精英代码路径与实验记录关联 → 补 None
-            cell.setdefault("elite_code_path", None)
-            cell.setdefault("elite_record_path", None)
-            # 迭代13/task58 兼容：旧档无同码哈希/方法过期标记 → 补默认
-            cell.setdefault("elite_code_hash", None)
-            cell.setdefault("method_stale", False)
+        for cell_id, cell in self._db.load_cells().items():
+            _fill_cell_defaults(cell)
+            data["cells"][cell_id] = cell
         with self._lock:
             self._data = data
 
     def save(self) -> None:
-        """原子落盘：临时文件（同目录）→ fsync → os.replace。
-        任一步失败：旧档保持完整（replace 之前不动旧文件）。
+        """持久化到 DB（事务：cells 逐格 upsert + meta + pending）。
 
-        线程安全：写盘全程持锁（并发 worker 的 save 串行化，不会交叉写）。"""
+        线程安全：写库全程持锁（并发 worker 的 save 串行化）。"""
         with self._lock:
             self._data["meta"]["updated_at"] = _now()
             self._data["meta"]["perf_desc"] = self._perf_desc
-            d = os.path.dirname(os.path.abspath(self.path)) or "."
-            fd, tmp = tempfile.mkstemp(prefix=".archive-", suffix=".tmp", dir=d)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(self._data, f, ensure_ascii=False, indent=2)
-                    f.flush()
-                    os.fsync(f.fileno())
-                os.replace(tmp, self.path)
-            except BaseException:
-                # 清理半写临时文件（不留垃圾；旧档未动）
+            for cell_id, cell in self._data["cells"].items():
+                desc = cell.get("description") if isinstance(
+                    cell.get("description"), dict) else {}
                 try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-                raise
+                    weight = float(cell.get("weight", 1.0))
+                except (TypeError, ValueError):
+                    weight = 1.0
+                # best_experiment_id：格上显式字段优先（旧档无此字段 → None，
+                # 由调度器 register_experiment 后回写）
+                best_exp = cell.get("best_experiment_id")
+                self._db.upsert_cell_state(
+                    cell_id, cell,
+                    name=str(desc.get("name") or ""),
+                    method_desc=str(desc.get("method") or ""),
+                    best_experiment_id=best_exp,
+                    weight=weight)
+            self._db.save_meta(dict(self._data["meta"]))
+            self._db.save_pending(list(self._data["pending"]))
 
     # ---- 访问器（副本，防外部直改） ----
 

@@ -26,6 +26,7 @@ stdlib-only，Python >=3.9。
 """
 import json
 import os
+import re
 import random
 import shutil
 import sys
@@ -50,6 +51,11 @@ from superopt.loop import EPOCH_ITERATIONS, Scheduler
 # 测试脚手架
 # --------------------------------------------------------------------------- #
 
+
+
+def _is_experiment_dir(name: str) -> bool:
+    """实验工作目录匹配（job_56 task1 KR-E：`<iteration>-<YYYYMMDDHHMM>`）。"""
+    return re.match(r"^\d+-\d{12}(-\d+)?$", name) is not None
 
 def _agent_result(role: str, data: Optional[Dict[str, Any]] = None,
                   valid: bool = True, exit_code: int = 0) -> AgentResult:
@@ -286,19 +292,19 @@ class LoopTestBase(unittest.TestCase):
     # ---- 读工具 ----
 
     def read_events(self) -> List[Dict[str, Any]]:
-        out = []
-        with open(self.events_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.strip():
-                    out.append(json.loads(line))
-        return out
+        # DB 化（job_56 task1）：事件读 super.db 的 events 表
+        from super.superopt.db import db_for_ws
+        return db_for_ws(self.ws).read_events()
 
     def events_of(self, etype: str) -> List[Dict[str, Any]]:
         return [e for e in self.read_events() if e["type"] == etype]
 
     def read_archive(self) -> Dict[str, Any]:
-        with open(self.archive_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        # DB 化：格状态读 super.db 的 cells 表（archive.json 兼容投影形态）
+        from super.superopt.db import db_for_ws
+        d = db_for_ws(self.ws)
+        return {"cells": d.load_cells(), "meta": d.get_meta(),
+                "pending": d.get_pending()}
 
 
 # --------------------------------------------------------------------------- #
@@ -533,9 +539,13 @@ class TestAdjust(LoopTestBase):
         # 重开干净事件流/档案（probe 只为拿确定性格 id），并经事件把其余格
         # 灭绝（weight 0）——正式 run 的采样被钉死在 sampled_cell 上，
         # soft/hard 目标不再随机相撞
-        os.unlink(self.events_path)
-        if os.path.exists(self.archive_path):
-            os.unlink(self.archive_path)
+        # DB 化：清 events/cells 表重开（probe 只为拿确定性格 id）
+        from superopt.db import db_for_ws as _db_for
+        _d = _db_for(self.ws)
+        with _d._lock:
+            _d._conn.execute("DELETE FROM events")
+            _d._conn.execute("DELETE FROM cells")
+            _d._conn.commit()
         from superopt.events import EventWriter as _EW
         with _EW(self.events_path) as _w:
             for cid in self.fs_all_cells():
@@ -1304,7 +1314,7 @@ class TestContextCompleteness(LoopTestBase):
         sched.run()
         # builder：env_dir + gate_defs（relative_band）
         iter_dirs = sorted(d for d in os.listdir(os.path.join(self.ws, "codes"))
-                           if d.startswith("iter"))
+                           if _is_experiment_dir(d))
         bprompt = open(os.path.join(self.ws, "codes", iter_dirs[0],
                                     "prompt_builder.md"), encoding="utf-8").read()
         self.assertIn(self.ws, bprompt)          # env_dir 绝对路径
@@ -1362,7 +1372,7 @@ class TestGateToDebug(LoopTestBase):
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
         # debug prompt 含框架失败上下文
         iter_dirs = sorted(d for d in os.listdir(os.path.join(self.ws, "codes"))
-                           if d.startswith("iter"))
+                           if _is_experiment_dir(d))
         dp = os.path.join(self.ws, "codes", iter_dirs[0], "prompt_debug.md")
         self.assertTrue(os.path.exists(dp))
         dprompt = open(dp, encoding="utf-8").read()
@@ -1509,7 +1519,7 @@ class TestElementsAndDesigns(LoopTestBase):
     @staticmethod
     def _iter_dirs(ws: str):
         return sorted(d for d in os.listdir(os.path.join(ws, "codes"))
-                      if d.startswith("iter"))
+                      if _is_experiment_dir(d))
 
     def test_element_cmds_injected_to_role_prompts(self):
         """① 三要素命令注入 builder/coding/debug prompt。"""
@@ -1809,7 +1819,7 @@ class TestExperimentRecordPipeline(LoopTestBase):
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
         sched.run()
         iter_dir = [d for d in os.listdir(os.path.join(self.ws, "codes"))
-                    if d.startswith("iter001-")
+                    if _is_experiment_dir(d)
                     and d != "iter001-a1b2c3d4"][0]
         text = open(os.path.join(self.ws, "codes", iter_dir,
                                  "prompt_builder.md"), encoding="utf-8").read()
@@ -1898,7 +1908,7 @@ class TestExperimentRecordPipeline(LoopTestBase):
                                     client=client)
         sched.run()
         d = [x for x in os.listdir(os.path.join(self.ws, "codes"))
-             if x.startswith("iter001")][0]
+             if _is_experiment_dir(x)][0]
         for role in ("coding", "debug"):
             text = open(os.path.join(self.ws, "codes", d,
                                      "prompt_%s.md" % role),
@@ -2398,11 +2408,10 @@ class TestExperimentDimension(LoopTestBase):
         evs = self.read_events()
         ids = sorted({e["experiment_id"] for e in evs if e.get("experiment_id")})
         self.assertEqual(len(ids), 2, "两迭代 = 两个实验: %r" % ids)
+        from superopt.db import db_for_ws as _dbg
         for eid in ids:
-            raw = open(self.events_path, encoding="utf-8").read().splitlines()
-            matched = [json.loads(line) for line in raw
-                       if '"experiment_id":"%s"' % eid in line]
-            self.assertTrue(matched, "grep 应命中 %s" % eid)
+            matched = _dbg(self.ws).read_experiment_events(eid)
+            self.assertTrue(matched, "read_experiment 应命中 %s" % eid)
             self.assertEqual([m["experiment_seq"] for m in matched],
                              list(range(1, len(matched) + 1)))
             self.assertEqual({m["experiment_id"] for m in matched}, {eid})
@@ -2423,8 +2432,8 @@ class TestExperimentDimension(LoopTestBase):
         finally:
             w.close()
         from superopt.lineage import project_state
-        proj = project_state(
-            [json.loads(x) for x in open(self.events_path, encoding="utf-8")])
+        from superopt.db import db_for_ws as _dbr
+        proj = project_state(_dbr(self.ws).read_events())
         self.assertEqual(proj["iteration_cursor"], 2,
                          "中断迭代不推进 cursor")
         self.assertEqual(proj["interrupted_experiments"], ["X#iter3"])
@@ -2490,7 +2499,7 @@ class TestCostReduction(LoopTestBase):
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 1})
         sched.run()
         iter_dir = [d for d in os.listdir(os.path.join(self.ws, "codes"))
-                    if d.startswith("iter001-") and "aaaa" not in d][0]
+                    if _is_experiment_dir(d)][0]
         text = open(os.path.join(self.ws, "codes", iter_dir,
                                  "prompt_builder.md"), encoding="utf-8").read()
         self.assertIn("elite_code_path", text, "应给相邻格精英代码路径")
@@ -2538,14 +2547,12 @@ class TestCostReduction(LoopTestBase):
                            "目标格精英记录摘要应允许更长（1200 口径）")
 
     def test_event_fsync_config_wired(self):
-        """event_fsync 配置透传到 EventWriter（默认 True；可关）。"""
+        """event_fsync 配置兼容透传（DB 后端：kwarg 接受即不炸——WAL 承担持久化）。"""
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 0})
-        self.assertIs(sched.events._event_fsync, True,
-                      "默认 event_fsync=True（保守）")
+        self.assertIsNotNone(sched.events)  # 默认构造 OK
         sched2 = self.make_scheduler(cfg_overrides={"max_iterations": 0,
                                                     "event_fsync": False})
-        self.assertIs(sched2.events._event_fsync, False,
-                      "event_fsync=False 应透传到写器")
+        self.assertIsNotNone(sched2.events)  # event_fsync=False 构造 OK（忽略）
 
 
 # --------------------------------------------------------------------------- #
@@ -2894,7 +2901,7 @@ class TestApiOutageBreaker(LoopTestBase):
         self.assertEqual(sched.iteration_cursor, 1)
         # ③ 不建新的 iterNNN 目录（codes/ 只有第 1 迭代的目录）
         codes = os.path.join(self.ws, "codes")
-        iters = [d for d in os.listdir(codes) if d.startswith("iter")]
+        iters = [d for d in os.listdir(codes) if _is_experiment_dir(d)]
         self.assertEqual(len(iters), 1,
                          "熔断暂停期间不该烧迭代目录：%s" % iters)
         # ④ 熔断打开后本迭代剩余 debug 派发被短路（debug 只真跑 1 次）
@@ -3257,7 +3264,7 @@ class TestPhantomEliteGuard(LoopTestBase):
                                  client=client3)
         s3.run()
         iter_dirs = sorted(d for d in os.listdir(
-            os.path.join(self.ws, "codes")) if d.startswith("iter"))
+            os.path.join(self.ws, "codes")) if _is_experiment_dir(d))
         # 第 3 迭代的 builder prompt：cell_elite 带 [STALE] + 事实源指令
         bprompt = open(os.path.join(self.ws, "codes", iter_dirs[-1],
                                     "prompt_builder.md"),
@@ -3499,7 +3506,8 @@ class TestNoiseSaturation(LoopTestBase):
     """
 
     def _preseed_archive(self, elites: Dict[str, Dict[str, Any]]) -> None:
-        """直接写 archive.json（make_scheduler 前调用——__init__ 时 load）。"""
+        """DB 化：直接写 cells 表（make_scheduler 前调用——__init__ 时 load）。"""
+        from superopt.db import db_for_ws
         cells = {}
         for cid, spec in elites.items():
             cell = {"elite": _elite_entry(spec["perf"], self.cand_file,
@@ -3508,8 +3516,9 @@ class TestNoiseSaturation(LoopTestBase):
                 cell["history"] = [_elite_entry(v, self.cand_file)
                                    for v in spec["history"]]
             cells[cid] = cell
-        with open(self.archive_path, "w", encoding="utf-8") as f:
-            json.dump({"cells": cells, "pending": []}, f)
+        d = db_for_ws(self.ws)
+        for cid, cell in cells.items():
+            d.upsert_cell_state(cid, cell)
 
     def test_top3_spread_below_noise_triggers(self):
         """头三名差距（2%）< 噪声带（5%）→ 饱和 + stop_reason。"""
@@ -3601,7 +3610,7 @@ class TestNoiseSaturation(LoopTestBase):
         rc = s2.run()
         self.assertEqual(rc, 0)
         iter_dirs = sorted(d for d in os.listdir(
-            os.path.join(self.ws, "codes")) if d.startswith("iter"))
+            os.path.join(self.ws, "codes")) if _is_experiment_dir(d))
         bprompt = open(os.path.join(self.ws, "codes", iter_dirs[-1],
                                     "prompt_builder.md"),
                        encoding="utf-8").read()
@@ -3613,12 +3622,11 @@ class TestCostReportOutcome(LoopTestBase):
     """task59 R5③：cost_report 按 outcome 分列（真实成本 vs 空转成本）。"""
 
     def _write_events(self, rows: List[Dict[str, Any]]) -> None:
-        with open(self.events_path, "w", encoding="utf-8") as f:
-            for i, r in enumerate(rows, 1):
-                f.write(json.dumps({"seq": i, "ts": "2026-10-30T08:00:00+08:00",
-                                    "type": "iteration_ended",
-                                    "source": "scheduler", "payload": r},
-                                   ensure_ascii=False) + "\n")
+        # DB 时代：事件经 EventWriter 写 super.db（jsonl 直写已废弃）
+        from superopt.events import EventWriter as _EW
+        with _EW(self.events_path) as w:
+            for r in rows:
+                w.append("iteration_ended", r, "scheduler")
 
     def test_outcome_breakdown_buckets(self):
         mod = _load_cost_report()

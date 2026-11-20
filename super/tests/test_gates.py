@@ -1047,3 +1047,274 @@ class TestNewLayoutPreverify(NewLayoutGatesTestCase):
         out = self.gate.preverify_red()
         self.assertFalse(out["ok"])
         self.assertEqual(out["leaked"], ["cached_result"])
+
+
+# ============================================================================
+# v2 布局（gates/ 验证器目录 + 多维融合分协议，job_56/task2）
+# ============================================================================
+#
+# v2 协议（gates/gate_check.py stdout 最后一行 JSON）：
+#   {"passed": bool, "score": <融合分>, "metrics": {指标名: 值},
+#    "constraints": {约束名: {value, target, satisfied}}, "diagnostics": "...",
+#    "failure_stage": ...|null, "tolerance_band"?: bool}
+#   score ≥ 0 ⟺ passed（框架侧强一致性校验）；score < 0 = 拒（-1 环境/-2 正确性/-3 约束/-4 软门禁劣化）。
+#   融合分方向约定：越高越好（gate_check 负责把 low 方向指标归一化进融合分；
+#   env.json perf_desc 声明融合分方向，v2 模板缺省 "high"）。
+
+GATE_CHECK_V2_SRC = '''#!/usr/bin/env python3
+"""fixture gates/gate_check.py — v2 协议桩：输出由 gates/gate_check_v2_output.json 控制。
+
+透传 --baseline 记录进 payload["baseline_seen"]（断言框架传参用）。
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+payload = {"passed": True, "score": 1.0,
+           "metrics": {"runtime_ms": 100.0, "memory_mb": 12.0},
+           "constraints": {"max_error": {"value": 0.0001, "target": 0.001,
+                                          "satisfied": True}},
+           "diagnostics": "fixture v2 stub"}
+baseline = None
+args = sys.argv[1:]
+for i in range(len(args) - 1):
+    if args[i] == "--baseline":
+        baseline = args[i + 1]
+ctl = os.path.join(HERE, "gate_check_v2_output.json")
+if os.path.isfile(ctl):
+    with open(ctl, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+if baseline is not None:
+    payload["baseline_seen"] = baseline
+print(json.dumps(payload))
+sys.exit(0 if payload.get("passed") else 1)
+'''
+
+V2_IMPL_STUB = (
+    "#!/usr/bin/env python3\n"
+    "import json\n"
+    "print(json.dumps({\"passed\": True, \"stub\": True}))\n"
+)
+
+
+def default_objective():
+    """v2 fixture 的多维 objective（约束 + 双指标加权）。"""
+    return {
+        "constraints": [
+            {"name": "max_error", "op": "<=", "value": 0.001},
+        ],
+        "metrics": [
+            {"name": "speedup", "weight": 0.7},
+            {"name": "memory_mb", "weight": 0.3},
+        ],
+        "fusion": "weighted_avg",
+    }
+
+
+def default_v2_env_json(**over):
+    cfg = default_env_json()
+    cfg["perf_desc"] = "high"          # v2 约定：融合分越高越好
+    cfg["perf_type"] = "fused_score"
+    cfg["objective"] = default_objective()
+    cfg["agent_hyperparams"] = {
+        "adjust_perspective": {"model": "flash", "thinking": "high"},
+        "adjust_judge": {"model": "pro", "thinking": "low"},
+    }
+    cfg["env_slots"] = 2
+    cfg["verify_levels"] = {
+        "E2E": {"cmd": "gates/gate_check.py"},
+        "L1": {"cmd": "skills/verify.py --level L1"},
+    }
+    cfg.update(over)
+    return cfg
+
+
+class V2Fixture(FixtureEnv):
+    """legacy fixture + skills 四件 + gates/ 三件（v2 验证器目录布局）。"""
+
+    def __init__(self, root):
+        FixtureEnv.__init__(self, root)
+        _write_file(os.path.join(self.env_dir, "skills", "profile.py"), PROFILE_SRC)
+        _write_file(os.path.join(self.env_dir, "skills", "research.py"),
+                    "import json\nimport sys\n"
+                    "print(json.dumps({'ok': True}))\n")
+        _write_file(os.path.join(self.env_dir, "skills", "verify.py"), SKILL_VERIFY_WRAPPER)
+        _write_file(os.path.join(self.env_dir, "skills", "benchmark.py"),
+                    SKILL_BENCHMARK_WRAPPER)
+        _write_file(os.path.join(self.env_dir, "gates", "gate_check.py"),
+                    GATE_CHECK_V2_SRC)
+        _write_file(os.path.join(self.env_dir, "gates", "verify_impl.py"), V2_IMPL_STUB)
+        _write_file(os.path.join(self.env_dir, "gates", "benchmark_impl.py"), V2_IMPL_STUB)
+        self.write_env(default_v2_env_json())
+
+    def write_v2_output(self, payload):
+        _write_file(os.path.join(self.env_dir, "gates", "gate_check_v2_output.json"),
+                    json.dumps(payload))
+
+
+class V2GatesTestCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fx = V2Fixture(self.tmp.name)
+        self.gate = CascadeGate(self.fx.env_dir, self.fx.gates_dir)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+
+class TestGateCheckV2Layout(V2GatesTestCase):
+    """v2 布局探测 + 多维协议解析 + 兼容投影。"""
+
+    def test_v2_layout_detected_and_multidim_parsed(self):
+        self.fx.write_v2_output({
+            "passed": True, "score": 1.25,
+            "metrics": {"speedup": 1.3, "memory_mb": 11.0},
+            "constraints": {"max_error": {"value": 1e-4, "target": 1e-3,
+                                           "satisfied": True}},
+            "diagnostics": "fused 1.25",
+        })
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+        self.assertIsNone(r.failure_stage)
+        # 多维承载
+        self.assertEqual(r.metrics["score"], 1.25)
+        self.assertEqual(r.metrics["metrics"]["speedup"], 1.3)
+        self.assertEqual(r.metrics["constraints"]["max_error"]["satisfied"], True)
+        self.assertEqual(r.metrics["objective"]["fusion"], "weighted_avg")
+        # 兼容投影（loop/archive 消费面）
+        self.assertEqual(r.metrics["perf"]["value"], 1.25)
+        self.assertEqual(r.metrics["perf"]["score"], 1.25)
+        self.assertEqual(r.metrics["perf"]["perf_type"], "fused_score")
+        self.assertEqual(r.metrics["perf"]["perf_desc"], "high")
+        # soft：首解豁免（无基线）
+        self.assertTrue(r.metrics["soft"]["exempt"])
+        self.assertEqual(r.metrics["soft"]["baseline_source"], "none")
+
+    def test_v2_negative_score_rejected(self):
+        self.fx.write_v2_output({
+            "passed": False, "score": -3,
+            "metrics": {"speedup": 1.0},
+            "constraints": {"max_error": {"value": 0.01, "target": 0.001,
+                                           "satisfied": False}},
+            "failure_stage": "stage3_perf",
+            "diagnostics": "constraint violated",
+        })
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, "stage3_perf")
+        self.assertEqual(r.metrics["score"], -3)
+
+    def test_v2_score_passed_consistency_enforced(self):
+        # passed=True 但 score<0 → 协议违约，框架侧拒
+        self.fx.write_v2_output({"passed": True, "score": -1,
+                                  "metrics": {}, "constraints": {}})
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("inconsistent", r.details)
+
+    def test_v2_non_numeric_score_protocol_fail(self):
+        self.fx.write_v2_output({"passed": True, "score": "high",
+                                  "metrics": {}, "constraints": {}})
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("score", r.details)
+
+    def test_v2_missing_score_protocol_fail(self):
+        self.fx.write_v2_output({"passed": True, "metrics": {}, "constraints": {}})
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+
+    def test_v2_baseline_passthrough_and_soft_projection(self):
+        self.fx.write_v2_output({
+            "passed": True, "score": 1.2, "tolerance_band": True,
+            "metrics": {}, "constraints": {},
+        })
+        r = self.gate.verify(self.fx.cand_good, elite_perf=1.15)
+        self.assertTrue(r.passed, r.details)
+        # 框架解析的基线权威写入（elite 来源）
+        self.assertEqual(r.metrics["soft"]["baseline"], 1.15)
+        self.assertEqual(r.metrics["soft"]["baseline_source"], "elite")
+        # v2 桩透传确认（gate_check 收到 --baseline）
+        ctl = os.path.join(self.fx.env_dir, "gates", "gate_check_v2_output.json")
+        self.assertTrue(os.path.isfile(ctl))
+        # tolerance_band 投影（gate_check 报带内 → loop 延迟入库信号）
+        self.assertTrue(r.tolerance_band)
+
+    def test_v2_preferred_over_v1_when_both_present(self):
+        # v1 skills/gate_check.py 也在 → v2（gates/）优先
+        _write_file(os.path.join(self.fx.env_dir, "skills", "gate_check.py"),
+                    GATE_CHECK_SRC)
+        self.fx.write_v2_output({
+            "passed": True, "score": 1.1, "metrics": {}, "constraints": {},
+        })
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+        # v2 独有键：constraints/score 承载（v1 协议无顶层 constraints 投影）
+        self.assertIn("constraints", r.metrics)
+        self.assertIn("score", r.metrics)
+        self.assertEqual(r.metrics["perf"]["value"], 1.1)
+
+    def test_v2_missing_impl_files_stage1(self):
+        os.remove(os.path.join(self.fx.env_dir, "gates", "benchmark_impl.py"))
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, "stage1_env")
+
+    def test_v2_bad_objective_stage1(self):
+        cfg = default_v2_env_json()
+        cfg["objective"] = {"metrics": [{"name": "x", "weight": -1}]}
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, "stage1_env")
+        self.assertIn("objective", r.details)
+
+    def test_v2_objective_constraints_validated(self):
+        cfg = default_v2_env_json()
+        cfg["objective"] = {"constraints": [{"name": "x", "op": "~", "value": 1}]}
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("op", r.details)
+
+    def test_v2_agent_hyperparams_validated(self):
+        cfg = default_v2_env_json()
+        cfg["agent_hyperparams"] = "fast"
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("agent_hyperparams", r.details)
+
+    def test_v2_env_slots_validated(self):
+        cfg = default_v2_env_json()
+        cfg["env_slots"] = 0
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("env_slots", r.details)
+
+    def test_v2_verify_levels_validated(self):
+        cfg = default_v2_env_json()
+        cfg["verify_levels"] = ["E2E"]
+        self.fx.write_env(cfg)
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertIn("verify_levels", r.details)
+
+    def test_v2_good_multidim_config_passes_stage1(self):
+        # 合法多维 objective（含约束+加权指标）+ v2 全键 → 通过 stage1（桩输出 passed）
+        self.fx.write_v2_output({
+            "passed": True, "score": 0.9, "metrics": {}, "constraints": {},
+        })
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertTrue(r.passed, r.details)
+
+    def test_v2_failure_stage_default_when_invalid(self):
+        self.fx.write_v2_output({
+            "passed": False, "score": -4, "failure_stage": "weird",
+            "metrics": {}, "constraints": {},
+        })
+        r = self.gate.verify(self.fx.cand_good)
+        self.assertFalse(r.passed)
+        self.assertEqual(r.failure_stage, "stage3_perf")

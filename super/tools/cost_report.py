@@ -5,7 +5,7 @@
     python3 super/tools/cost_report.py --workdir <ws> [--json] [--top N]
 
 数据源（按可信度）：
-  1. `<ws>/events.jsonl`——**权威口径**：`agent_ended.usage`（input/output/
+  1. `<ws>/super.db` events 表（job_56 task1 DB 化）——**权威口径**：`agent_ended.usage`（input/output/
      cache_read/cache_write/total_tokens/cost_usd）+ `wall_ms`/`tool_calls`/
      `truncated`/`model`；`iteration_ended.tokens`/`cost_usd`/`by_role`
   2. pi session 文件（可选增强）：`<agent_dir>/sessions/<slug>/*.jsonl` 的
@@ -29,24 +29,13 @@ _USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read", "cache_write",
 
 
 def _read_events(ws):
-    """读 events.jsonl；坏行/缺失容错（返回 []）。"""
-    path = os.path.join(ws, "events.jsonl")
-    out = []
+    """读 super.db 的 events 表（job_56 task1 DB 化）；坏库/缺失容错（返回 []）。"""
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(ev, dict):
-                    out.append(ev)
-    except OSError:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from superopt.db import db_for_ws
+        return db_for_ws(ws).read_events()
+    except Exception:  # noqa: BLE001
         return []
-    return out
 
 
 def _num(v):
@@ -545,7 +534,7 @@ def render_markdown(report):
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="super 进化 run 的 token 成本分布报告（只读）")
-    ap.add_argument("--workdir", required=True, help="super 工作区（含 events.jsonl）")
+    ap.add_argument("--workdir", required=True, help="super 工作区（含 super.db）")
     ap.add_argument("--json", action="store_true", help="输出 JSON（默认 markdown）")
     ap.add_argument("--top", type=int, default=5, help="Top-N 昂贵迭代（默认 5）")
     args = ap.parse_args(argv)

@@ -605,20 +605,12 @@ def write_go_home_config(home: str) -> None:
 # --------------------------------------------------------------------------- #
 
 def read_events(ws: str) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    path = os.path.join(ws, "events.jsonl")
-    if not os.path.exists(path):
-        return out
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                continue  # 读取端容错（半行）
-    return out
+    # DB 化（job_56 task1）：事件读 super.db 的 events 表
+    from superopt.db import db_for_ws as _db_for
+    try:
+        return _db_for(ws).read_events()
+    except Exception:  # noqa: BLE001 坏库容错（与 jsonl 时代坏行跳过同语义）
+        return []
 
 
 def count_events(ws: str, etype: str, pred=None) -> int:
@@ -933,8 +925,10 @@ class TestSuperFullChain(unittest.TestCase):
         from superopt.lineage import project_state
         events = read_events(ws)
         proj = project_state(events)
-        with open(os.path.join(ws, "archive.json"), encoding="utf-8") as f:
-            arch = json.load(f)
+        from superopt.db import db_for_ws as _dba
+        _d = _dba(ws)
+        arch = {"cells": _d.load_cells(), "meta": _d.get_meta(),
+                "pending": _d.get_pending()}
         self.assertEqual(int(proj["iteration_cursor"]),
                          int(read_super_json(ws).get("iteration_cursor") or 0),
                          "投影游标 ≠ super.json 游标（干净收口后应相等："
@@ -1363,8 +1357,10 @@ class TestCellLockMutex(unittest.TestCase):
         finally:
             w.close()
         # ⑤ 双格入档（archive 两个格各有 elite；五要素字段同步）
-        with open(os.path.join(ws, "archive.json"), encoding="utf-8") as f:
-            arch = json.load(f)
+        from superopt.db import db_for_ws as _dba
+        _d = _dba(ws)
+        arch = {"cells": _d.load_cells(), "meta": _d.get_meta(),
+                "pending": _d.get_pending()}
         elites = [(cid, c) for cid, c in (arch.get("cells") or {}).items()
                   if c.get("elite")]
         self.assertGreaterEqual(len(elites), 2,
@@ -1529,9 +1525,10 @@ class TestPollutionDrill(unittest.TestCase):
                       "scheduler")
         writer.close()
 
-        # 磁盘档案与事件投影对齐（崩溃现场等价态）
-        with open(os.path.join(ws, "archive.json"), "w", encoding="utf-8") as f:
-            json.dump({
+        # 磁盘档案与事件投影对齐（DB 化：写 cells 表）
+        from superopt.db import db_for_ws as _dbw
+        _dw = _dbw(ws)
+        _arch_seed = {
                 "meta": {"env": env_dir, "feature_axes": [], "perf_desc": "low",
                          "updated_at": "1970-01-01T00:00:00+00:00"},
                 "cells": {
@@ -1566,7 +1563,11 @@ class TestPollutionDrill(unittest.TestCase):
                      "reason": "new_cell", "added_at":
                      "1970-01-01T00:00:00+00:00"},
                 ],
-            }, f, ensure_ascii=False, indent=2)
+        }
+        for _cid, _cell in _arch_seed["cells"].items():
+            _dw.upsert_cell_state(_cid, _cell)
+        _dw.save_meta(_arch_seed["meta"])
+        _dw.save_pending(_arch_seed["pending"])
 
         conf = dict(DEFAULTS)
         conf.update({"adjust_interval": 0, "max_iterations": 10,
@@ -1586,8 +1587,10 @@ class TestPollutionDrill(unittest.TestCase):
         invalidations = [e for e in events if e["type"] == "invalidation"
                          and e["payload"].get("cell_id") == cell_a]
         self.assertTrue(invalidations, "假阳性格应被 invalidation 出档")
-        with open(os.path.join(ws, "archive.json"), encoding="utf-8") as f:
-            arch = json.load(f)
+        from superopt.db import db_for_ws as _dba
+        _d = _dba(ws)
+        arch = {"cells": _d.load_cells(), "meta": _d.get_meta(),
+                "pending": _d.get_pending()}
         self.assertIsNone(arch["cells"][cell_a]["elite"],
                           "invalidation 后精英应清空（出档）")
         self.assertEqual(arch["cells"][cell_a]["weight"], 0.5,
@@ -1669,40 +1672,34 @@ class TestAdjustTraceTool(unittest.TestCase):
     def test_adjust_decision_path(self):
         """主路径：adjust_decision 事件 → 表含迭代/proposals/效果列。"""
         with tempfile.TemporaryDirectory(prefix="adjust-trace-") as ws:
-            with open(os.path.join(ws, "events.jsonl"), "w",
-                      encoding="utf-8") as f:
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
-                    "type": "adjust_decision", "source": "scheduler",
-                    "payload": {"iteration": 2, "agent_valid": True,
-                                "proposals": [{
-                                    "type": "soft_weight",
-                                    "target_cell": "a=x",
-                                    "action": "weight 1.0 -> 0.5",
-                                    "evidence": "gate 2 连败"}],
-                                "cells_status_summary": [
-                                    {"cell_id": "a=x", "visit": 2,
-                                     "weight": 1.0, "elite_perf": 100.0}]}})
-                       + "\n")
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:01:00+08:00", "seq": 2,
-                    "type": "cell_sampled", "source": "scheduler",
-                    "payload": {"iteration_id": 3, "cell_id": "a=x",
-                                "visit": 3, "weight_share": 0.5,
-                                "cold_start": False, "total_visit": 3}}) + "\n")
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:02:00+08:00", "seq": 3,
-                    "type": "gate_result", "source": "gate",
-                    "payload": {"iteration_id": 3, "cell_id": "a=x",
-                                "stage": "passed", "passed": True}}) + "\n")
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:03:00+08:00", "seq": 4,
-                    "type": "elite_replaced", "source": "scheduler",
-                    "payload": {"iteration_id": 3, "cell_id": "a=x",
-                                "code_path": "codes/i3/solution.py",
-                                "perf_value": 80.0, "score": 0.9,
-                                "lineage": [], "gen": 2, "confidence": 0.8}})
-                       + "\n")
+            from superopt.db import db_for_ws as _dbt
+            _dt = _dbt(ws)
+            _dt.append_event("adjust_decision", "scheduler",
+                             {"iteration": 2, "agent_valid": True,
+                              "proposals": [{
+                                  "type": "soft_weight",
+                                  "target_cell": "a=x",
+                                  "action": "weight 1.0 -> 0.5",
+                                  "evidence": "gate 2 连败"}],
+                              "cells_status_summary": [
+                                  {"cell_id": "a=x", "visit": 2,
+                                   "weight": 1.0, "elite_perf": 100.0}]},
+                             ts="2026-10-20T10:00:00+08:00")
+            _dt.append_event("cell_sampled", "scheduler",
+                             {"iteration_id": 3, "cell_id": "a=x",
+                              "visit": 3, "weight_share": 0.5,
+                              "cold_start": False, "total_visit": 3},
+                             ts="2026-10-20T10:01:00+08:00")
+            _dt.append_event("gate_result", "gate",
+                             {"iteration_id": 3, "cell_id": "a=x",
+                              "stage": "passed", "passed": True},
+                             ts="2026-10-20T10:02:00+08:00")
+            _dt.append_event("elite_replaced", "scheduler",
+                             {"iteration_id": 3, "cell_id": "a=x",
+                              "code_path": "codes/i3/solution.py",
+                              "perf_value": 80.0, "score": 0.9,
+                              "lineage": [], "gen": 2, "confidence": 0.8},
+                             ts="2026-10-20T10:03:00+08:00")
             r = self._run_tool(ws)
             self.assertEqual(r.returncode, 0, r.stderr)
             out = r.stdout
@@ -1716,24 +1713,21 @@ class TestAdjustTraceTool(unittest.TestCase):
     def test_legacy_fallback_path(self):
         """回退路径：无 adjust_decision → weight_changed 重构决策帧。"""
         with tempfile.TemporaryDirectory(prefix="adjust-trace-legacy-") as ws:
-            with open(os.path.join(ws, "events.jsonl"), "w",
-                      encoding="utf-8") as f:
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
-                    "type": "iteration_ended", "source": "scheduler",
-                    "payload": {"iteration_id": 2}}) + "\n")
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:00:30+08:00", "seq": 2,
-                    "type": "weight_changed", "source": "agent:adjust",
-                    "payload": {"cell_id": "b=y", "old_weight": 1.0,
-                                "new_weight": 0.0,
-                                "reason": "drill: extinct"}}) + "\n")
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:01:00+08:00", "seq": 3,
-                    "type": "cell_sampled", "source": "scheduler",
-                    "payload": {"iteration_id": 3, "cell_id": "b=y",
-                                "visit": 2, "weight_share": 0.0,
-                                "cold_start": False, "total_visit": 3}}) + "\n")
+            from superopt.db import db_for_ws as _dbt2
+            _dt2 = _dbt2(ws)
+            _dt2.append_event("iteration_ended", "scheduler",
+                              {"iteration_id": 2},
+                              ts="2026-10-20T10:00:00+08:00")
+            _dt2.append_event("weight_changed", "agent:adjust",
+                              {"cell_id": "b=y", "old_weight": 1.0,
+                               "new_weight": 0.0,
+                               "reason": "drill: extinct"},
+                              ts="2026-10-20T10:00:30+08:00")
+            _dt2.append_event("cell_sampled", "scheduler",
+                              {"iteration_id": 3, "cell_id": "b=y",
+                               "visit": 2, "weight_share": 0.0,
+                               "cold_start": False, "total_visit": 3},
+                              ts="2026-10-20T10:01:00+08:00")
             r = self._run_tool(ws, "--window", "3")
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("weight 1.0 -> 0.0", r.stdout)
@@ -1742,12 +1736,9 @@ class TestAdjustTraceTool(unittest.TestCase):
     def test_empty_events(self):
         """空流：明确提示无决策，退出码 0（可消费）。"""
         with tempfile.TemporaryDirectory(prefix="adjust-trace-empty-") as ws:
-            with open(os.path.join(ws, "events.jsonl"), "w",
-                      encoding="utf-8") as f:
-                f.write(json.dumps({
-                    "ts": "2026-10-20T10:00:00+08:00", "seq": 1,
-                    "type": "session_started", "source": "scheduler",
-                    "payload": {}}) + "\n")
+            from superopt.db import db_for_ws as _dbt3
+            _dbt3(ws).append_event("session_started", "scheduler", {},
+                                   ts="2026-10-20T10:00:00+08:00")
             r = self._run_tool(ws)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("无 adjust 决策事件", r.stdout)

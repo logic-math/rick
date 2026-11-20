@@ -41,18 +41,17 @@ class TestPushDrainRoundtrip(unittest.TestCase):
     def tearDown(self):
         self._td.cleanup()
 
-    def test_push_returns_path_and_writes_entry(self):
-        path = self.q.push("pause", {"text": "暂停观察", "category": "pause"})
-        self.assertTrue(os.path.isabs(path), "push 应返回绝对路径")
-        self.assertTrue(path.startswith(os.path.join(self.ws, "interventions")))
-        self.assertTrue(os.path.exists(path))
-        with open(path, encoding="utf-8") as f:
-            entry = json.load(f)
-        # 与 Go 侧 SuperEventIn 同协议：type / payload / created_at
-        self.assertEqual(entry["type"], "pause")
-        self.assertEqual(entry["payload"], {"text": "暂停观察", "category": "pause"})
-        self.assertIn("created_at", entry)
-        self.assertIn("T", entry["created_at"])  # RFC3339 形态
+    def test_push_returns_id_and_writes_row(self):
+        """DB 化：push 返回 humans#<id> 标识，条目落 humans 表干预队列。"""
+        ident = self.q.push("pause", {"text": "暂停观察", "category": "pause"})
+        self.assertTrue(ident.startswith("humans#"), "push 应返回 humans#<id>")
+        # 未应用干预可查询（step1 注入用），与 push 同协议：type/payload/created_at
+        pend = self.q.pending()
+        self.assertEqual(len(pend), 1)
+        self.assertEqual(pend[0]["type"], "pause")
+        self.assertEqual(pend[0]["payload"],
+                         {"text": "暂停观察", "category": "pause"})
+        self.assertIn("T", pend[0]["created_at"])  # RFC3339 形态
 
     def test_push_rejects_bad_input(self):
         with self.assertRaises(ValueError):
@@ -68,23 +67,18 @@ class TestPushDrainRoundtrip(unittest.TestCase):
         items = self.q.drain()
         self.assertEqual([i["type"] for i in items], ["weight", "stop"])
         self.assertEqual(items[0]["payload"]["text"], "c1 降权")
-        # drain 后队列目录清空（转交即删）
-        self.assertEqual(os.listdir(os.path.join(self.ws, "interventions")), [])
-        # 再 drain 无残余（幂等）
+        # drain 后 applied=1 不再返回（转交即清场）
         self.assertEqual(self.q.drain(), [])
+        self.assertEqual(self.q.pending(), [])
 
-    def test_drain_orders_by_filename(self):
-        """文件名（时间戳）排序 = 摄取顺序，与写入先后无关。"""
-        idir = os.path.join(self.ws, "interventions")
-        # 逆序手写三个文件（模拟 Go 侧写入/乱序落盘）
-        for name, etype in (("20260101T000003-000001.json", "third"),
-                            ("20260101T000001-000001.json", "first"),
-                            ("20260101T000002-000001.json", "second")):
-            with open(os.path.join(idir, name), "w", encoding="utf-8") as f:
-                json.dump({"type": etype, "payload": {}, "created_at": "2026-01-01T00:00:00+08:00"}, f)
+    def test_drain_orders_by_insertion(self):
+        """DB 化：id 自增序 = 摄取顺序（与 push 先后一致）。"""
+        self.q.push("first", {})
+        self.q.push("second", {})
+        self.q.push("third", {})
         items = self.q.drain()
         self.assertEqual([i["type"] for i in items], ["first", "second", "third"])
-        self.assertEqual(os.listdir(idir), [])
+        self.assertEqual(self.q.drain(), [])
 
     def test_drain_empty_or_missing_dir(self):
         self.assertEqual(self.q.drain(), [])
@@ -92,18 +86,19 @@ class TestPushDrainRoundtrip(unittest.TestCase):
         q2 = InterventionQueue(os.path.join(self._td.name, "no-such-ws"))
         self.assertEqual(q2.drain(), [])
 
-    def test_drain_skips_non_json_files(self):
-        """非 .json 后缀文件不动（目录里的杂物/临时文件不是干预）。"""
+    def test_drain_ignores_legacy_dir_files(self):
+        """DB 化：interventions/ 目录遗留文件（json 时代产物/杂物）被忽略。"""
         idir = os.path.join(self.ws, "interventions")
-        with open(os.path.join(idir, "20260101T000001-000001.json.tmp"), "w") as f:
-            f.write("garbage")
+        os.makedirs(idir, exist_ok=True)
+        with open(os.path.join(idir, "20260101T000001-000001.json"), "w") as f:
+            f.write("{not valid json")
         with open(os.path.join(idir, "README.md"), "w") as f:
             f.write("not an intervention")
         items = self.q.drain()
         self.assertEqual(items, [])
-        # 非 .json 文件保留
+        # 目录文件不动（不是 DB 的一部分）
         self.assertEqual(sorted(os.listdir(idir)),
-                         ["20260101T000001-000001.json.tmp", "README.md"])
+                         ["20260101T000001-000001.json", "README.md"])
 
 
 class TestBadJsonTolerance(unittest.TestCase):
@@ -115,32 +110,26 @@ class TestBadJsonTolerance(unittest.TestCase):
     def tearDown(self):
         self._td.cleanup()
 
-    def test_bad_json_skipped_and_recorded(self):
-        idir = os.path.join(self.ws, "interventions")
-        with open(os.path.join(idir, "20260101T000001-000001.json"), "w") as f:
-            f.write("{not valid json")
-        self.q.push("stop", {"text": "正常", "category": "stop"})  # 命名晚于坏文件
-        items = self.q.drain()
-        # 好条目照常摄取
-        self.assertEqual([i["type"] for i in items if i["type"] != "bad_intervention"],
-                         ["stop"])
-        # 坏 JSON 以 bad_intervention 条目留痕
-        bad = [i for i in items if i["type"] == "bad_intervention"]
-        self.assertEqual(len(bad), 1)
-        self.assertIn("file", bad[0])
-        self.assertIn("20260101T000001-000001.json", bad[0]["file"])
-        self.assertIn("error", bad[0])
-        # 坏文件同样被转交删除（drain 后清场）
-        self.assertEqual(os.listdir(idir), [])
+    def test_db_rows_always_valid_json(self):
+        """DB 化：humans 表行总是合法 JSON（坏 JSON 概念随存储迁移退役）。
 
-    def test_non_object_json_is_bad(self):
-        """合法 JSON 但顶层非对象（数组/字符串）→ bad_intervention。"""
-        idir = os.path.join(self.ws, "interventions")
-        with open(os.path.join(idir, "20260101T000001-000001.json"), "w") as f:
-            json.dump(["not", "an", "object"], f)
+        坏输入在 push 入口被拒（ValueError）——坏数据不落库。
+        """
+        self.q.push("stop", {"text": "正常", "category": "stop"})
         items = self.q.drain()
-        self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["type"], "bad_intervention")
+        self.assertEqual([i["type"] for i in items], ["stop"])
+        # 全部条目 payload 均为合法 dict（DB 行级 JSON 完整性）
+        for i in items:
+            self.assertIsInstance(i["payload"], dict)
+
+    def test_proposal_queue_separate_from_intervention(self):
+        """两类队列互不串扰：提案不进干预 drain。"""
+        from super.superopt.db import db_for_ws
+        d = db_for_ws(self.ws)
+        d.push_proposal({"kind": "verify_reflect"})
+        self.q.push("pause", {"text": "暂停"})
+        items = self.q.drain()
+        self.assertEqual([i["type"] for i in items], ["pause"])
 
 
 class TestPackageMainSmoke(unittest.TestCase):

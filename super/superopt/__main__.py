@@ -51,7 +51,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
 
+    # 调度器进程锁（job_56 task1 KR-B 裁决 Q2）：启动最前部检查（先于任何
+    # DB 写）——env 下 scheduler.pid 存活检测；一个 super 会话对一个 env
+    # 唯一调度器，重启必先回收旧进程（rick super stop）
+    import os
+    from superopt.db import SchedulerLockError, acquire_scheduler_lock
+    env_dir = os.path.join(args.workdir, "env")
+    try:
+        acquire_scheduler_lock(env_dir)
+    except SchedulerLockError as e:
+        print("[superopt] FATAL: %s" % e, file=sys.stderr, flush=True)
+        return 5  # 进程锁冲突退出码（与 0/3/4 区分：可观测的重复启动）
+
     # 配置装配：super.json（缺键补 DEFAULTS）→ CLI 覆盖（白名单键）
+    # （load 内含旧布局检测：events.jsonl 时代工作区 → 明确报错指引新建 env）
     cfg = config.load(args.workdir)
     cfg = config.merge_cli(cfg, args)
     # preverify-red 是行为 flag 而非 config 参数：顶层传递（Scheduler 契约）

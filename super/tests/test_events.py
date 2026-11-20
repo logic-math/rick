@@ -164,25 +164,19 @@ class TestEventWriter(unittest.TestCase):
                 for i in range(5)]
         w.close()
         self.assertEqual(seqs, [1, 2, 3, 4, 5])  # 连续单调，1 起
-        with open(self.path, encoding="utf-8") as f:
-            lines = [ln.rstrip("\n") for ln in f]
-        self.assertEqual(len(lines), 5)
-        for i, line in enumerate(lines):
-            ev = json.loads(line)  # 每行合法 JSON
+        evs = w.read_all()
+        self.assertEqual(len(evs), 5)
+        for i, ev in enumerate(evs):
             self.assertEqual(ev["seq"], i + 1)
             self.assertEqual(ev["type"], "iteration_started")
             self.assertEqual(ev["source"], "scheduler")
             self.assertEqual(ev["payload"], {"iteration_id": i + 1})
             self.assertEqual(validate_event(ev), [])  # 含 ts 带时区
-            # 紧凑写出：重序列化逐字节一致（separators=(',',':')，无多余空白）
-            self.assertEqual(
-                json.dumps(ev, ensure_ascii=False, separators=(",", ":")), line)
 
     def test_ts_has_timezone_offset(self):
         with EventWriter(self.path) as w:
             w.append("heartbeat", {}, "scheduler")
-        with open(self.path, encoding="utf-8") as f:
-            ts = json.loads(f.readline())["ts"]
+            ts = w.read_all()[0]["ts"]
         self.assertRegex(ts, r"(Z|[+-]\d{2}:\d{2})$")  # 带时区，无裸时间戳
 
     def test_reopen_continues_seq(self):

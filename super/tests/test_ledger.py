@@ -81,23 +81,29 @@ class TestAppendRead(LedgerTestBase):
         self.assertIsInstance(rows[0]["extra"], str)  # default=str 兜底
 
     def test_lazy_dir_creation(self):
+        """DB 化：嵌套 ws 目录自动建（super.db 落库）。"""
         ws = os.path.join(self.ws, "nested", "dir")
         lg = Ledger(ws)
         lg.append(entry(1))
-        self.assertTrue(os.path.isfile(os.path.join(ws, "ledger.jsonl")))
+        self.assertTrue(os.path.isfile(os.path.join(ws, "super.db")))
         self.assertEqual(len(lg.read_all()), 1)
 
 
 class TestReadAllTolerance(LedgerTestBase):
     def test_skips_bad_and_blank_lines(self):
+        """DB 化：坏行/半行概念退役（DB 行总是合法 JSON）——jsonl 遗留文件被忽略。
+
+        行级容错语义保留：append 拒非法条目（非 dict 跳过——见 append 测试）。
+        """
         path = os.path.join(self.ws, "ledger.jsonl")
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps(entry(1), ensure_ascii=False) + "\n")
-            f.write("not-json-at-all\n")          # 坏行
-            f.write("\n")                          # 空行
-            f.write('{"iteration_id": 3, "truncated_writ\n')  # 半写行
-            f.write(json.dumps(entry(4), ensure_ascii=False) + "\n")
-            f.write("[1,2,3]\n")                   # 合法 JSON 但非 dict
+            f.write("not-json-at-all\n")
+        # jsonl 遗留不进 DB——read_all 只读 ledger_entries 表
+        self.assertEqual(self.ledger.read_all(), [])
+        # 正常路径：DB 条目全量可读
+        self.ledger.append(entry(1))
+        self.ledger.append(entry(4))
         rows = self.ledger.read_all()
         self.assertEqual([r["iteration_id"] for r in rows], [1, 4])
 

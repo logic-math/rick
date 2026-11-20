@@ -1,39 +1,29 @@
-"""events.py — super 调度器的唯一真相源：append-only 事件日志（job_47 task1）
+"""events.py — super 调度器的唯一真相源：事件日志（job_47 task1 · job_56 task1 DB 化）
 
-events.jsonl 一行一事件（紧凑 JSON），py 调度器进程是唯一写者（单写者架构，
-人工干预经干预队列由调度器代写），本模块不做进程锁。
+事件存储迁移到 sqlite（`<ws>/super.db` 的 events 表——job_56 四项重构裁决 Q1：
+一次切净，events.jsonl 废弃；旧工作区不迁移不兼容）。py 调度器进程是
+唯一写者（进程锁强保证，见 db.acquire_scheduler_lock），本模块不做进程锁。
 
-设计契约（design-tree §2.2 / §2.7，task1 spec）：
+设计契约（design-tree §2.2 / §2.7，task1 spec，DB 化后语义不变）：
   - 事件信封五字段：{ts, seq, type, source, payload}
     ts   RFC3339 带时区（domain/bugs.md 坑位：无时区会被 Go time.Parse 拒绝；
          项目惯例固定 +08:00，与 archive/config 一致）
-    seq  进程内尽力递增，从 1 起；重开（模拟重启）从「既有最大 seq+1」续号
+    seq  事件表 AUTOINCREMENT 主键（单调递增，DB 保证唯一）
     type ∈ EVENT_TYPES（设计树 §2.2 定稿 19 类 + task19 adjust_decision）
     source ∈ {scheduler, gate, human, adjudicator, agent:<adjust|builder|coding|debug>}
     payload dict，必填字段见 EVENT_SCHEMAS
-  - 每次 append 后 flush（+ fsync，可关：见下）
-  - 截断容错：读取端跳过坏行/半行；重开时若文件尾部是半写行（无换行结尾），
-    先补一个换行符「封口」——恢复后的新事件不与残行粘连成坏行
-  - append-only 硬约束：只追加，绝不读改写已有字节
+  - 写前校验：validate_event 是唯一裁决点（坏事件不落盘）
+  - 事务性：sqlite WAL（崩溃安全：已提交事务保留，无半行概念——
+    jsonl 时代的截断容错/封口逻辑随存储迁移退役）
 
 迭代 10 / task49：**实验维度的并行写入**（human 裁决）
   - 「格子 + 迭代号」= 一次实验（experiment）的唯一标记：
     ``experiment_id = "<cell_safe>#iter<N>"``（cell_safe = 非字母数字 → ``_``），
     由 ``make_experiment_id(cell_id, iteration_id)`` 生成
-  - 实验内序号 ``experiment_seq`` 单调递增（1 起，重开时从既有事件扫描恢复）
-  - **seq 语义降级声明**：``seq`` 仅在单写者进程内尽力递增；**并行写入时不再
-    保证全局唯一/单调**。定位与还原请用 ``(experiment_id, experiment_seq)``
-    （或直接 ``read_experiment(experiment_id)``）；全局时间顺序看 ``ts``。
-    既有消费方：gates.py / adjust_trace.py / cost_report.py 只读 payload（不受
-    影响）；lineage.project_state 的游标已改为「已完成迭代的 max iteration_id」，
-    不依赖全局 seq 单调。
-  - **并行写安全**：一行一次 ``write``（O_APPEND 下 POSIX 单行 <4KB 原子）；
-    进程内仍用 ``threading.Lock`` 保护多线程 append 的 experiment_seq 计数
-  - ``event_fsync`` 实例开关（默认 True）：高频实验事件可关 fsync，退出时统一
-    flush（``close()`` 已 flush；崩溃时未 fsync 的尾行可能丢——由截断容错容忍）
-
-validate_event 是事件 schema 的唯一裁决点：EventWriter.append 写前校验
-（违规抛 ValueError，坏事件不落盘），测试与层门禁（gate）复用同一函数。
+    （注意：与 experiments 表的 PK「工作目录名」是两种 ID——见 db.py DDL 注释）
+  - 实验内序号 ``experiment_seq`` 单调递增（DB MAX+1，跨重启自动续号）
+  - 并行写安全：EventWriter 进程内 ``threading.Lock`` 保护 seq 预计算与
+    插入的原子性；跨进程由调度器进程锁保证单写者
 
 stdlib-only，Python >=3.9 兼容（禁 PEP604 X|Y 联合类型注解，用 Optional[...]）。
 """
@@ -43,6 +33,8 @@ import re
 import threading
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+
+from .db import SuperDB, db_for_ws
 
 __all__ = [
     "EVENT_TYPES",
@@ -290,110 +282,37 @@ def validate_event(ev: Any) -> List[str]:
     return errors
 
 
-def _scan_last_seq(path: str) -> int:
-    """从文件尾部反向找最后一条完整（以换行结尾且可解析）事件的 seq。
-
-    空文件 / 文件不存在 / 无完整行 → 0。尾部半行（崩溃残留）自然被忽略；
-    窗口从 4KB 起、按 8 倍扩到全文件（事件行数量级在 KB 级，首窗即命中）。
-    """
-    try:
-        f = open(path, "rb")
-    except FileNotFoundError:
-        return 0
-    with f:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        window = _SCAN_WINDOW
-        while True:
-            start = max(0, size - window)
-            f.seek(start)
-            tail = f.read()
-            lines = tail.split(b"\n")
-            # split 后最后一段若非空 = 无换行结尾的半行，丢弃；
-            # 其余各段均以 \n 结尾 = 完整行候选。窗口首段可能是被截断的
-            # 半行——从后往前解析时最后才轮到它，且半行 JSON 不可解析。
-            for raw in reversed(lines[:-1]):
-                if not raw.strip():
-                    continue
-                try:
-                    ev = json.loads(raw.decode("utf-8"))
-                except (ValueError, UnicodeDecodeError):
-                    continue
-                if isinstance(ev, dict) and _is_int(ev.get("seq")):
-                    return ev["seq"]
-            if start == 0:
-                return 0
-            window *= 8
-
-
-def _iter_file_events(path: str):
-    """逐行读事件文件（坏行/半行跳过，不抛异常）。文件不存在 → 无输出。
-
-    读取端容错：追加中的半行（无换行）与非法 JSON 行都被跳过；
-    并行写入下也只影响正在写的那一行。
-    """
-    try:
-        f = open(path, "r", encoding="utf-8")
-    except FileNotFoundError:
-        return
-    with f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                ev = json.loads(stripped)
-            except ValueError:
-                continue
-            if isinstance(ev, dict):
-                yield ev
-
-
-def _scan_experiment_seqs(path: str) -> Dict[str, int]:
-    """扫描既有事件，恢复每个 experiment_id 的当前最大 experiment_seq。
-
-    task49：实验内序号必须跨重启继续（同一次实验不会因进程重启而重号）。
-    """
-    out = {}  # type: Dict[str, int]
-    for ev in _iter_file_events(path):
-        eid = ev.get("experiment_id")
-        seq = ev.get("experiment_seq")
-        if not isinstance(eid, str) or not _is_int(seq):
-            continue
-        if seq > out.get(eid, 0):
-            out[eid] = seq
-    return out
-
-
 class EventWriter:
-    """append-only 事件日志写入器（单写者，不做进程锁——架构保证）。
+    """事件日志写入器（DB 后端：super.db 的 events 表；单写者由进程锁保证）。
 
-    用法::
+    用法（签名与 jsonl 时代完全兼容——path 参数保留，内部转 DB）::
 
-        w = EventWriter(ws_dir + "/events.jsonl")
+        w = EventWriter(ws_dir + "/events.jsonl")   # ws = dirname(path)
         seq = w.append("iteration_started", {"iteration_id": 1}, "scheduler")
         ...
-        w.close()   # 或 with EventWriter(path) as w: ...
+        w.close()   # 或 with EventWriter(path) as w: ...（幂等 no-op）
 
-    崩溃安全（design-tree §2.7）：
-      - 每次 append：校验 → 写一行（紧凑 JSON + \\n）→ flush → fsync → 返回 seq；
-      - __init__ 重开时若文件尾部是半写行（无换行结尾），先补一个换行符封口
-        （这一字节是追加而非改写），再从既有最大 seq+1 续号；
-      - 崩溃重启后由调用方用 read_all()/last_seq() 做游标重放投影。
+    崩溃安全：sqlite WAL——已提交事务保留，无半行概念（jsonl 时代的
+    截断容错/封口逻辑随存储迁移退役）。
+
+    写前校验：append 内部先构造完整事件（seq 预计算）→ validate_event
+    （坏事件不落盘）→ INSERT。进程内 _lock 保证 seq 预计算与插入间
+    无并发插入（跨进程由调度器进程锁保证单写者）。
     """
 
     def __init__(self, path: str, event_fsync: bool = True) -> None:
+        # path 兼容两种形态：jsonl 时代文件路径（取 dirname 定位 super.db）
+        # 或工作区目录直传（DB 时代形态）。event_fsync 参数保留但忽略
+        # （DB WAL + synchronous=NORMAL 承担持久化语义）。
+        _p = os.path.abspath(path)
         self._path = path
+        self._ws = _p if os.path.isdir(_p) else (os.path.dirname(_p) or ".")
+        self._db = db_for_ws(self._ws)
         self._closed = False
-        self._fh = open(path, "a", encoding="utf-8")
-        self._seal_truncated_tail()
-        self._next_seq = _scan_last_seq(path) + 1
-        # task49：实验内序号计数（跨重启从既有事件恢复，同实验不重号）
-        self._exp_seq = _scan_experiment_seqs(path)  # type: Dict[str, int]
-        # fsync 开关（默认 True 保守；高频实验事件可关，由 close/flush 兼容）
-        self._event_fsync = bool(event_fsync)
-        # 线程锁：调度器心跳线程与主循环同进程并发 append（跨进程仍是单写者架构保证）
-        self._lock = threading.Lock()
+        # 线程锁：**复用 DB 实例锁**（同连接的全部访问互斥——EventWriter 内
+        # 的 MAX 查询绕过 db._lock 会与 Archive/db 操作并发 execute 同一
+        # 连接，sqlite C 层竞态可致段错误；单锁序列化根治）
+        self._lock = self._db._lock
 
     # ---- 写 ----
 
@@ -403,21 +322,16 @@ class EventWriter:
         """追加一条事件，返回其 seq。
 
         ``experiment_id``（task49）：给定时自动分配该实验的 ``experiment_seq``
-        （1 起、单调、跨重启续号）；为 None 时该事件是「运维/全局」事件
+        （DB MAX+1，跨重启自动续号）；为 None 时该事件是「运维/全局」事件
         （session/heartbeat/intervention 等），不带实验字段。
 
-        ``fsync``：None → 用实例默认（``event_fsync``）；True/False 覆盖。
-
         写前用 validate_event 校验：schema 违规抛 ValueError，坏事件不落盘。
-        线程安全（心跳线程/并发实验同进程写）；**seq 仅进程内尽力递增**，
-        并行场景请用 (experiment_id, experiment_seq) 定位事件流
-        （见模块 docstring 的 seq 语义降级声明）。
+        线程安全（心跳线程/并发实验同进程写）。
         """
         if self._closed:
             raise ValueError("EventWriter is closed")
-        do_fsync = self._event_fsync if fsync is None else bool(fsync)
         with self._lock:
-            seq = self._next_seq
+            seq = self._db.last_seq() + 1
             ev = {
                 "ts": _now(),
                 "seq": seq,
@@ -430,96 +344,49 @@ class EventWriter:
                     raise ValueError(
                         "experiment_id must be a non-empty str, got %r"
                         % (experiment_id,))
-                eseq = self._exp_seq.get(experiment_id, 0) + 1
+                row = self._db._conn.execute(
+                    "SELECT MAX(experiment_seq) FROM events WHERE experiment_id=?",
+                    (experiment_id,)).fetchone()
+                base = row[0] if row and row[0] is not None else 0
                 ev["experiment_id"] = experiment_id
-                ev["experiment_seq"] = eseq
+                ev["experiment_seq"] = base + 1
             errors = validate_event(ev)
             if errors:
                 raise ValueError("invalid event: " + "; ".join(errors))
-            line = json.dumps(ev, ensure_ascii=False, separators=(",", ":"))
-            # 单次 write 一行：O_APPEND 下 POSIX 单行 <4KB 写入原子
-            # （并行实验各写各的，不会互相截断成坏行）
-            self._fh.write(line + "\n")
-            self._fh.flush()
-            if do_fsync:
-                os.fsync(self._fh.fileno())
-            self._next_seq = seq + 1
-            if experiment_id is not None:
-                self._exp_seq[experiment_id] = ev["experiment_seq"]
-        return seq
+            stored = self._db.append_event(
+                ev["type"], ev["source"], ev["payload"],
+                experiment_id=ev.get("experiment_id"),
+                experiment_seq=ev.get("experiment_seq"),
+                ts=ev["ts"])
+        return int(stored["seq"])
 
     # ---- 读（重放/游标） ----
 
     def read_all(self) -> List[Dict[str, Any]]:
-        """全量读取（重放投影用）。只读幂等；坏行/半行跳过不抛异常。"""
-        return list(_iter_file_events(self._path))
+        """全量读取（重放投影用）。只读幂等。"""
+        return self._db.read_events()
 
     def read_experiment(self, experiment_id: str) -> List[Dict[str, Any]]:
-        """还原一次实验（格+迭代号）的完整事件流（task49）。
-
-        按 ``experiment_seq`` 升序返回该实验的事件；未知实验 → 空列表。
-        等价于 ``grep '"experiment_id":"<id>"' events.jsonl`` 后按实验内
-        序号排序。
-        """
-        if not isinstance(experiment_id, str) or not experiment_id:
-            return []
-        out = [ev for ev in _iter_file_events(self._path)
-               if ev.get("experiment_id") == experiment_id]
-        out.sort(key=lambda ev: ev.get("experiment_seq") or 0)
-        return out
+        """还原一次实验（格+迭代号）的完整事件流（experiment_seq 升序）。"""
+        return self._db.read_experiment_events(experiment_id)
 
     def experiment_ids(self) -> List[str]:
-        """文件中出现过的全部 experiment_id（去重、按首次出现顺序）。"""
-        seen = []  # type: List[str]
-        known = set()
-        for ev in _iter_file_events(self._path):
-            eid = ev.get("experiment_id")
-            if isinstance(eid, str) and eid not in known:
-                known.add(eid)
-                seen.append(eid)
-        return seen
+        """出现过的全部 experiment_id（去重、按首次出现顺序）。"""
+        return self._db.experiment_ids()
 
     def last_seq(self) -> int:
-        """最后一条完整事件的 seq（崩溃恢复游标）。以文件为准（非内存计数）。"""
-        return _scan_last_seq(self._path)
+        """最后一条事件的 seq（DB 为准）。"""
+        return self._db.last_seq()
 
     # ---- 生命周期 ----
 
     def close(self) -> None:
-        """关闭写句柄（幂等）。关前 flush（event_fsync=False 时也保证已入 OS 缓冲）。"""
-        if not self._closed:
-            try:
-                self._fh.flush()
-            except (OSError, ValueError):
-                pass
-            self._fh.close()
-            self._closed = True
+        """关闭（幂等）。DB 连接由单例管理（进程退出统一释放）——本方法
+        仅置 closed 标志，防 close 后继续 append。"""
+        self._closed = True
 
     def __enter__(self) -> "EventWriter":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
-
-    # ---- 内部 ----
-
-    def _seal_truncated_tail(self) -> None:
-        """文件非空且不以换行结尾（崩溃半写行）→ 追加一个换行符封口。
-
-        封口保证恢复后的新事件从新行开始，不与残行粘连成不可解析的坏行
-        （否则重开后的第一条事件会被残行吞掉）。只追加一个字节，不改写。
-        """
-        try:
-            with open(self._path, "rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                if size == 0:
-                    return
-                f.seek(size - 1)
-                last = f.read(1)
-        except FileNotFoundError:
-            return
-        if last != b"\n":
-            self._fh.write("\n")
-            self._fh.flush()
-            os.fsync(self._fh.fileno())

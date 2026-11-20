@@ -112,6 +112,47 @@ NEW_LAYOUT_REQUIRED = (
     os.path.join("skills", "verify.py"),
     GATE_CHECK_REL,
 )
+
+# ---- v2 布局（job_56/task2）：gates/ 验证器目录 + 多维融合分协议 ----
+#
+# v2 目录结构（env 四部分）：
+#   env/domain_knowledge.md   领域专家知识（所有实验 agent 的文档入口）
+#   env/skills/              agent 入口 skill（profile/benchmark/verify/research；
+#                            verify/benchmark 薄入口→执行 gates/ 内实现）
+#   env/gates/               验证器目录（builder/coding/debug 禁读——防针对验证器
+#                            优化；adjust 可读写；可执行不可读内容）：
+#     gate_check.py          框架必然调用的验证器入口（v2 协议）
+#     verify_impl.py         验证实现（skills/verify.py 执行引用它）
+#     benchmark_impl.py      基准实现（skills/benchmark.py 执行引用它）
+#   env/code/                基线代码（进化 target）
+#
+# v2 stdout 协议（最后一行 JSON；env 侧 main 函数实现协议）
+#   {"passed": bool, "score": <融合分>,
+#    "metrics": {"<指标名>": <实测值>, ...},
+#    "constraints": {"<约束名>": {"value", "target", "satisfied"}, ...},
+#    "diagnostics": "...", "failure_stage": ...|null, "tolerance_band"?: bool}
+#
+# 融合分语义（多维优化目标）：
+#   - env.json `objective`：{"constraints": [{name, op, value}],
+#     "metrics": [{name, weight}], "fusion": "weighted_avg"}
+#   - 多目标（如 A>1 前提下 B/C 越大越好）→ gate_check 计算加权融合分
+#   - score ≥ 0 ⟺ passed=true（框架侧强一致性校验）；score < 0 = 拒绝
+#     （-1 环境错误 / -2 正确性失败 / -3 约束违反 / -4 软门禁劣化）
+#   - 融合分方向约定：越高越好（gate_check 负责把 low 方向指标归一化进融合分；
+#     env.json perf_desc 声明融合分方向，v2 缺省 "high"）
+GATE_CHECK_V2_REL = os.path.join("gates", "gate_check.py")
+V2_IMPL_REQUIRED = (
+    os.path.join("gates", "verify_impl.py"),
+    os.path.join("gates", "benchmark_impl.py"),
+)
+V2_LAYOUT_REQUIRED = (
+    GATE_CHECK_V2_REL,
+) + V2_IMPL_REQUIRED + (
+    os.path.join("skills", "verify.py"),     # agent 薄入口（执行引用 gates/ 实现）
+    os.path.join("skills", "benchmark.py"),
+)
+V2_DEFAULT_FUSION = "weighted_avg"
+V2_CONSTRAINT_OPS = ("<=", ">=", "<", ">", "==", "!=")
 DEFAULT_PERF_TYPE = "runtime_ms"    # perf_type 缺省
 DEFAULT_PERF_DESC = "low"           # perf_desc 缺省
 
@@ -267,6 +308,12 @@ class CascadeGate:
         """`<env>/skills/gate_check.py` 存在 → 新布局（三要素封装门）；否则 legacy。"""
         return os.path.isfile(os.path.join(self.env_dir, GATE_CHECK_REL))
 
+    def _is_v2_layout(self) -> bool:
+        """`<env>/gates/gate_check.py` 存在 → v2 布局（gates/ 验证器目录 + 多维融合分）。
+
+        优先于 v1 新布局（同存时 gates/ 是更晚的目录约定）。"""
+        return os.path.isfile(os.path.join(self.env_dir, GATE_CHECK_V2_REL))
+
     # ---- env.json 读取 ----
 
     def _load_env_json(self) -> Tuple[Optional[dict], Optional[str]]:
@@ -337,7 +384,79 @@ class CascadeGate:
                 n = _num_or_none(v)
                 if n is None or n <= 0:
                     errors.append("gates.%s must be a number > 0, got %r" % (key, v))
+        # ---- v2 键（存在才校验；legacy/v1 env 无这些键不受影响） ----
+        errors.extend(self._validate_v2_keys(cfg))
         return errors
+
+    @staticmethod
+    def _validate_objective(obj: Any) -> List[str]:
+        """env.json objective（多维优化目标定义）的类型校验。
+
+        objective = {"constraints": [{name, op, value}],
+                     "metrics": [{name, weight}], "fusion": str}
+        constraints/metrics 均可选（至少其一）；metrics 非空时 weights 须全 > 0。
+        """
+        errs: List[str] = []
+        if not isinstance(obj, dict):
+            return ["objective must be an object {constraints, metrics, fusion}, "
+                    "got %r" % (obj,)]
+        cons = obj.get("constraints")
+        if cons is not None:
+            if not isinstance(cons, list) or not cons:
+                errs.append("objective.constraints must be a non-empty list, "
+                            "got %r" % (cons,))
+            else:
+                for c in cons:
+                    if not isinstance(c, dict) or not isinstance(c.get("name"), str):
+                        errs.append("objective.constraints entry needs name: %r" % (c,))
+                        break
+                    if c.get("op") not in V2_CONSTRAINT_OPS:
+                        errs.append("objective.constraints op must be one of %s, "
+                                    "got %r" % (V2_CONSTRAINT_OPS, c.get("op")))
+                        break
+                    if _num_or_none(c.get("value")) is None:
+                        errs.append("objective.constraints value must be a number, "
+                                    "got %r" % (c.get("value"),))
+                        break
+        mets = obj.get("metrics")
+        if mets is not None:
+            if not isinstance(mets, list) or not mets:
+                errs.append("objective.metrics must be a non-empty list, got %r" % (mets,))
+            else:
+                for m in mets:
+                    if not isinstance(m, dict) or not isinstance(m.get("name"), str):
+                        errs.append("objective.metrics entry needs name: %r" % (m,))
+                        break
+                    w = _num_or_none(m.get("weight"))
+                    if w is None or w <= 0:
+                        errs.append("objective.metrics weight must be a number > 0, "
+                                    "got %r" % (m.get("weight"),))
+                        break
+        fusion = obj.get("fusion")
+        if fusion is not None and not isinstance(fusion, str):
+            errs.append("objective.fusion must be a string, got %r" % (fusion,))
+        return errs
+
+    @classmethod
+    def _validate_v2_keys(cls, cfg: dict) -> List[str]:
+        """v2 新键（存在才校验）：objective / agent_hyperparams / env_slots / verify_levels。"""
+        errs: List[str] = []
+        if "objective" in cfg:
+            errs.extend(cls._validate_objective(cfg.get("objective")))
+        hp = cfg.get("agent_hyperparams")
+        if hp is not None and not isinstance(hp, dict):
+            errs.append("agent_hyperparams must be an object "
+                        "{role: {model, thinking}}, got %r" % (hp,))
+        es = cfg.get("env_slots")
+        if es is not None:
+            n = _num_or_none(es)
+            if n is None or int(n) < 1:
+                errs.append("env_slots must be an integer >= 1, got %r" % (es,))
+        vl = cfg.get("verify_levels")
+        if vl is not None and not isinstance(vl, dict):
+            errs.append("verify_levels must be an object {level: {cmd, ...}}, "
+                        "got %r" % (vl,))
+        return errs
 
     # ---- 子进程 ----
 
@@ -409,6 +528,10 @@ class CascadeGate:
             return GateResult(False, STAGE1_ENV, {},
                               "stage1 env unhealthy: %s" % err)
         py = self._python()
+        if self._is_v2_layout():
+            # v2（gates/ 验证器目录 + 多维融合分）优先于 v1 新布局
+            return self._verify_gate_check_v2(cfg, py, candidate_dir,
+                                             elite_perf, history)
         if self._is_new_layout():
             return self._verify_gate_check(cfg, py, candidate_dir,
                                            elite_perf, history)
@@ -623,6 +746,136 @@ class CascadeGate:
             stage = STAGE3_PERF
         return GateResult(False, stage, metrics,
                           details or "gate_check failed")
+
+    # ---- v2 布局：gates/ 验证器目录 + 多维融合分协议（job_56/task2） ----
+
+    def _verify_gate_check_v2(self, cfg: dict, py: str, candidate_dir: str,
+                              elite_perf: Optional[float],
+                              history: Optional[List[float]]) -> GateResult:
+        """v2 终验：gates/gate_check.py 一次子进程，多维融合分协议解析。
+
+        stage1：V2_LAYOUT_REQUIRED 文件齐 + reference 过 skills/verify.py
+        （薄入口→gates/verify_impl.py）+ cfg 校验（含 objective 等 v2 键）。
+        基线语义：融合分基线（elite score → 同格历史 → env baseline → 首解豁免），
+        与 v1 同序；--baseline 传给 gate_check。
+
+        协议校验（框架侧强约束）：
+          - score 必须数值（缺失/非数值=协议失败）
+          - score ≥ 0 ⟺ passed=true（不一致=协议失败）
+        兼容投影（loop/archive 消费面零改动）：
+          metrics["perf"] = {perf_type: "fused_score", perf_desc(声明),
+                             value/score=融合分, k=1, raw=多维实测}
+          metrics["soft"] = 框架权威写入（baseline/baseline_source/
+                            tolerance_band[gate_check 报带内]/exempt）
+        """
+        metrics: Dict[str, Any] = {}
+        c_timeout, _ = self._timeouts(cfg)
+        gc_timeout = self._gate_check_timeout(cfg)
+
+        # ---- stage1 环境健康 ----
+        problems = self._validate_cfg(cfg)
+        for rel in V2_LAYOUT_REQUIRED:
+            if not os.path.isfile(os.path.join(self.env_dir, rel)):
+                problems.append("missing env/%s" % rel)
+        ref_path = os.path.join(self.env_dir, "code", "reference.py")
+        if not os.path.isfile(ref_path):
+            problems.append("missing env/code/reference.py")
+        if not candidate_dir or not os.path.exists(candidate_dir):
+            problems.append("candidate not found: %r" % (candidate_dir,))
+        if not problems:
+            ok, msg = self._probe_interpreter(py, c_timeout)
+            if not ok:
+                problems.append(msg)
+        if not problems:
+            # 参考实现必须过约束门（agent 薄入口，与 builder/coding/debug 同源）
+            parsed, rerr = self._run_script(
+                py, os.path.join("skills", "verify.py"),
+                ref_path, c_timeout)
+            if rerr is not None:
+                problems.append("reference failed verify gate: %s" % rerr)
+            elif not parsed.get("passed"):
+                problems.append("reference failed verify gate: %s"
+                                % json.dumps(parsed, ensure_ascii=False))
+        if problems:
+            return GateResult(False, STAGE1_ENV, metrics,
+                              "stage1 env unhealthy: " + "; ".join(problems))
+
+        # ---- 基线（融合分语义）→ 传参 ----
+        baseline, source = self._resolve_baseline(cfg, elite_perf, history)
+        extra = ["--env-dir", self.env_dir]
+        if baseline is not None:
+            extra.extend(["--baseline", repr(float(baseline))])
+
+        parsed, gerr = self._run_script(py, GATE_CHECK_V2_REL, candidate_dir,
+                                        gc_timeout, extra_args=extra)
+        if gerr is not None:
+            return GateResult(False, STAGE3_PERF, metrics,
+                              "gate_check v2 failed (protocol/timeout): %s" % gerr)
+        if "passed" not in parsed:
+            return GateResult(False, STAGE3_PERF, metrics,
+                              "gate_check v2 failed (protocol): output missing "
+                              "'passed': %r" % (parsed,))
+
+        score = _num_or_none(parsed.get("score"))
+        if score is None:
+            return GateResult(False, STAGE3_PERF, metrics,
+                              "gate_check v2 failed (protocol): score missing/"
+                              "non-numeric: %r" % (parsed.get("score"),))
+        passed = bool(parsed["passed"])
+        if (score >= 0) != passed:
+            return GateResult(
+                False, STAGE3_PERF, metrics,
+                "gate_check v2 failed (protocol): score=%s inconsistent with "
+                "passed=%s (score >= 0 ⟺ passed)" % (score, passed))
+
+        # ---- 多维承载 + 兼容投影 ----
+        raw_metrics = parsed.get("metrics")
+        raw_metrics = dict(raw_metrics) if isinstance(raw_metrics, dict) else {}
+        raw_constraints = parsed.get("constraints")
+        raw_constraints = (dict(raw_constraints)
+                           if isinstance(raw_constraints, dict) else {})
+        objective = cfg.get("objective")
+        objective = dict(objective) if isinstance(objective, dict) else {}
+        perf_desc = cfg.get("perf_desc", DEFAULT_PERF_DESC)
+        metrics = {
+            "score": score,
+            "metrics": raw_metrics,
+            "constraints": raw_constraints,
+            "objective": objective,
+            "fusion": objective.get("fusion", V2_DEFAULT_FUSION),
+            # 兼容投影：loop._admit 消费 perf.value/score；archive 消费 perf_value
+            "perf": {
+                "perf_type": "fused_score",
+                "perf_desc": perf_desc,
+                "value": score,
+                "score": score,
+                "timings": [score],
+                "k": 1,
+                "raw": raw_metrics,
+            },
+        }
+        # soft 段：框架权威写入（基线来源只有框架知道）；带内标记由
+        # gate_check 报（tolerance_band 键）——带外劣化它已标 passed=False
+        soft = {
+            "relative_band": self._band_value(cfg),
+            "baseline": baseline,
+            "baseline_source": source,
+            "tolerance_band": bool(parsed.get("tolerance_band")),
+            "exempt": baseline is None,
+        }
+        metrics["soft"] = soft
+
+        details = str(parsed.get("diagnostics") or "")
+        if passed:
+            return GateResult(True, None, metrics,
+                              details or "passed via gates/gate_check.py (v2)")
+        stage = parsed.get("failure_stage")
+        if stage not in (STAGE2_CORRECTNESS, STAGE3_PERF, SOFT_GATE):
+            note = "(gate_check v2 failure_stage missing/invalid: %r)" % (stage,)
+            details = (details + " " + note).strip()
+            stage = STAGE3_PERF
+        return GateResult(False, stage, metrics,
+                          details or "gate_check v2 failed (score=%s)" % score)
 
     # ---- 软门禁 ----
 

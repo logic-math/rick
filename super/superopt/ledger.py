@@ -7,7 +7,8 @@ env_8 实证：coding agent 自发在迭代目录写 `ab_notes.md`，补系统�
 adjust 回看自己的历史决策与效果）。
 
 契约：
-  - 落盘 `<ws>/ledger.jsonl`：append-only，单行紧凑 JSON，py 调度器单写者。
+  - 存 `<ws>/super.db` 的 ledger_entries 内部表（job_56 task1 DB 化：
+  jsonl 废弃；py 调度器单写者）。
   - 条目 schema（loop 侧填充，本模块容错消费）::
 
         {ts, iteration_id, cell_id, idea, parents, plan_steps_count,
@@ -87,17 +88,20 @@ class Ledger:
 
     def __init__(self, ws: str) -> None:
         self._ws = ws
-        self._path = os.path.join(ws, "ledger.jsonl")
+        # DB 化（job_56 task1）：台账存 super.db 的 ledger_entries 内部表
+        from .db import db_for_ws
+        self._db = db_for_ws(ws)
 
     @property
     def path(self) -> str:
-        """台账文件绝对路径（测试/调试用）。"""
-        return self._path
+        """台账存储路径（super.db——兼容旧属性名，测试/调试用）。"""
+        from .db import db_path_for_ws
+        return db_path_for_ws(self._ws)
 
     # ---- 写 ----
 
     def append(self, entry: Dict[str, Any]) -> None:
-        """追加一条台账（容错：非法条目跳过、非法字段字符串化、IO 异常不炸）。
+        """追加一条台账（容错：非法条目跳过、非法字段字符串化、异常不炸）。
 
         不修改调用方传入的 dict（复制后补 ts）。
         """
@@ -106,42 +110,21 @@ class Ledger:
         item = dict(entry)
         item.setdefault("ts", _now())
         try:
-            line = json.dumps(item, ensure_ascii=False,
-                              separators=(",", ":"), default=str)
+            # DB 行总是合法 JSON（default=str 兜底不可序列化字段）
+            json.dumps(item, ensure_ascii=False, default=str)
         except (TypeError, ValueError):
             return  # 极端不可序列化情形：跳过该条（台账非真相源）
         try:
-            parent = os.path.dirname(self._path)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-            with open(self._path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
-                f.flush()
-        except OSError:
-            # 台账是分析副产品：写失败不影响进化主循环（事件流仍是唯一真相源）
+            self._db.append_ledger(item)
+        except Exception:  # noqa: BLE001
+            # 台账是分析副产品：写失败不影响进化主循环（事件表仍是唯一真相源）
             return
 
     # ---- 读 ----
 
     def read_all(self) -> List[Dict[str, Any]]:
-        """全量读取（坏行/半行/非 dict 行跳过，不抛异常）。"""
-        out: List[Dict[str, Any]] = []
-        try:
-            f = open(self._path, "r", encoding="utf-8")
-        except FileNotFoundError:
-            return out
-        with f:
-            for line in f:
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    value = json.loads(stripped)
-                except ValueError:
-                    continue  # 坏行/半行：截断容错
-                if isinstance(value, dict):
-                    out.append(value)
-        return out
+        """全量读取（非 dict 行跳过——DB 行总是合法 JSON，防御性保留）。"""
+        return self._db.read_ledger()
 
     def brief(self, n: int = 8) -> List[Dict[str, Any]]:
         """最近 n 条精简摘要（builder/coding/debug/adjust 的 ctx 注入形态）。"""

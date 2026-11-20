@@ -116,6 +116,51 @@ scope: "super 会话（全局）"
 - **收尾**：停机时等在飞槽 `slot_stop_grace_s`（默认 120s），超期记 `slot_stop_timeout` 后退出；`experiment_finished` 事件可核对每个实验是否收口。
 - **观察口径**：按实验 grep 还原（见上），不要试图从全局 seq 推断实验边界。
 
+## v2 架构增补（job_56 四项重构——与上述既有机制并行生效）
+
+### env 四部分结构（v2）
+
+env 由四部分构成（gen_env skill 按 v2 四步流程生成）：
+
+| 部分 | 路径 | 职责 |
+|---|---|---|
+| **领域专家知识** | `env/domain_knowledge.md` | 所有实验 agent 的基本准则与文档入口（多维目标定义/验证金字塔矩阵/资源分时复用规则/skill 务必调用清单） |
+| **skills** | `env/skills/` | agent 入口 skill（profile/benchmark/verify/research 四基本+可扩展；verify/benchmark 是薄入口→执行引用 gates/ 实现；支持 `--level` 分层验证参数） |
+| **gates 验证器** | `env/gates/` | 验证器入口与实现（gate_check.py + verify_impl/benchmark_impl + exploit 注册表 + 金样例） |
+| **code 基线** | `env/code/` | 基线代码 = 进化 target |
+
+### gates/ 验证器隔离规则（防作弊）
+
+- **builder/coding/debug 禁读 `env/gates/` 内容**（read/cat/grep 等读取行为被 superopt-json-guard hook 拦截）——防止针对验证器做定向优化/作弊；涨幅异常会触发 debug 作弊检查
+- **可执行不可读**：agent 经 `skills/verify.py`、`skills/benchmark.py` 薄入口**执行引用** gates/ 实现（拿同一份结论，与框架终验同源）
+- **adjust 可读写**：adjust 流水线 step7（实验自改进）需要读写验证器（识别机制性错误/噪声/过拟合）；验证器修改经 humans 提案队列走 human 裁决（测量地基不被被测对象静默污染）
+
+### gate_check.py 负分协议（v2 多维融合分）
+
+- env.json `objective` 声明多维优化目标：**约束列表**（如 A>1、max_error≤1e-3、tp99≤100ms）之下追求**多指标加权最大**（如 qps 0.7 + ttft 0.3）——目标可以是多维的，不要求单一指标
+- `env/gates/gate_check.py`（框架必然调用的验证器入口）stdout JSON：`{passed, score, metrics{指标名:值}, constraints{约束名:{value,op,target,satisfied}}, diagnostics, failure_stage, tolerance_band?}`
+- **score ≥ 0 ⟺ passed**（融合分=进化分数，越高越好）；**score < 0 = 拒绝**（-1 环境错误 / -2 正确性失败 / -3 约束违反 / -4 软门禁劣化）
+- 框架侧（superopt/gates.py）强校验 score/passed 一致性；兼容投影保证入格/软门禁基线语义连续
+
+### humans 两类队列（干预 + 提案）
+
+humans 表（super.db，task1 落地）承载两类队列：
+
+- **干预队列**（queue_type=intervention）：human 提交的干预建议（`rick super event` 入队）—— adjust step1 读未应用干预作为 **human 价值判断**（事实与期望文档的期望锚点）
+- **提案队列**（queue_type=proposal）：super runtime 执行中产出的需 human 裁决的提案（adjust step7 的 skill 修改/验证器反思、terminate_recommend 等）—— human 裁决后标记 applied
+
+### 验证金字塔（分层验证）
+
+- verify/benchmark skill 带层次验证参数：`L1-M0`（系统 L1 层 M0 模块单验）/`L{n}`（第 n 层整层验证）/`E2E`（端到端）
+- 验证参数进 domain_knowledge.md（引导实验 agent 自行小范围验证——无效解以最低成本排除）
+- 调度器 gate_check（E2E 终验）与 agent 侧 L1 预检共享同一实现入口（口径不漂移）
+- **debug 失败跳过 E2E**：debug agent 反思后主动上报实验失败 → 调度器跳过端到端验证（省部署/预热/全量测试）加速迭代
+
+### 并行实验资源语义（v2）
+
+- **调度器仅管资源分配**：实验槽（并行实验总上限）+ 环境槽（同一 env 允许并发实验数，env.json `env_slots` 声明）二级限额；资源位查询/占用/释放走 super.db 资源表
+- **同环境分时复用是 ENV 的设计责任**：env 设计者在 domain_knowledge.md 写清并发实验如何交错使用独占资源；调度器不介入实验内部的资源交错
+
 ## 依赖准备（硬约束，缺失则报错停止）
 
 1. `rick super --help` 列出五子命令（session/start/stop/status/event）——super 命令组已构建进当前 rick。
@@ -131,7 +176,7 @@ scope: "super 会话（全局）"
 
 | # | 达成条件 | 判据 |
 |---|---|---|
-| G1 | env 合格（建设或确认既有） | **三要素 + 检索五件齐备**（`skills/{profile,verify,benchmark,gate_check,research}.py`：四件三要素各自独立可跑 + gate_check 对参考实现融合 pass + `research.py` 四角色输出三元组非空） + 门先证红种子拒识 100% |
+| G1 | env 合格（建设或确认既有） | **三要素 + 检索五件齐备**（v1：`skills/{profile,verify,benchmark,gate_check,research}.py`；**v2 布局**：`gates/gate_check.py`+`gates/{verify_impl,benchmark_impl}.py`+`skills/` 四件薄入口/入口——gate_check v2 融合分协议闭环：reference 跑出 `passed:true, score≥0` 且作弊样本跑出负分）+ 门先证红种子拒识 100% |
 | G2 | 后台进化按预期运行 | `rick super status` → state=running、心跳新鲜、iteration_cursor 递增、北极星（入格数/各格最优 perf/token 成本）可读 |
 | G3 | 干预正确投递且不破坏单写者 | 干预只经 `rick super event` → 队列文件出现在 `interventions/` → 后续事件流出现 intervention 事件（source=human） |
 | G4 | 停止干净 | `rick super stop` 后 state=stopped、session_ended 事件落盘、无孤儿进程（supervisor 整树收割） |

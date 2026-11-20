@@ -192,7 +192,7 @@ class _RuntimeArchive(Archive):
       基类是 property，本类覆写为同名方法返回同一快照
     - bump_visit：Sampler 的 on_visit 落点（visit/sample_count/last_sampled_at）
     - set_visit：_recover 从事件流投影恢复用（不走 bump 累加语义）
-    visit 的唯一真相在 cell_sampled 事件；本视图保证 archive.json 侧一致。
+    visit 的唯一真相在 cell_sampled 事件；本视图保证 super.db cells 表侧一致。
     """
 
     def cells(self) -> Dict[str, Any]:
@@ -342,8 +342,12 @@ class Scheduler:
         self._state_lock = threading.Lock()
         self._ledger_lock = threading.Lock()
 
-        self.events_path = os.path.join(self.ws, "events.jsonl")
-        self.archive_path = os.path.join(self.ws, "archive.json")
+        # DB 时代：events 存 super.db（五表）；EventWriter 的 path 参数
+        # 兼容目录直传（jsonl 文件名形态仅为旧签名兼容，见 events.py）。
+        self.events_path = self.ws
+        # DB 时代：格状态存 super.db（cells 表）；Archive 的 path 参数
+        # 兼容目录直传（json 文件名形态仅为旧签名兼容，见 archive.py）。
+        self.archive_path = self.ws
         self.env_dir = cfg.get("env_path") or os.path.join(self.ws, "env")
         self.gates_dir = os.path.join(self.ws, "gates")
         self.codes_dir = os.path.join(self.ws, "codes")
@@ -386,6 +390,10 @@ class Scheduler:
             # ---- 组装（可注入） ----
             # event_fsync（迭代10/task51）：默认 True；高频/并发实验可关（省 IO，
             # 崩溃可能丢尾行——events 读取有截断容错）
+            # DB 单库（job_56 task1）：全部存储经 super.db（五表）——
+            # EventWriter/Archive/Ledger/InterventionQueue 内部转 DB 后端
+            from .db import db_for_ws as _db_for_ws
+            self.db = _db_for_ws(self.ws)
             self.events = event_writer or EventWriter(
                 self.events_path,
                 event_fsync=bool(conf.get("event_fsync", True)))
@@ -512,6 +520,10 @@ class Scheduler:
         self.events.append("session_started",
                            {"env": self.env_dir, "pid": os.getpid()},
                            "scheduler")
+        # 资源槽初始化（job_56 task1 KR-C）：实验槽/环境槽按 config 落
+        # resources 表；启动即清残留占用（进程锁保证单写者——残留 holder
+        # 必是上个死进程的遗留）
+        self._init_resource_slots()
         self._recover()
         # ---- 格级互斥启动清理（迭代9/task45）----
         # 上个进程被 SIGKILL 时可能留下锁文件：持有者 pid 已死 → 立即清理
@@ -637,14 +649,28 @@ class Scheduler:
                     break  # 全格被占/溢出停机（事件已落）
                 cursor = self._alloc_cursor()
                 exp_id = make_experiment_id(cell_id, cursor)
+                # 资源槽占用（job_56 task1 KR-C）：实验槽+环境槽（二级限额）。
+                # 拿不到位（槽满）→ 归还格锁、等在飞实验释放后重试。
+                workdir_id = self._register_experiment_row(cursor, cell_id)
+                exp_slot = self.db.acquire_slot("experiment_slot", workdir_id)
+                if exp_slot is None:
+                    self.cell_locks.release(cell_id)
+                    break  # 实验槽满：等在飞释放
+                env_slot = self.db.acquire_slot("env_slot", workdir_id)
+                if env_slot is None:
+                    self.db.release_holder(workdir_id)  # 归还实验槽
+                    self.cell_locks.release(cell_id)
+                    break  # 环境槽满：等在飞释放
                 slot = next_slot
                 next_slot += 1
                 self.events.append("experiment_started", {
                     "slot": slot, "iteration_id": cursor, "cell_id": cell_id,
+                    "workdir_experiment_id": workdir_id,
+                    "exp_slot": exp_slot, "env_slot": env_slot,
                 }, "scheduler", experiment_id=exp_id)
                 th = threading.Thread(
                     target=self._slot_worker,
-                    args=(slot, cell_id, cursor, exp_id),
+                    args=(slot, cell_id, cursor, exp_id, workdir_id),
                     name="superopt-slot-%d" % slot, daemon=True)
                 slots[slot] = {"thread": th, "cell_id": cell_id,
                                "iteration_id": cursor, "started": time.time()}
@@ -660,11 +686,16 @@ class Scheduler:
         self._drain_slots(slots)
 
     def _slot_worker(self, slot: int, cell_id: str, cursor: int,
-                     exp_id: str) -> None:
-        """槽 worker：跑一次实验（已持格锁），结束时释放并落收尾事件。"""
+                     exp_id: str, workdir_id: Optional[str] = None) -> None:
+        """槽 worker：跑一次实验（已持格锁），结束时释放并落收尾事件。
+
+        workdir_id（job_56 task1）：工作目录实验 ID（experiments 表 PK）——
+        资源位持有标识；结束时归还资源位（实验槽+环境槽）。
+        """
         t0 = time.time()
         try:
-            self._step_locked(cell_id, cursor=cursor, exp_id=exp_id)
+            self._step_locked(cell_id, cursor=cursor, exp_id=exp_id,
+                              workdir_id=workdir_id)
         except Exception as exc:  # noqa: BLE001 —— 单实验失败不杀调度器
             try:
                 self.events.append("experiment_failed", {
@@ -674,6 +705,11 @@ class Scheduler:
             except Exception:  # noqa: BLE001
                 pass
         finally:
+            if workdir_id:
+                try:
+                    self.db.release_holder(workdir_id)  # 归还实验槽+环境槽
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 self.cell_locks.release(cell_id)
             except Exception:  # noqa: BLE001
@@ -783,7 +819,7 @@ class Scheduler:
     def _recover(self) -> int:
         """事件流游标重放：恢复 cursor/visit/weight/pending（返回 last_seq）。
 
-        空事件流 = 全新开始。恢复以事件为准（archive.json 可能滞后于崩溃点）：
+        空事件流 = 全新开始。恢复以 super.db events 表为准（cells 表为投影，事务一致性无滞后）：
         visit/weight 用投影覆盖内存档案；pending 重建；elite 保留磁盘档案
         （投影只含最小 elite 字段；罕见窗口的 invalidation-后-崩溃由
         pending 重评估自愈——已知限制，记录于此）。
@@ -1212,9 +1248,48 @@ class Scheduler:
         evidence["stop_reason"] = "headroom_below_noise"
         return evidence
 
+    def _init_resource_slots(self) -> None:
+        """资源表初始化 + 残留占用清理（KR-C：实验槽/环境槽二级限额）。
+
+        实验槽 = max_parallel_experiments 个；环境槽 = env_slots_per_env 个
+        （调度器仅管资源分配——两实验可否同 env 并发；同环境内分时复用
+        是 ENV 设计责任/gen_env 规则，task2 落文档）。
+        """
+        try:
+            # 环境槽：conf 显式声明（>0）才收紧二级限额；缺省跟随实验槽数
+            # （不构成额外瓶颈——「同环境允许并发数」是 env 级设计责任，
+            # env 显式声明更小值时限制生效；Q7/Q8 裁决）
+            raw_env_slots = int(self.conf.get("env_slots_per_env", 0) or 0)
+            env_slots = raw_env_slots if raw_env_slots > 0 \
+                else self.max_parallel_experiments
+            self.db.init_slots(self.max_parallel_experiments, env_slots)
+            # 清残留占用（上个进程崩溃遗留——进程锁保证此刻无他人持槽）
+            import sqlite3 as _sq
+            with self.db._lock:
+                self.db._conn.execute(
+                    "UPDATE resources SET holder_experiment_id=NULL, "
+                    "acquired_at=NULL WHERE holder_experiment_id IS NOT NULL")
+                self.db._conn.commit()
+        except Exception:  # noqa: BLE001 资源表故障降级内存槽池（不炸启动）
+            pass
+
+    def _register_experiment_row(self, cursor: int,
+                                 cell_id: Optional[str] = None) -> str:
+        """experiments 表登记（job_56 task1 KR-E）：返回工作目录实验 ID。
+
+        `<iteration>-<YYYYMMDDHHMM>`（迭代号-年月日时分；同分钟并行撞号
+        自动加序号后缀——db.make_experiment_timestamp_id / register）。
+        存储调用行封装（task4 的 sub loop 写回 record_path/session_id/score）。
+        """
+        try:
+            return self.db.register_experiment(int(cursor), cell_id=cell_id)
+        except Exception:  # noqa: BLE001 DB 故障不炸实验链（兜底旧目录名）
+            return "iter%03d-%s" % (cursor, uuid.uuid4().hex[:8])
+
     def _step_locked(self, cell_id: str,
                      cursor: Optional[int] = None,
-                     exp_id: Optional[str] = None) -> None:
+                     exp_id: Optional[str] = None,
+                     workdir_id: Optional[str] = None) -> None:
         """单迭代主体（已持有 cell_id 的格锁；_step 的 finally 保证释放）。
 
         task49：本迭代 = 一次实验，唯一标记 ``experiment_id``（格+迭代号）；
@@ -1272,9 +1347,12 @@ class Scheduler:
             "total_visit": total_visit,
         }, "scheduler", experiment_id=self._cur_exp_id)
 
-        # ---- 迭代工作区（codes/{uuid}/ 隔离快照） ----
-        iter_dir = os.path.join(
-            self.codes_dir, "iter%03d-%s" % (cursor, uuid.uuid4().hex[:8]))
+        # ---- 迭代工作区（codes/{experiment_id}/ 隔离快照；job_56 task1 KR-E：
+        # 实验表 PK = <iteration>-<YYYYMMDDHHMM> = 工作目录名；串行/旧路径
+        # 未传 workdir_id 时兜底 register（同分钟撞号自动后缀）） ----
+        if workdir_id is None:
+            workdir_id = self._register_experiment_row(cursor, cell_id)
+        iter_dir = os.path.join(self.codes_dir, workdir_id)
         os.makedirs(iter_dir, exist_ok=True)
 
         # ---- 状态 2：builder（选父格 → experiment_plan） ----
@@ -2409,7 +2487,7 @@ class Scheduler:
         """格子现状（adjust 决策依据）。红黑树 env_11 实测：完整 JSON 拼进 ctx
         导致 prompt 88KB → input 膨胀 → 截断失败。压缩为精简元信息：
         cell_id + description.name + weight + visit + score。需要详细
-        descriptor/elite 时 agent 自己 read archive.json（它的决策）。"""
+        descriptor/elite 时 agent 自己查 super.db cells 表（它的决策）。"""
         out = []
         for cid in self.fs.all_cells():
             e = self._cell_entry(cid)
@@ -3010,7 +3088,7 @@ class Scheduler:
 
         红黑树 env_11 实测：完整 description JSON 使 prompt 达 88KB → input
         膨胀 → 截断。精简到 200 字后仍能支撑「改进 method」的判断（方向在，
-        细节靠 archive.json 自查）。
+        细节靠 super.db cells 表自查）。
 
         task58/R4：method_stale 的格带 [STALE] 标注（处方-基座相位差警示）——
         adjust 看到 [STALE] → 用 modify_cell 更新 method（更新即清除标记）。

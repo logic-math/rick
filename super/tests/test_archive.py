@@ -18,6 +18,17 @@ from unittest import mock
 from super.superopt.archive import Archive
 
 
+def _db_seed_minimal_cell(tmp_dir, elite_perf=5.0, code_path="codes/old/solution.py"):
+    """DB 化替代「写旧档 json」：直接写缺键的 cell 状态（load 补默认的行为契约不变）。"""
+    from super.superopt.db import db_for_ws
+    d = db_for_ws(tmp_dir)
+    d.upsert_cell_state("c1", {
+        "descriptor": {"a": "x"},
+        "elite": {"code_path": code_path, "perf_value": elite_perf},
+        "history": [], "weight": 1.0, "visit": 1,
+    })
+
+
 def entry(perf_value, code_path="codes/x/", gen=1, score=0.5):
     """构造一个合法的 admit entry（descriptor + elite 六字段）。"""
     return {
@@ -133,9 +144,9 @@ class TestAdmitDirection(unittest.TestCase):
         a.load()
         a.admit("c", entry(6.0))
         a.save()
-        with open(self.path, encoding="utf-8") as f:
-            data = json.load(f)
-        self.assertEqual(data["meta"]["perf_desc"], "low")
+        from super.superopt.db import db_for_ws
+        d = db_for_ws(os.path.dirname(os.path.abspath(self.path)))
+        self.assertEqual(d.get_meta()["perf_desc"], "low")
 
 
 class TestHistory(unittest.TestCase):
@@ -273,30 +284,30 @@ class TestPersistence(unittest.TestCase):
         self.assertEqual(a.drain_pending(), [])
 
     def test_load_corrupt_file_raises_or_starts_empty(self):
-        # 档案是单写者真相源的投影——损坏文件不应静默当作空档（宁可炸）
+        # DB 化：旧 json 布局文件（含损坏文件）被忽略——空档开始
+        # （sqlite 行级合法性由 DB 保证；旧工作区不迁移——Q1 裁决）
         with open(self.path, "w", encoding="utf-8") as f:
             f.write("{not json")
         a = Archive(self.path)
-        with self.assertRaises(json.JSONDecodeError):
-            a.load()
+        a.load()
+        self.assertEqual(a.cells, {})
 
     def test_save_atomic_failure_leaves_old_file_intact(self):
         a = Archive(self.path, perf_desc="low")
         a.load()
         a.admit("c", entry(6.0))
         a.save()
-        with open(self.path, encoding="utf-8") as f:
-            before = f.read()
-        # 再改内存，然后让 save 中途失败（os.replace 抛错）
+        # 再改内存，然后让 save 中途失败（upsert_cell_state 抛错——首格
+        # 已提交后第二格失败：已提交部分保留是 sqlite 逐格事务的语义）
         a.admit("c", entry(5.0))
         a.add_pending("c", "codes/px/", "tolerance_band")
-        with mock.patch("os.replace", side_effect=OSError("disk full")):
+        a._data["cells"]["c2"] = {"descriptor": {}, "elite": None,
+                                  "history": [], "weight": 1.0, "visit": 0}
+        with mock.patch.object(type(a._db), "upsert_cell_state",
+                               side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 a.save()
-        # 旧档未被破坏：内容与 save 前一致，可正常 load
-        with open(self.path, encoding="utf-8") as f:
-            after = f.read()
-        self.assertEqual(before, after)
+        # 已保存部分未被破坏：正常 load 可读
         b = Archive(self.path, perf_desc="low")
         b.load()
         self.assertEqual(b.get_elite("c")["perf_value"], 6.0)
@@ -306,8 +317,12 @@ class TestPersistence(unittest.TestCase):
         a.load()
         a.admit("c", entry(6.0))
         a.save()
-        leftovers = [f for f in os.listdir(self.tmp.name) if f != "archive.json"]
+        # DB 化：super.db 落库，无 json 时代的 tmp 中间文件
+        leftovers = [f for f in os.listdir(self.tmp.name)
+                     if f.endswith(".tmp")]
         self.assertEqual(leftovers, [])
+        self.assertTrue(os.path.exists(
+            os.path.join(self.tmp.name, "super.db")))
 
 
 class TestCellsAccessor(unittest.TestCase):
@@ -394,16 +409,8 @@ class TestCellDescription(unittest.TestCase):
             a.set_description("c1", "not-a-dict")
 
     def test_old_archive_without_description_is_backfilled(self):
-        """旧档（迭代8 之前）格无 description → load 后补 {}。"""
-        os.makedirs(self.tmp, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({
-                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
-                         "updated_at": "2026-10-01T00:00:00+08:00"},
-                "cells": {"c1": {"descriptor": {"a": "x"}, "elite": None,
-                                 "history": [], "weight": 1.0, "visit": 0}},
-                "pending": [],
-            }, f)
+        """DB 格状态无 description 键 → load 后补 {}。"""
+        _db_seed_minimal_cell(self.tmp, elite_perf=None)
         a = Archive(self.path, perf_desc="low")
         a.load()
         self.assertEqual(a.cells["c1"]["description"], {})
@@ -457,18 +464,8 @@ class TestFiveElements(unittest.TestCase):
         self.assertIsNone(a.get_record_path("nope"))
 
     def test_old_archive_without_five_elements_backfilled(self):
-        """旧档格无 elite_code_path/elite_record_path → load 后补 None。"""
-        os.makedirs(self.tmp, exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({
-                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
-                         "updated_at": "2026-10-01T00:00:00+08:00"},
-                "cells": {"c1": {"descriptor": {"a": "x"},
-                                 "elite": {"code_path": "codes/old/solution.py",
-                                           "perf_value": 5.0},
-                                 "history": [], "weight": 1.0, "visit": 1}},
-                "pending": [],
-            }, f)
+        """DB 格状态无 elite_code_path/elite_record_path → load 后补 None。"""
+        _db_seed_minimal_cell(self.tmp)
         a = Archive(self.path, perf_desc="low")
         a.load()
         cell = a.cells["c1"]
@@ -615,17 +612,8 @@ class TestCodeHashAndStale(unittest.TestCase):
         self.assertEqual(a.cells["c1"]["history"][0]["ref_runtime_ms"], 5000.0)
 
     def test_old_archive_without_task58_fields_backfilled(self):
-        """旧档格无 elite_code_hash/method_stale → load 后补默认。"""
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({
-                "meta": {"env": "", "feature_axes": [], "perf_desc": "low",
-                         "updated_at": "2026-10-01T00:00:00+08:00"},
-                "cells": {"c1": {"descriptor": {"a": "x"},
-                                 "elite": {"code_path": "codes/old/s.py",
-                                           "perf_value": 5.0},
-                                 "history": [], "weight": 1.0, "visit": 1}},
-                "pending": [],
-            }, f)
+        """DB 格状态无 elite_code_hash/method_stale → load 后补默认。"""
+        _db_seed_minimal_cell(self.tmp)
         a = Archive(self.path, perf_desc="low")
         a.load()
         cell = a.cells["c1"]

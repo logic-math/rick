@@ -1,0 +1,64 @@
+{
+  "created_at": "2026-11-30T00:00:00+08:00",
+  "version": "1.0",
+  "job": "super mod 四项系统性重构（7 步 adjust 协议 + sqlite DB 化 + sub loop 强化 + 开放 env 体系）",
+  "dag_levels": [
+    {"level": 1, "tasks": ["task1", "task2"], "gate": "plan/gates/gate1.py"},
+    {"level": 2, "tasks": ["task3"], "gate": "plan/gates/gate2.py"},
+    {"level": 3, "tasks": ["task4"], "gate": "plan/gates/gate3.py"},
+    {"level": 4, "tasks": ["task5"], "gate": "plan/gates/gate4.py"}
+  ],
+  "tasks": [
+    {
+      "task_id": "task1",
+      "task_name": "M1 DB 地基：sqlite 五表 + 进程锁 + 槽位资源 + 全消费方迁移",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task1.md",
+      "attempts": 0,
+      "created_at": "2026-11-30T00:00:00+08:00",
+      "updated_at": "2026-11-30T00:00:00+08:00"
+    },
+    {
+      "task_id": "task2",
+      "task_name": "M2 env 体系：多维融合分协议 + gates 隔离 + gen_env 四步 + 验证金字塔",
+      "dependencies": [],
+      "status": "pending",
+      "task_file": "plan/task2.md",
+      "attempts": 0,
+      "created_at": "2026-11-30T00:00:00+08:00",
+      "updated_at": "2026-11-30T00:00:00+08:00"
+    },
+    {
+      "task_id": "task3",
+      "task_name": "M3 adjust 7 步 subagent 协议：流水线调度 + 7 角色模板 + hook 结构检",
+      "dependencies": ["task1", "task2"],
+      "status": "pending",
+      "task_file": "plan/task3.md",
+      "attempts": 0,
+      "created_at": "2026-11-30T00:00:00+08:00",
+      "updated_at": "2026-11-30T00:00:00+08:00"
+    },
+    {
+      "task_id": "task4",
+      "task_name": "M4 sub loop 执行链强化：三角色协议重写 + 失败跳过验证 + DB 写回",
+      "dependencies": ["task3"],
+      "status": "pending",
+      "task_file": "plan/task4.md",
+      "attempts": 0,
+      "created_at": "2026-11-30T00:00:00+08:00",
+      "updated_at": "2026-11-30T00:00:00+08:00"
+    },
+    {
+      "task_id": "task5",
+      "task_name": "M5 集成验收：mock 场景 + e2e 全链路 + 全量回归 + 文档收口",
+      "dependencies": ["task4"],
+      "status": "pending",
+      "task_file": "plan/task5.md",
+      "attempts": 0,
+      "created_at": "2026-11-30T00:00:00+08:00",
+      "updated_at": "2026-11-30T00:00:00+08:00"
+    }
+  ],
+  "updated_at": "2026-11-30T00:00:00+08:00"
+}

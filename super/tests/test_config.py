@@ -52,12 +52,15 @@ class TestInitWs(unittest.TestCase):
         for d in ("interventions", "codes", "prompts"):
             self.assertTrue(os.path.isdir(os.path.join(self.ws, d)),
                             f"缺目录 {d}")
-        self.assertTrue(os.path.exists(os.path.join(self.ws, "events.jsonl")))
-        self.assertEqual(os.path.getsize(os.path.join(self.ws, "events.jsonl")), 0,
-                         "events.jsonl 应为空文件")
-        arch = json.load(open(os.path.join(self.ws, "archive.json")))
-        self.assertEqual(arch, {"cells": {}, "pending": []},
-                         "archive.json 初始结构")
+        # DB 化（job_56 task1）：super.db 五表就位（events.jsonl/archive.json 废弃）
+        self.assertTrue(os.path.exists(os.path.join(self.ws, "super.db")))
+        import sqlite3
+        con = sqlite3.connect(os.path.join(self.ws, "super.db"))
+        tables = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        con.close()
+        for t in ("cells", "experiments", "humans", "events", "resources"):
+            self.assertIn(t, tables, "super.db 缺表 %s" % t)
 
     def test_init_ws_super_json_fields(self):
         cfg = config.init_ws(self.ws, self.env)

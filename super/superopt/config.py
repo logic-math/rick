@@ -96,6 +96,11 @@ DEFAULTS: Dict[str, Any] = {
     # 实验 = 一次特征格上的迭代；**同一格同时只有一个实验**（builder/coding/
     # debug 在该格上顺序协作），不同格可并行。互斥由 CellLocks 双保险实现
     # （进程内集合 + <ws>/locks 文件锁，跨进程也成立）。
+    # 环境槽（job_56 task1 KR-C）：同一 env 允许并发实验数（二级限额——
+    # 调度器仅管资源分配；同环境分时复用是 ENV 设计责任/gen_env 规则）。
+    # 0=跟随 max_parallel_experiments（缺省不构成额外瓶颈；env 显式声明
+    # 更小值时收紧——Q7/Q8 裁决：限制是 env 级设计责任）
+    "env_slots_per_env": 0,
     # max_parallel_experiments 是并发槽开关：>1 时启用槽池（异格并行实验；
     # 同一格由 CellLocks 互斥，保证一格同时只有一个实验）。默认 2；1=纯串行。
     # （每迭代状态是调度器级共享态、worker 不得写 events/archive；拆槽重构
@@ -156,6 +161,21 @@ def _empty_super_json() -> Dict[str, Any]:
     }
 
 
+def _reject_legacy_layout(ws: str) -> None:
+    """旧布局检测：json/jsonl 时代工作区（有 events.jsonl 无 super.db）。
+
+    裁决（job_56 Q1）：一次切净，旧工作区保留不迁移不兼容——加载即报错，
+    指引新建 env（避免半新半旧双轨状态静默漂移）。
+    """
+    legacy = os.path.join(ws, "events.jsonl")
+    dbp = os.path.join(ws, "super.db")
+    if os.path.exists(legacy) and not os.path.exists(dbp):
+        raise ValueError(
+            "旧布局工作区（events.jsonl 时代，无 super.db）不再被支持："
+            "%s。请新建 env（`rick super session` 走 gen_env 流程生成新 "
+            "工作区）；旧工作区按原样保留作历史档案。" % ws)
+
+
 def load(ws: str) -> Dict[str, Any]:
     """读 `<ws>/super.json`，缺键补 DEFAULTS（仅内存补全，不写回）。
 
@@ -163,6 +183,9 @@ def load(ws: str) -> Dict[str, Any]:
     - 文件损坏（非法 JSON）→ raise ValueError（上层按环境失败结论化）。
     - 只补 config 段；其余段（state/cursor/pid/budget）按原样返回，缺即缺。
     """
+    # 旧布局检测（job_56 task1 要点 7）：json/jsonl 时代工作区不迁移不兼容——
+    # 存在 events.jsonl 且无 super.db → 明确报错指引新建 env
+    _reject_legacy_layout(ws)
     path = os.path.join(ws, "super.json")
     if not os.path.exists(path):
         return _empty_super_json()
@@ -234,21 +257,17 @@ def init_ws(ws: str, env_path: str) -> Dict[str, Any]:
     幂等语义：已存在的目录/文件不删除；super.json 已存在时只补缺键写回
     （不重置 state/iteration_cursor——运行中重复调用无害）。
 
-    骨架：events.jsonl（空文件）/ archive.json（{"cells": {}, "pending": []}）/
-    interventions/ / codes/ / prompts/。
+    骨架（job_56 task1 DB 化）：super.db（五表 DDL——sqlite 单库承载全部
+    进化元信息）/ interventions/（兼容遗留）/ codes/ / prompts/。
+    events.jsonl/archive.json/ledger.jsonl 存储路径废弃（旧工作区不迁移）。
     """
     os.makedirs(ws, exist_ok=True)
     for d in ("interventions", "codes", "prompts"):
         os.makedirs(os.path.join(ws, d), exist_ok=True)
 
-    events_path = os.path.join(ws, "events.jsonl")
-    if not os.path.exists(events_path):
-        with open(events_path, "w", encoding="utf-8"):
-            pass
-
-    archive_path = os.path.join(ws, "archive.json")
-    if not os.path.exists(archive_path):
-        _atomic_write_json(archive_path, {"cells": {}, "pending": []})
+    # super.db：建库即 DDL（幂等——SuperDB.__init__ CREATE IF NOT EXISTS）
+    from .db import SuperDB
+    SuperDB(ws)
 
     if os.path.exists(os.path.join(ws, "super.json")):
         # 幂等：读已有内容，仅补全 config 缺键 + 运行元信息

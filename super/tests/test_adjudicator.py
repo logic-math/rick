@@ -36,15 +36,22 @@ def _ev(seq: int, typ: str, payload: dict) -> dict:
 
 
 def _write_events(ws: str, events) -> None:
-    with open(os.path.join(ws, "events.jsonl"), "w", encoding="utf-8") as f:
-        for ev in events:
-            f.write(json.dumps(ev, ensure_ascii=False, separators=(",", ":")) + "\n")
+    """DB 化：事件写 super.db 的 events 表（ts 注入保序，seq 由 DB 自增）。"""
+    from super.superopt.db import db_for_ws
+    d = db_for_ws(ws)
+    for ev in events:
+        d.append_event(ev["type"], ev["source"], ev["payload"],
+                       experiment_id=ev.get("experiment_id"),
+                       ts=ev.get("ts"))
 
 
 def _write_archive(ws: str, cells: dict) -> None:
-    with open(os.path.join(ws, "archive.json"), "w", encoding="utf-8") as f:
-        json.dump({"meta": {"perf_desc": "low"}, "cells": cells, "pending": []}, f,
-                  ensure_ascii=False, indent=2)
+    """DB 化：格状态写 super.db 的 cells 表（完整状态）。"""
+    from super.superopt.db import db_for_ws
+    d = db_for_ws(ws)
+    for cell_id, cell in cells.items():
+        d.upsert_cell_state(cell_id, cell)
+    d.save_meta({"perf_desc": "low"})
 
 
 def _cell(weight=1.0, visit=5, elite=None) -> dict:
@@ -422,15 +429,15 @@ class TestMainRoundtrip(AdjudicatorTestCase):
         self.assertNotEqual(r.returncode, 1)   # 参数/IO 错误码 ≠ 裁决语义
 
     def test_main_does_not_touch_events(self):
-        """单写者纪律：裁决进程不得写 events.jsonl。"""
-        events_path = os.path.join(self.ws, "events.jsonl")
+        """单写者纪律：裁决进程不得写 events 表（行数与内容不变）。"""
+        from super.superopt.db import db_for_ws
         _write_events(self.ws, [_ev(1, "session_started", {"env": "e"})])
-        before = open(events_path, "rb").read()
+        before = db_for_ws(self.ws).read_events()
         _write_archive(self.ws, {"axis1=v1": _cell(weight=0.0, visit=0)})
         path = self._write_proposal(_proposal("hard_delete_cell"))
         self._run_main(path)
-        after = open(events_path, "rb").read()
-        self.assertEqual(before, after, "adjudicator 不得写 events.jsonl")
+        after = db_for_ws(self.ws).read_events()
+        self.assertEqual(before, after, "adjudicator 不得写 events 表")
 
 
 if __name__ == "__main__":
