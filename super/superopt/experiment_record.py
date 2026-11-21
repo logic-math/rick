@@ -276,33 +276,81 @@ def _cell_of(text: str) -> str:
     return ""
 
 
-def recent(ws: str, since_iter: int, until_iter: int,
-           limit_chars: int = 4000) -> List[Dict[str, Any]]:
-    """区间内的全部实验记录摘要（adjust 全局实验分析用）。
+def _recent_rows_from_db(ws: str, since_iter: int,
+                         until_iter: int) -> Optional[List[tuple]]:
+    """SQL 查 experiments 表（iteration/record_path/cell_id 列）。
 
-    扫描 `<ws>/codes/iter{N}*/`，取 since_iter ≤ N ≤ until_iter 的记录：
-      [{iteration_id, cell_id, path, digest}]
-    按迭代号升序；累计字符超 limit_chars 时**不丢条目**（区间全景是 adjust 的
-    核心输入），按比例压缩每条 digest（下限 200 字符）。
+    DB 缺失/故障 → None（调用方降级目录扫描）。
     """
+    db_path = os.path.join(ws, "super.db")
+    if not os.path.isfile(db_path):
+        return None
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT iteration, cell_id, record_path FROM experiments "
+                "WHERE iteration >= ? AND iteration <= ? "
+                "AND record_path IS NOT NULL AND record_path != '' "
+                "ORDER BY iteration", (int(since_iter), int(until_iter))
+            ).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for it, cid, rp in rows:
+            if isinstance(rp, str) and rp:
+                rp2 = rp if os.path.isabs(rp) else os.path.join(ws, rp)
+                out.append((int(it), cid or "", rp2))
+        return out
+    except Exception:  # noqa: BLE001 DB 故障降级目录扫描
+        return None
+
+
+def _recent_rows_from_dir(ws: str, since_iter: int,
+                          until_iter: int) -> List[tuple]:
+    """降级：扫 codes/ 目录（旧工作区/DB 故障兼容）。"""
     codes_dir = os.path.join(ws, "codes")
     if not os.path.isdir(codes_dir):
         return []
-    found: List[Dict[str, Any]] = []
+    out = []
     for name in sorted(os.listdir(codes_dir)):
         n = _iter_of(name)
         if n is None or n < since_iter or n > until_iter:
             continue
-        iter_dir = os.path.join(codes_dir, name)
-        path = path_for(iter_dir)
+        path = path_for(os.path.join(codes_dir, name))
+        out.append((n, "", path))
+    return out
+
+
+def recent(ws: str, since_iter: int, until_iter: int,
+           limit_chars: int = 4000) -> List[Dict[str, Any]]:
+    """区间内的全部实验记录摘要（adjust 全局实验分析用）。
+
+    job_56 DB 化：**优先 SQL 查 experiments 表**（iteration/record_path/cell_id
+    列——设计契约「所有数据经 SQL 查询 DB 获取」）；DB 故障/缺表时降级扫描
+    `<ws>/codes/` 目录（兼容旧工作区）。返回：
+      [{iteration_id, cell_id, path, digest}]
+    按迭代号升序；累计字符超 limit_chars 时**不丢条目**（区间全景是 adjust 的
+    核心输入），按比例压缩每条 digest（下限 200 字符）。
+    """
+    # DB 优先：故障（None）或无有效行（record_path 空/未写回——agent 已
+    # 落盘但 sub loop 未写回的中间态）都降级目录扫描兜底
+    rows = _recent_rows_from_db(ws, since_iter, until_iter)
+    if not rows:
+        rows = _recent_rows_from_dir(ws, since_iter, until_iter)
+    found: List[Dict[str, Any]] = []
+    for n, cell_id, path in rows:
         if not os.path.isfile(path):
             continue
-        text = read(iter_dir)
+        text = read(os.path.dirname(path))
+        if not cell_id:
+            cell_id = _cell_of(text)
         found.append({
             "iteration_id": n,
-            "cell_id": _cell_of(text),
+            "cell_id": cell_id,
             "path": path,
-            "digest": digest(iter_dir, limit=1200),
+            "digest": digest(os.path.dirname(path), limit=1200),
         })
     if limit_chars and limit_chars > 0 and found:
         total = sum(len(it["digest"]) + len(it["path"]) + 40 for it in found)

@@ -315,6 +315,7 @@ class Scheduler:
     _iter_cost = _iter_tl_property('_iter_cost')
     _iter_agents = _iter_tl_property('_iter_agents')
     _cur_exp_id = _iter_tl_property('_cur_exp_id')
+    _cur_workdir_id = _iter_tl_property('_cur_workdir_id')
     _builder_outputs = _iter_tl_property('_builder_outputs')
     _tdd_trace = _iter_tl_property('_tdd_trace')
     _record_updated = _iter_tl_property('_record_updated')
@@ -1340,6 +1341,8 @@ class Scheduler:
             exp_id = make_experiment_id(cell_id, cursor)
         # 实验标记（格 + 迭代号；cell_safe 形态，见 events.make_experiment_id）
         self._cur_exp_id = exp_id
+        if workdir_id:
+            self._cur_workdir_id = workdir_id
         iter_started = time.time()
         self._iter_cost = {"wall_ms": 0.0, "tool_calls": 0.0,
                            "tokens": 0.0, "cost_usd": 0.0}
@@ -1580,7 +1583,9 @@ class Scheduler:
             "feature_axes": self.fs.axes,
             "iteration_id": cursor,
             # job_56 task4 KR-F：实验 ID（=工作目录名）+ 资源槽位注入
-            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "experiment_id": getattr(self, "_cur_workdir_id", "")
+            or getattr(self, "_cur_exp_id", "") or "",
+            "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),
             "cell_id": cell_id,
@@ -1775,7 +1780,9 @@ class Scheduler:
             "perf_type": self.perf_type,
             "iteration_id": cursor,
             # job_56 task4 KR-F：实验 ID + 资源槽位注入（coding）
-            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "experiment_id": getattr(self, "_cur_workdir_id", "")
+            or getattr(self, "_cur_exp_id", "") or "",
+            "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),
             "experiment_plan": plan,
@@ -1946,7 +1953,9 @@ class Scheduler:
             "perf_type": self.perf_type,
             "iteration_id": cursor,
             # job_56 task4 KR-F：实验 ID + 资源槽位注入（debug）
-            "experiment_id": getattr(self, "_cur_exp_id", "") or "",
+            "experiment_id": getattr(self, "_cur_workdir_id", "")
+            or getattr(self, "_cur_exp_id", "") or "",
+            "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),
             "experiment_plan": plan,
@@ -3599,7 +3608,10 @@ class Scheduler:
         n = until - max(0, since)
         if n <= 0:
             return "（本区间无新实验 session）"
-        return "（%d 次实验的 pi session 可用——需要补细节时 read codes/iter{N}/ 下对应 prompt 的 workdir）" % n
+        return ("（%d 次实验的 pi session 可用——按需 SQL 查 experiments 表"
+                "（experiment_id/record_path/session_id 列）或 ls codes/ 目录"
+                "定位工作目录，pi session 文件按 workdir 归档于"
+                " ~/.rick/pi/agent/sessions/）" % n)
 
     def _experiment_sessions(self, since_iter: int,
                              until_iter: int) -> List[str]:
