@@ -364,7 +364,7 @@ func TestSuperStatusJSONAggregation(t *testing.T) {
 	if _, err := initSuperWorkspace(ws, "", SuperStartOverrides{}); err != nil {
 		t.Fatalf("initSuperWorkspace: %v", err)
 	}
-	// 造 events.jsonl（Go 只读尾部聚合；schema 对齐 super/superopt/events.py 信封）
+	// 造 super.db events 表（job_56 DB 化：Go 聚合经 sqlite3 CLI 读 events 表）
 	events := []string{
 		`{"ts":"2026-10-17T10:00:01+08:00","seq":1,"type":"session_started","source":"scheduler","payload":{"env":"env"}}`,
 		`{"ts":"2026-10-17T10:00:02+08:00","seq":2,"type":"iteration_started","source":"scheduler","payload":{"iteration_id":1}}`,
@@ -375,12 +375,30 @@ func TestSuperStatusJSONAggregation(t *testing.T) {
 		`{"ts":"2026-10-17T10:00:07+08:00","seq":7,"type":"elite_admitted","source":"scheduler","payload":{"cell_id":"impl=blocked","code_path":"codes/x/","perf_value":42.0}}`,
 		`{"ts":"2026-10-17T10:00:08+08:00","seq":8,"type":"iteration_ended","source":"scheduler","payload":{"iteration_id":2}}`,
 	}
-	var sb strings.Builder
-	for _, e := range events {
-		sb.WriteString(e + "\n")
+	mustExec := func(sql string) {
+		cmd := exec.Command("sqlite3", filepath.Join(ws, "super.db"), sql)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("seed events table failed: %v; out=%s", err, out)
+		}
 	}
-	if err := os.WriteFile(filepath.Join(ws, "events.jsonl"), []byte(sb.String()), 0o644); err != nil {
-		t.Fatal(err)
+	mustExec("CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, event_type TEXT NOT NULL, source TEXT NOT NULL, experiment_id TEXT, payload TEXT NOT NULL);")
+	for _, e := range events {
+		// Go 侧解析信封再拼 INSERT（sqlite3 CLI 对 json_each 的转义不可靠）
+		var ev struct {
+			Seq     int64           `json:"seq"`
+			Ts      string          `json:"ts"`
+			Type    string          `json:"type"`
+			Source  string          `json:"source"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(e), &ev); err != nil {
+			t.Fatalf("test event parse: %v", err)
+		}
+		// JSON 串无单引号——SQL 字面量安全
+		mustExec(fmt.Sprintf(
+			"INSERT OR REPLACE INTO events (seq, ts, event_type, source, experiment_id, payload) "+
+				"VALUES (%d, '%s', '%s', '%s', NULL, '%s');",
+			ev.Seq, ev.Ts, ev.Type, ev.Source, string(ev.Payload)))
 	}
 
 	var out strings.Builder

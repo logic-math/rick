@@ -2354,23 +2354,12 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 // 轻量自建（handler.initSuperWorkspace 未导出；与它幂等语义一致——已存在
 // 不删除只补缺；`rick super start` 后续会跑完整 init 再补全字段）。
 func initSuperEnvSkeleton(ws string) error {
-	for _, d := range []string{"interventions", "codes", "prompts", "sessions"} {
+	for _, d := range []string{"codes", "prompts", "sessions", "proposals", "decisions", "gates"} {
 		if err := os.MkdirAll(filepath.Join(ws, d), 0o755); err != nil {
 			return err
 		}
 	}
-	eventsPath := filepath.Join(ws, "events.jsonl")
-	if _, err := os.Stat(eventsPath); os.IsNotExist(err) {
-		if err := os.WriteFile(eventsPath, []byte(""), 0o644); err != nil {
-			return err
-		}
-	}
-	archivePath := filepath.Join(ws, "archive.json")
-	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
-		if err := os.WriteFile(archivePath, []byte(`{"cells": {}, "pending": []}`), 0o644); err != nil {
-			return err
-		}
-	}
+	// job_56 DB 化：数据存 super.db（py 调度器建库）；旧布局文件不再创建。
 	// super.json 骨架（字段参照 handler/super.go superJSON + goSuperDefaults；
 	// 已存在则保留不动——start 会幂等补全）
 	superJSONPath := filepath.Join(ws, "super.json")
@@ -2395,7 +2384,7 @@ func initSuperEnvSkeleton(ws string) error {
 				"max_wall_time_h":      24.0,
 				"max_iterations":       0,
 				"python_path":          d.PythonPath,
-				"pi_path":              "",
+				"pi_path":              runtime.DefaultPiPath(),
 			},
 			"updated_at": time.Now().Format(time.RFC3339),
 		}

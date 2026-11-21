@@ -1946,8 +1946,8 @@ func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
 		t.Fatal("prompt 含未替换 {{...}} 变量（grilling_workdir 替换失败？）")
 	}
 
-	// 工作区骨架已 init：requirement.md / super.json / events.jsonl / archive.json
-	for _, f := range []string{"requirement.md", "super.json", "events.jsonl", "archive.json", "interventions", "codes"} {
+	// 工作区骨架已 init（job_56 DB 化：数据存 super.db，旧布局文件不再创建）
+	for _, f := range []string{"requirement.md", "super.json", "codes"} {
 		if _, err := os.Stat(filepath.Join(superWS, f)); err != nil {
 			t.Fatalf("super workspace skeleton missing %s: %v", f, err)
 		}

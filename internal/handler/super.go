@@ -19,6 +19,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -189,16 +190,9 @@ func nowRFC3339Local() string {
 
 // goSuperDefaults 是 py DEFAULTS 的 Go 侧镜像（写进 super.json config 段；
 // 一致性断言见 super_test.go）。
-// defaultPiPath 探测 agent runtime 的 pi 二进制（py 调度器要求 pi_path 非空；
-// 探测失败留空——py config 校验会给出明确报错指引）。
+// defaultPiPath 探测 agent runtime 的 pi 二进制（复用 runtime.DefaultPiPath）。
 func defaultPiPath() string {
-	if d := runtime.AgentDir(); d != "" {
-		p := filepath.Join(d, "runtime", "node_modules", ".bin", "pi")
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
+	return runtime.DefaultPiPath()
 }
 
 func goSuperDefaults() map[string]interface{} {
@@ -834,7 +828,7 @@ func collectSuperStatus(ws string) (*superStatus, error) {
 	}
 
 	// events.jsonl 全量轻扫（append-only 行流，逐行 parse；大文件按尾部窗口）
-	agg, recent, err := aggregateEvents(filepath.Join(ws, "events.jsonl"))
+	agg, recent, err := aggregateEvents(filepath.Join(ws, "super.db"))
 	if err != nil {
 		return nil, err
 	}
@@ -848,7 +842,7 @@ func collectSuperStatus(ws string) (*superStatus, error) {
 	return st, nil
 }
 
-// eventsAgg 是 events.jsonl 的聚合结果。
+// eventsAgg 是 super.db events 表的聚合结果。
 type eventsAgg struct {
 	lastSeq      int64
 	iterations   int
@@ -858,38 +852,45 @@ type eventsAgg struct {
 	totalTokens  float64
 }
 
-// aggregateEvents 逐行解析 events.jsonl（信封对齐 super/superopt/events.py：
-// {ts,seq,type,source,payload}）；坏行/半行跳过（读取端容错契约）。
+// aggregateEvents 经 sqlite3 CLI（-json）读 super.db 的 events 表（job_56
+// DB 化：jsonl 读取端退役；列名 event_type 对齐 superopt/db.py DDL）。
+// 坏行跳过（读取端容错契约）；DB 缺失/无 sqlite3 CLI → 空聚合（不炸）。
 // 返回聚合 + 最近 5 条摘要（"seq type source"）。
-func aggregateEvents(path string) (*eventsAgg, []string, error) {
+func aggregateEvents(dbPath string) (*eventsAgg, []string, error) {
 	agg := &eventsAgg{cells: map[string]bool{}}
 	var recents []string
 
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return agg, nil, nil
-		}
-		return nil, nil, err
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return agg, nil, nil // 工作区无 DB：空聚合（新工作区）
 	}
-	defer f.Close()
-
-	dec := json.NewDecoder(f)
-	for dec.More() {
-		var ev struct {
-			Seq     int64           `json:"seq"`
-			Type    string          `json:"type"`
-			Source  string          `json:"source"`
-			Payload json.RawMessage `json:"payload"`
+	out, err := exec.Command("sqlite3", "-json", dbPath,
+		"SELECT seq, event_type, source, payload FROM events ORDER BY seq").Output()
+	if err != nil {
+		// sqlite3 CLI 不可用或 DB 损坏：空聚合降级（不炸 status）
+		return agg, nil, nil
+	}
+	var rows []struct {
+		Seq        int64  `json:"seq"`
+		EventType  string `json:"event_type"`
+		Source     string `json:"source"`
+		PayloadStr string `json:"payload"` // payload 列是 TEXT（JSON 字符串——二次解析）
+	}
+	if len(bytes.TrimSpace(out)) > 0 {
+		if err := json.Unmarshal(out, &rows); err != nil {
+			return nil, nil, err
 		}
-		if err := dec.Decode(&ev); err != nil {
-			// 坏行/半行：jsonl 容错契约——跳过到下一行
-			continue
-		}
+	}
+	for _, r := range rows {
+		ev := struct {
+			Seq        int64
+			EventType  string
+			Source     string
+			Payload    json.RawMessage
+		}{r.Seq, r.EventType, r.Source, json.RawMessage(r.PayloadStr)}
 		if ev.Seq > agg.lastSeq {
 			agg.lastSeq = ev.Seq
 		}
-		switch ev.Type {
+		switch ev.EventType {
 		case "iteration_started":
 			agg.iterations++
 		case "elite_admitted":
@@ -902,18 +903,24 @@ func aggregateEvents(path string) (*eventsAgg, []string, error) {
 			var p struct {
 				TotalTokens float64 `json:"total_tokens"`
 				Usage       *struct {
-					Total float64 `json:"total"`
+					Total       float64 `json:"total"`
+					TotalTokens float64 `json:"total_tokens"`
 				} `json:"usage"`
 			}
 			if json.Unmarshal(ev.Payload, &p) == nil {
 				if p.TotalTokens > 0 {
 					agg.totalTokens += p.TotalTokens
 				} else if p.Usage != nil {
-					agg.totalTokens += p.Usage.Total
+					// usage 嵌套（job_56：AgentResult.usage 的 total_tokens）
+					if p.Usage.TotalTokens > 0 {
+						agg.totalTokens += p.Usage.TotalTokens
+					} else {
+						agg.totalTokens += p.Usage.Total
+					}
 				}
 			}
 		}
-		recents = append(recents, fmt.Sprintf("#%d %s %s", ev.Seq, ev.Type, ev.Source))
+		recents = append(recents, fmt.Sprintf("#%d %s %s", ev.Seq, ev.EventType, ev.Source))
 	}
 	if len(recents) > 5 {
 		recents = recents[len(recents)-5:]

@@ -68,3 +68,16 @@ func EnsureAgentDir() error {
 func AgentEnv() []string {
 	return append(os.Environ(), "PI_CODING_AGENT_DIR="+AgentDir())
 }
+
+
+// DefaultPiPath 探测 agent runtime 的 pi 二进制（py 调度器要求 pi_path 非空；
+// job_56 env_9：super.json 骨架的默认值——探测失败返回空串由 py 侧报错指引）。
+func DefaultPiPath() string {
+	if d := AgentDir(); d != "" {
+		p := filepath.Join(d, "runtime", "node_modules", ".bin", "pi")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
