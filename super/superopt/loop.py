@@ -1551,6 +1551,27 @@ class Scheduler:
 
     # ---- builder ----
 
+    def _problem_source_for_cell(self, cell_id: str) -> str:
+        """题库模式：cell_id=problem=<题名> → 题目 py 全文注入 builder ctx。
+
+        job_56 刷榜模式（KernelBench level2）：题目是实验的「规格」——
+        builder 必须看到题目源码（Model/get_inputs/get_init_inputs）。
+        非题库 env（cell_id 无 problem= 前缀）→ 空串（模板侧给缺省说明）。
+        """
+        try:
+            prefix = "problem="
+            if not cell_id.startswith(prefix):
+                return ""
+            name = cell_id[len(prefix):]
+            for sub in ("level2", "level1", "level3"):
+                p = os.path.join(self.env_dir, "problems", sub,
+                                 name + ".py")
+                if os.path.isfile(p):
+                    return open(p, encoding="utf-8").read()
+        except Exception:  # noqa: BLE001 题源注入失败不炸实验链
+            pass
+        return ""
+
     def _run_builder(self, cell_id: str, cursor: int, iter_dir: str) -> Dict[str, Any]:
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite") or {}
@@ -1586,6 +1607,8 @@ class Scheduler:
             # job_56 task4 KR-F：实验 ID（=工作目录名）+ 资源槽位注入
             "experiment_id": getattr(self, "_cur_workdir_id", "")
             or getattr(self, "_cur_exp_id", "") or "",
+            # 题库模式（job_56 刷榜）：题目源码全文注入（规格即输入）
+            "problem_source": self._problem_source_for_cell(cell_id),
             "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),
@@ -1783,6 +1806,8 @@ class Scheduler:
             # job_56 task4 KR-F：实验 ID + 资源槽位注入（coding）
             "experiment_id": getattr(self, "_cur_workdir_id", "")
             or getattr(self, "_cur_exp_id", "") or "",
+            # 题库模式（job_56 刷榜）：题目源码全文注入（规格即输入）
+            "problem_source": self._problem_source_for_cell(cell_id),
             "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),
@@ -1956,6 +1981,8 @@ class Scheduler:
             # job_56 task4 KR-F：实验 ID + 资源槽位注入（debug）
             "experiment_id": getattr(self, "_cur_workdir_id", "")
             or getattr(self, "_cur_exp_id", "") or "",
+            # 题库模式（job_56 刷榜）：题目源码全文注入（规格即输入）
+            "problem_source": self._problem_source_for_cell(cell_id),
             "trace_id": getattr(self, "_cur_exp_id", "") or "",
             "slot_info": self._slot_info_text(),
             "env_slot_info": self._env_slot_info_text(),

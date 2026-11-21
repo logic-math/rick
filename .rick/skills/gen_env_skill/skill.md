@@ -149,9 +149,32 @@ matmul 类任务不必从零访谈：`super/env_templates/env_v2/` 是 v2 结构
 → 软门禁（--baseline）→ v2 融合分协议 JSON。**verify/benchmark 的实现只写一份**（gates/ 内），
 skills/ 薄入口执行引用——框架、agent、gate_check 三方同一实现，禁止两套。
 
-### 步骤③ 演练（基础设施验收——逐件真实执行）
+### 步骤③ 演练（基础设施验收——env_lint 自动化 + 人工抽查）
 
-**演练 checklist**（每项真实运行，产物断言后才算通过）：
+**验收闭环（job_56 第七轮升级）**：演练 checklist 已固化为确定性验收器
+`super/tools/env_lint.py`（12 项规则——每条规则=一个实测踩过的坑）：
+
+```bash
+python3 <repo>/super/tools/env_lint.py <env_dir>
+# exit 0 = 全绿（env 验收完成）；exit 1 = 红项清单（直接反馈修复再重跑）
+```
+
+**生成闭环纪律**：gen-env 生成 env 后**必须跑 env_lint 到全绿**才算生成完成——
+红项清单是「再生成」的直接反馈（一次性通过率 = gen-env 的评估指标：
+生成 N 个 env 的 lint 一次过率——坑库驱动的回归测试集语义）。
+
+**lint 规则与实测坑对照**（新坑必须进 lint——回归测试集只增不减）：
+R01/R02 env.json schema（constraints bool 值炸框架）· R03 v2 布局 ·
+R04 exploit_registry 结构 · R05 门先证红 · R06 金样例 ModelNew 契约 ·
+R07 benchmark 预构造公平计时（176× 假 speedup）· R08 verify 协议完整（或远程薄壳契约）·
+R09 gate_check v2 契约（--env-dir/score 语义）· R10 三要素可跑 ·
+R11 domain_knowledge 必须节 · R12 feature_space 轴合法。
+
+**人工抽查补充**（lint 无法覆盖的语义级检查）：作弊样本的**语义有效性**
+（exploit 是否真的可构成作弊——如 outlier 输入对 softmax 任务的分布合理性）、
+题目语义与 verify 协议的匹配（权重同步契约对带参层题目）。
+
+**演练 checklist**（lint 全绿后的人工补充项，每项真实运行）：
 
 ```bash
 cd <env_dir>

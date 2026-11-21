@@ -40,6 +40,12 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 
 - 目标格：{{cell_id}}
 - 描述子（格定义，轴取值）：{{cell_descriptor}}
+
+**题目源码（题库模式——本次实验的规格：Model reference + get_inputs + get_init_inputs；你写的 ModelNew 必须与它输入输出语义等价、构造参数兼容[ModelNew(*get_init_inputs())]、参数层结构等价[评测时与 reference 同权重 load_state_dict 对比——参数层必须同名同 shape]）**：
+
+```python
+{{problem_source}}
+```
 - **目标格的方法描述（cells 表 method_desc——本次实验要推进的方法论方向）**：{{cell_method_desc}}
 - 当前精英（无则空）：{{cell_elite}}
 - 采样统计：visit={{cell_visit}} weight={{cell_weight}}
