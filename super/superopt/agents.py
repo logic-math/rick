@@ -353,6 +353,28 @@ class _StreamState:
 # ─── 客户端 ──────────────────────────────────────────────────────────────────
 
 class PiAgentClient:
+    # 在飞 proc 注册表（env_9 修复）：类级（进程内全部 pi 派发统一收口）；
+    # 调度器 stop/强杀前调用 kill_all_inflight()——防残活 pi 与下代并发写 ws
+    _inflight_procs = set()
+    _inflight_lock = threading.Lock()
+
+    @classmethod
+    def kill_all_inflight(cls) -> int:
+        """杀掉全部在飞 pi agent（killpg 全树）。返回杀掉的数量。
+
+        使用方：py 调度器 stop 路径（SIGTERM 优雅停——环境观测 env_9：
+        Go force-stop 的 SIGTERM→SIGKILL 梯中，py 无机会等分钟级 LLM 调用
+        自然收尾；残活 pi 变孤儿继续写工作区=多写者风险）。
+        """
+        with cls._inflight_lock:
+            procs = list(cls._inflight_procs)
+            cls._inflight_procs.clear()
+        n = 0
+        for p in procs:
+            if p.poll() is None:
+                cls._kill_ladder(p)
+                n += 1
+        return n
     """subprocess 直调 pi 的 agent 池客户端（每迭代一进程）。
 
     pi_path：pi 可执行文件绝对路径（如
@@ -557,11 +579,19 @@ class PiAgentClient:
         budget = int(max_turns) if isinstance(max_turns, int) and max_turns > 0 else 0
         budget_hit = threading.Event()
 
+        # start_new_session（env_9 实测 bug 修复）：pi agent 独立进程组
+        # ——kill 梯可 killpg 杀全树（pi 的工具孙进程一并收尾；调度器被
+        # 强杀时 py 侧主动 kill_all_inflight 也能杀干净，防残活 agent
+        # 与下代调度器并发写工作区（多写者风险））
         proc = subprocess.Popen(
             cmd, cwd=workdir, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
+        # 在飞注册表（env_9 修复）：调度器 stop 时 kill_all_inflight 主动收尾
+        with self._inflight_lock:
+            self._inflight_procs.add(proc)
 
         def pump_stdout():
             try:
@@ -663,20 +693,46 @@ class PiAgentClient:
             if stderr_tail:
                 marker += " stderr_tail: " + " | ".join(stderr_tail[-3:])
             result.summary = ((result.summary or "") + " " + marker).strip()[:200]
+        # 在飞注册表注销（proc 已结束）
+        with self._inflight_lock:
+            self._inflight_procs.discard(proc)
         return result
 
     @staticmethod
     def _kill_ladder(proc: subprocess.Popen):
-        """kill 梯：SIGTERM → grace → SIGKILL（整进程组交给调用方语义，这里
-        单进程 TERM/KILL 即可——pi 无孙进程）。"""
+        """kill 梯：SIGTERM → grace → SIGKILL，**整进程组**（killpg）。
+
+        env_9 实测修复：pi agent 有工具孙进程（node/bash 等）——单进程
+        terminate 只杀 pi 本体，孙进程残活继续写工作区。spawn 时
+        start_new_session=True 给独立 pgid，这里 killpg 杀全树。
+        """
+        import signal as _signal
         try:
-            proc.terminate()  # SIGTERM
+            try:
+                pgid = os.getpgid(proc.pid)
+            except OSError:
+                pgid = None
+            # SIGTERM（组）
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, _signal.SIGTERM)
+                else:
+                    proc.terminate()
+            except OSError:
+                pass
             try:
                 proc.wait(timeout=TERM_GRACE_S)
                 return
             except subprocess.TimeoutExpired:
                 pass
-            proc.kill()  # SIGKILL
+            # SIGKILL（组）
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, _signal.SIGKILL)
+                else:
+                    proc.kill()
+            except OSError:
+                pass
             proc.wait(timeout=5)
         except Exception:  # noqa: BLE001 进程已死等竞态——不向上抛
             pass

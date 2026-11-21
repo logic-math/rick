@@ -356,6 +356,15 @@ class Archive:
                 cell["elite_record_path"] = (
                     record_path if isinstance(record_path, str) and record_path
                     else None)
+                # cells 表关联（job_56 DB 化）：从 codes/<experiment_id>/ 布局
+                # 提取实验 ID——best_experiment_id 可 SQL 直查（实验表外键语义）
+                _best_exp = None
+                for _p in (record_path, code_path):
+                    if isinstance(_p, str) and "/codes/" in _p:
+                        _best_exp = _p.split("/codes/", 1)[1].split("/", 1)[0]
+                        break
+                if _best_exp:
+                    cell["best_experiment_id"] = _best_exp
                 # task58/R3：同码判别锚（调度器计算的内容 md5）
                 cell["elite_code_hash"] = (
                     code_hash if isinstance(code_hash, str) and code_hash

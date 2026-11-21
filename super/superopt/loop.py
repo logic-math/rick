@@ -1267,10 +1267,17 @@ class Scheduler:
         是 ENV 设计责任/gen_env 规则，task2 落文档）。
         """
         try:
-            # 环境槽：conf 显式声明（>0）才收紧二级限额；缺省跟随实验槽数
-            # （不构成额外瓶颈——「同环境允许并发数」是 env 级设计责任，
-            # env 显式声明更小值时限制生效；Q7/Q8 裁决）
+            # 环境槽：取值链 conf.env_slots_per_env（显式覆盖）> env.json.env_slots
+            # （env 声明——gen_env 产物）> 实验槽数（不构成额外瓶颈）。
+            # （Q7/Q8 裁决；env_9 实测 bug：conf 键与 env.json 键不一致致
+            # env_slots=1 声明未生效、4 agent 同环境并发污染测量）
             raw_env_slots = int(self.conf.get("env_slots_per_env", 0) or 0)
+            if raw_env_slots <= 0:
+                try:
+                    raw_env_slots = int(
+                        self._load_env_meta().get("env_slots") or 0)
+                except (TypeError, ValueError):
+                    raw_env_slots = 0
             env_slots = raw_env_slots if raw_env_slots > 0 \
                 else self.max_parallel_experiments
             self.db.init_slots(self.max_parallel_experiments, env_slots)
@@ -1512,6 +1519,11 @@ class Scheduler:
         使用独占资源（分时复用）是 ENV 的设计问题（见 domain_knowledge.md）。
         """
         raw = int(self.conf.get("env_slots_per_env", 0) or 0)
+        if raw <= 0:
+            try:
+                raw = int(self._load_env_meta().get("env_slots") or 0)
+            except (TypeError, ValueError):
+                raw = 0
         n = raw if raw > 0 else self.max_parallel_experiments
         return ("运行环境：本 env 工作区（%s）；同环境并发实验上限 %d——"
                 "与其他实验共享本环境时的独占资源分时复用规则，见"
@@ -1528,7 +1540,15 @@ class Scheduler:
         # 实验，30-60min 级空转）。[STALE] 标注 + 强制以 elite_code_path
         # 实际代码为第一事实源（描述只作历史参考）。
         elite_ctx = dict(elite) if elite else {}
-        if self.archive.is_stale(cell_id):
+        # 读侧存在性校验（env_9 实测：DB 与磁盘失配时 ENOENT 注入）
+        _cp = elite_ctx.get("code_path")
+        if isinstance(_cp, str) and _cp and not os.path.exists(_cp):
+            self.events.append("elite_path_missing", {
+                "cell_id": cell_id, "missing_path": _cp,
+                "downgrade": "cell_elite 置空（首访语义）",
+            }, "scheduler")
+            elite_ctx = {}
+        if self.archive.is_stale(cell_id) and elite_ctx:
             elite_ctx["method_stale"] = True
             elite_ctx["stale_note"] = (
                 "[STALE] 本格 method 描述落后于当前精英（精英已换代）——"
@@ -1702,9 +1722,16 @@ class Scheduler:
             if diff == 1:
                 e = self._cell_entry(cid)
                 if e.get("elite"):
+                    _cp = e["elite"].get("code_path")
+                    if isinstance(_cp, str) and _cp and not os.path.exists(_cp):
+                        self.events.append("elite_path_missing", {
+                            "cell_id": cid, "missing_path": _cp,
+                            "downgrade": "邻格精英跳过",
+                        }, "scheduler")
+                        continue
                     neighbors.append({
                         "cell_id": cid, "descriptor": nd,
-                        "elite": {"code_path": e["elite"].get("code_path"),
+                        "elite": {"code_path": _cp,
                                   "perf_value": e["elite"].get("perf_value")},
                         "visit": e.get("visit", 0),
                     })
@@ -3521,13 +3548,23 @@ class Scheduler:
             desc = entry.get("description")
             if not isinstance(desc, dict):
                 desc = {}
+            # 读侧存在性校验（env_9 实测 bug：DB 重置/清理后 elite 路径
+            # 指向已删文件——注入 ENOENT 路径误导 agent 以陈旧精英为父本）
+            code_path = elite.get("code_path")
+            if isinstance(code_path, str) and code_path \
+                    and not os.path.exists(code_path):
+                self.events.append("elite_path_missing", {
+                    "cell_id": cid, "missing_path": code_path,
+                    "downgrade": "elite_code_path 置空",
+                }, "scheduler")
+                code_path = None
             out.append({
                 "cell_id": cid,
                 "description": desc,
-                "elite_code_path": elite.get("code_path"),
+                "elite_code_path": code_path,
                 "elite_perf": elite.get("perf_value"),
                 "record_digest": self._or_default(
-                    self._record_for_code_path(elite.get("code_path"),
+                    self._record_for_code_path(code_path,
                                                limit=_NEIGHBOR_RECORD_LIMIT),
                     "（该格无精英或记录缺失）"),
             })
@@ -4513,9 +4550,19 @@ class Scheduler:
             raise
 
     def _install_signal_handlers(self) -> None:
-        """SIGTERM/SIGINT → 优雅停止（落完当前事件再退）。"""
+        """SIGTERM/SIGINT → 优雅停止（杀在飞 pi agent + 落完当前事件再退）。
+
+        env_9 实测修复：Go force-stop 的 SIGTERM→SIGKILL 梯中，py 无机会等
+        分钟级 LLM 调用自然收尾——SIGTERM 时立即杀在飞 pi（killpg 全树），
+        实验按中断收尾；残活 pi 会与下代调度器并发写工作区（多写者风险）。
+        """
         def handler(signum, frame):  # noqa: ARG001
             self.stop_requested = True
+            try:
+                from .agents import PiAgentClient as _PAC
+                _PAC.kill_all_inflight()
+            except Exception:  # noqa: BLE001 杀不干净不阻停机
+                pass
         try:
             self._prev_handler = signal.signal(signal.SIGTERM, handler)
             signal.signal(signal.SIGINT, handler)

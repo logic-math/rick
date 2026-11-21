@@ -189,6 +189,18 @@ func nowRFC3339Local() string {
 
 // goSuperDefaults 是 py DEFAULTS 的 Go 侧镜像（写进 super.json config 段；
 // 一致性断言见 super_test.go）。
+// defaultPiPath 探测 agent runtime 的 pi 二进制（py 调度器要求 pi_path 非空；
+// 探测失败留空——py config 校验会给出明确报错指引）。
+func defaultPiPath() string {
+	if d := runtime.AgentDir(); d != "" {
+		p := filepath.Join(d, "runtime", "node_modules", ".bin", "pi")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
 func goSuperDefaults() map[string]interface{} {
 	d := config.DefaultSuperConfig()
 	return map[string]interface{}{
@@ -201,31 +213,19 @@ func goSuperDefaults() map[string]interface{} {
 		"max_wall_time_h":     24.0,
 		"max_iterations":      0,
 		"python_path":         d.PythonPath,
-		"pi_path":             "",
+		"pi_path":             defaultPiPath(),
 	}
 }
 
 // initSuperWorkspace 建目录骨架 + super.json（Go 直做，spec 裁决；与 py
 // config.init_ws 幂等语义一致——已存在不删除、只补缺）。
 //
-// 骨架：interventions/ codes/ prompts/ sessions/ + events.jsonl（空） +
-// archive.json（初始） + super.json。
+// 骨架：codes/ prompts/ sessions/ proposals/ decisions/ + super.json。
+// （job_56 DB 化：数据存 sqlite super.db——py 调度器 db_for_ws 建库；
+// events.jsonl/archive.json/interventions/ 旧布局文件不再创建）
 func initSuperWorkspace(ws, envPath string, ov SuperStartOverrides) (*superJSON, error) {
-	for _, d := range []string{"interventions", "codes", "prompts", "sessions"} {
+	for _, d := range []string{"codes", "prompts", "sessions", "proposals", "decisions", "gates"} {
 		if err := os.MkdirAll(filepath.Join(ws, d), 0o755); err != nil {
-			return nil, err
-		}
-	}
-	eventsPath := filepath.Join(ws, "events.jsonl")
-	if _, err := os.Stat(eventsPath); os.IsNotExist(err) {
-		if err := os.WriteFile(eventsPath, []byte(""), 0o644); err != nil {
-			return nil, err
-		}
-	}
-	archivePath := filepath.Join(ws, "archive.json")
-	if _, err := os.Stat(archivePath); os.IsNotExist(err) {
-		initArchive := `{"cells": {}, "pending": []}`
-		if err := os.WriteFile(archivePath, []byte(initArchive), 0o644); err != nil {
 			return nil, err
 		}
 	}
