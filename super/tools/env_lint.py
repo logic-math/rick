@@ -176,6 +176,10 @@ def lint(env_dir: str) -> List[str]:
         for sec in DK_REQUIRED_SECTIONS:
             _ok(sec in dk, "R11 domain_knowledge 缺必须节 %r" % sec)
 
+    # R13 说明书（gen-env 步骤⑤产出物）
+    _ok(os.path.isfile(os.path.join(env_dir, "HOW_IT_WORKS.md")),
+        "R13 缺 HOW_IT_WORKS.md（env 工作原理说明书——gen-env 步骤⑤）")
+
     # R12 feature_space
     fs_p = os.path.join(env_dir, "feature_space.json")
     if os.path.isfile(fs_p):
@@ -226,7 +230,7 @@ def main():
         for e in errs:
             print("  - %s" % e)
         return 1
-    print("env_lint: 全绿（12 项规则通过——env 验收完成）")
+    print("env_lint: 全绿（13 项规则通过——env 验收完成）")
     return 0
 
 
