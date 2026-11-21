@@ -580,6 +580,12 @@ class Scheduler:
             self.iteration_cursor += 1
             return self.iteration_cursor
 
+    def _unalloc_cursor(self, cursor: int) -> None:
+        """槽位占位失败回退迭代号（env_9：防 cursor 跳号堆积空目录）。"""
+        with self._state_lock:
+            if cursor == self.iteration_cursor:
+                self.iteration_cursor -= 1
+
     def _adjust_due(self, adjust_every: int) -> bool:
         """跨边界触发判定（task54）：cursor - 上次 adjust >= adjust_every。
 
@@ -660,17 +666,26 @@ class Scheduler:
                 cursor = self._alloc_cursor()
                 exp_id = make_experiment_id(cell_id, cursor)
                 # 资源槽占用（job_56 task1 KR-C）：实验槽+环境槽（二级限额）。
-                # 拿不到位（槽满）→ 归还格锁、等在飞实验释放后重试。
-                workdir_id = self._register_experiment_row(cursor, cell_id)
-                exp_slot = self.db.acquire_slot("experiment_slot", workdir_id)
+                # env_9 实测 bug 修复：**先占资源位，后注册实验行建目录**——
+                # 旧顺序（register→acquire）在槽满时每 tick 泄漏一个实验
+                # 行+目录（env_slots 收紧后目录轰炸：数分钟 1300+ 空目录）。
+                # 占位标记用 cursor 序号（占位失败不消耗时间戳实验 ID）。
+                _hold = "pending-%d" % cursor
+                exp_slot = self.db.acquire_slot("experiment_slot", _hold)
                 if exp_slot is None:
+                    self._unalloc_cursor(cursor)
                     self.cell_locks.release(cell_id)
                     break  # 实验槽满：等在飞释放
-                env_slot = self.db.acquire_slot("env_slot", workdir_id)
+                env_slot = self.db.acquire_slot("env_slot", _hold)
                 if env_slot is None:
-                    self.db.release_holder(workdir_id)  # 归还实验槽
+                    self.db.release_holder(_hold)  # 归还实验槽
+                    self._unalloc_cursor(cursor)
                     self.cell_locks.release(cell_id)
                     break  # 环境槽满：等在飞释放
+                workdir_id = self._register_experiment_row(cursor, cell_id)
+                # 占位改持真实实验 ID（槽位持有者从 pending-N 换绑）
+                self.db.rebind_holder(exp_slot, workdir_id)
+                self.db.rebind_holder(env_slot, workdir_id)
                 slot = next_slot
                 next_slot += 1
                 self.events.append("experiment_started", {

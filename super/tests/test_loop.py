@@ -3152,18 +3152,22 @@ class TestAdjustNoStarvation(LoopTestBase):
         self.assertGreaterEqual(total_started, 4,
                                 "2 槽 6 迭代至少起 4 个实验")
         adjust_count = self._adjust_start_count()
-        # mock 实验毫秒级：run 期间 7 步 pipeline 在飞不重触发（正确）；
-        # 白盒二触发链（收菜 → due → start → join）验证非饥饿本质
+        # mock timing 不确定（pipeline 在飞挡 cursor 4 边界 = 正确行为）：
+        # 白盒二触发链（收菜 → due → start → join）= 非饥饿的确定性验证
         sched._collect_adjust()
-        self.assertTrue(sched._adjust_due(2),
-                        "收菜后 due 判定应可再触发（cursor-last>=interval）")
+        # timing 非确定：若 run 内触发未耗尽区间（cursor>last）→ due 必真；
+        # 若已全触发（cursor==last，实测 3 次）→ dispatched>=2 已满足
+        if sched.iteration_cursor > sched._last_adjust_iter:
+            self.assertTrue(sched._adjust_due(2),
+                            "收菜后 due 判定应可再触发（cursor-last>=interval；"
+                            "cursor=%d last=%d）" % (sched.iteration_cursor,
+                                                    sched._last_adjust_iter))
         sched._maybe_start_adjust()
         sched._join_adjust()
-        adjust_count = self._adjust_start_count()
         self.assertGreaterEqual(
-            adjust_count, 2,
+            self._adjust_start_count(), 2,
             "并发下 adjust 至少触发 2 次（run 内 1 + 收菜后二触发 1；"
-            "实际 %d）" % adjust_count)
+            "实际 %d）" % self._adjust_start_count())
         # adjust_dispatched 事件可观测
         dispatched = self.events_of("adjust_dispatched")
         self.assertGreaterEqual(len(dispatched), 2,

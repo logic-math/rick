@@ -605,6 +605,19 @@ class SuperDB:
                     pass
                 raise
 
+    def rebind_holder(self, resource_id: str,
+                      holder_experiment_id: str) -> None:
+        """占位换绑（env_9）：资源位持有者从 pending 占位换成真实实验 ID。
+
+        使用方：调度器补槽段先以 ``pending-<cursor>`` 占位（槽满时不泄漏
+        实验行/目录），注册真实实验 ID 后换绑。
+        """
+        with self._lock:
+            self._conn.execute(
+                "UPDATE resources SET holder_experiment_id=? WHERE resource_id=?",
+                (holder_experiment_id, resource_id))
+            self._conn.commit()
+
     def release_holder(self, holder_experiment_id: str) -> None:
         """释放该持有人占用的全部资源位（实验结束）。"""
         with self._lock:
