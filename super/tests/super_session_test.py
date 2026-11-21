@@ -144,8 +144,8 @@ class SuperSessionE2E(unittest.TestCase):
         # env 生成约定
         self.assertIn(os.path.join(ws_abs, "env"), p, "缺 env 生成路径约定")
         # 观察手段清单
-        for kw in ("观察手段", "rick super status --json", "events.jsonl",
-                   "archive.json", "codes", "heartbeat.json", "pi agent",
+        for kw in ("观察手段", "rick super status --json", "super.db",
+                   "codes", "heartbeat.json", "pi agent",
                    "任意信息可读"):
             self.assertIn(kw, p, "观察手段缺关键词 %r" % kw)
         # 干预手段

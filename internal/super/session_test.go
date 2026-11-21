@@ -71,9 +71,9 @@ func TestBuildSuperPromptWorkspaceContext(t *testing.T) {
 	if !strings.Contains(p, filepath.Join(ws, "env")) {
 		t.Errorf("prompt 缺 env 生成路径 %q", filepath.Join(ws, "env"))
 	}
-	// 观察手段：CLI + 直读文件（真相源清单）
+	// 观察手段：CLI + 直读 DB（真相源清单——job_56 DB 化后 super.db 替代 json 文件）
 	for _, kw := range []string{"观察手段", "rick super status --json",
-		"events.jsonl", "archive.json", "codes", "heartbeat.json", "pi agent"} {
+		"super.db", "codes", "heartbeat.json", "pi agent"} {
 		if !strings.Contains(p, kw) {
 			t.Errorf("prompt 观察手段缺关键词 %q", kw)
 		}

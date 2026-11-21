@@ -297,15 +297,14 @@ def validate_event(ev: Any) -> List[str]:
 class EventWriter:
     """事件日志写入器（DB 后端：super.db 的 events 表；单写者由进程锁保证）。
 
-    用法（签名与 jsonl 时代完全兼容——path 参数保留，内部转 DB）::
+    用法（path=工作区目录，定位 super.db）::
 
-        w = EventWriter(ws_dir + "/events.jsonl")   # ws = dirname(path)
+        w = EventWriter(ws_dir)
         seq = w.append("iteration_started", {"iteration_id": 1}, "scheduler")
         ...
-        w.close()   # 或 with EventWriter(path) as w: ...（幂等 no-op）
+        w.close()   # 或 with EventWriter(ws) as w: ...（幂等 no-op）
 
-    崩溃安全：sqlite WAL——已提交事务保留，无半行概念（jsonl 时代的
-    截断容错/封口逻辑随存储迁移退役）。
+    崩溃安全：sqlite WAL——已提交事务保留，无半行概念。
 
     写前校验：append 内部先构造完整事件（seq 预计算）→ validate_event
     （坏事件不落盘）→ INSERT。进程内 _lock 保证 seq 预计算与插入间
@@ -313,12 +312,10 @@ class EventWriter:
     """
 
     def __init__(self, path: str, event_fsync: bool = True) -> None:
-        # path 兼容两种形态：jsonl 时代文件路径（取 dirname 定位 super.db）
-        # 或工作区目录直传（DB 时代形态）。event_fsync 参数保留但忽略
+        # path = 工作区目录（定位 super.db）。event_fsync 参数保留但忽略
         # （DB WAL + synchronous=NORMAL 承担持久化语义）。
-        _p = os.path.abspath(path)
         self._path = path
-        self._ws = _p if os.path.isdir(_p) else (os.path.dirname(_p) or ".")
+        self._ws = os.path.abspath(path)
         self._db = db_for_ws(self._ws)
         self._closed = False
         # 线程锁：**复用 DB 实例锁**（同连接的全部访问互斥——EventWriter 内

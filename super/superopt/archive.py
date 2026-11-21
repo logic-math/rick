@@ -110,8 +110,7 @@ def _is_better(new_value, old_value, perf_desc: str) -> bool:
 class Archive:
     """精英格档案（DB 后端：super.db 的 cells 表 + archive_meta 投影）。
 
-    用法（持有方 = 调度器/测试；签名与 json 时代完全兼容——path 保留，
-    内部转 DB，ws = dirname(path)）：
+    用法（持有方 = 调度器/测试；path = 工作区目录，定位 super.db）：
         a = Archive(path, perf_desc="low")
         a.load()                       # 读档（DB 缺行 = 从空档开始）
         a.admit(cell_id, entry)        # 内存变更
@@ -132,11 +131,9 @@ class Archive:
     def __init__(self, path: str, perf_desc: str = "low"):
         if perf_desc not in ("low", "high"):
             raise ValueError("perf_desc must be 'low' or 'high', got %r" % (perf_desc,))
-        # path 兼容两种形态：json 时代文件路径（取 dirname 定位 super.db）
-        # 或工作区目录直传（DB 时代形态）。
-        _p = os.path.abspath(path)
+        # path = 工作区目录（定位 super.db）。
         self.path = path
-        self._ws = _p if os.path.isdir(_p) else (os.path.dirname(_p) or ".")
+        self._ws = os.path.abspath(path)
         self._db = db_for_ws(self._ws)
         self._perf_desc = perf_desc
         self._data = _empty_data(perf_desc)

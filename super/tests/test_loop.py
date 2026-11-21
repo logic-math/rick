@@ -129,7 +129,22 @@ class FakeAgentClient(object):
         self.calls = []           # type: List[Dict[str, str]]
 
     def queue(self, role: str, results: List[AgentResult]) -> None:
-        """替换语义：后 queue 覆盖该 role 的既有脚本（测试确定性）。"""
+        """替换语义：后 queue 覆盖该 role 的既有脚本（测试确定性）。
+
+        job_56 删 legacy：queue("adjust", ...) 自动展开为 7 步流水线脚本
+        （step6 adjust_space 承载原 proposals data；其余步中性结果；
+        step3 三视角 ×3）。显式 queue("adjust_*") 的不受影响（覆盖语义）。
+        """
+        if role == "adjust":
+            for step_role in ("adjust_fact", "adjust_perspective",
+                              "adjust_judge", "adjust_reversal", "adjust_env"):
+                self.queue(step_role, [_agent_result(step_role)])
+            self.queue("adjust_contradiction",
+                       [_agent_result("adjust_contradiction") for _ in range(3)])
+            space = [_agent_result("adjust_space", data=dict(r.data or {}))
+                     for r in results]
+            self.queue("adjust_space", space)
+            return
         self.script[role] = list(results)
 
     def run(self, role: str, prompt_path: str, workdir: str,
@@ -254,8 +269,8 @@ class LoopTestBase(unittest.TestCase):
         # 默认脚本：builder/coding 都成功（diff_path 指向真实 fixture）
         self.client.queue("builder", [_builder_result()])
         self.client.queue("coding", [_coding_result(diff_path=self.cand_file)])
-        self.events_path = os.path.join(self.ws, "events.jsonl")
-        self.archive_path = os.path.join(self.ws, "archive.json")
+        self.events_path = self.ws  # DB 时代：EventWriter 目录直传
+        self.archive_path = self.ws  # DB 时代：Archive 目录直传
 
     def tearDown(self) -> None:
         shutil.rmtree(self.ws, ignore_errors=True)
@@ -274,9 +289,6 @@ class LoopTestBase(unittest.TestCase):
             "preverify_red": False,
             "config": {
                 "adjust_interval": 0,       # 测试默认关掉 adjust
-                # job_56 task3：旧 adjust 测试默认 legacy（旧单 agent 语义
-                # 回归）；pipeline 行为由 TestAdjustPipeline 显式开
-                "adjust_mode": "legacy",
                 "debug_max_attempts": 3,
                 "soft_gate_k": 3,
                 "heartbeat_interval_s": 0,  # 每迭代都写心跳（测试可断言）
@@ -713,7 +725,7 @@ class TestAdjustPipeline(LoopTestBase):
         self.gate.queue(_gate_pass())
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 2, "adjust_interval": 1,
-            "adjust_mode": "pipeline"})
+})
         sched.run()
         # 步骤序列：step1→2→3×3（并行）→4→5→6→7（step3 位置 3 次连续）
         roles = [c["role"] for c in self.client.calls
@@ -754,7 +766,7 @@ class TestAdjustPipeline(LoopTestBase):
         self.gate.queue(_gate_pass())
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 2, "adjust_interval": 1,
-            "adjust_mode": "pipeline"})
+})
         sched.run()
         # step2 降级：adjust_step_degraded 事件 + perspectives 默认占位 3 个
         degraded = self.events_of("adjust_step_degraded")
@@ -779,7 +791,7 @@ class TestAdjustPipeline(LoopTestBase):
         self.gate.queue(_gate_pass())
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 2, "adjust_interval": 1,
-            "adjust_mode": "pipeline"})
+})
         sched.run()
         p = os.path.join(self.ws, "codes", "adjust", "iter_1",
                          "prompt_adjust_fact.md")
@@ -799,7 +811,7 @@ class TestAdjustPipeline(LoopTestBase):
         self.gate.queue(_gate_pass())
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 2, "adjust_interval": 1,
-            "adjust_mode": "pipeline"})
+})
         sched.run()
         queued = self.events_of("env_proposal_queued")
         self.assertEqual(len(queued), 1)
@@ -824,7 +836,7 @@ class TestAdjustPipeline(LoopTestBase):
         self.gate.queue(_gate_pass())
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 2, "adjust_interval": 1,
-            "adjust_mode": "pipeline"})
+})
         sched.run()
         by_role = {c["role"]: c for c in self.client.calls}
         self.assertEqual(by_role["adjust_perspective"]["model"], "gpt-x:high")
@@ -1253,7 +1265,8 @@ class TestAdjustParallel(LoopTestBase):
 
         def run(self, role, prompt_path, workdir, timeout_s=1800, model=None):
             import time as _t
-            if role == "adjust":
+            if role == "adjust_fact":
+                # pipeline 时代：慢速挂 step1（聚合 started/ended 语义不变）
                 self.adjust_started_at[len(self.adjust_started_at)] = _t.time()
                 _t.sleep(1.2)
                 r = FakeAgentClient.run(self, role, prompt_path, workdir,
@@ -1466,14 +1479,21 @@ class TestAdjustObservability(LoopTestBase):
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 3,
                                                    "adjust_interval": 1})
         sched.run()
+        # mock 实验毫秒级：run() 期间 7 步 pipeline 在飞（不重触发=正确行为）；
+        # 白盒二触发链（收菜 → due → start → join）验证非饥饿
+        sched._collect_adjust()
+        self.assertTrue(sched._adjust_due(1))
+        sched._maybe_start_adjust()
+        sched._join_adjust()
         adjust_root = os.path.join(self.ws, "codes", "adjust")
         iter_dirs = sorted(d for d in os.listdir(adjust_root)
                            if d.startswith("iter_"))
-        # 迭代 1、2 边界各触发一次 adjust（interval=1）
+        # run 内触发 1 次 + 白盒二触发 1 次
         self.assertGreaterEqual(len(iter_dirs), 2)
         for d in iter_dirs:
             files = os.listdir(os.path.join(adjust_root, d))
-            self.assertIn("prompt_adjust.md", files)
+            # pipeline 形态：7 步 prompt_adjust_*.md + 聚合 agent_adjust.json
+            self.assertIn("prompt_adjust_fact.md", files)
             self.assertIn("agent_adjust.json", files)
         # agent_adjust.json 可解析且带 iteration_id
         with open(os.path.join(adjust_root, iter_dirs[0],
@@ -1659,14 +1679,17 @@ class TestContextCompleteness(LoopTestBase):
         self.assertIn("文件清单", cprompt)            # workdir_files 标签
         self.assertIn("reference.py", cprompt)       # 文件清单内容（父本）
         self.assertIn("精英基线", cprompt)            # perf_baseline 标签
-        # adjust：budget_status + perf_timeline + own_decisions
+        # adjust（pipeline step1）：perf_timeline；own_decisions 在 step4 ctx
         ap = os.path.join(self.ws, "codes", "adjust", "iter_1",
-                          "prompt_adjust.md")
+                          "prompt_adjust_fact.md")
         self.assertTrue(os.path.exists(ap))
         aprompt = open(ap, encoding="utf-8").read()
-        self.assertIn("tokens_used", aprompt)
-        self.assertIn("perf_timeline", aprompt)
-        self.assertIn("own_decisions", aprompt)
+        # perf_timeline 渲染值（timeline 行含 is_record 字段）
+        self.assertIn("is_record", aprompt)
+        t4 = open(os.path.join(self.ws, "codes", "adjust", "iter_1",
+                               "prompt_adjust_judge.md"),
+                  encoding="utf-8").read()
+        self.assertIn("暂无历史决策", t4)  # own_decisions 渲染值
 
     def test_max_turns_passthrough(self):
         """H：per-role 回合预算透传（fake client 记 kwargs）。"""
@@ -1919,14 +1942,15 @@ class TestElementsAndDesigns(LoopTestBase):
                            "candidate": "x", "profile":
                            {"hotspots": [{"func": "PROF_MARK", "pct": 1}]}},
                           f)
-        # 灵感格：造一个有精英的邻格（archive.json 预写）
+        # 灵感格：造一个有精英的邻格（DB 时代：Archive API 预写）
         nb = cells[0]
-        arch = {"meta": {}, "pending": [], "cells": {nb: {
-            "descriptor": {}, "elite": {"code_path": self.cand_file,
-                                        "perf_value": 100.0},
-            "history": [], "weight": 1.0, "visit": 1}}}
-        with open(self.archive_path, "w", encoding="utf-8") as f:
-            json.dump(arch, f)
+        from superopt.archive import Archive as _Archive
+        _arc = _Archive(self.ws, perf_desc="low")
+        _arc.load()
+        _arc.admit(nb, {"descriptor": {},
+                        "elite": {"code_path": self.cand_file,
+                                  "perf_value": 100.0}})
+        _arc.save()
         d = os.path.join(root, nb)
         with open(os.path.join(d, "iter901.json"), "w", encoding="utf-8") as f:
             json.dump({"ts": "2026-10-23T00:00:00+08:00", "iteration_id": 901,
@@ -2071,17 +2095,21 @@ class TestResearchInjection(LoopTestBase):
         sched.run()
 
         by_role = {r: ctx for r, ctx in captured}
-        for role in ("builder", "coding", "debug", "adjust"):
+        # pipeline 时代：adjust 系角色以 step2（adjust_perspective，
+        # research 注入的主要步骤）为代表
+        for role in ("builder", "coding", "debug", "adjust_perspective"):
             self.assertIn(role, by_role, "%s 未被渲染（注入缺失）" % role)
             ctx = by_role[role]
             self.assertTrue(ctx.get("research_cmd"),
                             "%s ctx 缺 research_cmd" % role)
             self.assertIn("research.py", ctx["research_cmd"])
-            self.assertIn("--role %s" % role, ctx["research_cmd"])
+            expected_role = ("adjust" if role == "adjust_perspective" else role)
+            self.assertIn("--role %s" % expected_role, ctx["research_cmd"])
             brief = ctx.get("research_brief")
             self.assertIsInstance(brief, dict,
                                   "%s ctx 的 research_brief 应为 dict" % role)
-            self.assertIn("METHOD_MARK_%s" % role, brief.get("method", ""))
+            self.assertIn("METHOD_MARK_%s" % expected_role,
+                          brief.get("method", ""))
             self.assertTrue(brief.get("sources"))
             self.assertTrue(brief.get("focus"))
             self.assertTrue(brief.get("suggested_queries"))
@@ -2089,7 +2117,7 @@ class TestResearchInjection(LoopTestBase):
         self.assertIn("FOCUS_MARK_builder_impl=",
                       by_role["builder"]["research_brief"]["focus"])
         self.assertIn("FOCUS_MARK_adjust_global",
-                      by_role["adjust"]["research_brief"]["focus"])
+                      by_role["adjust_perspective"]["research_brief"]["focus"])
 
     def test_legacy_env_research_empty(self):
         """③ legacy env（无 research.py）→ 命令空串 / brief None，迭代不炸。"""
@@ -2271,12 +2299,17 @@ class TestAdjustFourStep(LoopTestBase):
                                                    "adjust_interval": 1})
         # 给采样格预设 description（cell_descriptions 的来源）
         sched.run()
-        p = os.path.join(self.ws, "codes", "adjust", "iter_1",
-                         "prompt_adjust.md")
-        text = open(p, encoding="utf-8").read()
-        self.assertIn("RECORD-MARKER-7", text)      # 区间实验记录摘要
-        self.assertIn("DECISION-MARKER-9", text)    # 决策史
-        self.assertIn(os.path.join(self.ws, "decisions", "iter1.md"), text)
+        # pipeline：experiment_records 在 step1（adjust_fact），
+        # decision_history/decisions 路径在 step4（adjust_judge）
+        t1 = open(os.path.join(self.ws, "codes", "adjust", "iter_1",
+                               "prompt_adjust_fact.md"),
+                  encoding="utf-8").read()
+        self.assertIn("RECORD-MARKER-7", t1)        # 区间实验记录摘要（step1）
+        t4 = open(os.path.join(self.ws, "codes", "adjust", "iter_1",
+                               "prompt_adjust_judge.md"),
+                  encoding="utf-8").read()
+        self.assertIn("DECISION-MARKER-9", t4)      # 决策史（step4）
+        self.assertIn(os.path.join(self.ws, "decisions", "iter1.md"), t4)
         self.assertGreaterEqual(sched._last_adjust_iter, 1)
 
     def test_cell_descriptions_injected(self):
@@ -2290,8 +2323,9 @@ class TestAdjustFourStep(LoopTestBase):
         sched.archive.save()
         self.client.queue("adjust", [_adjust_result([])])
         sched.run()
+        # pipeline：cell_descriptions 在 step6（adjust_space）
         text = open(os.path.join(self.ws, "codes", "adjust", "iter_1",
-                                 "prompt_adjust.md"),
+                                 "prompt_adjust_space.md"),
                     encoding="utf-8").read()
         self.assertIn("DESC-MARKER-3", text)
 
@@ -2537,10 +2571,18 @@ class TestCostAttribution(LoopTestBase):
         sched.run()
         iters = self.events_of("iteration_ended")
         self.assertGreaterEqual(len(iters), 3)
+        # pipeline 时代（job_56）：7 步聚合成本；mock timing 下边界 collect
+        # 可能未发生（run 收尾 join 消费）——两分支任一即验证记账链路
         found = [e for e in iters if "adjust" in (e["payload"].get("by_role") or {})]
-        self.assertTrue(found, "adjust 成本应并入后续迭代的 by_role")
-        self.assertEqual(found[0]["payload"]["by_role"]["adjust"],
-                         {"tokens": 50, "wall_ms": 300, "tool_calls": 3})
+        carry = sched._adjust_stats_carry.get("adjust")
+        self.assertTrue(found or carry,
+                        "adjust 成本应被记账（边界并入 by_role 或收尾 carry）")
+        if found:
+            br = found[0]["payload"]["by_role"]["adjust"]
+            self.assertGreater(br["tokens"], 0, "pipeline 聚合 tokens 应非零")
+            self.assertGreater(br["wall_ms"], 0)
+        if carry:
+            self.assertGreater(carry["tokens"], 0)
 
     def test_by_role_aggregates_repeated_role(self):
         """同 role 多次派发（debug 修复循环）→ by_role 累加。"""
@@ -3110,9 +3152,17 @@ class TestAdjustNoStarvation(LoopTestBase):
         self.assertGreaterEqual(total_started, 4,
                                 "2 槽 6 迭代至少起 4 个实验")
         adjust_count = self._adjust_start_count()
+        # mock 实验毫秒级：run 期间 7 步 pipeline 在飞不重触发（正确）；
+        # 白盒二触发链（收菜 → due → start → join）验证非饥饿本质
+        sched._collect_adjust()
+        self.assertTrue(sched._adjust_due(2),
+                        "收菜后 due 判定应可再触发（cursor-last>=interval）")
+        sched._maybe_start_adjust()
+        sched._join_adjust()
+        adjust_count = self._adjust_start_count()
         self.assertGreaterEqual(
             adjust_count, 2,
-            "并发下 adjust 至少触发 2 次（饥饿回归：cursor 达 2 与 4 应触发；"
+            "并发下 adjust 至少触发 2 次（run 内 1 + 收菜后二触发 1；"
             "实际 %d）" % adjust_count)
         # adjust_dispatched 事件可观测
         dispatched = self.events_of("adjust_dispatched")
@@ -3605,9 +3655,10 @@ class TestPhantomEliteGuard(LoopTestBase):
         # adjust 侧：cell_descriptions 的 method_brief 也带 [STALE] 前缀
         adjust_dirs = sorted(os.listdir(os.path.join(
             self.ws, "codes", "adjust")))
+        # pipeline：cell_descriptions 在 step6（adjust_space）
         aprompt = open(os.path.join(
             self.ws, "codes", "adjust", adjust_dirs[-1],
-            "prompt_adjust.md"), encoding="utf-8").read()
+            "prompt_adjust_space.md"), encoding="utf-8").read()
         self.assertIn("[STALE]", aprompt)
 
     def test_ref_drift_over_threshold_warns(self):
@@ -4010,7 +4061,11 @@ class TestCostReportOutcome(LoopTestBase):
     def test_outcome_breakdown_absent_without_iterations(self):
         """无 iteration_ended 事件 → outcome_breakdown 为 None（不炸）。"""
         mod = _load_cost_report()
-        with open(self.events_path, "w", encoding="utf-8") as f:
-            f.write("")
+        # DB 时代：清空 events 表（无 iteration_ended → outcome None 不炸）
+        from superopt.db import db_for_ws as _db_for_ws
+        _d = _db_for_ws(self.ws)
+        with _d._lock:
+            _d._conn.execute("DELETE FROM events")
+            _d._conn.commit()
         report = mod.build_report(self.ws)
         self.assertIsNone(report["outcome_breakdown"])

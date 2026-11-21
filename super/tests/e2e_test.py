@@ -1089,7 +1089,7 @@ class TestSuperFullChain(unittest.TestCase):
         # 两种形态都用「started 数 > ended 数」判定为「被打断又接管」的实验，
         # 且恰好 1 个。
         from superopt.events import EventWriter as _EventWriter
-        _w = _EventWriter(os.path.join(ws, "events.jsonl"))
+        _w = _EventWriter(ws)
         try:
             exp_ids = _w.experiment_ids()
             self.assertTrue(exp_ids, "事件流应带 experiment_id（格#迭代）")
@@ -1668,7 +1668,7 @@ class TestCellLockMutex(unittest.TestCase):
                         "两槽应时间窗重叠（第二个启动先于第一个完成）")
         # ④ 事件按实验可还原：每实验流 experiment_seq 1..N 连续且完整
         from superopt.events import EventWriter as _EW
-        w = _EW(os.path.join(ws, "events.jsonl"))
+        w = _EW(ws)
         try:
             for e in starts[:2]:
                 eid = e.get("experiment_id")
@@ -1818,7 +1818,7 @@ class TestPollutionDrill(unittest.TestCase):
         cell_b = "impl_strategy=vectorized|memory_layout=row_major"  # 灭活格
 
         # ---- 构造「过去」：9 迭代 + 假阳性/灭活格的精英与 pending ----
-        writer = EventWriter(os.path.join(ws, "events.jsonl"))
+        writer = EventWriter(ws)
         writer.append("session_started", {"env": env_dir, "pid": 0},
                       "scheduler")
         for i in range(1, 10):

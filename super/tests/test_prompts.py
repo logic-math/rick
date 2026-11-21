@@ -61,10 +61,10 @@ class _TmpWsTestCase(unittest.TestCase):
 
 class TestTemplateCandidates(_TmpWsTestCase):
     def test_candidates_priority_order(self):
-        cands = prompts.template_candidates("adjust", self.ws)
-        self.assertEqual(cands[0], os.path.join(self.ws, "prompts", "adjust.md"))
-        self.assertEqual(cands[1], os.path.join(self.ws, "env", "prompts", "adjust.md"))
-        self.assertEqual(cands[2], os.path.join(DEFAULT_TEMPLATE_DIR, "adjust.md"))
+        cands = prompts.template_candidates("adjust_fact", self.ws)
+        self.assertEqual(cands[0], os.path.join(self.ws, "prompts", "adjust_fact.md"))
+        self.assertEqual(cands[1], os.path.join(self.ws, "env", "prompts", "adjust_fact.md"))
+        self.assertEqual(cands[2], os.path.join(DEFAULT_TEMPLATE_DIR, "adjust_fact.md"))
 
     def test_find_template_missing_raises_with_all_paths(self):
         with self.assertRaises(FileNotFoundError) as cm:
@@ -78,24 +78,24 @@ class TestTemplateCandidates(_TmpWsTestCase):
 
 class TestLookupChain(_TmpWsTestCase):
     def test_ws_override_wins_over_env_and_default(self):
-        self._write("prompts/adjust.md", "WS_OVERRIDE")
-        self._write("env/prompts/adjust.md", "ENV_OVERRIDE")
-        self.assertEqual(prompts.render("adjust", self.ws, {}), "WS_OVERRIDE")
+        self._write("prompts/adjust_fact.md", "WS_OVERRIDE")
+        self._write("env/prompts/adjust_fact.md", "ENV_OVERRIDE")
+        self.assertEqual(prompts.render("adjust_fact", self.ws, {}), "WS_OVERRIDE")
 
     def test_env_override_beats_default(self):
-        self._write("env/prompts/adjust.md", "ENV_OVERRIDE")
-        self.assertEqual(prompts.render("adjust", self.ws, {}), "ENV_OVERRIDE")
+        self._write("env/prompts/adjust_fact.md", "ENV_OVERRIDE")
+        self.assertEqual(prompts.render("adjust_fact", self.ws, {}), "ENV_OVERRIDE")
 
     def test_fallback_to_repo_default(self):
-        out = prompts.render("adjust", self.ws, {})
+        out = prompts.render("adjust_fact", self.ws, {})
         self.assertIn("角色使命", out)
-        self.assertIn("proposals", out)
+        self.assertIn("事实与期望", out)  # step1 角色特征词
 
     def test_env_override_only_for_that_role(self):
-        # env 覆盖 builder，不影响 adjust 走默认
+        # env 覆盖 builder，不影响 adjust_fact 走默认
         self._write("env/prompts/builder.md", "ENV_BUILDER")
         self.assertEqual(prompts.render("builder", self.ws, {}), "ENV_BUILDER")
-        self.assertIn("角色使命", prompts.render("adjust", self.ws, {}))
+        self.assertIn("角色使命", prompts.render("adjust_fact", self.ws, {}))
 
 
 class TestPlaceholderReplacement(_TmpWsTestCase):
@@ -114,7 +114,7 @@ class TestPlaceholderReplacement(_TmpWsTestCase):
                              "%s 模板存在未替换占位符" % role)
 
     def test_probe_values_actually_reach_output(self):
-        out = prompts.render("adjust", self.ws, {"task": "probe-task"})
+        out = prompts.render("adjust_fact", self.ws, {"task": "probe-task"})
         self.assertIn("probe-task", out)
 
     def test_missing_ctx_keeps_placeholder_verbatim(self):
@@ -175,8 +175,8 @@ class TestWritePrompt(unittest.TestCase):
     def test_write_prompt_overwrites_idempotently(self):
         with tempfile.TemporaryDirectory() as td:
             wd = os.path.join(td, "codes", "uuid-2")
-            prompts.write_prompt(wd, "adjust", "V1")
-            path = prompts.write_prompt(wd, "adjust", "V2")
+            prompts.write_prompt(wd, "adjust_fact", "V1")
+            path = prompts.write_prompt(wd, "adjust_fact", "V2")
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read(), "V2")
 
@@ -204,12 +204,12 @@ class TestDefaultTemplateContracts(unittest.TestCase):
             return f.read()
 
     def test_roles_constant(self):
-        # job_56 task3：7 步流水线角色加入（adjust 保留为 legacy 回退）
-        self.assertEqual(ROLES[:8], (
-            "adjust", "adjust_fact", "adjust_perspective",
-            "adjust_contradiction", "adjust_judge", "adjust_reversal",
-            "adjust_space", "adjust_env"))
-        self.assertEqual(ROLES[8:], ("builder", "coding", "debug"))
+        # job_56 task3+第二轮：7 步流水线角色；旧 adjust 单 agent 角色已删除
+        self.assertNotIn("adjust", ROLES)
+        self.assertEqual(ROLES, (
+            "builder", "coding", "debug",
+            "adjust_fact", "adjust_perspective", "adjust_contradiction",
+            "adjust_judge", "adjust_reversal", "adjust_space", "adjust_env"))
 
     def test_adjust_step_sequence(self):
         """job_56 task3：7 步序列结构（步骤号/角色/产物）——调度与模板同源。"""
@@ -243,10 +243,10 @@ class TestDefaultTemplateContracts(unittest.TestCase):
                 self.assertIn(kw, s, "%s 缺 %r" % (role, kw))
 
     def test_adjust_keywords(self):
-        s = self._tpl("adjust")
-        for kw in ("proposals", "soft_weight", "hard_delete_cell",
-                   "hard_modify_cell", "hard_modify_gate",
-                   "软动作", "硬动作", "正交", "不删格"):
+        # 旧单 agent adjust 契约关键词归属 step6（adjust_space：格动作协议）
+        s = self._tpl("adjust_space")
+        for kw in ("proposals", "soft_weight", "new_cell", "modify_cell",
+                   "hard_delete_cell", "正交"):
             self.assertIn(kw, s)
 
     def test_builder_keywords(self):

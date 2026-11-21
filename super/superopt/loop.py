@@ -2292,10 +2292,8 @@ class Scheduler:
         adjust_dir = os.path.join(self.codes_dir, "adjust",
                                   "iter_%d" % iteration_id)
         os.makedirs(adjust_dir, exist_ok=True)
-        mode = str(self.conf.get("adjust_mode") or "pipeline").strip().lower()
-        if mode not in ("pipeline", "legacy"):
-            mode = "pipeline"
-        # ---- 共享 ctx（两模式共用；legacy 用全集，pipeline 按步分发）----
+        mode = "pipeline"
+        # ---- 共享 ctx（pipeline 按步分发）----
         shared = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
@@ -2336,17 +2334,8 @@ class Scheduler:
 
         def _worker():
             try:
-                if mode == "legacy":
-                    prompt = render("adjust", self.ws, shared)
-                    prompt_path = write_prompt(adjust_dir, "adjust", prompt)
-                    result = self._call_client(
-                        "adjust", prompt_path, adjust_dir,
-                        int(self.conf.get("agent_timeout_s", 1800)),
-                        (self.conf.get("agent_models") or {}).get("adjust"),
-                        self._role_max_turns("adjust"))
-                else:
-                    result = self._run_adjust_pipeline(
-                        adjust_dir, iteration_id, shared)
+                result = self._run_adjust_pipeline(
+                    adjust_dir, iteration_id, shared)
             except Exception as exc:  # noqa: BLE001 线程绝不向上抛
                 from superopt.agents import AgentResult as _AR
                 result = _AR(role="adjust", valid=False,

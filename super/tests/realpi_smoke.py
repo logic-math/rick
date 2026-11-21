@@ -43,7 +43,7 @@ for _p in (_SUPER, _REPO):
 
 def _read_all(ws):
     out = []
-    path = os.path.join(ws, "events.jsonl")
+    path = ws  # DB 时代：目录直传
     if not os.path.exists(path):
         return out
     with open(path, encoding="utf-8") as f:

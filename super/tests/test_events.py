@@ -158,7 +158,7 @@ class TestValidateEvent(unittest.TestCase):
 class TestEventWriter(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self._tmp.name, "events.jsonl")
+        self.path = self._tmp.name  # DB 时代：EventWriter 目录直传
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -206,29 +206,23 @@ class TestEventWriter(unittest.TestCase):
             self.assertEqual(w.last_seq(), 0)
             self.assertEqual(w.append("session_started", {"env": "matmul"}, "scheduler"), 1)
 
-    def test_truncated_tail_tolerated(self):
-        with EventWriter(self.path) as w:
-            for i in range(3):
-                w.append("iteration_started", {"iteration_id": i + 1}, "scheduler")
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write('{"ts":"2026-10-17T12:00:00+08:00","seq":4,"typ')  # 半行，无换行
-        with EventWriter(self.path) as r:
-            self.assertEqual(len(r.read_all()), 3)  # 跳过坏行不抛异常
-            self.assertEqual(r.last_seq(), 3)      # 游标=最后完整行
+    def test_db_wal_no_truncation_concept(self):
+        """jsonl 截断容错随存储退役（DB WAL 事务一致性——无半行概念）。
 
-    def test_reopen_seals_truncated_tail_then_append_continues(self):
-        with EventWriter(self.path) as w:
-            w.append("heartbeat", {}, "scheduler")
-            w.append("iteration_started", {"iteration_id": 1}, "scheduler")
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write('{"ts":"2026-10-17T12:00:00+08:0')  # 半行残骸
-        with EventWriter(self.path) as w2:  # 重开触发封口
-            self.assertEqual(
-                w2.append("iteration_ended", {"iteration_id": 1}, "scheduler"), 3)
-            events = w2.read_all()
-        self.assertEqual(len(events), 3)  # 2 完整 + 新 1（残行被跳过）
-        self.assertEqual([e["seq"] for e in events], [1, 2, 3])
-        self.assertEqual(events[-1]["type"], "iteration_ended")
+        等价语义验证：写入中断（异常路径）不留半行——append 的 insert
+        是事务原子，read_all 只见完整事件。
+        """
+        w = EventWriter(self.path)
+        for i in range(3):
+            w.append("iteration_started", {"iteration_id": i + 1}, "scheduler")
+        # 模拟写中断：validate 拒绝（不消耗 seq——事务回滚语义）
+        with self.assertRaises(ValueError):
+            w.append("explosion", {}, "scheduler")
+        r = EventWriter(self.path)
+        self.assertEqual(len(r.read_all()), 3)
+        self.assertEqual(r.last_seq(), 3)
+        r.close()
+        w.close()
 
     def test_append_rejects_invalid_and_keeps_file_intact(self):
         with EventWriter(self.path) as w:
@@ -287,7 +281,7 @@ class TestExperimentDimension(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "events.jsonl")
+        self.path = self.tmp.name  # DB 时代：EventWriter 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -434,7 +428,7 @@ class TestTask57EventContracts(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self._tmp.name, "events.jsonl")
+        self.path = self._tmp.name  # DB 时代：EventWriter 目录直传
 
     def tearDown(self):
         self._tmp.cleanup()

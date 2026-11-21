@@ -50,7 +50,7 @@ def entry(perf_value, code_path="codes/x/", gen=1, score=0.5):
 class TestAdmitBasics(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -94,7 +94,7 @@ class TestAdmitBasics(unittest.TestCase):
 class TestAdmitDirection(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -145,14 +145,14 @@ class TestAdmitDirection(unittest.TestCase):
         a.admit("c", entry(6.0))
         a.save()
         from super.superopt.db import db_for_ws
-        d = db_for_ws(os.path.dirname(os.path.abspath(self.path)))
+        d = db_for_ws(self.path)  # DB 时代：path 即工作区目录
         self.assertEqual(d.get_meta()["perf_desc"], "low")
 
 
 class TestHistory(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -184,7 +184,7 @@ class TestHistory(unittest.TestCase):
 class TestPending(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -226,7 +226,7 @@ class TestPending(unittest.TestCase):
 class TestWeight(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -255,7 +255,7 @@ class TestWeight(unittest.TestCase):
 class TestPersistence(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -286,7 +286,9 @@ class TestPersistence(unittest.TestCase):
     def test_load_corrupt_file_raises_or_starts_empty(self):
         # DB 化：旧 json 布局文件（含损坏文件）被忽略——空档开始
         # （sqlite 行级合法性由 DB 保证；旧工作区不迁移——Q1 裁决）
-        with open(self.path, "w", encoding="utf-8") as f:
+        # path=工作区目录：旧布局残留文件（archive.json 损坏内容）不影响 DB 加载
+        legacy = os.path.join(self.path, "archive.json")
+        with open(legacy, "w", encoding="utf-8") as f:
             f.write("{not json")
         a = Archive(self.path)
         a.load()
@@ -328,7 +330,7 @@ class TestPersistence(unittest.TestCase):
 class TestCellsAccessor(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.path = os.path.join(self.tmp.name, "archive.json")
+        self.path = self.tmp.name  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -366,7 +368,7 @@ class TestCellDescription(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="archive-desc-")
-        self.path = os.path.join(self.tmp, "archive.json")
+        self.path = self.tmp  # DB 时代：Archive 目录直传
 
     def test_new_cell_skeleton_has_empty_description(self):
         a = Archive(self.path, perf_desc="low")
@@ -421,7 +423,7 @@ class TestFiveElements(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="archive-five-")
-        self.path = os.path.join(self.tmp, "archive.json")
+        self.path = self.tmp  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         import shutil
@@ -534,7 +536,7 @@ class TestCodeHashAndStale(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="archive-task58-")
-        self.path = os.path.join(self.tmp, "archive.json")
+        self.path = self.tmp  # DB 时代：Archive 目录直传
 
     def tearDown(self):
         import shutil

@@ -95,12 +95,12 @@ def main():
         else:
             fail("loop.py 缺 %s" % name)
 
-    # ⑤ 兼容回退（adjust_mode: legacy + adjust.md 保留）
-    legacy_ok = os.path.isfile(os.path.join(ROOT, "super/prompts/adjust.md"))
+    # ⑤ 旧路径删除确认（job_56 第二轮：legacy 单 agent 路径已删——旧模板不存在+无 adjust_mode 分支）
+    legacy_gone = not os.path.exists(os.path.join(ROOT, "super/prompts/adjust.md"))
     check5 = [
-        ("旧 adjust.md 模板保留（legacy 回退）", legacy_ok),
-        ("adjust_mode 配置（pipeline/legacy）", "adjust_mode" in ls or "adjust_mode" in
-         open(os.path.join(ROOT, "super/superopt/config.py"), encoding="utf-8").read()),
+        ("旧 adjust.md 模板已删除（legacy 路径退役）", legacy_gone),
+        ("loop.py 无 legacy 单 agent 分支（render(\"adjust\") 调用清零）",
+         'render("adjust"' not in ls),
     ]
     for name, ok in check5:
         if ok:

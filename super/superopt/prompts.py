@@ -49,11 +49,11 @@ __all__ = [
 ]
 
 # 默认角色（模板查找不限于这些——env/工作区可自带新角色模板）。
-# adjust 7 步流水线角色（job_56 task3）：每步独立上下文、产物落盘传递；
-# adjust 本体保留为 legacy 单 agent 兼容回退（adjust_mode=legacy）。
-ROLES = ("adjust", "adjust_fact", "adjust_perspective",
-         "adjust_contradiction", "adjust_judge", "adjust_reversal",
-         "adjust_space", "adjust_env", "builder", "coding", "debug")
+# adjust 7 步流水线角色（job_56 task3；第二轮删 legacy 单 agent adjust 角色）：
+ADJUST_STEP_ROLES = ("adjust_fact", "adjust_perspective",
+                     "adjust_contradiction", "adjust_judge",
+                     "adjust_reversal", "adjust_space", "adjust_env")
+ROLES = ("builder", "coding", "debug") + ADJUST_STEP_ROLES
 
 # adjust 流水线步骤序（步骤号 / 角色 / 主产物文件名）——loop.py 调度与
 # 模板目录共用（task3 KR-A；step3 每视角并行 subagent）。None=无固定 md

@@ -33,7 +33,7 @@ import (
 
 // superMethodSOP 是 super 会话的方法层浓缩（commandMethod 的 super 侧对应物——
 // internal/builder 不在 super 包写域内，故在本包自持文案）。
-const superMethodSOP = `Super 方法（super-loop 中控）：env 建设与升级（gen_env skill 现场生成/演进 env，门禁系统设计是 env 范畴）→ 启动前门先证红确认（exploit 拒识 100% 才放行）→ rick super start/stop/status 启停监控后台进化 → rick super event 投递 human 干预（经干预队列，绝不直写 events.jsonl/archive.json——单写者纪律）。进化逻辑（采样/门禁/档案/淘汰）全部在后台 py 调度器，中控只做编排与人机接口。`
+const superMethodSOP = `Super 方法（super-loop 中控）：env 建设与升级（gen_env skill 现场生成/演进 env，门禁系统设计是 env 范畴）→ 启动前门先证红确认（exploit 拒识 100% 才放行）→ rick super start/stop/status 启停监控后台进化 → rick super event 投递 human 干预（经干预队列，绝不直写 super.db——单写者纪律）。进化逻辑（采样/门禁/档案/淘汰）全部在后台 py 调度器，中控只做编排与人机接口。`
 
 // superCLICheatsheet 是五子命令速查（与 internal/cmd/super.go 对齐）。
 const superCLICheatsheet = `## CLI 速查
@@ -50,8 +50,8 @@ func workspaceCheatsheet(ws string) string {
 	b.WriteString("## 工作区速查\n\n")
 	b.WriteString(fmt.Sprintf("- 工作区（ws）：%s\n", ws))
 	b.WriteString(fmt.Sprintf("- 运行元信息：%s\n", filepath.Join(ws, "super.json")))
-	b.WriteString(fmt.Sprintf("- 事件流（唯一真相源，只读）：%s\n", filepath.Join(ws, "events.jsonl")))
-	b.WriteString(fmt.Sprintf("- 精英档案（只读）：%s\n", filepath.Join(ws, "archive.json")))
+	b.WriteString(fmt.Sprintf("- 事件流（唯一真相源，events 表，只读）：sqlite3 %s \"SELECT seq,ts,type,source,payload FROM events ORDER BY seq\"\n", filepath.Join(ws, "super.db")))
+	b.WriteString(fmt.Sprintf("- 精英档案（cells 表，只读）：sqlite3 %s \"SELECT cell_id,name,weight,best_experiment_id FROM cells\"\n", filepath.Join(ws, "super.db")))
 	b.WriteString(fmt.Sprintf("- 干预队列（human 写入口）：%s\n", filepath.Join(ws, "interventions")))
 	b.WriteString(fmt.Sprintf("- env（gen_env 产出）：%s\n", filepath.Join(ws, "env")))
 	b.WriteString(fmt.Sprintf("- 后台日志（--daemon）：%s\n", filepath.Join(ws, "super.log")))
@@ -72,13 +72,13 @@ func workspaceContext(rickDir, ws string) string {
 	b.WriteString(fmt.Sprintf("%s\n", filepath.Join(ws, "env")))
 	b.WriteString("\n### 观察手段（当前运行状态，任意信息可读）\n\n")
 	b.WriteString("- CLI：`rick super status --json`（心跳/迭代游标/北极星）；事件尾随可读事件流文件\n")
-	b.WriteString(fmt.Sprintf("- 直读文件（真相源）：`%s`（事件流）\n", filepath.Join(ws, "events.jsonl")))
+	b.WriteString(fmt.Sprintf("- 直读 DB（真相源）：`%s`（super.db：events/cells/experiments/humans/resources 五表）\n", filepath.Join(ws, "super.db")))
 	b.WriteString(fmt.Sprintf("  `%s`（精英格档案）；`%s/`（每代代码快照 + prompt + agent 产物）\n",
-		filepath.Join(ws, "archive.json"), filepath.Join(ws, "codes")))
+		filepath.Join(ws, "super.db"), filepath.Join(ws, "codes")))
 	b.WriteString(fmt.Sprintf("  `%s`（心跳）\n", filepath.Join(ws, "heartbeat.json")))
 	b.WriteString("- pi agent 的执行 session 文件同样可读——只要能描绘运行状态，读任何信息\n")
 	b.WriteString("\n### 干预手段\n\n")
-	b.WriteString("- `rick super event --type <t> --payload '<json>'`（写干预队列，由调度器在迭代边界摄取；单写者保证——绝不直写 events.jsonl / archive.json）\n")
+	b.WriteString("- `rick super event --type <t> --payload '<json>'`（写干预队列 humans 表，由调度器在迭代边界摄取；单写者保证——绝不直写 super.db）\n")
 	return b.String()
 }
 
@@ -197,7 +197,7 @@ func BuildSuperPrompt(rickDir, ws, requirement string) (methodFile, promptFile s
 	b.WriteString("你是 rick super 模式的**中控会话**：env 的建设与升级、后台进化引擎的启停与监控、human 干预的投递。进化本身由后台执行（Go PySupervisor 监督 → py 调度器四状态循环 → pi agent 池），**你不执行进化逻辑**。\n\n")
 	b.WriteString(missionBlock(ws, requirement))
 	b.WriteString("## 单写者纪律（不可协商）\n\n")
-	b.WriteString("events.jsonl / archive.json 只有后台 py 调度器一个写者。你的任何干预一律经 `rick super event` 写干预队列，由调度器在迭代边界摄取——**永远不直写** events.jsonl / archive.json。\n\n")
+	b.WriteString("super.db 只有后台 py 调度器一个写者。你的任何干预一律经 `rick super event` 写干预队列（humans 表），由调度器在迭代边界摄取——**永远不直写** super.db。\n\n")
 	b.WriteString(workflowBlock(ws))
 	b.WriteString("---\n\n# Loop: super-loop（默认加载，先完整读取再动手）\n\n")
 	b.WriteString(superLoop)
