@@ -199,6 +199,8 @@ humans 表（super.db，task1 落地）承载两类队列：
 | `rick super event --name <n> --type <t> --payload '<json>'` | human 干预投递（写 `interventions/` 队列文件） | **唯一干预入口**；禁止直写 events.jsonl/archive.json |
 | `rick super stop --name <n>` | 优雅停（SIGTERM 落完当前事件 → grace → SIGKILL 整树） | 停后 state=stopped |
 | gen_env skill（加载） | env 建设/升级/提示词进化的访谈式流程 | Step 1/Step 5/Step 7 使用 |
+| `stat-super` skill | 进展查询全貌（战况/adjust/报告指标/异常信号——固定 SQL 模板） | 任何「进展如何」类提问时加载 |
+| `super-tech` skill | 系统技术讲解（三层架构/7 步/QD 理论/优化路线图/FAQ） | human 学习系统设计时加载 |
 
 - 权限边界：中控会话不采样、不跑门禁、不改档案——进化决策全部在后台调度器；中控只读状态 + 投递意图。
 

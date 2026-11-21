@@ -191,6 +191,18 @@ R07 benchmark 预构造公平计时（176× 假 speedup）· R08 verify 协议�
 R09 gate_check v2 契约（--env-dir/score 语义）· R10 三要素可跑 ·
 R11 domain_knowledge 必须节 · R12 feature_space 轴合法。
 
+**演练的三大纪律**（job_56 刷榜实测教训——演练没暴露运行时 bug 的根因）：
+
+1. **框架路径对齐（lint R14）**：演练命令必须与框架真实调用路径一致——
+   实测坑：手工命令带 `--problem` 而框架链（loop→CascadeGate→gate_check）
+   不传 → 题目路由断链误杀好解。R14 用 CascadeGate.verify() 走真实框架
+   路径；题库模式必须额外验证「cell_id→--problem→远程」的完整传递链
+   （含 experiment_plan.json 的 target_cell 自动解析路径）。
+2. **概率性故障注入**：远程执行链演练时主动断连一次——验证重试线路
+   （瞬时抖动无法自然复现，只能建重试防线——实测坑：好解被 ssh 抖动误杀）。
+3. **资源预检**：远程执行模式跑前查 GPU 显存余量/外部占用（实测坑：外部
+   进程占 123GB → OOM 误杀——演练时点与运行时点的环境状态漂移）。
+
 **人工抽查补充**（lint 无法覆盖的语义级检查）：作弊样本的**语义有效性**
 （exploit 是否真的可构成作弊——如 outlier 输入对 softmax 任务的分布合理性）、
 题目语义与 verify 协议的匹配（权重同步契约对带参层题目）。

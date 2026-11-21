@@ -176,6 +176,36 @@ def lint(env_dir: str) -> List[str]:
         for sec in DK_REQUIRED_SECTIONS:
             _ok(sec in dk, "R11 domain_knowledge 缺必须节 %r" % sec)
 
+    # R14 框架链路演练（job_56 刷榜实测盲区：演练走手工命令没走框架真实
+    # 调用路径——gate_check 被 CascadeGate 调用时缺 --problem 误杀好解）：
+    # 用 CascadeGate.verify()（框架真实路径）跑金样例
+    if repo:
+        gold_dir = os.path.join(env_dir, "gates", "golden_examples")
+        probe2 = None
+        if os.path.isdir(gold_dir):
+            for f in sorted(os.listdir(gold_dir)):
+                if f.endswith(".py"):
+                    probe2 = os.path.join(gold_dir, f)
+                    break
+        if probe2:
+            r2 = subprocess.run(
+                [sys.executable, "-c",
+                 "import sys, json; sys.path.insert(0, %r + '/super');\n"
+                 "from superopt.gates import CascadeGate\n"
+                 "g = CascadeGate(%r, %r)\n"
+                 "r = g.verify(%r)\n"
+                 "print(json.dumps({'passed': r.passed, "
+                 "'stage': r.failure_stage or ''}))"
+                 % (repo, env_dir, os.path.join(env_dir, "gates"), probe2)],
+                capture_output=True, text=True, timeout=1500)
+            try:
+                fr = json.loads(r2.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                fr = {"passed": False, "stage": "lint_parse_error"}
+            _ok(fr.get("passed"),
+                "R14 框架链路（CascadeGate.verify 真实调用路径）失败: %s"
+                % fr.get("stage"))
+
     # R13 说明书（gen-env 步骤⑤产出物）
     _ok(os.path.isfile(os.path.join(env_dir, "HOW_IT_WORKS.md")),
         "R13 缺 HOW_IT_WORKS.md（env 工作原理说明书——gen-env 步骤⑤）")
@@ -230,7 +260,7 @@ def main():
         for e in errs:
             print("  - %s" % e)
         return 1
-    print("env_lint: 全绿（13 项规则通过——env 验收完成）")
+    print("env_lint: 全绿（14 项规则通过——env 验收完成）")
     return 0
 
 
