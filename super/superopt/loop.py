@@ -1501,21 +1501,22 @@ class Scheduler:
                     score = float(score)
             elif candidate is not None:
                 status = "rejected"
-            session_id = ""
-            for role in ("debug", "coding", "builder"):
+            # 三角色 session 分字段（job_56 第三轮审计：builder/coding/debug
+            # 各自的 pi session——行为轨迹还原；单列覆盖退役）
+            per_role_sessions = {}
+            for role in ("builder", "coding", "debug"):
                 acc = self._iter_agents.get(role) or {}
                 sid = acc.get("session_id") or ""
                 if sid:
-                    session_id = sid
-                    break
+                    per_role_sessions["%s_session_id" % role] = sid
             record_path = experiment_record.path_for(iter_dir)
             self.db.update_experiment(
                 workdir_id,
                 record_path=record_path if os.path.isfile(record_path)
                 else "",
-                session_id=session_id,
                 score=score,
-                status=status)
+                status=status,
+                **per_role_sessions)
         except Exception:  # noqa: BLE001 DB 故障不炸实验链（事件已可诊断）
             pass
 
@@ -2436,7 +2437,9 @@ class Scheduler:
                        adjust_dir: str, iteration_id: int,
                        step_timeout: int, deadline: float,
                        agg: Dict[str, Any],
-                       prompt_suffix: str = "") -> Any:
+                       prompt_suffix: str = "",
+                       step_sessions: Optional[Dict[str, Any]] = None,
+                       session_key: str = "") -> Any:
         """单步派发（含事件与降级）：render → write_prompt → client.run。
 
         prompt_suffix：步骤内并行的文件名隔离（step3 每视角
@@ -2493,6 +2496,17 @@ class Scheduler:
             agg["truncated"] = agg["truncated"] or bool(result.truncated)
             if not result.valid:
                 agg["valid"] = False
+            # session_id 收集（job_56 第三轮审计：adjusts 表数据源；
+            # step3 并行以 session_key 区分——数组聚合）
+            if step_sessions is not None:
+                sid = getattr(result, "session_id", "") or ""
+                if sid:
+                    key = session_key or ("step%d" % step_no)
+                    if session_key:
+                        step_sessions.setdefault("step%d" % step_no,
+                                                 []).append(sid)
+                    else:
+                        step_sessions[key] = sid
             return result
         except _PipelineBudgetExhausted:
             raise
@@ -2574,6 +2588,9 @@ class Scheduler:
         agg = {"wall_ms": 0.0, "tokens": 0.0, "cost_usd": 0.0,
                "tool_calls": 0.0, "truncated": False, "valid": True,
                "degraded_steps": 0}  # type: Dict[str, Any]
+        # 各步 pi session_id（job_56 第三轮审计：adjusts 表数据源——
+        # step3 三视角并行是数组）
+        step_sessions = {}  # type: Dict[str, Any]
         step_timeout = max(60, int(self.conf.get("adjust_step_timeout_s", 900)))
         deadline = time.time() + max(
             120, int(self.conf.get("adjust_total_timeout_s", 5400)))
@@ -2591,7 +2608,8 @@ class Scheduler:
                     "hindsight_evidence": self._or_default(
                         self._hindsight_evidence(), "（首轮——无事后验证证据）")}
             r1 = self._pipeline_step(1, "adjust_fact", ctx1, adjust_dir,
-                                     iteration_id, step_timeout, deadline, agg)
+                                     iteration_id, step_timeout, deadline, agg,
+                                     step_sessions=step_sessions)
             facts_path = str((r1.data or {}).get("facts_path") or
                              os.path.join(adjust_dir, "facts.md"))
             briefs.append({"step": 1, "role": "adjust_fact",
@@ -2607,7 +2625,7 @@ class Scheduler:
                     "adjust_dir": adjust_dir}
             r2 = self._pipeline_step(2, "adjust_perspective", ctx2,
                                      adjust_dir, iteration_id, step_timeout,
-                                     deadline, agg)
+                                     deadline, agg, step_sessions=step_sessions)
             perspectives_path = str((r2.data or {}).get(
                 "perspectives_path") or os.path.join(
                     adjust_dir, "perspectives.md"))
@@ -2637,7 +2655,9 @@ class Scheduler:
                 step3_results[idx] = self._pipeline_step(
                     3, "adjust_contradiction", ctx3, adjust_dir,
                     iteration_id, step_timeout, deadline, agg,
-                    prompt_suffix="_%d" % (idx + 1))
+                    prompt_suffix="_%d" % (idx + 1),
+                    step_sessions=step_sessions,
+                    session_key="step3_p%d" % (idx + 1))
 
             ths = [threading.Thread(target=_run_one, args=(i, p),
                                     name="superopt-adjust-c%d" % (i + 1),
@@ -2675,7 +2695,8 @@ class Scheduler:
                     "decision_history": shared["decision_history"],
                     "adjust_dir": adjust_dir}
             r4 = self._pipeline_step(4, "adjust_judge", ctx4, adjust_dir,
-                                     iteration_id, step_timeout, deadline, agg)
+                                     iteration_id, step_timeout, deadline, agg,
+                                     step_sessions=step_sessions)
             judgment_path = str((r4.data or {}).get("judgment_path") or
                                 os.path.join(adjust_dir, "judgment.md"))
             judgment_brief = {
@@ -2696,7 +2717,8 @@ class Scheduler:
                     "facts_path": facts_path,
                     "adjust_dir": adjust_dir}
             r5 = self._pipeline_step(5, "adjust_reversal", ctx5, adjust_dir,
-                                     iteration_id, step_timeout, deadline, agg)
+                                     iteration_id, step_timeout, deadline, agg,
+                                     step_sessions=step_sessions)
             reversal_brief = {
                 "methods": (r5.data or {}).get("methods") or [],
                 "summary": str(r5.summary or "")[:200],
@@ -2716,7 +2738,8 @@ class Scheduler:
                     "decisions_path": shared["decisions_path"],
                     "adjust_dir": adjust_dir}
             r6 = self._pipeline_step(6, "adjust_space", ctx6, adjust_dir,
-                                     iteration_id, step_timeout, deadline, agg)
+                                     iteration_id, step_timeout, deadline, agg,
+                                     step_sessions=step_sessions)
             proposals = (r6.data or {}).get("proposals")
             if not isinstance(proposals, list):
                 proposals = []
@@ -2743,7 +2766,8 @@ class Scheduler:
                         self._hindsight_evidence(), "（无）"),
                     "adjust_dir": adjust_dir}
             r7 = self._pipeline_step(7, "adjust_env", ctx7, adjust_dir,
-                                     iteration_id, step_timeout, deadline, agg)
+                                     iteration_id, step_timeout, deadline, agg,
+                                     step_sessions=step_sessions)
             ep = (r7.data or {}).get("env_proposals")
             if isinstance(ep, list):
                 env_proposals = [p for p in ep if isinstance(p, dict)]
@@ -2783,6 +2807,7 @@ class Scheduler:
                 "mode": "pipeline",
                 "steps": briefs,
                 "degraded_steps": agg.get("degraded_steps", 0),
+                "step_sessions": step_sessions,
             },
         }
         return _AR(
@@ -2872,6 +2897,17 @@ class Scheduler:
             iteration_id, proposals, bool(pending.valid),
             pipeline=(pending.data or {}).get("pipeline")
             if isinstance(pending.data, dict) else None)
+        # adjusts 表（job_56 第三轮审计）：每次 adjust 运行一行——各步 pi
+        # session_id + 迭代目录（行为轨迹观察入口；step3 三视角是数组）
+        try:
+            self.db.record_adjust(
+                iteration_id, adjust_dir,
+                sessions=((pending.data or {}).get("pipeline") or {}).get(
+                    "step_sessions", {}),
+                decisions_path=decision_path,
+                agent_valid=bool(pending.valid))
+        except Exception:  # noqa: BLE001 观察表失败不炸主链（事件已可诊断）
+            pass
         # adjust_decision 事件（task19）：结构化决策日志——输入（cells_status
         # 摘要）+ 输出（proposals 摘要）同帧落事件流；自改进分析（adjust_trace）
         # 与崩溃恢复均可消费

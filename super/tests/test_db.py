@@ -58,7 +58,13 @@ class TestSchema(unittest.TestCase):
         # experiments 编号列
         cols = {r[1] for r in con.execute("PRAGMA table_info(experiments)")}
         for c in ("experiment_id", "iteration", "workdir", "record_path",
-                  "session_id", "score"):
+                  "builder_session_id", "coding_session_id",
+                  "debug_session_id", "score"):
+            self.assertIn(c, cols)
+        # adjusts 表（job_56 第三轮审计：adjust 运行记录——sessions+迭代目录）
+        cols = {r[1] for r in con.execute("PRAGMA table_info(adjusts)")}
+        for c in ("adjust_id", "iteration", "adjust_dir", "sessions",
+                  "decisions_path", "agent_valid"):
             self.assertIn(c, cols)
 
     def test_wal_mode(self):
@@ -235,10 +241,15 @@ class TestExperimentsAPI(unittest.TestCase):
         eid = d.register_experiment(1, cell_id="a=x")
         d.update_experiment(eid, record_path="/ws/codes/%s/experiment_record.md" % eid,
                             session_id="superopt-coding-abc",
+                            builder_session_id="superopt-builder-xyz",
+                            debug_session_id="superopt-debug-789",
                             score=42.5, status="passed")
         row = d.get_experiment(eid)
         self.assertEqual(row["record_path"], "/ws/codes/%s/experiment_record.md" % eid)
-        self.assertEqual(row["session_id"], "superopt-coding-abc")
+        # 旧 session_id 兼容映射 → coding 列；三角色分列
+        self.assertEqual(row["coding_session_id"], "superopt-coding-abc")
+        self.assertEqual(row["builder_session_id"], "superopt-builder-xyz")
+        self.assertEqual(row["debug_session_id"], "superopt-debug-789")
         self.assertAlmostEqual(row["score"], 42.5)
         self.assertEqual(row["status"], "passed")
 

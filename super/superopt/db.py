@@ -85,10 +85,25 @@ _DDL = [
         iteration       INTEGER NOT NULL,
         workdir         TEXT,
         record_path     TEXT,
-        session_id      TEXT,
+        builder_session_id TEXT,
+        coding_session_id  TEXT,
+        debug_session_id   TEXT,
         cell_id         TEXT,
         score           REAL,
         status          TEXT NOT NULL DEFAULT 'running',
+        created_at      TEXT NOT NULL
+    )
+    """,
+    # adjust 运行表（job_56 第三轮审计：每次 adjust 流水线一行——
+    # 各步 pi session + 迭代目录，行为轨迹观察入口）
+    """
+    CREATE TABLE IF NOT EXISTS adjusts (
+        adjust_id       TEXT PRIMARY KEY,
+        iteration       INTEGER NOT NULL,
+        adjust_dir      TEXT NOT NULL,
+        sessions        TEXT NOT NULL,
+        decisions_path  TEXT,
+        agent_valid     INTEGER,
         created_at      TEXT NOT NULL
     )
     """,
@@ -229,7 +244,25 @@ class SuperDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             for ddl in _DDL:
                 self._conn.execute(ddl)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """轻量列迁移（job_56 第三轮审计：experiments 三角色 session 列）。
+
+        旧库（session_id 单列）：ALTER 加三列（旧值保留原列——兼容读，
+        新写走三列）；新库建表已是三列（ALTER 幂等跳过）。
+        """
+        try:
+            cols = {r["name"] for r in self._conn.execute(
+                "PRAGMA table_info(experiments)").fetchall()}
+            for col in ("builder_session_id", "coding_session_id",
+                        "debug_session_id"):
+                if col not in cols:
+                    self._conn.execute(
+                        "ALTER TABLE experiments ADD COLUMN %s TEXT" % col)
+        except sqlite3.Error:
+            pass  # 表不存在等竞态：建表循环刚建过，忽略
 
     # ---- 关闭 ----
 
@@ -521,8 +554,17 @@ class SuperDB:
                     eid = "%s-%d" % (base, suffix)
 
     def update_experiment(self, experiment_id: str, **fields: Any) -> None:
-        """回写实验行（record_path/session_id/score/status/cell_id/workdir）。"""
-        allowed = ("record_path", "session_id", "score", "status",
+        """回写实验行（record_path/三角色 session_id/score/status/cell_id/workdir）。
+
+        三角色 session_id（job_56 第三轮审计）：builder/coding/debug 各自的
+        pi session（行为轨迹还原）——experiments 表分三列存（旧 session_id
+        单列废弃；传入 session_id 时兼容映射到 coding）。
+        """
+        if "session_id" in fields and fields.get("session_id") is not None:
+            # 旧调用兼容：单 session_id → coding 列（若 coding 未显式给）
+            fields.setdefault("coding_session_id", fields.get("session_id"))
+        allowed = ("record_path", "builder_session_id", "coding_session_id",
+                   "debug_session_id", "score", "status",
                    "cell_id", "workdir", "iteration")
         sets, vals = [], []
         for k in allowed:
@@ -551,6 +593,49 @@ class SuperDB:
                 "SELECT * FROM experiments ORDER BY created_at DESC, "
                 "experiment_id DESC LIMIT ?", (int(n),)).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- adjusts（adjust 运行表：每次流水线一行） ----
+
+    def record_adjust(self, iteration: int, adjust_dir: str,
+                      sessions: dict,
+                      decisions_path: Optional[str] = None,
+                      agent_valid: Optional[bool] = None) -> str:
+        """记录一次 adjust 运行（INSERT OR REPLACE——同 iter 幂等）。
+
+        sessions：各步 pi session_id（{"step1": "...", "step3": ["s1","s2","s3"],
+        ...}——step3 三视角并行是数组）；adjust_dir=迭代目录
+        （codes/adjust/iter_N——行为轨迹观察入口）。
+        """
+        adjust_id = os.path.basename(adjust_dir.rstrip("/")) or \
+            "iter_%d" % int(iteration)
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO adjusts "
+                "(adjust_id, iteration, adjust_dir, sessions, "
+                "decisions_path, agent_valid, created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (adjust_id, int(iteration), adjust_dir,
+                 json.dumps(sessions or {}, ensure_ascii=False),
+                 decisions_path, None if agent_valid is None else
+                 int(bool(agent_valid)), _now()))
+            self._conn.commit()
+        return adjust_id
+
+    def list_adjusts(self, n: int = 20) -> List[Dict[str, Any]]:
+        """最近的 adjust 运行（观察入口：sessions JSON 反序列化）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM adjusts ORDER BY iteration DESC, created_at "
+                "DESC LIMIT ?", (int(n),)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["sessions"] = json.loads(d.get("sessions") or "{}")
+            except (TypeError, ValueError):
+                d["sessions"] = {}
+            out.append(d)
+        return out
 
     # ---- resources（槽位资源调度） ----
 
