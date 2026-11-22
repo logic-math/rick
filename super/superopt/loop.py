@@ -543,6 +543,17 @@ class Scheduler:
         if released:
             self.events.append("cell_lock_orphans_released", {
                 "count": len(released), "cells": released[:20]}, "scheduler")
+        # P4（step7 提案4）：会话重启吞噬在飞实验 → 台账死行清理——
+        # 恢复时把 status=running 但无 record_path 的死行标 interrupted
+        # （不残留 running 污染采样决策；visit 账实由 archive.load 的
+        # 事件重放投影校正）
+        try:
+            dead = self.db.interrupt_stale_running()
+            if dead:
+                self.events.append("stale_running_interrupted", {
+                    "experiment_ids": dead}, "scheduler")
+        except Exception:  # noqa: BLE001 DB 故障不炸启动
+            pass
         self._install_signal_handlers()
         # 心跳线程：长 agent 派发（真 pi 单次可达十余分钟）会阻塞主循环，
         # 若心跳只在主循环 tick 写，Go PySupervisor 会误判心跳超时→kill→重启
@@ -2809,12 +2820,21 @@ class Scheduler:
         except Exception as exc:  # noqa: BLE001
             briefs.append({"step": 7, "role": "adjust_env",
                            "degraded": str(exc)[:200]})
-        # env_proposals → humans 表提案队列（queue_type=proposal；KR-B）
+        # env_proposals → humans 表提案队列（job_56 权限边界收紧：仅
+        # restart/verifier 两类入队——其余类是 step7 该自修的，入队=违规拒绝）
         for p in env_proposals:
+            kind = str(p.get("kind") or "")
+            if kind not in ("restart", "verifier"):
+                self.events.append("env_proposal_rejected", {
+                    "iteration": iteration_id, "kind": kind,
+                    "title": p.get("title"),
+                    "reason": "权限边界：非 restart/verifier 类应 step7 直接修复",
+                }, "scheduler")
+                continue
             try:
                 self.db.push_proposal({
                     "title": str(p.get("title") or "")[:200],
-                    "kind": str(p.get("kind") or "skill"),
+                    "kind": kind,
                     "finding": str(p.get("finding") or "")[:2000],
                     "proposal": str(p.get("proposal") or "")[:2000],
                     "risk": str(p.get("risk") or "")[:1000],
@@ -2822,10 +2842,33 @@ class Scheduler:
                 })
                 self.events.append("env_proposal_queued", {
                     "iteration": iteration_id,
-                    "kind": p.get("kind"), "title": p.get("title"),
+                    "kind": kind, "title": p.get("title"),
                 }, "scheduler")
             except Exception:  # noqa: BLE001 提案入队失败不炸流水线
                 pass
+        # env_fixes：step7 直接修复的审计记录（自修类——无需重启即生效）
+        try:
+            fixes = (r7.data or {}).get("env_fixes") \
+                if isinstance(r7.data, dict) else None
+            if isinstance(fixes, list) and fixes:
+                self.events.append("env_fixed", {
+                    "iteration": iteration_id, "fixes": fixes[:12],
+                }, "scheduler")
+        except Exception:  # noqa: BLE001
+            pass
+        # budget_adjust：预算热调（step7 自调节权——迭代边界应用无需重启；
+        # human 限定键（HUMAN_PINNED_BUDGET_KEYS）拒绝）
+        try:
+            ba = (r7.data or {}).get("budget_adjust") \
+                if isinstance(r7.data, dict) else None
+            if isinstance(ba, dict):
+                applied = self._apply_budget_adjust(ba, iteration_id)
+                if applied:
+                    self.events.append("budget_adjusted", {
+                        "iteration": iteration_id, "applied": applied,
+                    }, "scheduler")
+        except Exception:  # noqa: BLE001 预算调节失败不炸流水线
+            pass
         # ---- 合成 AgentResult（role=adjust——_collect_adjust 消费管道零改动）----
         data = {
             "proposals": proposals,
@@ -2848,6 +2891,42 @@ class Scheduler:
                    "total_tokens": int(agg["tokens"]),
                    "cost_usd": float(agg["cost_usd"])},
             tool_calls=[], truncated=bool(agg["truncated"]))
+
+    # 预算热调白名单（step7 可调；human 限定的键在 super.json config
+    # 的 human_pinned_budget 列表中声明——声明过的拒绝 step7 调节）
+    _BUDGET_ADJUSTABLE = ("agent_timeout_s", "adjust_step_timeout_s",
+                          "adjust_total_timeout_s", "max_tokens",
+                          "agent_timeout_s_per_role", "adjust_interval",
+                          "max_parallel_experiments")
+
+    def _apply_budget_adjust(self, ba: Dict[str, Any],
+                             iteration_id: int) -> Dict[str, Any]:
+        """step7 预算热调（无人值守长程设计）：白名单键 → conf 即时生效。
+
+        human 限定：super.json config.human_pinned_budget 键列表（human
+        明确限定的预算不可被 step7 调节——用户裁决权高于自调节权）。
+        返回实际应用的 {key: new_value}（被拒/非法键不返回）。
+        """
+        pinned = self.conf.get("human_pinned_budget") or []
+        applied = {}
+        for k, v in ba.items():
+            if k not in self._BUDGET_ADJUSTABLE:
+                continue
+            if k in pinned:
+                self.events.append("budget_adjust_rejected", {
+                    "iteration": iteration_id, "key": k,
+                    "reason": "human_pinned（human 限定键）",
+                }, "scheduler")
+                continue
+            try:
+                v2 = type(self.conf.get(k) or v)(v)
+                if v2 <= 0:
+                    continue
+                self.conf[k] = v2
+                applied[k] = v2
+            except (TypeError, ValueError):
+                continue
+        return applied
 
     def _collect_adjust(self) -> None:
         """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。

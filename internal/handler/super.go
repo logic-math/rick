@@ -204,7 +204,8 @@ func goSuperDefaults() map[string]interface{} {
 		"heartbeat_interval_s": d.HeartbeatIntervalMs / 1000,
 		"heartbeat_timeout_s": d.HeartbeatTimeoutMs / 1000,
 		"term_grace_s":        d.TermGraceMs / 1000,
-		"max_wall_time_h":     24.0,
+		"max_wall_time_h":     168.0, // job_56: 7 天无人值守
+		"max_parallel_experiments": 1,
 		"max_iterations":      0,
 		"python_path":         d.PythonPath,
 		"pi_path":             defaultPiPath(),

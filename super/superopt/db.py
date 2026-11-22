@@ -621,6 +621,28 @@ class SuperDB:
             self._conn.commit()
         return adjust_id
 
+    def interrupt_stale_running(self) -> List[str]:
+        """P4（step7 提案4）：把 status=running 且 record_path 为空/不存在的
+        死行（会话重启吞噬的在飞实验）标 interrupted——返回被清理的
+        experiment_id 列表（启动恢复时调用，一次到位）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT experiment_id, record_path FROM experiments "
+                "WHERE status='running'").fetchall()
+        dead = []
+        for r in rows:
+            rp = r["record_path"]
+            if not rp or not os.path.exists(rp):
+                dead.append(r["experiment_id"])
+        if dead:
+            with self._lock:
+                self._conn.executemany(
+                    "UPDATE experiments SET status='interrupted' "
+                    "WHERE experiment_id=? AND status='running'",
+                    [(d,) for d in dead])
+                self._conn.commit()
+        return dead
+
     def list_adjusts(self, n: int = 20) -> List[Dict[str, Any]]:
         """最近的 adjust 运行（观察入口：sessions JSON 反序列化）。"""
         with self._lock:

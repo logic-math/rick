@@ -48,7 +48,7 @@
 | 约束（verify） | `{{verify_cmd}}` | 正确性/合法性判定 —— **动手前后各跑一次** |
 | 评估（benchmark） | `{{benchmark_cmd}}` | 测量协议（计时口径 / K 次中位数 / score） |
 | 事实（profile） | `{{profile_cmd}}` | 热点剖析 —— 定位「改哪里才有收益」 |
-| 融合判定（gate_check） | `{{gate_check_cmd}}` | verify + benchmark + 软门禁一次跑完（**框架用的是同一个脚本**） |
+| 融合判定（gate_check） | `{{gate_check_cmd}}` | verify + benchmark + 软门禁一次跑完——**框架调度器专属**：命令为空时**直接跳过、无需自寻命令**（自验止于 verify/benchmark 薄入口；框架终验以 gate_result 为准） |
 
 > 用法：`<命令> --candidate <path>`；gate_check 支持 `--baseline <perf_value>`（填 `perf_baseline` 得到与框架一致的软门禁判定）。verify/benchmark 支持**分层验证参数**（`L1` / `L1-M0` / `E2E`——分钟级快检 vs 端到端；见 domain_knowledge.md 验证金字塔）。
 > 显示占位符原文或为空 = 本 env 未提供该命令，跳过并如实说明。

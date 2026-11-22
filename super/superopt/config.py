@@ -30,12 +30,14 @@ from typing import Any, Dict
 # DEFAULTS：superopt 包的可调参数全集（gate2 断言与 Go 侧默认值一致性）。
 DEFAULTS: Dict[str, Any] = {
     "adjust_interval": 5,          # 每 N 迭代跑一次 adjust agent
+    "adjust_step_timeout_s": 1800,  # 单步上限 30min（step7 可热调）
+    "adjust_total_timeout_s": 10800,  # 流水线总上限 3h（step7 可热调）
     "debug_max_attempts": 3,       # debug agent 修复尝试上限 M
     "soft_gate_k": 3,              # 软门禁多计时中位数的计时次数
     "heartbeat_interval_s": 30,    # py 写 heartbeat.json 的周期
     "heartbeat_timeout_s": 90,     # Go 侧判心跳超时的阈值
     "term_grace_s": 5,             # SIGTERM → SIGKILL 的宽限期
-    "max_wall_time_h": 24.0,       # 墙钟预算（小时）；0/负 = 不限时
+    "max_wall_time_h": 168.0,   # 7 天无人值守（job_56：长程默认）       # 墙钟预算（小时）；0/负 = 不限时
     "max_total_tokens": 0,         # token 预算上限（迭代3/task16）；0 = 不限。
                                    # 例：50_000_000（5000 万——约 demo 两轮的
                                    # 总量级）；超限 within_budget=False →
@@ -105,7 +107,7 @@ DEFAULTS: Dict[str, Any] = {
     # 同一格由 CellLocks 互斥，保证一格同时只有一个实验）。默认 2；1=纯串行。
     # （每迭代状态是调度器级共享态、worker 不得写 events/archive；拆槽重构
     # 未完成）——降级事实经 `parallel_degraded` 事件显式记录，不静默。
-    "max_parallel_experiments": 2,
+    "max_parallel_experiments": 1,
     "cell_lock_ttl_s": 3600,        # 格锁陈旧回收阈值（秒；<=0 关闭 TTL）
     "cell_lock_max_skips": 60,      # 连续「全格被占」跳过上限 → 优雅停
     "cell_lock_skip_sleep_s": 1.0,  # 每次跳过的等待（秒）

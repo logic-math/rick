@@ -31,7 +31,7 @@ class TestDefaults(unittest.TestCase):
         self.assertEqual(DEFAULTS["heartbeat_interval_s"], 30)
         self.assertEqual(DEFAULTS["heartbeat_timeout_s"], 90)
         self.assertEqual(DEFAULTS["term_grace_s"], 5)
-        self.assertEqual(DEFAULTS["max_wall_time_h"], 24.0)
+        self.assertEqual(DEFAULTS["max_wall_time_h"], 168.0)  # job_56: 7 天无人值守
         self.assertEqual(DEFAULTS["max_iterations"], 0)
         self.assertEqual(DEFAULTS["python_path"], "python3")
         self.assertEqual(DEFAULTS["pi_path"], "")
@@ -69,7 +69,7 @@ class TestInitWs(unittest.TestCase):
         self.assertEqual(cfg["env_path"], self.env)
         self.assertIsNone(cfg["pid"])
         self.assertEqual(cfg["budget"]["wall_start"], None)
-        self.assertEqual(cfg["budget"]["max_wall_time_h"], 24.0)
+        self.assertEqual(cfg["budget"]["max_wall_time_h"], 168.0)  # job_56
         self.assertEqual(cfg["config"]["adjust_interval"], 5)
         self.assertEqual(cfg["config"]["max_iterations"], 0)
         # heartbeat_path 指向工作区内
@@ -109,7 +109,7 @@ class TestLoad(unittest.TestCase):
         self.assertEqual(cfg["state"], None)
         self.assertEqual(cfg["iteration_cursor"], 0)
         self.assertEqual(cfg["config"], dict(DEFAULTS))
-        self.assertEqual(cfg["budget"]["max_wall_time_h"], 24.0)
+        self.assertEqual(cfg["budget"]["max_wall_time_h"], 168.0)  # job_56
 
     def test_load_roundtrip_and_fill_missing_keys(self):
         config.init_ws(self.ws, "/tmp/env")
