@@ -83,6 +83,9 @@ class TestConstants(unittest.TestCase):
             "env_proposal_queued",
             # job_56 task4：debug 主动上报实验失败（跳过端到端验证）
             "experiment_failed_confirmed",
+            # job_56 step7 权限边界+预算热调
+            "budget_adjusted", "budget_adjust_rejected",
+            "env_fixed", "env_proposal_rejected",
         }
         self.assertIsInstance(EVENT_TYPES, frozenset)
         self.assertEqual(EVENT_TYPES, frozenset(expected))
