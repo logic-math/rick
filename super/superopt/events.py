@@ -94,6 +94,10 @@ EVENT_TYPES = frozenset({
     "adjust_step_ended",          # step/role/valid/wall_ms（步骤完成）
     "adjust_step_degraded",       # step/role/reason（单步失败降级——跳过+默认值继续）
     "env_proposal_queued",        # iteration/kind/title（step7 env 提案入 humans 队列）
+    "budget_adjusted",            # iteration/applied（step7 预算热调生效——job_56）
+    "budget_adjust_rejected",     # iteration/key/reason（human 限定键拒绝）
+    "env_fixed",                  # iteration/fixes（step7 直接修复审计）
+    "env_proposal_rejected",      # iteration/kind/reason（非 restart/verifier 类拒绝）
     "experiment_failed_confirmed", # iteration_id/cell_id/attempt/role/reason（job_56 task4：debug 主动上报实验失败——调度器跳过端到端验证）
     # ---- 迭代12/task56：软监控 + 断连 + 约束 ----
     "turn_budget_alert",          # role/consecutive/soft_warn（连续软告警）
@@ -153,6 +157,10 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "adjust_step_ended": ("step", "role", "valid", "wall_ms"),
     "adjust_step_degraded": ("step", "role", "reason"),
     "env_proposal_queued": ("iteration", "kind", "title"),
+    "budget_adjusted": ("iteration",),
+    "budget_adjust_rejected": ("iteration",),
+    "env_fixed": ("iteration",),
+    "env_proposal_rejected": ("iteration",),
     "experiment_failed_confirmed": ("iteration_id", "cell_id", "attempt",
                                      "role", "reason"),
     "parallel_degraded": ("requested", "effective", "reason"),
