@@ -93,9 +93,13 @@ def dim2_adaptivity(conn, ws) -> Tuple[float, Dict]:
         if new_w and old_w and float(new_w) > float(old_w):
             upweighted_cells.add(cell_id)
             total_ups += 1
-            # 检查该格后续是否有 admitted
-            has_admit = _q(conn,
-                "SELECT count(*) FROM experiments WHERE cell_id=? AND status='admitted'", 0)
+            # 检查该格是否有 admitted（D2 修复：参数化查询传实际 cell_id）
+            try:
+                has_admit = conn.execute(
+                    "SELECT count(*) FROM experiments WHERE cell_id=? AND status='admitted'",
+                    (cell_id,)).fetchone()[0]
+            except Exception:
+                has_admit = 0
             if has_admit > 0:
                 correct_ups += 1
     decision_acc = _clamp(correct_ups / total_ups) if total_ups > 0 else 0.5
