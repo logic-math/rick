@@ -1,101 +1,101 @@
 {
   "created_at": "2026-11-30T00:00:00+08:00",
-  "version": "1.0",
-  "job": "super mod 四项系统性重构（7 步 adjust 协议 + sqlite DB 化 + sub loop 强化 + 开放 env 体系）",
   "dag_levels": [
     {
+      "gate": "plan/gates/gate1.py",
       "level": 1,
       "tasks": [
         "task1",
         "task2"
-      ],
-      "gate": "plan/gates/gate1.py"
+      ]
     },
     {
+      "gate": "plan/gates/gate2.py",
       "level": 2,
       "tasks": [
         "task3"
-      ],
-      "gate": "plan/gates/gate2.py"
+      ]
     },
     {
+      "gate": "plan/gates/gate3.py",
       "level": 3,
       "tasks": [
         "task4"
-      ],
-      "gate": "plan/gates/gate3.py"
+      ]
     },
     {
+      "gate": "plan/gates/gate4.py",
       "level": 4,
       "tasks": [
         "task5"
-      ],
-      "gate": "plan/gates/gate4.py"
+      ]
     }
   ],
+  "job": "super mod 四项系统性重构（7 步 adjust 协议 + sqlite DB 化 + sub loop 强化 + 开放 env 体系）",
   "tasks": [
     {
-      "task_id": "task1",
-      "task_name": "M1 DB 地基：sqlite 五表 + 进程锁 + 槽位资源 + 全消费方迁移",
+      "attempts": 1,
+      "commit_hash": "1730392fccf58a5405995533fda25a57bafdc166",
+      "created_at": "2026-11-30T00:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "plan/task1.md",
-      "attempts": 1,
-      "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-20T21:05:44.658Z",
-      "commit_hash": "1730392fccf58a5405995533fda25a57bafdc166"
+      "task_id": "task1",
+      "task_name": "M1 DB 地基：sqlite 五表 + 进程锁 + 槽位资源 + 全消费方迁移",
+      "updated_at": "2026-11-22T23:36:46+08:00"
     },
     {
-      "task_id": "task2",
-      "task_name": "M2 env 体系：多维融合分协议 + gates 隔离 + gen_env 四步 + 验证金字塔",
+      "attempts": 1,
+      "commit_hash": "1730392fccf58a5405995533fda25a57bafdc166",
+      "created_at": "2026-11-30T00:00:00+08:00",
       "dependencies": [],
       "status": "success",
       "task_file": "plan/task2.md",
-      "attempts": 1,
-      "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-20T21:05:44.658Z",
-      "commit_hash": "1730392fccf58a5405995533fda25a57bafdc166"
+      "task_id": "task2",
+      "task_name": "M2 env 体系：多维融合分协议 + gates 隔离 + gen_env 四步 + 验证金字塔",
+      "updated_at": "2026-11-20T21:05:44.658Z"
     },
     {
-      "task_id": "task3",
-      "task_name": "M3 adjust 7 步 subagent 协议：流水线调度 + 7 角色模板 + hook 结构检",
+      "attempts": 1,
+      "commit_hash": "bca145d6e09f422222bd8f699cf58e2687108448",
+      "created_at": "2026-11-30T00:00:00+08:00",
       "dependencies": [
         "task1",
         "task2"
       ],
       "status": "success",
       "task_file": "plan/task3.md",
-      "attempts": 1,
-      "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-20T21:32:37.088Z",
-      "commit_hash": "bca145d6e09f422222bd8f699cf58e2687108448"
+      "task_id": "task3",
+      "task_name": "M3 adjust 7 步 subagent 协议：流水线调度 + 7 角色模板 + hook 结构检",
+      "updated_at": "2026-11-20T21:32:37.088Z"
     },
     {
-      "task_id": "task4",
-      "task_name": "M4 sub loop 执行链强化：三角色协议重写 + 失败跳过验证 + DB 写回",
+      "attempts": 1,
+      "commit_hash": "304845f0a1e9523c3862c3cb6b67e11f689f14ca",
+      "created_at": "2026-11-30T00:00:00+08:00",
       "dependencies": [
         "task3"
       ],
       "status": "success",
       "task_file": "plan/task4.md",
-      "attempts": 1,
-      "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-20T21:59:23.612Z",
-      "commit_hash": "304845f0a1e9523c3862c3cb6b67e11f689f14ca"
+      "task_id": "task4",
+      "task_name": "M4 sub loop 执行链强化：三角色协议重写 + 失败跳过验证 + DB 写回",
+      "updated_at": "2026-11-20T21:59:23.612Z"
     },
     {
-      "task_id": "task5",
-      "task_name": "M5 集成验收：mock 场景 + e2e 全链路 + 全量回归 + 文档收口",
+      "attempts": 1,
+      "commit_hash": "a53d725963407f0312019a473a1941a92cae12bf",
+      "created_at": "2026-11-30T00:00:00+08:00",
       "dependencies": [
         "task4"
       ],
       "status": "success",
       "task_file": "plan/task5.md",
-      "attempts": 1,
-      "created_at": "2026-11-30T00:00:00+08:00",
-      "updated_at": "2026-11-20T22:27:34.285Z",
-      "commit_hash": "a53d725963407f0312019a473a1941a92cae12bf"
+      "task_id": "task5",
+      "task_name": "M5 集成验收：mock 场景 + e2e 全链路 + 全量回归 + 文档收口",
+      "updated_at": "2026-11-20T22:27:34.285Z"
     }
   ],
-  "updated_at": "2026-11-20T22:27:34.285Z"
+  "updated_at": "2026-11-22T23:36:46+08:00",
+  "version": "1.0"
 }

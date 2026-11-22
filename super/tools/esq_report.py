@@ -86,14 +86,36 @@ def dim2_adaptivity(conn, ws) -> Tuple[float, Dict]:
         "json_extract(payload,'$.new_weight') FROM events WHERE event_type='weight_changed' "
         "ORDER BY seq").fetchall()
 
-    # 决策准确率：升权格后续是否有 admitted 产出
+    # D2 v2 决策准确率：排除基础设施吃掉和未采样（只算真正的决策对错）
     upweighted_cells = set()
     correct_ups, total_ups = 0, 0
+    excluded_infra, excluded_unvisited = 0, 0
     for cell_id, old_w, new_w in weight_changes:
         if new_w and old_w and float(new_w) > float(old_w):
             upweighted_cells.add(cell_id)
+            # 排除 1：全部实验被基础设施吃掉
+            try:
+                statuses = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT status FROM experiments WHERE cell_id=?",
+                    (cell_id,)).fetchall()]
+            except Exception:
+                statuses = []
+            if statuses and all(st in ("interrupted", "rejected") for st in statuses):
+                excluded_infra += 1
+                continue
+            # 排除 2：从未被采样到
+            try:
+                sj = conn.execute(
+                    "SELECT state_json FROM cells WHERE cell_id=?",
+                    (cell_id,)).fetchone()
+                visit = json.loads(sj[0]).get("visit", 0) if sj and sj[0] else 0
+            except Exception:
+                visit = 0
+            if visit == 0:
+                excluded_unvisited += 1
+                continue
+            # 有效决策
             total_ups += 1
-            # 检查该格是否有 admitted（D2 修复：参数化查询传实际 cell_id）
             try:
                 has_admit = conn.execute(
                     "SELECT count(*) FROM experiments WHERE cell_id=? AND status='admitted'",
@@ -119,7 +141,8 @@ def dim2_adaptivity(conn, ws) -> Tuple[float, Dict]:
 
     d2 = _geomean([decision_acc, self_correct, max(budget_util, 0.1)])
     return d2, {
-        "decision_accuracy": f"{decision_acc:.1%} ({correct_ups}/{total_ups} ups productive)",
+        "decision_accuracy": f"{decision_acc:.1%} ({correct_ups}/{total_ups} productive; "
+                             f"excluded {excluded_infra} infra + {excluded_unvisited} unvisited)",
         "self_correction": f"{self_corrections} callbacks / {total_ups} ups ({self_correct:.3f})",
         "budget_utilization": f"{budget_util:.1%}",
         "D2": round(d2, 4),
@@ -179,11 +202,45 @@ def dim4_stability(conn, ws) -> Tuple[float, Dict]:
     total_exps = _q(conn, "SELECT count(*) FROM experiments")
     recovery = _clamp(1 - (interrupted / max(total_exps, 1)) + 0.3) if interrupted > 0 else 1.0
 
-    d4 = _geomean([monotonic, infra_fail_inv, _clamp(recovery)])
+    # D4 v2: 平均每实验 token 消耗效率（低=好）
+    avg_token = _q(conn, "SELECT avg(json_extract(payload,'$.total_tokens')) "
+                         "FROM events WHERE event_type='agent_ended' "
+                         "AND json_extract(payload,'$.total_tokens') > 0") or 500000
+    token_eff = _clamp(1.0 - (avg_token - 300000) / (2000000 - 300000))
+
+    # D4 v2: 同格迭代改进率（重访格的分数增量改进）
+    try:
+        revisit_rows = conn.execute(
+            "SELECT cell_id, max(score) - min(score) FROM experiments "
+            "WHERE status='admitted' AND score > 0 GROUP BY cell_id "
+            "HAVING count(*) > 1").fetchall()
+        all_revisited = [r for r in conn.execute(
+            "SELECT cell_id, count(*) FROM experiments WHERE status='admitted' "
+            "GROUP BY cell_id HAVING count(*) > 1").fetchall()]
+    except Exception:
+        revisit_rows = []
+        all_revisited = []
+    total_rev = len(all_revisited)
+    improved_rev = sum(1 for r in revisit_rows if (r[1] or 0) > 0.01)
+    revisit_imp = _clamp(improved_rev / total_rev) if total_rev > 0 else 0.5
+
+    # D4 v2: 基础设施资源利用率（GPU 计算 ms / 实验 wall ms）
+    gpu_ms = _q(conn, "SELECT sum(json_extract(payload,'$.metrics.runtime_ms')) "
+                      "FROM events WHERE event_type='gate_result' "
+                      "AND json_extract(payload,'$.passed')=1") or 0
+    wall_ms = _q(conn, "SELECT sum(json_extract(payload,'$.wall_ms')) "
+                       "FROM events WHERE event_type='experiment_finished'") or 0
+    resource_util = _clamp(gpu_ms / wall_ms * 10, 0, 1.0) if wall_ms > 0 else 0.1
+
+    d4 = _geomean([monotonic, infra_fail_inv, _clamp(recovery),
+                   token_eff, revisit_imp, resource_util])
     return d4, {
         "monotonic_improvement": f"{monotonic:.1%}",
         "infra_fail_rate": f"{infra_fails}/{total_fails} ({1-infra_fail_inv:.1%} infra)",
         "recovery_capability": f"{interrupted}/{total_exps} interrupted (norm {recovery:.3f})",
+        "token_efficiency": f"avg {avg_token/1000:.0f}K/exp (norm {token_eff:.3f})",
+        "revisit_improvement": f"{improved_rev}/{total_rev} cells improved on revisit (norm {revisit_imp:.3f})",
+        "resource_utilization": f"GPU {gpu_ms/1000:.1f}s / wall {wall_ms/3600000:.2f}h (norm {resource_util:.3f})",
         "D4": round(d4, 4),
     }
 
