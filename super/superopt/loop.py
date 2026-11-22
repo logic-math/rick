@@ -569,6 +569,12 @@ class Scheduler:
             if dead:
                 self.events.append("stale_running_interrupted", {
                     "experiment_ids": dead}, "scheduler")
+                # #9-B：死行对应的槽位也要释放（防泄漏——review E-B07）
+                for _eid in dead:
+                    try:
+                        self.db.release_holder(_eid)
+                    except Exception:  # noqa: BLE001
+                        pass
         except Exception:  # noqa: BLE001 DB 故障不炸启动
             pass
         self._install_signal_handlers()
