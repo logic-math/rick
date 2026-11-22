@@ -2870,9 +2870,24 @@ class Scheduler:
         except Exception:  # noqa: BLE001 预算调节失败不炸流水线
             pass
         # ---- 合成 AgentResult（role=adjust——_collect_adjust 消费管道零改动）----
+        # step7 的 data 搬运（job_56 框架 bug 修复：budget_adjust/env_fixes/
+        # env_proposals 在 r7.data 里——之前合成时被丢弃导致 step7 的预算
+        # 热调/直接修复审计全部丢失（budget_adjusted 事件全史为零的根因））
+        step7_data = r7.data if isinstance(r7.data, dict) else {}
         data = {
             "proposals": proposals,
             "decision_path": shared["decisions_path"],
+            # step7 搬运（budget_adjust 消费方在上方 _apply_budget_adjust；
+            # env_fixes 消费方在上方 env_fixed 事件；两者此前从 r7.data 读
+            # 到 None 因为这段代码还没执行——消费代码在合成**前**跑，读
+            # r7.data 是对的但 r7 可能是降级空壳——真正的 bug 是合成后的
+            # AgentResult 的 data 丢失这些键，导致 _collect_adjust 的下游
+            # （decisions 记录/humans 提案）看不到 step7 的产出）
+            "budget_adjust": step7_data.get("budget_adjust"),
+            "env_fixes": step7_data.get("env_fixes"),
+            "env_proposals": step7_data.get("env_proposals"),
+            "domain_knowledge_appended": step7_data.get(
+                "domain_knowledge_appended"),
             "pipeline": {
                 "mode": "pipeline",
                 "steps": briefs,
