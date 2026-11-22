@@ -232,8 +232,34 @@ def dim4_stability(conn, ws) -> Tuple[float, Dict]:
                        "FROM events WHERE event_type='experiment_finished'") or 0
     resource_util = _clamp(gpu_ms / wall_ms * 10, 0, 1.0) if wall_ms > 0 else 0.1
 
+    # D4 v3: ENV 验证器执行效率（分层验证器的核心质量指标——指导 env 建设）
+    # 测量：verify/benchmark 远程调用的平均耗时 + 成功率
+    # 高效验证器 = agent 快速排除无效解 → 进化搜索加速
+    verify_calls = _q(conn, "SELECT count(*) FROM events WHERE event_type='agent_ended' "
+                            "AND json_extract(payload,'$.role')='coding' "
+                            "AND json_extract(payload,'$.valid')=1") or 0
+    # verify 耗时来源：从 agent_ended 里 coding agent 的 wall_s 估算（包含 L1 预检）
+    avg_verify_wall = _q(conn, "SELECT avg(json_extract(payload,'$.wall_s')) "
+                               "FROM events WHERE event_type='agent_ended' "
+                               "AND json_extract(payload,'$.role')='coding' "
+                               "AND json_extract(payload,'$.valid')=1") or 0
+    # L1 快检覆盖率：builder 是否执行了 L1 预检（从 experiment_plan 中找 L1 引用）
+    l1_usage = _q(conn, "SELECT count(*) FROM events WHERE event_type='candidate_produced' "
+                        "AND json_extract(payload,'$.role')='coding' "
+                        "AND json_extract(payload,'$.self_check_passed')=1") or 0
+    total_cand = _q(conn, "SELECT count(*) FROM events WHERE event_type='candidate_produced'") or 1
+    l1_coverage = _clamp(l1_usage / total_cand) if total_cand > 0 else 0
+
+    # 验证器效率归一化：
+    # ① 调用成功率（agent valid 率——高=验证器协议清晰，agent 知道怎么过）
+    verify_success_rate = _clamp(verify_calls / max(total_cand, 1))
+    # ② 验证速度（avg wall_s：≤60s=满分，≥600s=0——分层验证的快检应该秒级）
+    verify_speed = _clamp(1.0 - (avg_verify_wall - 60) / (600 - 60)) if avg_verify_wall > 0 else 0.5
+    # 综合 ENV 验证器效率
+    env_verify_eff = _geomean([verify_success_rate, verify_speed, max(l1_coverage, 0.1)])
+
     d4 = _geomean([monotonic, infra_fail_inv, _clamp(recovery),
-                   token_eff, revisit_imp, resource_util])
+                   token_eff, revisit_imp, resource_util, env_verify_eff])
     return d4, {
         "monotonic_improvement": f"{monotonic:.1%}",
         "infra_fail_rate": f"{infra_fails}/{total_fails} ({1-infra_fail_inv:.1%} infra)",
@@ -241,6 +267,9 @@ def dim4_stability(conn, ws) -> Tuple[float, Dict]:
         "token_efficiency": f"avg {avg_token/1000:.0f}K/exp (norm {token_eff:.3f})",
         "revisit_improvement": f"{improved_rev}/{total_rev} cells improved on revisit (norm {revisit_imp:.3f})",
         "resource_utilization": f"GPU {gpu_ms/1000:.1f}s / wall {wall_ms/3600000:.2f}h (norm {resource_util:.3f})",
+        "env_verify_efficiency": f"success {verify_success_rate:.1%} · speed {avg_verify_wall:.0f}s avg "
+                                 f"(norm {verify_speed:.3f}) · L1 coverage {l1_coverage:.1%} "
+                                 f"→ env_verify_eff={env_verify_eff:.3f}",
         "D4": round(d4, 4),
     }
 
