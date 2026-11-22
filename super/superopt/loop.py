@@ -449,6 +449,9 @@ class Scheduler:
         # adjust 并行（优化空间⑤）：在飞线程 + 结果移交（主线程消费）
         self._adjust_thread = None  # type: Optional[threading.Thread]
         self._adjust_lock = threading.Lock()
+        # A-02 修复：恢复后上一进程的 pipeline 可能仍在飞——时间窗口内
+        # 不重触发（防同 iter pipeline 多次并发——iter_14 被 dispatch 9 次）
+        self._adjust_inflight_until = 0.0  # type: float
         self._pending_adjust = None  # type: Optional[Dict[str, Any]]
         self._adjust_iteration = 0
         self._adjust_dir = ""  # type: str  # 本轮在飞 adjust 的快照目录（iter_N）
@@ -499,6 +502,20 @@ class Scheduler:
         # ---- 迭代8：adjust 四步 / 实验记录 / debug 三触发 ----
         # 上一次 adjust 的迭代号：全局实验分析的区间起点（since_iter）
         self._last_adjust_iter = 0
+        # A-02 修复：恢复时检查 adjusts 表——最近一轮的 created_at 距今 <
+        # total_timeout + 300s → 标记在飞等待窗口
+        try:
+            _adjs = self.db.list_adjusts(n=1)
+            if _adjs:
+                import datetime as _dt
+                _ts = _adjs[0].get("created_at") or ""
+                _t = _dt.datetime.fromisoformat(_ts).timestamp() if _ts else 0
+                _total = int(self.conf.get("adjust_total_timeout_s", 10800)
+                             or 10800)
+                if _t > 0 and time.time() - _t < _total + 300:
+                    self._adjust_inflight_until = _t + _total + 300
+        except Exception:  # noqa: BLE001
+            pass
         # 本迭代 builder 产物校验（research_report / record_updated）
         self._builder_outputs = {}  # type: Dict[str, Any]
         # 本迭代 coding 的 TDD 痕迹（test_solution.py 存在）与实验记录更新
@@ -2036,13 +2053,33 @@ class Scheduler:
 
     def _seed_parent_code(self, plan: Dict[str, Any], cell_id: str,
                           iter_dir: str) -> None:
-        """把父本代码拷进迭代工作区（coding 提示词的「父本已就位」契约）。"""
+        """把父本代码拷进迭代工作区（coding 提示词的「父本已就位」契约）。
+
+        E-B04 修复（job_56 review）：fallback 链扩展——
+        plan.parents → elite.code_path → **该格最近一次尝试的 solution.py**
+        （从 experiments 表按 iteration DESC 找该格最新有 code 的实验——
+        无精英格（全失败历史）时历史尝试代码仍被继承）。
+        """
         parents = [p for p in (plan.get("parents") or []) if isinstance(p, str)]
         if not parents:
             elite = self._cell_entry(cell_id).get("elite") or {}
             cp = elite.get("code_path")
             if isinstance(cp, str) and cp:
                 parents = [cp]
+        if not parents:
+            # E-B04：无精英时从 experiments 表找最近尝试的 code_path
+            try:
+                rows = self.db.recent_experiments(n=50)
+                for r in rows:
+                    if r.get("cell_id") == cell_id and r.get("record_path"):
+                        code_p = os.path.join(
+                            os.path.dirname(r["record_path"]),
+                            "solution.py")
+                        if os.path.isfile(code_p):
+                            parents = [code_p]
+                            break
+            except Exception:  # noqa: BLE001 DB 故障退化为 env 参考
+                pass
         copied = False
         for p in parents:
             if os.path.isfile(p):
@@ -2361,6 +2398,15 @@ class Scheduler:
     # adjust（软动作直改 / 硬动作提案）
     # ------------------------------------------------------------------ #
 
+    def _record_adjust_started(self, iteration_id: int, adjust_dir: str) -> None:
+        """BUG-009 修复：流水线开始时写 adjusts 表（status=started）——
+        中断的 pipeline 也有记录（decisions 有但 adjusts 无的对称性问题）。"""
+        try:
+            self.db.record_adjust(iteration_id, adjust_dir, sessions={},
+                                  decisions_path=None, agent_valid=None)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _maybe_start_adjust(self) -> None:
         """边界触发：后台派发 adjust 决策层（job_56 task3 双模式）。
 
@@ -2375,6 +2421,8 @@ class Scheduler:
         """
         if self.stop_requested:
             return
+        if time.time() < self._adjust_inflight_until:
+            return  # A-02：上代 pipeline 可能仍在飞（缓冲期内不重触发）
         with self._adjust_lock:
             if self._adjust_thread is not None:
                 return  # 在飞未收：不重触发
@@ -2439,9 +2487,12 @@ class Scheduler:
             self._adjust_thread = threading.Thread(
                 target=_worker, name="superopt-adjust", daemon=True)
             self._adjust_thread.start()
-        # 区间起点推进（下一次 adjust 的全局实验分析从本次起算）
+            # BUG-009 修复：开始时也写 adjusts 表
+            self._record_adjust_started(iteration_id, adjust_dir)
+        # 区间起点（A-04 修复：dispatch 时不再推进 _last_adjust_iter——
+        # 推进移到 _collect_adjust 成功消费后。旧实现在 dispatch 时同步
+        # 更新导致多次 dispatch 竞争时区间起点乱序（iter_8 先于 iter_7 触发））
         old_last = self._last_adjust_iter
-        self._last_adjust_iter = iteration_id
         # task54 可观测性：何时触发、距上次多少迭代（并发饥饿修复的回归证据）
         self.events.append("adjust_dispatched", {
             "iteration": iteration_id,
@@ -2566,7 +2617,8 @@ class Scheduler:
         被升权格后续产出 / 被杀格事后引用 / 新格存活，注入下轮 step1 ctx。
         """
         try:
-            evs = self.db.read_events()
+            # A-08 修复：只读最近 500 条事件（不全量——10万+事件线性退化）
+            evs = self.db.read_events()[-500:]
         except Exception:  # noqa: BLE001 事后验证是辅助证据——失败不炸主链
             return []
         last_seq = None
@@ -2669,9 +2721,9 @@ class Scheduler:
                     adjust_dir, "perspectives.md"))
             perspectives = (r2.data or {}).get("perspectives")
             if not isinstance(perspectives, list) or not perspectives:
-                # 降级默认：三占位视角（step3/step4 仍可跑——事实视角兜底）
-                perspectives = ["（视角降级默认——step2 失败，基于事实直判）"
-                                "视角 A", "视角 B（同上）", "视角 C（同上）"]
+                # A-05 修复：step2 失败时空列表——不再用占位视角跑 step3×3
+                # subagent（浪费 LLM 调用产出垃圾矛盾），step3/4 自然跳过
+                perspectives = []  # 空列表 → step3/4 跳过
             perspectives = [str(p) for p in perspectives][:3]
             while len(perspectives) < 3:
                 perspectives.append("（视角 %d 降级默认）" % (len(perspectives) + 1))
@@ -2802,6 +2854,9 @@ class Scheduler:
                         self.env_dir, "domain_knowledge.md"),
                     "hindsight_evidence": self._or_default(
                         self._hindsight_evidence(), "（无）"),
+                    # A-07 修复：step7 加 cells_status（预算调节需格权重上下文）
+                    "cells_status": shared.get("cells_status", []),
+                    "budget_status": shared.get("budget_status", {}),
                     "adjust_dir": adjust_dir}
             r7 = self._pipeline_step(7, "adjust_env", ctx7, adjust_dir,
                                      iteration_id, step_timeout, deadline, agg,
@@ -2914,6 +2969,19 @@ class Scheduler:
                           "agent_timeout_s_per_role", "adjust_interval",
                           "max_parallel_experiments")
 
+    def _writeback_config_key(self, key: str, value) -> None:
+        """BUG-007 修复：热调后同步写回 super.json config 段（防 Go daemon
+        重启时用 goSuperDefaults 内存缓存覆盖 py 热调值）。"""
+        try:
+            import json as _json
+            p = os.path.join(self.ws, "super.json")
+            d = _json.load(open(p, encoding="utf-8"))
+            d.setdefault("config", {})[key] = value
+            with open(p, "w", encoding="utf-8") as f:
+                _json.dump(d, f, ensure_ascii=False, indent=2)
+        except Exception:  # noqa: BLE001 写回失败不炸热调
+            pass
+
     def _apply_budget_adjust(self, ba: Dict[str, Any],
                              iteration_id: int) -> Dict[str, Any]:
         """step7 预算热调（无人值守长程设计）：白名单键 → conf 即时生效。
@@ -2939,6 +3007,12 @@ class Scheduler:
                     continue
                 self.conf[k] = v2
                 applied[k] = v2
+                # A-09 修复：同步更新固化属性（主循环读 self 而非 conf）
+                if k == "max_parallel_experiments":
+                    self.max_parallel_experiments = max(1, int(v2))
+                # BUG-007 修复：热调后写回 super.json（防 Go daemon 重启时
+                # 用旧值覆盖——py 是 super.json 的合法写者之一[config 段]）
+                self._writeback_config_key(k, v2)
             except (TypeError, ValueError):
                 continue
         return applied
@@ -3018,6 +3092,9 @@ class Scheduler:
             iteration_id, proposals, bool(pending.valid),
             pipeline=(pending.data or {}).get("pipeline")
             if isinstance(pending.data, dict) else None)
+        # A-04 修复：collect 成功后才推进 _last_adjust_iter（下一次 adjust
+        # 的区间起点）——dispatch 时不推进（防多次 dispatch 竞争乱序）
+        self._last_adjust_iter = iteration_id
         # adjusts 表（job_56 第三轮审计）：每次 adjust 运行一行——各步 pi
         # session_id + 迭代目录（行为轨迹观察入口；step3 三视角是数组）
         try:

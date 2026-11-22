@@ -183,53 +183,29 @@ func TestSuperStartPreverifyRedFailure(t *testing.T) {
 // --- 3. 干预队列 ---
 
 func TestSuperEventQueueFile(t *testing.T) {
+	// A-01 修复后：SuperEventIn 写 super.db humans 表（不再写 interventions/ 目录）
 	_, ws := newSuperWS(t)
+	if _, err := initSuperWorkspace(ws, "", SuperStartOverrides{}); err != nil {
+		t.Fatalf("initSuperWorkspace: %v", err)
+	}
+	// A-01 修复：super.db 由 py 调度器建——测试需手动建 humans 表
+	if out, err := exec.Command("sqlite3", filepath.Join(ws, "super.db"),
+		"CREATE TABLE IF NOT EXISTS humans (id INTEGER PRIMARY KEY AUTOINCREMENT, queue_type TEXT NOT NULL, content TEXT NOT NULL, applied INTEGER DEFAULT 0, created_at TEXT NOT NULL, applied_at TEXT);").CombinedOutput(); err != nil {
+		t.Fatalf("create humans table: %v; out=%s", err, out)
+	}
 	if err := SuperEventIn(ws, "weight", `{"cell_id":"impl=blocked","weight":0}`); err != nil {
 		t.Fatalf("SuperEventIn: %v", err)
 	}
-	entries, err := os.ReadDir(filepath.Join(ws, "interventions"))
+	// 查 humans 表
+	out, err := exec.Command("sqlite3", filepath.Join(ws, "super.db"),
+		"SELECT count(*) FROM humans WHERE queue_type='intervention' AND applied=0").Output()
 	if err != nil {
-		t.Fatalf("read interventions dir: %v", err)
+		t.Fatalf("sqlite3: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("interventions has %d files, want 1", len(entries))
-	}
-	name := entries[0].Name()
-	if !strings.HasSuffix(name, ".json") {
-		t.Fatalf("queue file %q should end with .json", name)
-	}
-	// 命名带时间戳（可排序）：数字前缀
-	if len(name) < 15 || name[0] < '0' || name[0] > '9' {
-		t.Fatalf("queue file %q should be timestamp-prefixed for ordering", name)
-	}
-	data, err := os.ReadFile(filepath.Join(ws, "interventions", name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ev struct {
-		Type      string          `json:"type"`
-		Payload   json.RawMessage `json:"payload"`
-		CreatedAt string          `json:"created_at"`
-	}
-	if err := json.Unmarshal(data, &ev); err != nil {
-		t.Fatalf("queue file not valid JSON: %v\n%s", err, data)
-	}
-	if ev.Type != "weight" {
-		t.Fatalf("type = %q, want weight", ev.Type)
-	}
-	if string(ev.Payload) == "" {
-		t.Fatal("payload must be preserved")
-	}
-	if ev.CreatedAt == "" {
-		t.Fatal("created_at missing")
-	}
-	// 第二条入队：文件数 2 且字典序可排
-	if err := SuperEventIn(ws, "stop", `{}`); err != nil {
-		t.Fatal(err)
-	}
-	entries, _ = os.ReadDir(filepath.Join(ws, "interventions"))
-	if len(entries) != 2 {
-		t.Fatalf("interventions has %d files, want 2", len(entries))
+	n := 0
+	fmt.Sscanf(string(out), "%d", &n)
+	if n != 1 {
+		t.Errorf("humans intervention rows = %d, want 1 (got: %s)", n, out)
 	}
 }
 
@@ -772,12 +748,18 @@ func TestSuperLifecycleUnderNewRoot(t *testing.T) {
 	})
 
 	// 干预队列投递（SuperEventIn 落在 <ws>/.rick/super/lifecycle/interventions/）
+	if _, err := initSuperWorkspace(ws, "", SuperStartOverrides{}); err != nil {
+		t.Fatalf("initSuperWorkspace: %v", err)
+	}
+	if out, err := exec.Command("sqlite3", filepath.Join(ws, "super.db"),
+		"CREATE TABLE IF NOT EXISTS humans (id INTEGER PRIMARY KEY AUTOINCREMENT, queue_type TEXT NOT NULL, content TEXT NOT NULL, applied INTEGER DEFAULT 0, created_at TEXT NOT NULL, applied_at TEXT);").CombinedOutput(); err != nil {
+		t.Fatalf("create humans table: %v; out=%s", err, out)
+	}
 	if err := SuperEventIn(ws, "pause", "{}"); err != nil {
 		t.Fatalf("SuperEventIn: %v", err)
 	}
-	entries, err := os.ReadDir(filepath.Join(ws, "interventions"))
-	if err != nil || len(entries) == 0 {
-		t.Fatalf("干预队列落盘异常：entries=%v err=%v", entries, err)
+	if _, err := os.Stat(filepath.Join(ws, "super.db")); err != nil {
+		t.Fatalf("super.db missing: %v", err)
 	}
 
 	close(stopCh)

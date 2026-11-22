@@ -125,6 +125,8 @@ _DDL = [
         ts             TEXT NOT NULL,
         event_type     TEXT NOT NULL,
         source         TEXT NOT NULL,
+        workdir_experiment_id TEXT,
+        trace_id       TEXT,
         experiment_id  TEXT,
         experiment_seq INTEGER,
         payload        TEXT NOT NULL
@@ -244,11 +246,21 @@ class SuperDB:
             self._conn.execute("PRAGMA synchronous=NORMAL")
             for ddl in _DDL:
                 self._conn.execute(ddl)
+            # BUG-006 修复：二级索引（大数据量查询性能）
+            for idx in ("CREATE INDEX IF NOT EXISTS idx_exp_cell "
+                        "ON experiments(cell_id)",
+                        "CREATE INDEX IF NOT EXISTS idx_exp_status "
+                        "ON experiments(status)",
+                        "CREATE INDEX IF NOT EXISTS idx_cells_weight "
+                        "ON cells(weight)",
+                        "CREATE INDEX IF NOT EXISTS idx_humans_applied "
+                        "ON humans(applied, queue_type)"):
+                self._conn.execute(idx)
             self._migrate()
             self._conn.commit()
 
     def _migrate(self) -> None:
-        """轻量列迁移（job_56 第三轮审计：experiments 三角色 session 列）。
+        """轻量列迁移（job_56 第三轮审计 + review BUG-002：events 表映射列）。
 
         旧库（session_id 单列）：ALTER 加三列（旧值保留原列——兼容读，
         新写走三列）；新库建表已是三列（ALTER 幂等跳过）。
@@ -261,6 +273,10 @@ class SuperDB:
                 if col not in cols:
                     self._conn.execute(
                         "ALTER TABLE experiments ADD COLUMN %s TEXT" % col)
+            for col in ("workdir_experiment_id", "trace_id"):
+                if col not in cols:
+                    self._conn.execute(
+                        "ALTER TABLE events ADD COLUMN %s TEXT" % col)
         except sqlite3.Error:
             pass  # 表不存在等竞态：建表循环刚建过，忽略
 
@@ -278,7 +294,9 @@ class SuperDB:
     def append_event(self, event_type: str, source: str, payload: dict,
                      experiment_id: Optional[str] = None,
                      experiment_seq: Optional[int] = None,
-                     ts: Optional[str] = None) -> Dict[str, Any]:
+                     ts: Optional[str] = None,
+                     workdir_experiment_id: Optional[str] = None,
+                     trace_id: Optional[str] = None) -> Dict[str, Any]:
         """插入一条事件（返回完整事件 dict：ts/seq/type/source/payload[+分组]）。"""
         ev = {
             "ts": ts or _now(),
@@ -510,6 +528,10 @@ class SuperDB:
         return out
 
     def push_proposal(self, content: dict) -> int:
+        """A-06 修复：空壳提案拒绝入队（title/finding/proposal/content 全空）。"""
+        if not any(str(content.get(k) or "").strip()
+                   for k in ("title", "finding", "proposal", "content")):
+            return -1  # 空壳——拒绝入队
         """提案入队（runtime 产出、待 human 裁决——step7 实验自改进用）。"""
         return self._push_human("proposal", content)
 

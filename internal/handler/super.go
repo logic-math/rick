@@ -800,6 +800,17 @@ type superStatus struct {
 }
 
 // collectSuperStatus 聚合 super.json + heartbeat.json + events.jsonl 尾部。
+func countPendingProposals(dbPath string) (int, error) {
+	cmd := exec.Command("sqlite3", dbPath, "SELECT count(*) FROM humans WHERE applied=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	fmt.Sscanf(string(out), "%d", &n)
+	return n, nil
+}
+
 func collectSuperStatus(ws string) (*superStatus, error) {
 	st := &superStatus{Workspace: ws}
 	sj, err := readSuperJSON(ws)
@@ -962,6 +973,40 @@ func SuperEventIn(ws, etype, payload string) error {
 	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
 		return fmt.Errorf("--payload 必须是合法 JSON: %w", err)
 	}
+	// A-01 修复（job_56 review）：直接写 super.db humans 表（intervention 队列）
+	// ——py 调度器的 InterventionQueue.drain() 只读 humans 表，旧实现写
+	// interventions/ 目录文件导致 human 干预通路完全断裂。
+	entry := map[string]interface{}{
+		"queue_type": "intervention",
+		"content": map[string]interface{}{
+			"type":       etype,
+			"payload":    raw,
+			"created_at": nowRFC3339Local(),
+		},
+		"applied": false,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	dbPath := filepath.Join(ws, "super.db")
+	if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+		return fmt.Errorf("super workspace not initialized (super.db missing): %s", ws)
+	}
+	// sqlite3 CLI 不支持参数绑定——直接拼 SQL（JSON 已转义单引号安全）
+	sql := fmt.Sprintf(
+		"INSERT INTO humans (queue_type, content, applied, created_at, applied_at) "+
+			"VALUES ('intervention', '%s', 0, '%s', NULL);",
+		strings.ReplaceAll(string(data), "'", "''"), nowRFC3339Local())
+	cmd := exec.Command("sqlite3", dbPath, sql)
+	if out, execErr := cmd.CombinedOutput(); execErr != nil {
+		return fmt.Errorf("write humans table failed: %v; out=%s", execErr, out)
+	}
+	return nil
+}
+
+// legacySuperEventIn 旧版：写 interventions/ 目录文件（保留作 fallback 兼容）
+func legacySuperEventIn(ws, etype, payload string) error {
 	qdir := filepath.Join(ws, "interventions")
 	if err := os.MkdirAll(qdir, 0o755); err != nil {
 		return err
@@ -969,7 +1014,7 @@ func SuperEventIn(ws, etype, payload string) error {
 	name := fmt.Sprintf("%s-%06d.json", time.Now().Format("20060102T150405"), time.Now().Nanosecond()%1000000)
 	entry := map[string]interface{}{
 		"type":       etype,
-		"payload":    raw,
+		"payload":    payload,
 		"created_at": nowRFC3339Local(),
 	}
 	data, err := json.MarshalIndent(entry, "", "  ")
