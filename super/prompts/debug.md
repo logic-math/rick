@@ -78,7 +78,7 @@ d=$(pwd); while [ "$d" != "/" ] && [ ! -d "$d/.rick/skills" ]; do d=$(dirname "$
 | 要素 | 命令 | 怎么用它定位 |
 |---|---|---|
 | 事实（profile） | `{{profile_cmd}}` | 性能类：热点在哪、改成这样后热点是否真的迁移了 |
-| 约束（verify） | `{{verify_cmd}}` | 正确性类：确切的最大误差 / 哪个规模 / 哪个 seed 挂（支持分层参数 `--level L1` 分钟级快检） |
+| 约束（verify） | `{{verify_cmd}}` | 正确性类：确切的最大误差 / 哪个规模 / 哪个 seed 挂。**诊断第一跑必须 `--level L1`**（秒级单 seed）——先分类「正确性问题 vs 环境问题」：L1 过但 E2E 挂=边界数值问题；L1 都挂=实现错误；L1 命令本身挂=环境/链路问题（找 infra 不是找代码） |
 | 评估（benchmark） | `{{benchmark_cmd}}` | 性能类：本次测量的原始读数与计时分布 |
 | 融合判定（gate_check） | `{{gate_check_cmd}}` | 最终复验：**与框架同一个脚本**，带 `--baseline` 看软门禁结论 |
 

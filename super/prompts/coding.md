@@ -74,18 +74,21 @@
 # 编码执行计划 · 实验 {{experiment_id}}
 ## 1. 改动点（父本结构 → 目标结构，逐处说明）
 ## 2. 风险卡点（已知的 API 限制 / 边界条件 / 性能陷阱，附来源）
-## 3. 自验清单（验证顺序 verify → benchmark → gate_check；每步断言什么）
+## 3. 自验清单（验证顺序 L1 快检 → verify E2E → benchmark → gate_check；每步断言什么——L1 不过不进下一步）
 ```
 
 ### 第二步：实现（一次写对）
 
 基于实验计划与编码计划**直接实现**——一次把代码写对；不分多次小改试错。实现过程中遇到卡点（验证反复不过、API 行为与预期不符）：先自查（复现 → 查关键组件的正确用法 → 定位根因再改）；自查解决不了 → 如实汇报卡点（含复现步骤与已排除的原因），框架会派 debug agent 深挖。
 
-### 第三步：自验（三要素，顺序固定）
+### 第三步：自验（四步顺序固定——L1 秒级预检先行）
 
-1. `{{verify_cmd}}` —— 约束：正确性必须过（不过就是实现错，不是「性能换正确性」的取舍）
-2. `{{benchmark_cmd}}` —— 评估：拿到本次测量的指标值
-3. `{{gate_check_cmd}}`（建议带 `--baseline`）—— 融合判定：**与框架完全同源**的结论
+1. `{{verify_cmd}} --level L1` —— **秒级快检（强制第一跑）**：单 seed 正确性，5 秒排除无效解。**L1 不过禁止进入后续步骤**——shape 错/构造参数错/数值差在这里发现，修复成本最低。
+2. `{{verify_cmd}}` —— 约束：E2E 全量正确性（7 trial + 边界/离群变换）必须过（不过就是实现错，不是「性能换正确性」的取舍）。**L1 已过但 E2E 不过 → 边界条件问题**（离群值/重尾分布下的数值稳定性）——优先检查数值溢出与归一化边界。
+3. `{{benchmark_cmd}}` —— 评估：拿到本次测量的指标值
+4. `{{gate_check_cmd}}`（建议带 `--baseline`）—— 融合判定：**与框架完全同源**的结论
+
+> **L1 预检纪律**：写完 solution.py 的第一件事就是跑 L1——不要直接提交等框架 E2E。L1 的 5 秒钟帮你省掉 E2E 的 30 秒重跑和 debug agent 的整轮诊断（基础设施吃掉的实验中 64% 是断链/超时——L1 快检把正确性验证从「远程终验」提前到「本地秒级」）。
 
 对照 `gate_defs` 与 `perf_baseline` 判断是否达成计划预期；未达成也要如实汇报。
 
@@ -126,11 +129,11 @@
   "summary": "一句话说明实现要点",
   "diff_path": "solution.py",
   "coding_plan_path": "编码计划落盘路径",
-  "self_check": {"passed": true, "stage": "gate_check", "metrics": {}}
+  "self_check": {"passed": true, "stage": "L1|verify|benchmark|gate_check", "l1_first": true, "metrics": {}}
 }
 ```
 
 - `diff_path`：相对工作目录的候选主文件路径。
-- `self_check`：三要素自验的结果摘要（`passed` / `stage`（verify|benchmark|gate_check）/ `metrics` 照实填；没跑成则 `passed=false` 并把原因写进 `metrics`）。
+- `self_check`：自验的结果摘要（`passed` / `stage`（L1|verify|benchmark|gate_check）/ `l1_first`（是否先跑了 L1 快检）/ `metrics` 照实填；没跑成则 `passed=false` 并把原因写进 `metrics`）。
 - `perf_*` 若 benchmark/gate_check 给出参考值可填，最终以框架终验覆盖为准。
 - `valid` 表示你完成了实现与自验（验证失败不影响 valid，如实汇报即可）。
