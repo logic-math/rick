@@ -31,9 +31,9 @@ ESQ = D1^0.35 × D2^0.20 × D3^0.15 × D4^0.30
 | 维度 | 权重 | 子指标 | 数据来源 |
 |---|---|---|---|
 | **D1 搜索质量** | 0.35 | Coverage（非空格/总格）· Speedup geomean（封顶 2×）· Sample Efficiency（admitted/valid）· Convergence Efficiency（最近 20 实验新格发现率） | super.db cells/experiments |
-| **D2 自适应能力** | 0.20 | Decision Accuracy（升权格后续产出率）· Self Correction（主动回调率）· Budget Utilization（预算利用率） | weight_changed / budget_adjusted events |
+| **D2 自适应能力** | 0.20 | Decision Accuracy（升权格产出率——v2 修正：排除 infra 吃掉 + unvisited）· Self Correction（主动回调率）· Budget Utilization（预算利用率） | weight_changed / budget_adjusted events |
 | **D3 知识积累** | 0.15 | Knowledge Growth（domain_knowledge 字节，封顶 50KB）· Transfer Rate（知识沉淀节/adjust 轮次）· Proposal Consumption（提案消费率） | domain_knowledge.md / humans 表 |
-| **D4 长跑稳定性** | 0.30 | Monotonic Improvement（迭代间不退化比例）· Infra Fail Rate（基础设施失败占比）· Recovery Capability（中断恢复归一化） | per-iteration max(score) / gate_result events |
+| **D4 长跑稳定性** | 0.30 | Monotonic Improvement · Infra Fail Rate · Recovery · Token Efficiency（avg token/exp 归一化）· Revisit Improvement（同格重访改进率）· Resource Utilization（GPU 计算/wall 时间比） | experiments + events |
 
 ## 维度间的 geomean 逻辑
 
