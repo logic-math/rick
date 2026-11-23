@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""watchdog.py — super 进化系统巡检报告采集器（中控唤醒链的确定性采集端）。
+"""watchdog.py — super 进化系统巡检采集脚本（skill:super-watchdog 的确定性采集端）。
 
-架构（job_56 中控可用性机制 v2——用户裁决：脚本只采集，判断与动作在中控）：
-  每 1h pi schedule 触发哑 child 跑本脚本（默认模式：纯采集报告）
-    → run 完成 → Pi 唤醒中控会话（完成通知携带报告）
-    → 中控读报告 → 深入排查 → 决策（重启/切模型/上报人工）
+架构（job_56 中控可用性机制 v3——用户裁决：skill 封装采集脚本+修复指引，
+修复动作由中控 loop 自行完成）：
+  每 1h pi schedule 向中控投递巡检提示词（指向 skill:super-watchdog）
+    → 中控加载 skill → 跑本脚本采集现状
+    → 对照预期状态表找差距 → 按修复行为指引（playbook）执行修复
 
-动作类 flag 是中控的执行手柄（不在自动路径里调用）：
-  --restart          重启 super（中控确认「进程死/API 活」后调用）
-  --switch-to <m>    切换 runtime agent_models 到指定模型 + 重启（中控确认
-                     「当前模型 API 死、备选模型活」后调用）
+本脚本三种模式：
+  默认              纯采集报告（JSON：进程/heartbeat/session/模型/探活/停机统计）
+  --restart         修复手柄：重启 super（中控按指引调用）
+  --switch-to <m>   修复手柄：切换 runtime agent_models + 重启（中控按指引调用）
 
-退出码（默认模式）：0=健康；1=报告异常（中控需处理）；2=脚本自身故障。
+退出码（默认模式）：0=健康；1=需处理（中控按 skill playbook 继续）；2=脚本自身故障。
 """
 import argparse
 import json
