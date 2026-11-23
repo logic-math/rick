@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
-"""watchdog.py — super 进化系统定时巡检 + API 故障自动切换（中控级）。
+"""watchdog.py — super 进化系统巡检报告采集器（中控唤醒链的确定性采集端）。
 
-设计（job_56 中控可用性机制——防「停机 11h 无人知晓」再演）：
-  1. 巡检：super 进程存活 / heartbeat 新鲜度 / DB 事件异常（infra 停机）
-  2. 根因分诊：API 探活（pi 一次小 prompt 实测当前模型）
-  3. 自愈：API 故障 → 切换 runtime agent_models 到备用链（中控与 runtime
-     模型隔离：中控跑默认模型不切换，runtime 切备用供应商）
-  4. 上报：全部动作写 super.db watchdog_* 事件（可审计），JSON 输出到 stdout
+架构（job_56 中控可用性机制 v2——用户裁决：脚本只采集，判断与动作在中控）：
+  每 1h pi schedule 触发哑 child 跑本脚本（默认模式：纯采集报告）
+    → run 完成 → Pi 唤醒中控会话（完成通知携带报告）
+    → 中控读报告 → 深入排查 → 决策（重启/切模型/上报人工）
 
-用法（中控 schedule 每 1h 调一次）：
-  python3 super/tools/watchdog.py <workspace> [--probe-timeout 120]
+动作类 flag 是中控的执行手柄（不在自动路径里调用）：
+  --restart          重启 super（中控确认「进程死/API 活」后调用）
+  --switch-to <m>    切换 runtime agent_models 到指定模型 + 重启（中控确认
+                     「当前模型 API 死、备选模型活」后调用）
 
-退出码：0=健康或已自愈；2=需人工介入（写明原因）。
+退出码（默认模式）：0=健康；1=报告异常（中控需处理）；2=脚本自身故障。
 """
 import argparse
 import json
 import os
 import subprocess
-import sys
 import sqlite3
+import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, "super"))
 
-# runtime 备用模型链（与中控默认 GLM 隔离：优先不同家族）
-FALLBACK_CHAIN = [
-    "deepseek-v4-pro",    # 1M ctx，DeepSeek 家族（与 GLM 异源）
-    "kimi-k3",            # 1M ctx，Moonshot 家族
-    "glm-5.2",            # 回退到 GLM 但不同版本（最后的同源保险）
-]
-
-STALE_HEARTBEAT_S = 300          # heartbeat 超过 5 分钟没更新 → 疑似卡死
-WATCHDOG_INTERVAL_HINT_S = 3600  # 中控巡检周期（写事件用）
+STALE_HEARTBEAT_S = 300  # heartbeat 超过 5 分钟没更新 → 疑似卡死
 
 
 def _db(ws):
@@ -44,7 +35,6 @@ def _now_ts():
 
 
 def _iso_to_epoch(ts):
-    """DB ts（2026-11-22T23:38:46+08:00）→ epoch 秒。"""
     try:
         from datetime import datetime
         return datetime.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S").timestamp()
@@ -53,7 +43,7 @@ def _iso_to_epoch(ts):
 
 
 def check_process(ws):
-    """① super 进程存活检查（live_pid）。"""
+    """① super 进程存活检查。"""
     sj_path = os.path.join(ws, "super.json")
     if not os.path.isfile(sj_path):
         return {"ok": False, "issue": "super.json 不存在"}
@@ -67,13 +57,12 @@ def check_process(ws):
             alive = True
         except (OSError, ValueError):
             alive = False
-    return {"ok": alive and state in ("running", "completed") or alive,
-            "state": state, "pid": pid, "alive": alive,
+    return {"ok": alive, "state": state, "pid": pid, "alive": alive,
             "issue": None if alive else "进程死亡/无 pid"}
 
 
 def check_heartbeat(ws):
-    """② heartbeat 新鲜度（DB 最后 heartbeat 与当前差）。"""
+    """② heartbeat 新鲜度。"""
     conn = _db(ws)
     row = conn.execute(
         "SELECT ts FROM events WHERE event_type='heartbeat' "
@@ -88,7 +77,7 @@ def check_heartbeat(ws):
 
 
 def check_last_session(ws):
-    """③ 最近 session_ended 的原因分类。"""
+    """③ 最近 session_ended 原因分类。"""
     conn = _db(ws)
     row = conn.execute(
         "SELECT payload FROM events WHERE event_type='session_ended' "
@@ -108,35 +97,22 @@ def check_last_session(ws):
                       ("budget_exhausted" if budget else "正常结束")}
 
 
-def _pi_bin():
-    """pi CLI 路径：env PI_BIN > PATH > rick 部署的 runtime 绝对路径。"""
-    if os.environ.get("PI_BIN"):
-        return os.environ["PI_BIN"]
-    # PATH 里有就用
-    from shutil import which
-    hit = which("pi")
-    if hit:
-        return hit
-    return "/Users/logic/.rick/pi/agent/runtime/node_modules/.bin/pi"
-
-
 def probe_api(model=None, timeout=120):
-    """④ API 探活：pi 跑一次最小 prompt 实测模型可用性。
-
-    返回 (ok, detail)。探活 prompt 极小（一问一答）——与真实 agent 调用
-    同链路（同 pi CLI → 同供应商），能捕捉「0-token 空回」类故障。
-    """
-    cmd = [_pi_bin(), "-p", "--no-session",
+    """④ API 探活：pi 跑一次最小 prompt（能捕捉 0-token 空回/配额类故障）。"""
+    from shutil import which
+    pi_bin = (os.environ.get("PI_BIN") or which("pi")
+              or "/Users/logic/.rick/pi/agent/runtime/node_modules/.bin/pi")
+    cmd = [pi_bin, "-p", "--no-session",
            "reply with the single word: pong"]
     if model:
         cmd += ["--model", model]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True,
-                           timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         out = (r.stdout or "").strip()
-        # 0-token 空回/配额报错 = 故障（正常探活必有文本输出）
-        ok = r.returncode == 0 and len(out) > 0 and "quota" not in out.lower() \
-             and "limit" not in out.lower() and "401" not in out
+        low = out.lower()
+        ok = (r.returncode == 0 and len(out) > 0
+              and "quota" not in low and "limit" not in low
+              and "401" not in out and "429" not in out)
         return ok, (out[:120] or (r.stderr or "")[:120])
     except subprocess.TimeoutExpired:
         return False, "probe timeout %ss" % timeout
@@ -145,14 +121,14 @@ def probe_api(model=None, timeout=120):
 
 
 def current_runtime_model(ws):
-    """读当前 runtime 模型配置（super.json config.agent_models 或 None=默认）。"""
+    """读当前 runtime 模型配置（None=跟随 pi 默认）。"""
     sj = json.load(open(os.path.join(ws, "super.json")))
     am = (sj.get("config") or {}).get("agent_models") or {}
     return am.get("builder") or am.get("adjust") or None
 
 
 def switch_runtime_model(ws, new_model):
-    """切换 runtime 模型（写 super.json config.agent_models 全角色）。"""
+    """动作手柄（中控调用）：切换 runtime 全角色模型。"""
     sj_path = os.path.join(ws, "super.json")
     sj = json.load(open(sj_path))
     sj.setdefault("config", {})["agent_models"] = {
@@ -163,34 +139,23 @@ def switch_runtime_model(ws, new_model):
         json.dump(sj, f, ensure_ascii=False, indent=2)
 
 
-def write_event(ws, etype, payload):
-    """动作写 DB（可审计）。表结构缺失时静默跳过（不阻塞巡检）。"""
-    try:
-        conn = _db(ws)
-        conn.execute(
-            "INSERT INTO events (event_type, payload, actor, ts) "
-            "VALUES (?, ?, 'watchdog', ?)",
-            (etype, json.dumps(payload, ensure_ascii=False), _now_ts()))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass
-
-
 def restart_super(ws):
-    """重启 super（rick super start --daemon，幂等：先 stop）。"""
+    """动作手柄（中控调用）：重启 super。"""
     rick = os.path.join(ROOT, "bin", "rick")
-    for cmd in ([rick, "super", "stop", "--name", os.path.basename(ws)],
-                [rick, "super", "start", "--name", os.path.basename(ws),
-                 "--daemon"]):
+    name = os.path.basename(ws)
+    outs = []
+    for cmd in ([rick, "super", "stop", "--name", name],
+                [rick, "super", "start", "--name", name, "--daemon"]):
         try:
-            subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        except Exception:
-            pass
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            outs.append(((r.stdout or "") + (r.stderr or "")).strip()[:100])
+        except Exception as exc:
+            outs.append(str(exc)[:100])
+    return outs
 
 
 def downtime_report(ws):
-    """停机时长统计（中控巡检附带产出，供 ESQ D4 口径）。"""
+    """⑤ 停机时长统计（ESQ D4 uptime_ratio 同口径）。"""
     conn = _db(ws)
     rows = conn.execute(
         "SELECT event_type, ts FROM events WHERE event_type IN "
@@ -201,7 +166,6 @@ def downtime_report(ws):
         return {"uptime_ratio": None}
     start_epoch = _iso_to_epoch(first)
     total = time.time() - start_epoch
-    # 间隙 = ended→started 差值（空转=调度器死了没人重启）
     down = 0.0
     last_end = None
     for etype, ts in rows:
@@ -209,99 +173,81 @@ def downtime_report(ws):
         if etype == "session_ended":
             last_end = ep
         elif etype == "session_started" and last_end is not None:
-            gap = ep - last_end
-            if gap > 0:
-                down += gap
+            down += max(0, ep - last_end)
             last_end = None
-    if last_end is not None:  # 当前还停着
+    if last_end is not None:
         down += time.time() - last_end
     uptime = 1.0 - (down / total) if total > 0 else 1.0
     return {"evolution_start": first[:19], "total_s": int(total),
             "down_s": int(down), "uptime_ratio": round(uptime, 4)}
 
 
+def collect_report(ws, probe_timeout):
+    """默认模式：纯采集（无动作）。"""
+    proc = check_process(ws)
+    hb = check_heartbeat(ws)
+    sess = check_last_session(ws)
+    cur_model = current_runtime_model(ws)
+
+    # API 探活只在「系统看起来异常」或「runtime 有专属模型配置」时执行
+    # （健康且用默认模型时跳过——省一次探活调用，中控唤醒后可自行补测）
+    needs_probe = (not proc["ok"]) or (not hb["ok"]) or cur_model is not None
+    api_probe = {"skipped": True, "reason": "系统健康且用默认模型"}
+    if needs_probe:
+        ok, detail = probe_api(model=cur_model, timeout=probe_timeout)
+        api_probe = {"model": cur_model or "(default)", "ok": ok,
+                     "detail": detail}
+
+    # 健康判定：进程活 + heartbeat 新鲜（session_ended 是历史记录——
+    # 进程已重启后不应继续标记异常；只在进程死时才有当下意义）
+    healthy = proc["ok"] and hb["ok"]
+    return {
+        "ts": _now_ts(),
+        "workspace": ws,
+        "status": "healthy" if healthy else "needs_attention",
+        "checks": {"process": proc, "heartbeat": hb, "last_session": sess},
+        "runtime_model": cur_model or "(pi default)",
+        "api_probe": api_probe,
+        "downtime": downtime_report(ws),
+        "中控提示": ("全部正常，无需动作" if healthy else
+                    "异常——中控请深入排查：①api_probe.ok=false → 探活备选模型"
+                    "（probe_api(model=...)）→ 活的用 --switch-to 切换；"
+                    "②进程死但 API 活 → --restart；③heartbeat 停滞 → 读 super.log"),
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("workspace")
     ap.add_argument("--probe-timeout", type=int, default=120)
-    ap.add_argument("--dry-run", action="store_true",
-                    help="只巡检不动作（观察模式）")
+    ap.add_argument("--restart", action="store_true",
+                    help="动作手柄（中控调用）：重启 super")
+    ap.add_argument("--switch-to", metavar="MODEL",
+                    help="动作手柄（中控调用）：切换 runtime 模型 + 重启")
     args = ap.parse_args()
     ws = os.path.abspath(args.workspace)
 
-    report = {"ts": _now_ts(), "workspace": ws}
-    actions = []
-
-    # ── 巡检三件套 ──
-    proc = check_process(ws)
-    hb = check_heartbeat(ws)
-    sess = check_last_session(ws)
-    report["checks"] = {"process": proc, "heartbeat": hb,
-                        "last_session": sess}
-    report["downtime"] = downtime_report(ws)
-
-    healthy = proc["ok"] and (hb["ok"] or proc["alive"])
-    if healthy and not sess.get("infra_failure"):
-        report["status"] = "healthy"
-        write_event(ws, "watchdog_tick", {
-            "status": "healthy", "heartbeat_age_s": hb.get("age_s"),
-            "uptime_ratio": report["downtime"].get("uptime_ratio"),
-            "interval_hint_s": WATCHDOG_INTERVAL_HINT_S})
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+    # 动作模式（中控执行手柄）
+    if args.restart:
+        print(json.dumps({"action": "restart", "output": restart_super(ws)},
+                         ensure_ascii=False, indent=2))
+        return 0
+    if args.switch_to:
+        switch_runtime_model(ws, args.switch_to)
+        print(json.dumps({"action": "switch_to", "model": args.switch_to,
+                          "restart_output": restart_super(ws)},
+                         ensure_ascii=False, indent=2))
         return 0
 
-    # ── 异常路径：分诊 ──
-    # 进程死/heartbeat 停滞/上次 infra 结束 → 探当前 runtime 模型
-    cur_model = current_runtime_model(ws)
-    api_ok, api_detail = probe_api(
-        model=cur_model, timeout=args.probe_timeout)
-    report["api_probe"] = {"model": cur_model or "(default)",
-                           "ok": api_ok, "detail": api_detail}
-
-    if api_ok:
-        # API 活着 → 普通崩溃（调度器/其他）：直接重启
-        if not args.dry_run:
-            restart_super(ws)
-            actions.append("restart_super(api_ok)")
-            write_event(ws, "watchdog_action", {
-                "action": "restart_super", "reason": "进程死而 API 活",
-                "model": cur_model or "(default)"})
-        report["status"] = "restarted"
-    else:
-        # API 死 → 沿备用链找活模型（优先与中控 GLM 异源）
-        switched = None
-        for m in FALLBACK_CHAIN:
-            if m == cur_model:
-                continue
-            ok, _ = probe_api(model=m, timeout=args.probe_timeout)
-            if ok:
-                switched = m
-                break
-        if switched:
-            if not args.dry_run:
-                switch_runtime_model(ws, switched)
-                restart_super(ws)
-                actions.append(f"switch_model({switched}) + restart")
-                write_event(ws, "watchdog_action", {
-                    "action": "switch_model_and_restart",
-                    "from_model": cur_model or "(default)",
-                    "to_model": switched,
-                    "reason": "API 探活失败，切换到备用模型链"})
-            report["status"] = "model_switched"
-            report["switched_to"] = switched
-        else:
-            # 整个链都死 → 上报人工（中控也不可靠了——供应商级瘫痪）
-            report["status"] = "manual_intervention_needed"
-            report["issue"] = "主模型与备用链全部探活失败"
-            write_event(ws, "watchdog_alert", {
-                "status": "all_models_down",
-                "tried": [cur_model] + [m for m in FALLBACK_CHAIN
-                                        if m != cur_model],
-                "hint": "供应商级故障或配额全面耗尽——需人工切换账号/等待恢复"})
-
-    report["actions"] = actions
+    # 默认模式：采集报告（无动作）
+    try:
+        report = collect_report(ws, args.probe_timeout)
+    except Exception as exc:
+        print(json.dumps({"status": "script_error", "error": str(exc)[:300]},
+                         ensure_ascii=False, indent=2))
+        return 2
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 2 if report["status"] == "manual_intervention_needed" else 0
+    return 0 if report["status"] == "healthy" else 1
 
 
 if __name__ == "__main__":
