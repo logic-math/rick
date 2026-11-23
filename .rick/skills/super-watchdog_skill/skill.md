@@ -99,13 +99,25 @@ python3 /Users/logic/workdir/AI_CODING/rick/super/tools/watchdog.py /Users/logic
 6. **budget_exhausted 重启必带章法**（预算与目标匹配——历史残留 3h 墙杀 iter_67 判例：系统提案 3→6 未落地 + 人重启未体检 = 双重失误）；无剩余工作量估算时上报人类裁决
 7. **连续 2 轮同样修复无效 → 升级上报人类**
 
-## 回执格式（sub agent 的最终输出——主 agent 只保留这个）
+## 回执格式（sub agent 的最终输出——主 agent 只保留这个；四行播报）
 
-- 健康：`[watchdog HH:MM] healthy · uptime xx% · admitted N · running M`
-- 异常：`[watchdog HH:MM] <差距类型> → <排查结论> → <动作/上报人类>`
+```
+[watchdog HH:MM] healthy · uptime xx% · admitted N · running M
+[adjust] 13:30 [hard_modify_cell:problem=98...; soft_weight:...] ← 最近 2 条决策路径（采集脚本 brief.adjust_decisions）
+[elites] 42_...=37.0× | 51_...=29.4× | 80_...=28.5× ← top-3 精英排序（brief.elites_top3）
+[human] 待裁决 N 项 ← 提案队列未 applied（brief.human_pending；N>0 时列出关键项：sqlite3 <ws>/super.db "SELECT id, substr(content,1,80) FROM humans WHERE queue_type='proposal' AND applied=0 ORDER BY id DESC LIMIT 3;"）
+```
+
+- 异常时第 1 行改为：`[watchdog HH:MM] <差距类型> → <排查结论> → <动作/上报人类>`，后三行照常播报
+
+## 唤醒链（launchd 版——session 生命周期绑定）
+
+- **launchd**（`com.rick.super-watchdog-wake`，每 1h）跑 `super/tools/watchdog_wake.sh`：探活 web API 里 active 的 super 中控 session（名字含 super）→ active 才 POST prompt 注入【定时巡检】提示词 → 非 active 静默跳过
+- **生命周期**：session 关闭/中断 → 脚本跳过（不定时）；session 重开（同名）→ 自动恢复唤醒；彻底停用 → `launchctl bootout gui/$(id -u)/com.rick.super-watchdog-wake`
+- 已弃用 pi project-scoped schedule（跨 session 泄漏：job_57 的 pi 进程也武装了 timer，触发后完成通知被 currentSessionId 过滤，中控收不到）
 
 ## 相关组件
 
-- 采集脚本+动作手柄：`super/tools/watchdog.py`（默认采集 / `--restart` / `--switch-to`）
-- 定时唤醒：pi schedule `super-watchdog`（每 1h 提示词唤醒中控，中控交接本 subloop）
+- 采集脚本+动作手柄：`super/tools/watchdog.py`（默认采集〔含播报三件套 brief：adjust 决策/精英排序/human 待裁决〕 / `--restart` / `--switch-to`）
+- 定时唤醒：launchd `com.rick.super-watchdog-wake`（每 1h，session 生命周期绑定——见「唤醒链」节）
 - 质量评估（不归本 skill）：`skill:super-eval`

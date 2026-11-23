@@ -215,6 +215,43 @@ def downtime_report(ws):
             "down_s": int(down), "uptime_ratio": round(uptime, 4)}
 
 
+def _brief(ws):
+    """播报三件套：adjust 决策路径 / 精英排序 / human 待裁决（每小时巡检播报增强）。"""
+    try:
+        conn = _db(ws)
+        # ① 最近 2 条 adjust_decision 的提案摘要（决策路径）
+        decisions = []
+        for row in conn.execute(
+                "SELECT ts, payload FROM events WHERE event_type="
+                "'adjust_decision' ORDER BY seq DESC LIMIT 2").fetchall():
+            try:
+                p = json.loads(row[1])
+                props = p.get("proposals") or []
+                dsum = "; ".join(
+                    "%s:%s" % (str(x.get("type", "?"))[:16],
+                               str(x.get("target_cell") or x.get("target")
+                                   or x.get("key") or "?")[:30])
+                    for x in props[:3]) or "无提案"
+                decisions.append("%s [%s]" % (row[0][11:16], dsum))
+            except Exception:
+                pass
+        # ② 精英 top-3
+        elites = [("%s=%.1f×" % (r[0][8:38], r[1])) for r in conn.execute(
+            "SELECT cell_id, score FROM experiments WHERE status='admitted' "
+            "ORDER BY score DESC LIMIT 3").fetchall()]
+        # ③ human 待裁决（proposal 队列未 applied）
+        pending = conn.execute(
+            "SELECT count(*) FROM humans WHERE queue_type='proposal' "
+            "AND applied=0").fetchone()[0]
+        conn.close()
+        return {"adjust_decisions": decisions or ["无"],
+                "elites_top3": elites or ["无"],
+                "human_pending": pending}
+    except Exception:
+        return {"adjust_decisions": ["采集失败"], "elites_top3": ["采集失败"],
+                "human_pending": "?"}
+
+
 def collect_report(ws, probe_timeout):
     """默认模式：纯采集（无动作）。"""
     proc = check_process(ws)
@@ -239,6 +276,7 @@ def collect_report(ws, probe_timeout):
         "workspace": ws,
         "status": "healthy" if healthy else "needs_attention",
         "checks": {"process": proc, "heartbeat": hb, "last_session": sess},
+        "brief": _brief(ws),
         "runtime_model": cur_model or "(pi default)",
         "api_probe": api_probe,
         "downtime": downtime_report(ws),
