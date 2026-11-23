@@ -258,8 +258,36 @@ def dim4_stability(conn, ws) -> Tuple[float, Dict]:
     # 综合 ENV 验证器效率
     env_verify_eff = _geomean([verify_success_rate, verify_speed, max(l1_coverage, 0.1)])
 
+    # D4 v4: 基础设施停机时长占比（uptime_ratio——进化开始至今的实际运行比例）
+    # 停机窗口 = session_ended→session_started 间隙（含无人重启的空转——昨晚 11h 案例）
+    try:
+        sess_rows = conn.execute(
+            "SELECT event_type, ts FROM events WHERE event_type IN "
+            "('session_started','session_ended') ORDER BY seq").fetchall()
+        first_ts = _q(conn, "SELECT min(ts) FROM events")
+        down_s, last_end = 0.0, None
+        import time as _time
+        if first_ts:
+            start_ep = _time.mktime(_time.strptime(first_ts[:19], "%Y-%m-%dT%H:%M:%S"))
+            total_s = _time.time() - start_ep
+            for etype, ts in sess_rows:
+                ep = _time.mktime(_time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+                if etype == "session_ended":
+                    last_end = ep
+                elif etype == "session_started" and last_end is not None:
+                    down_s += max(0, ep - last_end)
+                    last_end = None
+            if last_end is not None:
+                down_s += _time.time() - last_end
+            uptime_ratio = _clamp(1 - down_s / total_s) if total_s > 0 else 1.0
+        else:
+            uptime_ratio, down_s, total_s = 0.5, 0, 0
+    except Exception:
+        uptime_ratio, down_s, total_s = 0.5, 0, 0
+
     d4 = _geomean([monotonic, infra_fail_inv, _clamp(recovery),
-                   token_eff, revisit_imp, resource_util, env_verify_eff])
+                   token_eff, revisit_imp, resource_util, env_verify_eff,
+                   uptime_ratio])
     return d4, {
         "monotonic_improvement": f"{monotonic:.1%}",
         "infra_fail_rate": f"{infra_fails}/{total_fails} ({1-infra_fail_inv:.1%} infra)",
@@ -267,6 +295,8 @@ def dim4_stability(conn, ws) -> Tuple[float, Dict]:
         "token_efficiency": f"avg {avg_token/1000:.0f}K/exp (norm {token_eff:.3f})",
         "revisit_improvement": f"{improved_rev}/{total_rev} cells improved on revisit (norm {revisit_imp:.3f})",
         "resource_utilization": f"GPU {gpu_ms/1000:.1f}s / wall {wall_ms/3600000:.2f}h (norm {resource_util:.3f})",
+        "uptime_ratio": f"{uptime_ratio:.1%} (down {down_s/3600:.1f}h of {total_s/3600:.1f}h — "
+                         f"含停机后无人重启空转)",
         "env_verify_efficiency": f"success {verify_success_rate:.1%} · speed {avg_verify_wall:.0f}s avg "
                                  f"(norm {verify_speed:.3f}) · L1 coverage {l1_coverage:.1%} "
                                  f"→ env_verify_eff={env_verify_eff:.3f}",
