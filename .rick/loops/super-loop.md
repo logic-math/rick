@@ -310,6 +310,13 @@ humans 表（super.db，task1 落地）承载两类队列：
   - [ ] 长跑后 Step 7 走完：诊断结论 + prompt 迭代决策落 PROMPTS_LOG（或注明不评估的理由）；
   - [ ] **实验记录链路完整**：抽样 2-3 个 `codes/iter{N}-{uuid}/experiment_record.md`，六段齐全且 coding/debug 的追加段存在（`record_updated: false` 事件为零或已解释）；`decisions/` 每轮 adjust 有决策记录（或标注 `framework_synthesized`）
 
+## 学习环节（Learning——所有退出路径必走，job_56 v3 增补）
+
+**super run 结束时（成功/失败/优雅退出——任何路径）加载 skill:super-learning**（`.rick/skills/super-learning_skill/skill.md`，独立 subloop 可交接 sub agent 执行）：
+学习整个会话执行过程（事件流/成本/ESQ/故障史）→ 对照 super-loop 与全部 super skills 找「指引与现实的差距」→ 产出带证据链的改进提案 → **经 human 确认后落地**（仓级知识改动必须 human 确认——两级接通纪律不变：env 级问题改 env，系统性问题才升仓级）。
+
+这是 super 自改进的学习闭环：执行面（loop+skill+prompt+runtime）→ 学习面（super-learning 提案）→ 确认落地 → 下一个 run 继承改进。
+
 ## 停止标准（Termination Condition）
 
 - **成功退出**：G1-G5 全达成，human 明示本次中控会话结束（短跑场景 G5 可以为「不评估」结论，但必须有明确记录）。
