@@ -150,6 +150,33 @@ def restart_super(ws, max_wall_time_h=None, max_iterations=None):
     rick = os.path.join(ROOT, "bin", "rick")
     name = os.path.basename(ws)
     outs = []
+    # ③′ 混战清理（job_56 实测 2 次）：stop→start 竞态致旧 wrapper/py 残活
+    # → 多 wrapper 各自拉 py → 互撞进程锁（exit 5）+ 群杀混战。启动前彻底
+    # 清理：杀 wrapper + py + 等死透 + 清锁，确保单实例再启动。
+    try:
+        subprocess.run(["pkill", "-f", "rick super start --name %s" % name],
+                       capture_output=True, timeout=30)
+        subprocess.run(["pkill", "-f", "superopt --workdir %s" % ws],
+                       capture_output=True, timeout=30)
+        import time as _t
+        deadline = _t.time() + 15
+        while _t.time() < deadline:
+            r = subprocess.run(
+                ["pgrep", "-f", "superopt --workdir %s" % ws],
+                capture_output=True, text=True)
+            if not r.stdout.strip():
+                break
+            _t.sleep(1)
+        subprocess.run(["pkill", "-9", "-f", "superopt --workdir %s" % ws],
+                       capture_output=True, timeout=30)
+        try:
+            os.remove(os.path.join(ws, "env", "scheduler.pid"))
+        except OSError:
+            pass
+        _t.sleep(2)
+        outs.append("混战清理: wrapper/py 全清 + 锁清理完成")
+    except Exception as exc:  # noqa: BLE001 清理失败继续 start（best-effort）
+        outs.append("混战清理（软失败）: %s" % str(exc)[:60])
     # ① config 体检：残留值上报（不改，重启旗标覆盖它）
     try:
         sj = json.load(open(os.path.join(ws, "super.json")))

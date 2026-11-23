@@ -632,6 +632,15 @@ class Scheduler:
             return False
         return (self.iteration_cursor - self._last_adjust_iter) >= adjust_every
 
+    def _probe_dbg(self, tag, extra=""):
+        """临时调试探针（job_56 僵死循环定位——写 /tmp/superopt_dbg.log，定位后撤）。"""
+        try:
+            import time as _t
+            with open("/tmp/superopt_dbg.log", "a", encoding="utf-8") as _f:
+                _f.write("%s [dbg] %s %s\n" % (_t.strftime("%H:%M:%S"), tag, extra))
+        except Exception:
+            pass
+
     def _loop_parallel(self) -> None:
         """并发槽池（task50）：异格并行实验，一格同时只有一个实验。
 
@@ -682,7 +691,9 @@ class Scheduler:
             if self._adjust_due(adjust_every):
                 self._maybe_start_adjust()
             # ③‴ 其余全局态操作（热重载/裁决/epoch）仍在无在飞槽时执行
+            self._probe_dbg("tick", "cursor=%d" % self.iteration_cursor)
             if not slots:
+                self._probe_dbg("tick-noslots")
                 self._maybe_reload_feature_space()
                 self._drain_decisions()
                 # task59 R5：噪声标定（无在飞实验时对冠军精英同码重测；
@@ -690,6 +701,7 @@ class Scheduler:
                 self._maybe_run_noise_calibration()
                 if (self.iteration_cursor > 0
                         and self.iteration_cursor % EPOCH_ITERATIONS == 0):
+                    self._probe_dbg("reeval-pending")
                     self._reevaluate_pending()
             # ④ 补满在飞槽（每槽 = 一个实验：独占一格）
             while (len(slots) < self.max_parallel_experiments
@@ -1678,6 +1690,7 @@ class Scheduler:
         链（省 builder+coding 两轮——debug/gate 走正常链）。
         返回 (plan, candidate) 或 None（无可续跑 → 正常链）。
         """
+        self._probe_dbg("resume-try", cell_id[:44])
         try:
             r = self.db.find_resumable_experiment(cell_id)
         except Exception:  # noqa: BLE001
@@ -2296,6 +2309,7 @@ class Scheduler:
     def _verify_and_admit(self, candidate: str, cell_id: str, cursor: int,
                           plan: Dict[str, Any]) -> Any:
         """框架终验 + 入格。返回 GateResult（供 _step 的 gate→debug 判断）。"""
+        self._probe_dbg("verify-admit", "%s %s" % (cell_id[:28], str(candidate)[-36:]))
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite")
         history = [h.get("perf_value") for h in (entry.get("history") or [])
@@ -4819,6 +4833,7 @@ class Scheduler:
         绝对化兜底 + per-item 防御（单项失败不炸整轮）+ drain 后立即
         save（持久清空防重入）+ 幂等标记（同 cursor 只跑一轮）。
         """
+        self._probe_dbg("reeval", "enter")
         pending = self.archive.drain_pending()
         # drain 即持久化（防中途异常导致下 tick 重入同批——死循环根因）
         try:
