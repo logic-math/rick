@@ -57,6 +57,10 @@ class TestConstants(unittest.TestCase):
         "new_cell_rejected",
         "cell_limit_reached",
         "infra_failure_concluded",
+        "infra_failure_recovered",   # humans #26：探活驻留恢复
+        "infra_hold_abandoned",      # humans #26：驻留上限放弃停机
+        "gate_no_reading_retry",     # humans #27：无读数重试
+        "budget_adjust_skipped",     # humans #32：非白名单键留痕
         "self_check_skip_debug",
         # 迭代13/task57：熔断探活恢复 + 产物抢救
         "api_outage_recovered",

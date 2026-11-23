@@ -242,9 +242,19 @@ func initSuperWorkspace(ws, envPath string, ov SuperStartOverrides) (*superJSON,
 	if ov.AdjustInterval > 0 {
 		sj.Config["adjust_interval"] = ov.AdjustInterval
 	}
-	if sj.Budget == nil {
-		sj.Budget = map[string]interface{}{"wall_start": nil, "max_wall_time_h": sj.Config["max_wall_time_h"]}
+	// budget 段启动期同步（humans #30：CLI 覆盖只写 config 段致 budget 段陈旧，
+	// 控制面读数向下游注入假墙点——每次启动同步为 config 当前值；wall_start
+	// 保留既有值——预算计时起点不因重启漂移）。
+	syncBudget := map[string]interface{}{
+		"wall_start":     nil,
+		"max_wall_time_h": sj.Config["max_wall_time_h"],
 	}
+	if sj.Budget != nil {
+		if ws0, ok := sj.Budget["wall_start"]; ok {
+			syncBudget["wall_start"] = ws0
+		}
+	}
+	sj.Budget = syncBudget
 	if envPath != "" {
 		if abs, err := filepath.Abs(envPath); err == nil {
 			envPath = abs

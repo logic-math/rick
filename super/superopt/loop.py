@@ -1093,8 +1093,10 @@ class Scheduler:
         """task57 R1（factor 自原内联块）：0-token 熔断后备。
 
         连续 agent_failure_breaker 次 0-token 失败 → infra_failure_concluded
-        + 优雅停（返回 True = 触发）。0-token 秒退是认证/配额/供应商级故障
-        的稳定信号；真实验失败都烧 token。
+        + **探活驻留**（humans #26 根修：不退出进程——旧行为优雅停机后
+        11h 空窗止损实证）。驻留循环周期探活，连续 infra_recovery_probes
+        次成功 → 自动恢复迭代；stop_requested（human 干预）→ 优雅停。
+        0-token 秒退是认证/配额/供应商级故障的稳定信号；真实验失败都烧 token。
         """
         breaker = int(self.conf.get("agent_failure_breaker", 8) or 0)
         if breaker <= 0:
@@ -1102,15 +1104,71 @@ class Scheduler:
         if self._consec_zero_token_fails < breaker or self._infra_failure:
             return False
         self._infra_failure = True
-        self.stop_requested = True
         self.events.append("infra_failure_concluded", {
             "consecutive_zero_token_fails": self._consec_zero_token_fails,
             "threshold": breaker,
             "diagnosis": "连续 %d 次 agent 0-token 失败——认证/配额/"
-                          "供应商级故障（非实验失败）。调度器优雅停机；"
-                          "修复凭据后 rick super start 续跑（工作区状态"
-                          "全持久）。" % self._consec_zero_token_fails,
+                          "供应商级故障（非实验失败）。调度器进入探活驻留"
+                          "（humans #26：不退出进程，探活 %d 次成功自动续跑；"
+                          "human 可随时 stop 干预）。" % (
+                              self._consec_zero_token_fails,
+                              int(self.conf.get("infra_recovery_probes", 3)
+                                  or 3)),
         }, "scheduler")
+        return self._infra_hold_loop()
+
+    def _infra_hold_loop(self) -> bool:
+        """humans #26：infra_failure 探活驻留（不退出进程）。
+
+        - 每 api_outage_retry_s 探活一次（复用 _run_api_probe 极小 agent）；
+        - 连续 infra_recovery_probes 次成功（默认 3×60s）→ 自动恢复迭代
+          （重置熔断/断连计数，infra_failure_recovered 事件）→ 返回 False；
+        - stop_requested（human stop / SIGTERM）→ 返回 True（优雅停保持
+          既有语义）；
+        - 驻留期间 heartbeat 持续（watchdog 巡检可见驻留态非死机）。
+        """
+        probes_needed = int(self.conf.get("infra_recovery_probes", 3) or 3)
+        retry_s = int(self.conf.get("api_outage_retry_s", 60) or 0)
+        # 驻留上限（真·配额耗尽/供应商长瘫：探活连续失败 infra_hold_max_fails
+        # 次 → 放弃驻留优雅停机〔旧语义兜底——提案 #26 risk 预案的落地〕，
+        # 默认 30 次 × 60s = 30 分钟）
+        max_fails = int(self.conf.get("infra_hold_max_fails", 30) or 30)
+        ok_streak = fail_streak = 0
+        while not self.stop_requested:
+            self._sleep_interruptible(retry_s)
+            if self.stop_requested:
+                break
+            self._drain_interventions()
+            if self.stop_requested:
+                break
+            if self._run_api_probe():
+                ok_streak += 1
+                if ok_streak >= probes_needed:
+                    self.events.append("infra_failure_recovered", {
+                        "probes_streak": ok_streak,
+                        "diagnosis": "探活连续 %d 次成功——API 恢复，自动"
+                                     "续跑（humans #26 探活驻留：无空窗）"
+                                     % ok_streak,
+                    }, "scheduler")
+                    self._infra_failure = False
+                    self._api_outage_active = False
+                    self._consec_infra_fails = 0
+                    self._consec_zero_token_fails = 0
+                    return False
+                fail_streak = 0
+            else:
+                ok_streak = 0
+                fail_streak += 1
+                if fail_streak >= max_fails:
+                    self.events.append("infra_hold_abandoned", {
+                        "consecutive_probe_fails": fail_streak,
+                        "diagnosis": "探活连续 %d 次失败（~%d 分钟）——真·"
+                                     "配额耗尽/供应商长瘫，放弃驻留优雅停机"
+                                     "（human 换号/修号后 rick super start 续跑）"
+                                     % (fail_streak, fail_streak * retry_s // 60),
+                    }, "scheduler")
+                    self.stop_requested = True
+                    break
         return True
 
     def _track_infra_failure(self, result: Any) -> None:
@@ -2150,6 +2208,21 @@ class Scheduler:
         gr = self.gate.verify(candidate,
                               elite_perf=(elite or {}).get("perf_value"),
                               history=history)
+        # humans #27②：无读数失败（score=-6：verify 传输/崩溃/OOM——非候选
+        # 缺陷）→ 同候选重试一次（与超差失败分离——无读数重测有意义，
+        # 真超差重测无意义；限 1 次防慢候选墙放大）。
+        _no_reading = (not gr.passed
+                       and getattr(gr, "score", None) is not None
+                       and float(getattr(gr, "score")) == -6.0)
+        if _no_reading:
+            self.events.append("gate_no_reading_retry", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "subclass": getattr(gr, "metrics", None) or None,
+                "reason": "verify 无读数失败（humans #27）——同候选重试 1 次",
+            }, "scheduler", experiment_id=self._cur_exp_id)
+            gr = self.gate.verify(candidate,
+                                  elite_perf=(elite or {}).get("perf_value"),
+                                  history=history)
         self._emit_gate_result(gr, cursor, cell_id)
 
         if gr.passed:
@@ -3006,6 +3079,11 @@ class Scheduler:
         applied = {}
         for k, v in ba.items():
             if k not in self._BUDGET_ADJUSTABLE:
+                # humans #32：非白名单键静默丢弃零留痕 → 观测事件
+                self.events.append("budget_adjust_skipped", {
+                    "iteration": iteration_id, "key": k,
+                    "reason": "not_whitelisted（非白名单键）",
+                }, "scheduler")
                 continue
             if k in pinned:
                 self.events.append("budget_adjust_rejected", {
@@ -3609,16 +3687,33 @@ class Scheduler:
         return parsed
 
     def _profile_candidate(self, cell_id: str) -> Optional[str]:
-        """profile 采集对象：该格精英代码 → naive_start.py → reference.py。"""
+        """profile 采集对象：该格精英代码 → 本题 naive 副本 → reference.py。
+
+        humans #28 根修（题库模式跨格污染）：旧行为 elite-less 格回落
+        env/code/naive_start.py（单题模式遗留文件——题库模式下注入的是
+        13_Matmul 的 profile 读数，27/27 条 profile_history 实证）。
+        题库模式改为本题 problems/level2/<题名>.py（与 gate_check 同源）。
+        """
         elite = self._cell_entry(cell_id).get("elite") or {}
         cp = elite.get("code_path")
         if isinstance(cp, str) and cp and os.path.isfile(cp):
             return cp
+        prob = self._cell_problem(cell_id)
+        if prob:
+            pq = os.path.join(self.env_dir, "problems", "level2",
+                              "%s.py" % prob)
+            if os.path.isfile(pq):
+                return pq
         for name in ("naive_start.py", "reference.py"):
             p = os.path.join(self.env_dir, "code", name)
             if os.path.isfile(p):
                 return p
         return None
+
+    def _cell_problem(self, cell_id: str) -> Optional[str]:
+        """cell_id → 题名（problem=<题名> 解析；非题库格返回 None）。"""
+        m = re.match(r"^problem=(.+)$", cell_id or "")
+        return m.group(1) if m else None
 
     def _collect_profile(self, cell_id: str, cursor: int) -> Optional[Dict[str, Any]]:
         """每迭代自动采集 profile（三要素之「现状」）→ 时间序列归档。
@@ -3634,9 +3729,14 @@ class Scheduler:
         candidate = self._profile_candidate(cell_id)
         if not candidate:
             return None
+        # humans #28 根修：题库模式显式传 --problem（旧行为不带参——
+        # 单题模式 profile 的是 reference.py 而非本格题目）
+        cmd = [self._python_cmd(), script, "--candidate", candidate]
+        prob = self._cell_problem(cell_id)
+        if prob:
+            cmd += ["--problem", prob]
         try:
-            r = subprocess.run(
-                [self._python_cmd(), script, "--candidate", candidate],
+            r = subprocess.run(cmd,
                 capture_output=True, text=True, timeout=120)
         except (OSError, subprocess.SubprocessError):
             return None
