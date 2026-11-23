@@ -74,6 +74,8 @@ EVENT_TYPES = frozenset({
     "budget_adjust_skipped",   # humans #32：非白名单/被拒键留痕（观测缺口）
     "experiment_resumed",      # 无缝重启：中断实验断点续跑（coding/产物断点）
     "experiment_resumed_fallback",  # resume 失败回退正常链
+    "pending_item_skipped",    # pending 重评估：坏项防御跳过（缺字段/路径不可解析）
+    "pending_item_error",      # pending 重评估：单项异常（不炸整轮）
                                   # 优雅停机（认证/配额/供应商级故障，非实验失败）
     "cell_created",               # cell_id/descriptor/name/method（迭代8：adjust new_cell）
     "cell_modified",              # cell_id/method/source_refs/rationale（迭代8：modify_cell）
@@ -192,6 +194,8 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "experiment_resumed": ("iteration_id", "cell_id", "resumed_from",
                            "resume_role", "diagnosis"),
     "experiment_resumed_fallback": ("iteration_id", "cell_id", "reason"),
+    "pending_item_skipped": ("cell_id", "code_path", "reason"),
+    "pending_item_error": ("cell_id", "error", "reason"),
     "cell_limit_reached": ("current_cells", "max_cells"),
     "new_cell_rejected": ("reason",),
     "turn_budget_alert": ("role", "soft_warn"),

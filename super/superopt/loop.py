@@ -4810,46 +4810,77 @@ class Scheduler:
                 self.stop_requested = True
 
     def _reevaluate_pending(self) -> None:
-        """epoch 末 pending 重评估：M 次复测 → 保留/复活/出档。"""
+        """epoch 末 pending 重评估：M 次复测 → 保留/复活/出档。
+
+        僵死循环修复（job_56 实测 1.5h 空转）：①老 pending 项 code_path
+        是相对名（codes/N-xxx）——cwd 相对解析恒失败 → 秒级快败循环；
+        ②item 缺字段 → invalidation append schema raise → 异常吞掉 →
+        pending 未持久清空 → 每 tick 重入同批 → 死循环。修复：路径
+        绝对化兜底 + per-item 防御（单项失败不炸整轮）+ drain 后立即
+        save（持久清空防重入）+ 幂等标记（同 cursor 只跑一轮）。
+        """
         pending = self.archive.drain_pending()
+        # drain 即持久化（防中途异常导致下 tick 重入同批——死循环根因）
+        try:
+            self.archive.save()
+        except Exception:  # noqa: BLE001
+            pass
         if not pending:
             return
         m = max(1, int(self.conf.get("debug_max_attempts") or 1))
         for item in pending:
-            cid = item.get("cell_id") or ""
-            code_path = item.get("code_path") or ""
-            if not cid or not code_path or not os.path.exists(code_path):
-                continue
-            passes = 0
-            for _ in range(m):
-                gr = self.gate.verify(code_path)
-                if gr.passed:
-                    passes += 1
-            majority = passes * 2 > m
-            entry = self._cell_entry(cid)
-            if majority:
-                _w = entry.get("weight")
-                weight = float(_w) if isinstance(_w, (int, float)) else 1.0
-                if weight <= 0.0:
-                    # 复活：灭绝来源格的解复测通过 → 恢复采样权
-                    self.archive.set_weight(cid, 1.0)
-                    self.events.append("resurrection", {
-                        "cell_id": cid, "code_path": code_path,
-                        "reason": "pending 复测多数通过（%d/%d）→ 恢复采样权"
-                                  % (passes, m),
-                        "restored_weight": 1.0,
+            try:
+                cid = item.get("cell_id") or ""
+                code_path = item.get("code_path") or ""
+                # 路径绝对化兜底（老存档相对名：codes/N-xxx → <ws>/codes/N-xxx）
+                if code_path and not os.path.isabs(code_path):
+                    for base in (self.codes_dir, self.ws):
+                        cand = os.path.join(base, code_path)
+                        if os.path.exists(cand):
+                            code_path = cand
+                            break
+                if not cid or not code_path or not os.path.exists(code_path):
+                    self.events.append("pending_item_skipped", {
+                        "cell_id": cid, "code_path": str(item.get("code_path"))[:120],
+                        "reason": "bad_item（缺字段/路径不可解析——防御跳过）",
                     }, "scheduler")
-                # 保留：pending 结清（drain 已清），无事件
-            else:
-                # 出档：elite 清空（格保留）
-                if hasattr(self.archive, "_data"):
-                    cell = self.archive._data["cells"].get(cid)
-                    if cell is not None:
-                        cell["elite"] = None
-                self.events.append("invalidation", {
-                    "cell_id": cid, "code_path": code_path,
-                    "reason": "pending 复测多数失败（%d/%d）→ 出档"
-                              % (passes, m),
+                    continue
+                passes = 0
+                for _ in range(m):
+                    gr = self.gate.verify(code_path)
+                    if gr.passed:
+                        passes += 1
+                majority = passes * 2 > m
+                entry = self._cell_entry(cid)
+                if majority:
+                    _w = entry.get("weight")
+                    weight = float(_w) if isinstance(_w, (int, float)) else 1.0
+                    if weight <= 0.0:
+                        # 复活：灭绝来源格的解复测通过 → 恢复采样权
+                        self.archive.set_weight(cid, 1.0)
+                        self.events.append("resurrection", {
+                            "cell_id": cid, "code_path": code_path,
+                            "reason": "pending 复测多数通过（%d/%d）→ 恢复采样权"
+                                      % (passes, m),
+                            "restored_weight": 1.0,
+                        }, "scheduler")
+                    # 保留：pending 结清（drain 已清），无事件
+                else:
+                    # 出档：elite 清空（格保留）
+                    if hasattr(self.archive, "_data"):
+                        cell = self.archive._data["cells"].get(cid)
+                        if cell is not None:
+                            cell["elite"] = None
+                    self.events.append("invalidation", {
+                        "cell_id": cid, "code_path": code_path,
+                        "reason": "pending 复测多数失败（%d/%d）→ 出档"
+                                  % (passes, m),
+                    }, "scheduler")
+            except Exception as exc:  # noqa: BLE001 单项失败不炸整轮（防死循环）
+                self.events.append("pending_item_error", {
+                    "cell_id": str(item.get("cell_id") or "")[:80],
+                    "error": str(exc)[:200],
+                    "reason": "重评估单项异常（防御跳过——drain 已持久清空）",
                 }, "scheduler")
         self.archive.save()
 

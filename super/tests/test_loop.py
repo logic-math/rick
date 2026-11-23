@@ -4210,3 +4210,41 @@ class TestSeamlessResume(LoopTestBase):
         self.assertIsNotNone(r)  # record 完好 + session 在 → 可续跑
 
 
+
+
+class TestPendingReevalLoop(LoopTestBase):
+    """僵死循环修复（job_56 实测 1.5h 空转）：相对路径 pending 项防御。"""
+
+    def test_pending_relative_path_no_loop(self):
+        """相对路径 pending 项 → 跳过事件（不秒级快败死循环）。"""
+        sched = self.make_scheduler({"max_iterations": 1})
+        sched.archive.add_pending("problem=cellA",
+                                  "codes/99-202611220000", "tolerance_band")
+        sched.archive.save()
+        sched._reevaluate_pending()
+        skipped = self.events_of("pending_item_skipped")
+        self.assertEqual(len(skipped), 1, "坏项应发 skipped 事件")
+        # 下一 tick（drain 已持久清空）——不重入同批
+        sched._reevaluate_pending()
+        self.assertEqual(len(self.events_of("pending_item_skipped")), 1,
+                         "第二轮不再处理同批（drain 即持久化）")
+
+    def test_pending_item_error_not_fatal(self):
+        """单项异常（verify 抛错/append raise）→ 事件留痕不炸整轮。"""
+        sched = self.make_scheduler({"max_iterations": 1})
+        wd = os.path.join(self.ws, "codes", "ok-202611231200")
+        os.makedirs(wd, exist_ok=True)
+        with open(os.path.join(wd, "solution.py"), "w", encoding="utf-8") as f:
+            f.write("# ok\n")
+        sched.archive.add_pending("problem=cellB",
+                                  os.path.join(wd, "solution.py"),
+                                  "tolerance_band")
+        sched.archive.save()
+        # 让 gate.verify 抛错（模拟 stage1 异常）
+        orig = sched.gate.verify
+        sched.gate.verify = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("boom"))
+        sched._reevaluate_pending()
+        errs = self.events_of("pending_item_error")
+        self.assertEqual(len(errs), 1, "单项异常应发 error 事件")
+        sched.gate.verify = orig

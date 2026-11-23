@@ -725,6 +725,12 @@ class SuperDB:
             return None
         for r in rows:
             wd = r["workdir"] or ""
+            # 路径绝对化兜底（老行存相对目录名 codes/N-xxx——cwd 相对解析
+            # 恒 False，resume 从未激活过；拼 <ws>/codes/ 绝对路径）
+            if wd and not os.path.isabs(wd):
+                wd = os.path.join(self.ws, "codes", wd)
+                if not os.path.isdir(wd):
+                    wd = os.path.join(self.ws, wd)
             if not wd or not os.path.isdir(wd):
                 continue
             sid = r["coding_session_id"] or r["debug_session_id"] or ""

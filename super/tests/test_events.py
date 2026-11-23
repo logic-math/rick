@@ -63,6 +63,8 @@ class TestConstants(unittest.TestCase):
         "budget_adjust_skipped",     # humans #32：非白名单键留痕
         "experiment_resumed",        # 无缝重启：断点续跑
         "experiment_resumed_fallback",  # resume 回退
+        "pending_item_skipped",         # pending 坏项防御
+        "pending_item_error",           # pending 单项异常
         "self_check_skip_debug",
         # 迭代13/task57：熔断探活恢复 + 产物抢救
         "api_outage_recovered",
