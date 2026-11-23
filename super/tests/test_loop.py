@@ -4134,3 +4134,79 @@ class TestBudgetCeilings(LoopTestBase):
         self.assertEqual(applied, {})
 
 
+
+
+class TestSeamlessResume(LoopTestBase):
+    """无缝重启（job_56 resume）：中断实验从断点续跑（不从头 builder）。"""
+
+    def _mk_a_cell(self):
+        """AXES 派生 cell_id（impl=naive,mem=row——正交组合）。"""
+        return "impl=naive,mem=row"
+
+    def _mk_interrupted(self, cell_id, coding_done, session_id="superopt-coding-abc123"):
+        """造一个 interrupted 实验行 + workdir 产物。"""
+        wd = os.path.join(self.ws, "codes", "res-202611231200")
+        os.makedirs(wd, exist_ok=True)
+        plan = {"idea": "resumed-idea", "target_cell": cell_id,
+                "parents": [], "plan_steps": ["p1"]}
+        with open(os.path.join(wd, "experiment_plan.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(plan, f)
+        if coding_done:
+            with open(os.path.join(wd, "solution.py"), "w",
+                      encoding="utf-8") as f:
+                f.write("# coding done artifact\n")
+        else:
+            with open(os.path.join(wd, "solution.py"), "w",
+                      encoding="utf-8") as f:
+                f.write("# coding half\n")
+        from superopt.db import db_for_ws
+        db = db_for_ws(self.ws)
+        db._conn.execute(
+            "INSERT INTO experiments (experiment_id, iteration, workdir, "
+            "cell_id, coding_session_id, status, created_at) "
+            "VALUES (?,1,?,?,?,'interrupted','2026-11-23T12:00:00+08:00')",
+            ("res-202611231200", wd, cell_id, session_id))
+        db._conn.commit()
+        return wd
+
+    def test_find_resumable_coding_breakpoint(self):
+        """coding 断点判定：coding_session_id 在 + agent_coding.json 无/无效。"""
+        cell = self._mk_a_cell()
+        self._mk_interrupted(cell, coding_done=False)
+        from superopt.db import db_for_ws
+        r = db_for_ws(self.ws).find_resumable_experiment(cell)
+        self.assertIsNotNone(r)
+        self.assertEqual(r["role"], "coding")
+        self.assertEqual(r["session_id"], "superopt-coding-abc123")
+        self.assertFalse(r["coding_done"])
+
+    def test_find_resumable_none_when_no_session(self):
+        """无 session_id 的中断实验（builder 断点）→ 不可续跑（None）。"""
+        cell = self._mk_a_cell()
+        wd = self._mk_interrupted(cell, coding_done=False, session_id=None)
+        from superopt.db import db_for_ws
+        r = db_for_ws(self.ws).find_resumable_experiment(cell)
+        self.assertIsNone(r)
+
+    def test_interrupt_stale_clears_all_running(self):
+        """重启后所有 running 僵尸行标 interrupted（record 完好行保留断点）。"""
+        cell = self._mk_a_cell()
+        wd = os.path.join(self.ws, "codes", "z-202611231200")
+        os.makedirs(wd, exist_ok=True)
+        from superopt.db import db_for_ws
+        db = db_for_ws(self.ws)
+        with db._lock:
+            db._conn.execute(
+                "INSERT INTO experiments (experiment_id, iteration, workdir, "
+                "cell_id, record_path, coding_session_id, status, created_at) "
+                "VALUES (?,1,?,?,?,?, 'running','2026-11-23T12:00:00+08:00')",
+                ("z-202611231200", wd, cell,
+                 os.path.join(wd, "experiment_record.md"), "s-coding-xyz"))
+            db._conn.commit()
+        dead = db.interrupt_stale_running()
+        self.assertIn("z-202611231200", dead)
+        r = db.find_resumable_experiment(cell)
+        self.assertIsNotNone(r)  # record 完好 + session 在 → 可续跑
+
+

@@ -1489,11 +1489,16 @@ class Scheduler:
         iter_dir = os.path.join(self.codes_dir, workdir_id)
         os.makedirs(iter_dir, exist_ok=True)
 
-        # ---- 状态 2：builder（选父格 → experiment_plan） ----
-        plan = self._run_builder(cell_id, cursor, iter_dir)
+        # ---- 状态 2+3（无缝重启 resume 分支：中断实验从断点续跑）----
+        resumed = self._try_resume_experiment(cell_id, cursor, iter_dir)
+        if resumed is not None:
+            plan, candidate = resumed
+        else:
+            # ---- 状态 2：builder（选父格 → experiment_plan） ----
+            plan = self._run_builder(cell_id, cursor, iter_dir)
 
-        # ---- 状态 3：coding（自检仅参考）→ debug（≤M 次） ----
-        candidate = self._run_coding(plan, cell_id, cursor, iter_dir)
+            # ---- 状态 3：coding（自检仅参考）→ debug（≤M 次） ----
+            candidate = self._run_coding(plan, cell_id, cursor, iter_dir)
 
         # ---- 状态 4：框架验证 + 入格 ----
         gr = None  # type: Optional[Any]
@@ -1663,6 +1668,96 @@ class Scheduler:
         except Exception:  # noqa: BLE001 题源注入失败不炸实验链
             pass
         return ""
+
+    def _try_resume_experiment(self, cell_id: str, cursor: int,
+                                iter_dir: str):
+        """无缝重启（job_56 resume）：同 cell 的 interrupted 实验断点续跑。
+
+        coding 断点：pi --session-id 续会话（上下文在）+ 续跑指令——省
+        builder 一轮 + coding 已完成部分；coding_done 断点：产物直交后续
+        链（省 builder+coding 两轮——debug/gate 走正常链）。
+        返回 (plan, candidate) 或 None（无可续跑 → 正常链）。
+        """
+        try:
+            r = self.db.find_resumable_experiment(cell_id)
+        except Exception:  # noqa: BLE001
+            return None
+        if not r:
+            return None
+        wd = r["workdir"]
+        # plan 从旧 workdir 读（builder 产物——resume 时 builder 不重跑）
+        plan = {"idea": "resumed", "target_cell": cell_id,
+                "parents": [], "plan_steps": []}
+        try:
+            with open(os.path.join(wd, "experiment_plan.json"),
+                      encoding="utf-8") as f:
+                p2 = json.load(f)
+            if isinstance(p2, dict):
+                plan = p2
+        except Exception:  # noqa: BLE001 旧 plan 读失败用兜底
+            pass
+        plan.setdefault("target_cell", cell_id)
+        self.events.append("experiment_resumed", {
+            "iteration_id": cursor, "cell_id": cell_id,
+            "resumed_from": r["experiment_id"],
+            "resume_role": r["role"], "coding_done": bool(r["coding_done"]),
+            "workdir": wd,
+            "diagnosis": "无缝重启：中断实验从断点续跑（%s 断点）"
+                         % r["role"],
+        }, "scheduler", experiment_id=self._cur_exp_id)
+        if r["coding_done"]:
+            # coding 已完成 → 产物直交（candidate=workdir 内最新候选）
+            cand = self._latest_candidate_in(wd)
+            if cand:
+                return plan, cand
+            # coding_done 但产物不在（被清）→ 回退正常链
+            self.events.append("experiment_resumed_fallback", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "reason": "coding_done 但候选产物不在盘——回退正常链",
+            }, "scheduler", experiment_id=self._cur_exp_id)
+            return None
+        # coding 断点：续会话跑完
+        try:
+            result = self.client.run_resumed(
+                "coding", r["session_id"], wd,
+                timeout_s=int(self.conf.get("agent_timeout_s", 1800) or 1800))
+        except Exception as exc:  # noqa: BLE001 续跑失败回退正常链
+            self.events.append("experiment_resumed_fallback", {
+                "iteration_id": cursor, "cell_id": cell_id,
+                "reason": "resume 派发异常: %s" % str(exc)[:200],
+            }, "scheduler", experiment_id=self._cur_exp_id)
+            return None
+        self._finish_dispatch("coding", result, cursor, None, wd)
+        cand = (result.artifact_path
+                or self._latest_candidate_in(wd) or "")
+        if result.valid and cand:
+            return plan, cand
+        # 续跑仍未完成（valid=False 且无产物）→ 回退正常链
+        self.events.append("experiment_resumed_fallback", {
+            "iteration_id": cursor, "cell_id": cell_id,
+            "reason": "resume 后仍无有效产物——回退正常链",
+        }, "scheduler", experiment_id=self._cur_exp_id)
+        return None
+
+    def _latest_candidate_in(self, workdir: str) -> Optional[str]:
+        """workdir 内最新候选产物（solution.*/candidate.*——mtime 最新）。"""
+        best, best_mt = None, -1.0
+        try:
+            for name in os.listdir(workdir):
+                low = name.lower()
+                if (low.startswith("solution.") or
+                        low.startswith("candidate.")) and \
+                        low.endswith((".py", ".cu", ".cc", ".cpp")):
+                    p = os.path.join(workdir, name)
+                    try:
+                        mt = os.path.getmtime(p)
+                    except OSError:
+                        continue
+                    if os.path.getsize(p) > 0 and mt > best_mt:
+                        best, best_mt = p, mt
+        except OSError:
+            return None
+        return best
 
     def _run_builder(self, cell_id: str, cursor: int, iter_dir: str) -> Dict[str, Any]:
         entry = self._cell_entry(cell_id)

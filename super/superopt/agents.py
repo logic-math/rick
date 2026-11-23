@@ -527,6 +527,30 @@ class PiAgentClient:
             return True
         return False
 
+    def run_resumed(self, role: str, session_id: str, workdir: str,
+                     timeout_s: int = 1800,
+                     message: Optional[str] = None,
+                     model: Optional[str] = None) -> "AgentResult":
+        """无缝重启（loop resume 派发入口）：--session-id 续已有会话跑一轮。
+
+        与 run() 的差异：不注入系统提示词（原会话上下文在），session_id 由
+        调用方传入（experiments 表的中断实验断点 session）；message 为续跑
+        指令（缺省「被中断，继续完成任务」）。AgentResult.session_id 回填
+        传入的 session_id（experiments 表记账一致）。
+        """
+        result = self._run_once(role, prompt_path="", workdir=workdir,
+                                timeout_s=timeout_s, model=model, max_turns=None,
+                                session_id=session_id, turn_soft_warn=0,
+                                resume=True,
+                                message=message or (
+                                    "你的会话因系统重启被中断。任务上下文与"
+                                    "已完成的产物都在工作目录。请检查现状"
+                                    "（已写的 solution/coding_plan/实验记录）"
+                                    "继续完成任务，最终回复输出约定 JSON。"))
+        if not result.session_id:
+            result.session_id = session_id
+        return result
+
     def _resume_session(self, role: str, prompt_path: str, workdir: str,
                         timeout_s: int, model: Optional[str],
                         max_turns: Optional[int], session_id: str,
@@ -552,7 +576,8 @@ class PiAgentClient:
         """单次 pi 子进程运行（首次 or resume），解析事件流。"""
         prompt_path = os.path.abspath(prompt_path)
         workdir = os.path.abspath(workdir)
-        if not os.path.isfile(prompt_path):
+        # resume 模式不注入系统提示词（原会话上下文在）——不要求 prompt 文件
+        if not resume and not os.path.isfile(prompt_path):
             raise ValueError("prompt file not found: %s" % prompt_path)
         if not os.path.isdir(workdir):
             raise ValueError("workdir not found: %s" % workdir)

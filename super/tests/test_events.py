@@ -61,6 +61,8 @@ class TestConstants(unittest.TestCase):
         "infra_hold_abandoned",      # humans #26：驻留上限放弃停机
         "gate_no_reading_retry",     # humans #27：无读数重试
         "budget_adjust_skipped",     # humans #32：非白名单键留痕
+        "experiment_resumed",        # 无缝重启：断点续跑
+        "experiment_resumed_fallback",  # resume 回退
         "self_check_skip_debug",
         # 迭代13/task57：熔断探活恢复 + 产物抢救
         "api_outage_recovered",

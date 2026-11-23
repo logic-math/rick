@@ -542,12 +542,47 @@ class SuperDB:
                 "AND applied=0 ORDER BY id").fetchall()
         return [self._row_to_human(r) for r in rows]
 
-    def mark_proposal_applied(self, human_id: int) -> None:
+    def mark_proposal_applied(self, human_id: int,
+                               note: str = "") -> None:
+        """标记提案已裁决 + **追加 adjudicated 事件**（humans #33 闭环修复）。
+
+        旧形态只 UPDATE humans 不发事件——adjust 读事件流看不到裁决结果
+        （adj-122/128 连续两窗 decision=null 的断点 1 根因）；本升级在标记
+        的同时追加 adjudicated 事件（携带提案摘要——断点 2「提案证据
+        剥离」修复：adjust step1 fact 从事件流即可读到提案命运）。
+        """
         with self._lock:
+            row = self._conn.execute(
+                "SELECT content FROM humans WHERE id=? AND "
+                "queue_type='proposal'", (int(human_id),)).fetchone()
             self._conn.execute(
                 "UPDATE humans SET applied=1, applied_at=? "
-                "WHERE id=? AND queue_type='proposal'", (_now(), int(human_id)))
+                "WHERE id=? AND queue_type='proposal'",
+                (_now(), int(human_id)))
             self._conn.commit()
+        # adjudicated 事件（跨进程追加——EventWriter 单事务写，DB 锁保护）
+        summary = ""
+        if row and row["content"]:
+            try:
+                c = json.loads(row["content"])
+                summary = str(c.get("title") or c.get("kind") or "")[:120]
+            except (TypeError, ValueError):
+                summary = str(row["content"])[:120]
+        try:
+            from .events import EventWriter
+            with EventWriter(self._ws_root()) as _w:
+                _w.append("adjudicated", {
+                    "proposal_id": "humans-%d" % int(human_id),
+                    "decision": "approve",
+                    "reason": note or ("human 裁决落地（提案：%s）" % summary),
+                    "proposal_summary": summary,
+                }, "adjudicator")
+        except Exception:  # noqa: BLE001 事件失败不炸标记
+            pass
+
+    def _ws_root(self) -> str:
+        """EventWriter 需要的 ws 根目录（super.db 所在目录）。"""
+        return self.ws
 
     # ---- experiments ----
 
@@ -644,18 +679,19 @@ class SuperDB:
         return adjust_id
 
     def interrupt_stale_running(self) -> List[str]:
-        """P4（step7 提案4）：把 status=running 且 record_path 为空/不存在的
-        死行（会话重启吞噬的在飞实验）标 interrupted——返回被清理的
-        experiment_id 列表（启动恢复时调用，一次到位）。"""
+        """P4 + resume 升级：重启后清所有 running 僵尸行。
+
+        旧形态只清「record_path 空/不存在」的死行——有 record 的 running
+        行残留为僵尸（污染采样决策）。resume 语义（job_56 无缝重启）：
+        本方法在**新调度器启动时**调用——此时任何 running 行都属已死
+        旧进程（py 调度器单实例锁保证），全部标 interrupted；
+        record_path 完好的行保留断点信息供 _find_resumable 续跑。
+        """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT experiment_id, record_path FROM experiments "
+                "SELECT experiment_id FROM experiments "
                 "WHERE status='running'").fetchall()
-        dead = []
-        for r in rows:
-            rp = r["record_path"]
-            if not rp or not os.path.exists(rp):
-                dead.append(r["experiment_id"])
+        dead = [r["experiment_id"] for r in rows]
         if dead:
             with self._lock:
                 self._conn.executemany(
@@ -664,6 +700,60 @@ class SuperDB:
                     [(d,) for d in dead])
                 self._conn.commit()
         return dead
+
+    def find_resumable_experiment(self, cell_id: str) -> Optional[Dict[str, Any]]:
+        """无缝重启（resume）：同 cell 的可续跑 interrupted 实验。
+
+        判据（断点角色由产物+session_id 判定，返回最新一条）：
+        - coding_session_id 或 debug_session_id 非空 + workdir 在盘
+          → 可 resume（coding/debug 的 pi 会话上下文在）
+        - 只有 builder_session_id → 产物（experiment_plan.json）已落盘，
+          coding 从头派发即可（builder 免跑收益小，不 resume）
+        返回 None = 无可续跑（正常链）。
+        """
+        # 并发安全：conn 跨线程共享（check_same_thread=False + RLock 串行）
+        # ——漏锁裸用与心跳/adjust 线程并发 = sqlite C 层 segfault（实测）
+        try:
+            with self._lock:
+                rows = self._conn.execute(
+                    "SELECT experiment_id, workdir, builder_session_id, "
+                    "coding_session_id, debug_session_id, created_at "
+                    "FROM experiments WHERE status='interrupted' AND "
+                    "cell_id=? "
+                    "ORDER BY created_at DESC LIMIT 1", (cell_id,)).fetchall()
+        except Exception:  # noqa: BLE001
+            return None
+        for r in rows:
+            wd = r["workdir"] or ""
+            if not wd or not os.path.isdir(wd):
+                continue
+            sid = r["coding_session_id"] or r["debug_session_id"] or ""
+            if not sid:
+                continue
+            # 断点角色：coding 未完成（无 valid agent_coding.json）→ coding
+            # 断点；coding 完成 → 产物直交 gate（debug 循环走正常链）
+            coding_done = False
+            try:
+                aj = os.path.join(wd, "agent_coding.json")
+                if os.path.isfile(aj):
+                    c = json.load(open(aj, encoding="utf-8"))
+                    coding_done = bool(c.get("valid"))
+            except Exception:  # noqa: BLE001
+                coding_done = False
+            role = "debug" if (coding_done and r["debug_session_id"]) else \
+                ("coding" if r["coding_session_id"] else None)
+            if role is None:
+                continue
+            return {
+                "experiment_id": r["experiment_id"],
+                "workdir": wd,
+                "role": role,
+                "session_id": (r["coding_session_id"]
+                               if role == "coding"
+                               else r["debug_session_id"]),
+                "coding_done": coding_done,
+            }
+        return None
 
     def list_adjusts(self, n: int = 20) -> List[Dict[str, Any]]:
         """最近的 adjust 运行（观察入口：sessions JSON 反序列化）。"""

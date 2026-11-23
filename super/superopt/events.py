@@ -72,6 +72,8 @@ EVENT_TYPES = frozenset({
     "infra_hold_abandoned",    # 基础设施熔断：连续 N 次 agent 0-token 失败 →
     "gate_no_reading_retry",   # humans #27：verify 无读数失败（-6）→ 同候选重试 1 次
     "budget_adjust_skipped",   # humans #32：非白名单/被拒键留痕（观测缺口）
+    "experiment_resumed",      # 无缝重启：中断实验断点续跑（coding/产物断点）
+    "experiment_resumed_fallback",  # resume 失败回退正常链
                                   # 优雅停机（认证/配额/供应商级故障，非实验失败）
     "cell_created",               # cell_id/descriptor/name/method（迭代8：adjust new_cell）
     "cell_modified",              # cell_id/method/source_refs/rationale（迭代8：modify_cell）
@@ -187,6 +189,9 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "infra_hold_abandoned": ("consecutive_probe_fails", "diagnosis"),  # humans #26
     "gate_no_reading_retry": ("iteration_id", "cell_id", "reason"),  # humans #27
     "budget_adjust_skipped": ("iteration", "key", "reason"),  # humans #32
+    "experiment_resumed": ("iteration_id", "cell_id", "resumed_from",
+                           "resume_role", "diagnosis"),
+    "experiment_resumed_fallback": ("iteration_id", "cell_id", "reason"),
     "cell_limit_reached": ("current_cells", "max_cells"),
     "new_cell_rejected": ("reason",),
     "turn_budget_alert": ("role", "soft_warn"),
