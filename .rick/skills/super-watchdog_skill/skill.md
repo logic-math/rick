@@ -53,9 +53,15 @@ python3 /Users/logic/workdir/AI_CODING/rick/super/tools/watchdog.py /Users/logic
 #### 差距 ①：进程死
 
 排查 `tail -30 <workspace>/super.log`：
-- 普通崩溃 → `python3 super/tools/watchdog.py <workspace> --restart`
-- `budget_exhausted` → 不重启，上报人类
+- 普通崩溃 → `--restart`（续跑章法见下）
+- `budget_exhausted` → 按续跑章法重启（裁决后）：剩余格数匹配预算（不是「不重启」——预算墙是人为残留，见 iter_67 判例：3h 残留墙杀 + adjust 提案 3→6 未落地）
 - `infra_failure` → 走差距 ③
+
+**续跑章法（重启前必做——防「瞎重启」）**：
+1. **config 体检**：`restart` 手柄自带（历史残留 wall/迭代帽上报）
+2. **预算匹配目标**：剩余格数 × 0.7h ÷ 8 并发 = 纯执行时长 → 墙预算取其 1.3 倍以上（或恢复默认 168h 由人控兼底）
+3. **迭代帽匹配**：cursor + 剩余格数 × 1.5 实验/格 > 当前帽 → 提帽
+4. 带旗标重启：`python3 super/tools/watchdog.py <workspace> --restart --max-wall-time <H> --max-iterations <N>`
 
 #### 差距 ②：heartbeat 停滞（进程活）
 
@@ -90,7 +96,7 @@ python3 /Users/logic/workdir/AI_CODING/rick/super/tools/watchdog.py /Users/logic
 4. **已 admitted 精英数据只读**
 5. **每次修复动作写 DB 事件留痕**：
    `sqlite3 <workspace>/super.db "INSERT INTO events (event_type, payload, actor, ts) VALUES ('watchdog_action', '{\"action\":\"...\",\"reason\":\"...\"}', 'watchdog', datetime('now','localtime'));"`
-6. **budget_exhausted 不重启**（上报人类裁决）
+6. **budget_exhausted 重启必带章法**（预算与目标匹配——历史残留 3h 墙杀 iter_67 判例：系统提案 3→6 未落地 + 人重启未体检 = 双重失误）；无剩余工作量估算时上报人类裁决
 7. **连续 2 轮同样修复无效 → 升级上报人类**
 
 ## 回执格式（sub agent 的最终输出——主 agent 只保留这个）

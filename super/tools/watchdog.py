@@ -140,13 +140,45 @@ def switch_runtime_model(ws, new_model):
         json.dump(sj, f, ensure_ascii=False, indent=2)
 
 
-def restart_super(ws):
-    """动作手柄（中控调用）：重启 super。"""
+def restart_super(ws, max_wall_time_h=None, max_iterations=None):
+    """动作手柄（中控调用）：重启 super（续跑章法）。
+
+    章法：①重启前 config 体检（历史残留预算/迭代帽——3h 墙杀 iter_67 判例）
+          ②预算与目标匹配（剩余格数 × 单实验耗时 → 预算估算）
+          ③带旗标启动（--max-wall-time / --max-iterations 覆写 config 残留）
+    """
     rick = os.path.join(ROOT, "bin", "rick")
     name = os.path.basename(ws)
     outs = []
-    for cmd in ([rick, "super", "stop", "--name", name],
-                [rick, "super", "start", "--name", name, "--daemon"]):
+    # ① config 体检：残留值上报（不改，重启旗标覆盖它）
+    try:
+        sj = json.load(open(os.path.join(ws, "super.json")))
+        cfg = sj.get("config") or {}
+        outs.append("config 体检: wall=%sh(残留) iter帽=%s(残留) cursor=%s"
+                    % (cfg.get("max_wall_time_h"), cfg.get("max_iterations"),
+                       sj.get("iteration_cursor")))
+    except Exception as exc:
+        outs.append("config 体检失败: %s" % str(exc)[:60])
+    # ② 剩余工作量估算
+    try:
+        conn = _db(ws)
+        cells = conn.execute("SELECT count(*) FROM cells").fetchone()[0]
+        adm = conn.execute(
+            "SELECT count(DISTINCT cell_id) FROM experiments WHERE status='admitted'"
+        ).fetchone()[0]
+        conn.close()
+        remaining = cells - adm
+        est_h = remaining * 0.7 / 8  # 每实验 ~0.7h、8 并发
+        outs.append("剩余 %d 格 ≈ %.1fh 纯执行（8 并发 × 0.7h/实验）" % (remaining, est_h))
+    except Exception:
+        outs.append("工作量估算失败（跳过）")
+    # ③ stop → start（带旗标）
+    start = [rick, "super", "start", "--name", name, "--daemon"]
+    if max_wall_time_h:
+        start += ["--max-wall-time", str(max_wall_time_h)]
+    if max_iterations:
+        start += ["--max-iterations", str(max_iterations)]
+    for cmd in ([rick, "super", "stop", "--name", name], start):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             outs.append(((r.stdout or "") + (r.stderr or "")).strip()[:100])
@@ -225,12 +257,20 @@ def main():
                     help="动作手柄（中控调用）：重启 super")
     ap.add_argument("--switch-to", metavar="MODEL",
                     help="动作手柄（中控调用）：切换 runtime 模型 + 重启")
+    ap.add_argument("--max-wall-time", type=float, metavar="H",
+                    help="续跑章法：重启时设墙预算（覆盖 config 残留）")
+    ap.add_argument("--max-iterations", type=int, metavar="N",
+                    help="续跑章法：重启时设迭代帽（覆盖 config 残留）")
     args = ap.parse_args()
     ws = os.path.abspath(args.workspace)
 
     # 动作模式（中控执行手柄）
     if args.restart:
-        print(json.dumps({"action": "restart", "output": restart_super(ws)},
+        print(json.dumps({"action": "restart",
+                          "max_wall_time_h": args.max_wall_time,
+                          "max_iterations": args.max_iterations,
+                          "output": restart_super(ws, args.max_wall_time,
+                                                  args.max_iterations)},
                          ensure_ascii=False, indent=2))
         return 0
     if args.switch_to:
