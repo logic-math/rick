@@ -4073,3 +4073,64 @@ class TestCostReportOutcome(LoopTestBase):
             _d._conn.commit()
         report = mod.build_report(self.ws)
         self.assertIsNone(report["outcome_breakdown"])
+
+
+class TestBudgetCeilings(LoopTestBase):
+    """用户裁决 job_56：墙预算 7 天/token 1000M 内 adjust 自调，超上限 human 审批。"""
+
+    def test_wall_budget_within_ceiling_applies(self):
+        """≤168h 的墙预算调整：adjust 自行生效（ledger+config+budget 三层同步）。"""
+        sched = self.make_scheduler({"max_wall_time_h": 24.0})
+        # 初始墙预算（CostLedger 构造值）
+        self.assertEqual(sched.ledger.max_wall_time_h, 24.0)
+        applied = sched._apply_budget_adjust(
+            {"max_wall_time_h": 168.0}, 91)
+        self.assertEqual(applied, {"max_wall_time_h": 168.0})
+        # 运行时生效（CostLedger 同步）
+        self.assertEqual(sched.ledger.max_wall_time_h, 168.0)
+        # config 段 + budget 段写回（两层一致）
+        sj = json.load(open(os.path.join(self.ws, "super.json")))
+        self.assertEqual(sj["config"]["max_wall_time_h"], 168.0)
+        self.assertEqual(sj["budget"]["max_wall_time_h"], 168.0)
+
+    def test_wall_budget_over_ceiling_rejected_to_proposal(self):
+        """>168h 的墙预算调整：拒绝 + 入提案队列（human 审批）。"""
+        sched = self.make_scheduler({"max_wall_time_h": 24.0})
+        from superopt.db import db_for_ws
+        db = db_for_ws(self.ws)
+        before = len(db._query_humans("proposal", 0))
+        applied = sched._apply_budget_adjust(
+            {"max_wall_time_h": 300.0}, 92)
+        self.assertEqual(applied, {})  # 不生效
+        self.assertEqual(sched.ledger.max_wall_time_h, 24.0)  # 运行时不变
+        # 提案队列 +1（human 审批）
+        after = db._query_humans("proposal", 0)
+        self.assertEqual(len(after), before + 1)
+        self.assertIn("预算热调超上限", after[-1]["content"]["ask"])
+        self.assertIn("ceiling_exceeded", json.dumps(after[-1]["content"], ensure_ascii=False))
+        # 拒绝事件留痕
+        evs = [e for e in db.read_events()
+               if e.get("type") == "budget_adjust_rejected"]
+        self.assertTrue(any("ceiling_exceeded" in str(e.get("payload", ""))
+                            for e in evs))
+
+    def test_tokens_over_ceiling_rejected(self):
+        """>1000M token 调整：拒绝入提案队列。"""
+        sched = self.make_scheduler({"max_wall_time_h": 24.0})
+        applied = sched._apply_budget_adjust(
+            {"max_tokens": 2_000_000_000}, 93)
+        self.assertEqual(applied, {})
+        # ≤1000M 自调生效
+        applied2 = sched._apply_budget_adjust(
+            {"max_tokens": 900_000_000}, 94)
+        self.assertEqual(applied2, {"max_tokens": 900_000_000})
+
+    def test_human_pinned_still_wins(self):
+        """human 限定键（human_pinned_budget）仍高于一切——用户裁决权。"""
+        sched = self.make_scheduler({"max_wall_time_h": 24.0})
+        sched.conf["human_pinned_budget"] = ["max_wall_time_h"]
+        applied = sched._apply_budget_adjust(
+            {"max_wall_time_h": 100.0}, 95)
+        self.assertEqual(applied, {})
+
+

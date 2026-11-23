@@ -2973,7 +2973,13 @@ class Scheduler:
     _BUDGET_ADJUSTABLE = ("agent_timeout_s", "adjust_step_timeout_s",
                           "adjust_total_timeout_s", "max_tokens",
                           "agent_timeout_s_per_role", "adjust_interval",
-                          "max_parallel_experiments")
+                          "max_parallel_experiments", "max_wall_time_h")
+
+    # adjust 自调上限（用户裁决 job_56：墙预算 7 天 / token 预算 1000M
+    # 以内 adjust 自行调整——预算是运行资源不是实验变量，不该卡 human 审批；
+    # 超上限才需 human 审批（提案队列）——防失控）。
+    _BUDGET_CEILINGS = {"max_wall_time_h": 168.0,   # 7 天
+                        "max_tokens": 1_000_000_000}  # 1000M
 
     def _writeback_config_key(self, key: str, value) -> None:
         """BUG-007 修复：热调后同步写回 super.json config 段（防 Go daemon
@@ -3007,6 +3013,30 @@ class Scheduler:
                     "reason": "human_pinned（human 限定键）",
                 }, "scheduler")
                 continue
+            # 上限保护（用户裁决：7 天/1000M 内自调，超上限 human 审批）
+            ceiling = self._BUDGET_CEILINGS.get(k)
+            if ceiling is not None:
+                try:
+                    if float(v) > float(ceiling):
+                        self.events.append("budget_adjust_rejected", {
+                            "iteration": iteration_id, "key": k,
+                            "value": v, "ceiling": ceiling,
+                            "reason": "ceiling_exceeded（超 %s=%s 上限——"
+                                      "需 human 审批，已入提案队列）" % (k, ceiling),
+                        }, "scheduler")
+                        try:
+                            self.db._push_human("proposal", {
+                                "kind": "budget_ceiling_exceeded",
+                                "key": k, "value": v, "ceiling": ceiling,
+                                "iteration": iteration_id,
+                                "ask": "预算热调超上限（%s %s > %s）——是否批准？"
+                                       % (k, v, ceiling),
+                            })
+                        except Exception:  # noqa: BLE001 提案失败不炸热调
+                            pass
+                        continue
+                except (TypeError, ValueError):
+                    continue
             try:
                 v2 = type(self.conf.get(k) or v)(v)
                 if v2 <= 0:
@@ -3016,12 +3046,29 @@ class Scheduler:
                 # A-09 修复：同步更新固化属性（主循环读 self 而非 conf）
                 if k == "max_parallel_experiments":
                     self.max_parallel_experiments = max(1, int(v2))
+                # 墙预算热调：同步 CostLedger 运行时生效 + budget 段写回
+                # （config/budget 两层必须一致——_BUDGET_SYNC_KEY 契约）
+                if k == "max_wall_time_h":
+                    self.ledger.max_wall_time_h = float(v2)
+                    self._writeback_budget_segment(v2)
                 # BUG-007 修复：热调后写回 super.json（防 Go daemon 重启时
                 # 用旧值覆盖——py 是 super.json 的合法写者之一[config 段]）
                 self._writeback_config_key(k, v2)
             except (TypeError, ValueError):
                 continue
         return applied
+
+    def _writeback_budget_segment(self, wall_h: float) -> None:
+        """墙预算热调：同步 super.json 顶层 budget 段（两层一致契约）。"""
+        try:
+            import json as _json
+            p = os.path.join(self.ws, "super.json")
+            d = _json.load(open(p, encoding="utf-8"))
+            d.setdefault("budget", {})["max_wall_time_h"] = float(wall_h)
+            with open(p, "w", encoding="utf-8") as f:
+                _json.dump(d, f, ensure_ascii=False, indent=2)
+        except Exception:  # noqa: BLE001 写回失败不炸热调
+            pass
 
     def _collect_adjust(self) -> None:
         """主线程消费在飞 adjust 的结果（agent_ended + 记账 + 提案应用）。
