@@ -2770,6 +2770,9 @@ class Scheduler:
         shared = {
             "task": self.task_name, "perf_desc": self.perf_desc,
             "perf_type": self.perf_type,
+            # OKR 思考锚（human 裁决：adjust 基于 OKR 思考不跑偏——目标从
+            # 用户需求解析，env.json okr 字段独立要素；缺省时降级提示）
+            "okr": self._okr_text(),
             "feature_axes": self.fs.axes,
             "iteration_id": iteration_id,
             "cells_status": self._cells_status(),
@@ -3059,6 +3062,28 @@ class Scheduler:
                 # 新格存活=方向正确（下游编码事实由 step1 归纳）
             })
         return out
+
+    def _okr_text(self) -> str:
+        """OKR 思考锚（env.json okr 字段：O=目标 / KRs=关键结果）。
+
+        human 裁决（job_56）：adjust 的分析目标 = 提升 O（刷榜分数类目标），
+        不是优化运行时基建——基建只在「阻塞 KR 达成」时才值得提案。
+        """
+        try:
+            okr = (self._load_env_meta() or {}).get("okr") or {}
+            o = str(okr.get("O") or "").strip()
+            krs = okr.get("KRs") or []
+            if not o and not krs:
+                return ("（env 未定义 OKR——本 env 应在 env.json 补 okr 字段："
+                        "O=从用户需求解析的目标 / KRs=关键结果）")
+            lines = ["O: %s" % o] if o else []
+            for kr in (krs if isinstance(krs, list) else [krs]):
+                t = str(kr).strip()
+                if t:
+                    lines.append("- %s" % t)
+            return "\n".join(lines)
+        except Exception:  # noqa: BLE001 OKR 缺省不炸 adjust
+            return "（OKR 读取失败——按既有上下文思考）"
 
     def _run_adjust_pipeline(self, adjust_dir: str, iteration_id: int,
                              shared: Dict[str, Any]) -> Any:
