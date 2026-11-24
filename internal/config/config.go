@@ -22,6 +22,16 @@ type Config struct {
 	// intentional.
 	WebMaxActive int `json:"web_max_active,omitempty"`
 
+	// SourceTree is the absolute path of the rick source clone this install
+	// was built from (job_55 方案 2). `rick tools init-pi` run from inside a
+	// rick clone records it; internal/super's repo-root resolution falls
+	// back to it when neither the process cwd nor the executable location
+	// resolves a tree (install.sh copies the binary out of the clone, so the
+	// copy's own location never finds one). A stale/dangling pointer
+	// degrades gracefully (marker-checked at read time). loader.go needs no
+	// change: json round-trips omitempty-transparently.
+	SourceTree string `json:"source_tree,omitempty"`
+
 	// Super carries `rick super` mode settings (job_47/task11): the super
 	// workspace root plus the PySupervisor cadence defaults. Zero fields
 	// fall back to DefaultSuperConfig() at the call site (loader.go needs no

@@ -434,3 +434,50 @@ func TestWebMaxActiveJSONRoundTrip(t *testing.T) {
 		t.Errorf("marshal must emit web_max_active, got %s", data)
 	}
 }
+
+// TestLoadConfig_SourceTreeRoundTrip（job_55 方案 2）：source_tree 指针经
+// Save/Load 往返保持一致；空值 omitempty 不落盘（config.go 的字段注释契约）。
+func TestLoadConfig_SourceTreeRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	testConfigPath := filepath.Join(tmpDir, "config.json")
+
+	oldGetConfigPath := getConfigPath
+	getConfigPath = func() (string, error) {
+		return testConfigPath, nil
+	}
+	defer func() { getConfigPath = oldGetConfigPath }()
+
+	// 指针落盘 → 回读一致。
+	cfg := GetDefaultConfig()
+	cfg.SourceTree = "/tmp/some/rick-clone"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.SourceTree != "/tmp/some/rick-clone" {
+		t.Errorf("SourceTree round-trip = %q, want %q", loaded.SourceTree, "/tmp/some/rick-clone")
+	}
+
+	// 空指针 omitempty：不落盘（缺字段 → 解析回零值）。
+	cfg2 := GetDefaultConfig()
+	if err := SaveConfig(cfg2); err != nil {
+		t.Fatalf("save empty: %v", err)
+	}
+	data, err := os.ReadFile(testConfigPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if strings.Contains(string(data), "source_tree") {
+		t.Errorf("empty SourceTree must be omitted from disk, got: %s", data)
+	}
+	loaded2, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("load empty: %v", err)
+	}
+	if loaded2.SourceTree != "" {
+		t.Errorf("absent source_tree = %q, want empty", loaded2.SourceTree)
+	}
+}

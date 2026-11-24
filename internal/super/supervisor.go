@@ -34,6 +34,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/runtime"
 )
 
@@ -505,7 +506,14 @@ func exitReason(err error, closed bool) string {
 //     "No module named superopt" (job_47 field report 2026-10-31). The
 //     executable chain is the natural fallback: the binary was *built from*
 //     a repo that ships super/superopt.
-//  3. final fallback: the process cwd (legacy behavior for external installs).
+//  3. **fallback: the config source_tree pointer** (job_55 方案 2) —
+//     install.sh copies the binary to ~/.rick/bin/rick, so for a copied
+//     install neither 1 nor 2 ever finds the clone it was built from;
+//     `rick tools init-pi` run from inside the clone records it in
+//     ~/.rick/config.json ("source_tree"), and this fallback resolves it.
+//     dev-e2e field report 2026-11-24: fresh install + external cwd hit
+//     "No module named superopt" / missing super assets before this.
+//  4. final fallback: the process cwd (legacy behavior for external installs).
 func resolveRepoRoot() string {
 	start, err := os.Getwd()
 	if err != nil {
@@ -519,7 +527,27 @@ func resolveRepoRoot() string {
 			return root
 		}
 	}
+	if root := sourceTreePointer(); root != "" {
+		return root
+	}
 	return start
+}
+
+// sourceTreePointer resolves the config source_tree pointer
+// (~/.rick/config.json, recorded by `rick tools init-pi` run from a rick
+// clone). Returns the pointer root only when it still carries the
+// super/superopt marker; a missing config, an empty pointer, or a stale/
+// dangling one (clone moved or deleted) all degrade to "" so the caller
+// falls back to the cwd — never an error, never an unvalidated path.
+func sourceTreePointer() string {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return ""
+	}
+	if cfg.SourceTree == "" {
+		return ""
+	}
+	return findSuperRoot(cfg.SourceTree)
 }
 
 // findSuperRoot walks up from `from` (a dir or file path) looking for the

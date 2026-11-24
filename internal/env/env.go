@@ -90,6 +90,11 @@ func Ensure() error {
 		fmt.Printf("✅ pi agent dir ready: %s (hideThinkingBlock=true)\n", runtime.AgentDir())
 	}
 
+	// Step 1.6（静默，无输出基线影响）：cwd 在 rick clone 内时记录 config 的
+	// source_tree 指针（job_55 方案 2——拷贝安装的二进制在 super 解析时的回退
+	// 来源）。非 clone cwd 不动 config；失败非致命。
+	_ = recordSourceTreeIfRepo()
+
 	// Step 2: subagent 扩展注册（缺失则安装）。非致命。
 	if err := EnsureNpmExtension("pi-subagents", "pi-subagents"); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  subagent extension: %v\n", err)

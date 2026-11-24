@@ -376,6 +376,10 @@ main() {
     # Initialize pi (rick's agent runtime) + subagent extension.
     # Non-fatal: rick is installed regardless; the user can re-run init-pi later.
     print_info "Initializing pi environment (rick's agent runtime)..."
+    # job_55: run init-pi from the clone root — a cwd inside the clone records
+    # the config source_tree pointer (super resolution fallback for the copied
+    # binary this script installs; deterministic regardless of caller cwd).
+    cd "$PROJECT_DIR" || true
     if "$command_name" tools init-pi; then
         print_success "pi environment ready."
     else
