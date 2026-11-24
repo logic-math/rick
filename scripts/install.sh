@@ -376,15 +376,18 @@ main() {
     # Initialize pi (rick's agent runtime) + subagent extension.
     # Non-fatal: rick is installed regardless; the user can re-run init-pi later.
     print_info "Initializing pi environment (rick's agent runtime)..."
-    # job_55: run init-pi from the clone root — a cwd inside the clone records
+    # job_55: ①run init-pi from the clone root — a cwd inside the clone records
     # the config source_tree pointer (super resolution fallback for the copied
-    # binary this script installs; deterministic regardless of caller cwd).
-    cd "$PROJECT_DIR" || true
-    if "$command_name" tools init-pi; then
+    # binary this script installs; deterministic regardless of caller cwd);
+    # ②invoke the freshly-installed binary by absolute path — "$command_name"
+    # resolves via PATH and an older rick already on PATH would hijack the
+    # new install's init-pi (upgrade edge case: old code runs, the pointer
+    # and any new init steps silently miss).
+    if (cd "$PROJECT_DIR" && "$install_dir/bin/rick" tools init-pi); then
         print_success "pi environment ready."
     else
         print_error "pi initialization had issues (see above). rick is installed;"
-        print_error "run '$command_name tools init-pi' manually after installing pi."
+        print_error "run '$install_dir/bin/rick tools init-pi' manually after installing pi."
     fi
 
     print_path_hint "$command_name"
