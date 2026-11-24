@@ -22,6 +22,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 // --- fake scheduler fixtures ---
@@ -696,4 +698,92 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPyEnvFrom_EnsuresAgentDir（job_55）：pyEnvFrom 在环境缺 PI_CODING_AGENT_DIR
+// 时必须补上 rick 托管 agent 目录（调度器 pi spawn 链需要它的 models.json/auth，
+// 缺失即 pi "Use /login" 熔断）；已有该变量（含自定义 dev agent 目录）时原样保留
+// 且不追加重复项；PYTHONPATH 合并语义不回归。
+func TestPyEnvFrom_EnsuresAgentDir(t *testing.T) {
+	repo := t.TempDir()
+	wantAgentDir := runtime.AgentDir()
+
+	t.Run("missing-appends-managed-agent-dir", func(t *testing.T) {
+		env := []string{"PATH=/usr/bin", "PYTHONPATH=/old/py"}
+		got := pyEnvFrom(env, repo)
+
+		var agentDir, pythonPath string
+		agentDirCount := 0
+		for _, kv := range got {
+			if strings.HasPrefix(kv, "PI_CODING_AGENT_DIR=") {
+				agentDir = strings.TrimPrefix(kv, "PI_CODING_AGENT_DIR=")
+				agentDirCount++
+			}
+			if strings.HasPrefix(kv, "PYTHONPATH=") {
+				pythonPath = strings.TrimPrefix(kv, "PYTHONPATH=")
+			}
+		}
+		if agentDirCount != 1 {
+			t.Fatalf("PI_CODING_AGENT_DIR entries: want 1, got %d (%v)", agentDirCount, got)
+		}
+		if agentDir != wantAgentDir {
+			t.Errorf("PI_CODING_AGENT_DIR: want %q, got %q", wantAgentDir, agentDir)
+		}
+		if !strings.HasPrefix(pythonPath, filepath.Join(repo, "super")) {
+			t.Errorf("PYTHONPATH must start with <repo>/super, got %q", pythonPath)
+		}
+		if !strings.Contains(pythonPath, "/old/py") {
+			t.Errorf("PYTHONPATH must preserve inherited /old/py, got %q", pythonPath)
+		}
+		// 其余项原样保留
+		if !containsString(got, "PATH=/usr/bin") {
+			t.Errorf("inherited PATH dropped: %v", got)
+		}
+	})
+
+	t.Run("present-any-value-is-preserved", func(t *testing.T) {
+		// 自定义 dev agent 目录：不是 runtime.AgentDir()，也必须原样保留且不追加重复项
+		dev := "/tmp/rick-dev-home/.rick/pi/agent"
+		env := []string{"PATH=/usr/bin", "PI_CODING_AGENT_DIR=" + dev}
+		got := pyEnvFrom(env, repo)
+
+		var agentDir string
+		agentDirCount := 0
+		for _, kv := range got {
+			if strings.HasPrefix(kv, "PI_CODING_AGENT_DIR=") {
+				agentDir = strings.TrimPrefix(kv, "PI_CODING_AGENT_DIR=")
+				agentDirCount++
+			}
+		}
+		if agentDirCount != 1 {
+			t.Fatalf("PI_CODING_AGENT_DIR entries: want exactly 1, got %d (%v)", agentDirCount, got)
+		}
+		if agentDir != dev {
+			t.Errorf("PI_CODING_AGENT_DIR must preserve caller value %q, got %q", dev, agentDir)
+		}
+	})
+
+	t.Run("pythonpath-merge-when-absent", func(t *testing.T) {
+		env := []string{"PATH=/usr/bin"}
+		got := pyEnvFrom(env, repo)
+		wantPy := filepath.Join(repo, "super")
+		found := false
+		for _, kv := range got {
+			if kv == "PYTHONPATH="+wantPy {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("PYTHONPATH=%s missing from %v", wantPy, got)
+		}
+	})
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

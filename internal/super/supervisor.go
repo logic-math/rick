@@ -33,6 +33,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/sunquan/rick/internal/runtime"
 )
 
 // Defaults mirror the py-side config.py DEFAULTS (job_47 task4) so the two
@@ -555,10 +557,22 @@ func findSuperRoot(from string) string {
 
 // pyEnv builds the scheduler environment: inherited env plus PYTHONPATH with
 // <repoRoot>/super prepended so `python3 -m superopt` resolves the package.
+// job_55（2026-11-24 实证）：还必须**保证 PI_CODING_AGENT_DIR 存在**——调度器
+// spawn pi（superopt agents.py env=os.environ.copy()）→ pi 需要它定位 rick 托管
+// agent 目录的 models.json/auth.json；缺失时 pi 用自己的默认 agent 目录（~/.pi）
+// → 无凭据 → "Use /login to log into a provider" → 调度器熔断 infra_failure
+// （从 ssh/cron/systemd 等不带该变量的上下文 `rick super start` 即触发；web 会话
+// worker 天然带变量故此前未暴露）。已有值一律保留——调用方可能故意指向别处
+// （如 rick tools dev-web 的 dev agent 目录），与 PYTHONPATH 的既有合并语义一致。
 func pyEnv(repoRoot string) []string {
+	return pyEnvFrom(os.Environ(), repoRoot)
+}
+
+// pyEnvFrom 是 pyEnv 的可注入内核（测试直测，不依赖进程真实环境）。
+func pyEnvFrom(env []string, repoRoot string) []string {
 	entry := filepath.Join(repoRoot, "super")
-	env := os.Environ()
-	out := make([]string, 0, len(env)+1)
+	out := make([]string, 0, len(env)+2)
+	hasAgentDir := false
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "PYTHONPATH=") {
 			old := strings.TrimPrefix(kv, "PYTHONPATH=")
@@ -567,7 +581,17 @@ func pyEnv(repoRoot string) []string {
 			}
 			continue
 		}
+		// 任何已有 PI_CODING_AGENT_DIR（含指向 dev agent 目录等自定义值）都
+		// 原样保留：只有前缀命中即视为已设置，不追加重复项（重复项会覆盖
+		// 调用方的故意指向）。
+		if strings.HasPrefix(kv, "PI_CODING_AGENT_DIR=") {
+			hasAgentDir = true
+		}
 		out = append(out, kv)
+	}
+	// 缺失才补：调度器 pi spawn 链需要 rick 托管 agent 目录（models.json/auth）。
+	if !hasAgentDir {
+		out = append(out, "PI_CODING_AGENT_DIR="+runtime.AgentDir())
 	}
 	return append(out, "PYTHONPATH="+entry)
 }
