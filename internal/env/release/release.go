@@ -86,8 +86,9 @@ const (
 	defaultGateTimeout  = 3600 * time.Second
 )
 
-// versionRe 匹配 `<sha7>-<YYMMDDHHMMSS>`（防止 GC 误删非版本目录）。
-var versionRe = regexp.MustCompile(`^(dev|[0-9a-f]{7,40})-\d{12}$`)
+// versionRe 匹配 `<sha7>-<YYMMDDHHMMSS>` 或语义化版本 `X.Y.Z`（防止 GC 误删
+// 非版本目录；semver 形态供 --version 显式版本号使用，如 7.0.0）。
+var versionRe = regexp.MustCompile(`^(dev|[0-9a-f]{7,40})-\d{12}|\d+\.\d+\.\d+[a-zA-Z0-9.-]*$`)
 
 // Plan 描述「从哪提升到哪」的全部参数（纯数据 → 测试可完全注入）。
 type Plan struct {
@@ -127,6 +128,10 @@ type Plan struct {
 	GoCache    string
 	GoModCache string
 	NpmCache   string
+
+	// VersionOverride 显式版本号（如 7.0.0；留空 = NewVersion 自动生成）。
+	// merge commit 与 build_id 同用该值。
+	VersionOverride string
 
 	// MergeVersion 是「--merge-source 合并提交信息里写哪个版本号」。
 	// CLI 在构建后把它设为本次提升的版本（rel.Version），使 merge commit 与
@@ -381,6 +386,9 @@ func (p Plan) Build(out io.Writer) (Release, error) {
 		out = io.Discard
 	}
 	version := p.NewVersion()
+	if p.VersionOverride != "" {
+		version = p.VersionOverride
+	}
 	target := p.VersionDir(version)
 	dir := p.BuildDir(version)
 	rel := Release{Version: version, Dir: dir, TargetDir: target, Staged: dir != target, BuildID: version}

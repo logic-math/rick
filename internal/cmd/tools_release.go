@@ -52,6 +52,9 @@ var releasePlanFor = func(opts releaseOptions) (release.Plan, error) {
 	if opts.keep > 0 {
 		p.KeepVersions = opts.keep
 	}
+	if opts.version != "" {
+		p.VersionOverride = opts.version
+	}
 	if opts.skipFrontend {
 		p.SkipFrontend = true
 	}
@@ -74,6 +77,8 @@ type releaseOptions struct {
 	rollback     bool
 	detach       bool
 	jsonOut      bool
+	// version 显式版本号（如 7.0.0；留空 = <sha7>-<时间戳> 自动生成）。
+	version string
 	// mergeSource 开启「源码合并」：把 dev 分支合并进生产分支后再提升产物，
 	// 让源码与二进制同版生效。默认关（保持既有语义不变）。
 	mergeSource bool
@@ -155,6 +160,7 @@ Exit codes:
 	f.StringVar(&opts.prodHome, "prod-home", "", "生产 HOME（默认：真实家目录）")
 	f.StringVar(&opts.stateDir, "state-dir", "", "生产状态目录（默认：部署脚本/生产 HOME 约定）")
 	f.StringVar(&opts.startScript, "start-script", "", "部署启动脚本（默认：<prod-home>/start-web.sh）")
+	f.StringVar(&opts.version, "version", "", "显式版本号（如 7.0.0；默认 <sha7>-<时间戳> 自动生成）")
 	f.IntVar(&opts.port, "port", 0, "生产端口（默认：从部署脚本解析；解析不到即报错）")
 	f.IntVar(&opts.keep, "keep", 0, "保留最近 N 个版本（默认 3）")
 	f.BoolVar(&opts.noGates, "no-gates", false, "跳过门禁（仅演练/测试；正式提升会打印警告）")
