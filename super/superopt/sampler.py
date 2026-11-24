@@ -91,8 +91,13 @@ class Sampler:
         """
         snap = self._archive.cells()
         # 候选 = 空间内非灭绝格（weight<=0 过滤；空间是候选全集的权威）
+        # humans #42①：定谳/关闭格自动除名（拉式消费——采样事件读
+        # cells state 的显式关闭标记〔closed/verdict_closed〕；取代手工
+        # soft_weight weight=0 逐 adjust 轮推送。soft_weight 保留为
+        # adjust 干预面——两通道并存，标记通道确定性优先）。
         candidates = [cid for cid in self._fs.all_cells()
-                      if self._weight(cid, snap) > 0.0]
+                      if self._weight(cid, snap) > 0.0
+                      and not self._closed(cid, snap)]
         if not candidates:
             raise ValueError("无可采样格子：全部格子 weight<=0（功能性灭绝）或特征空间为空")
 
@@ -115,7 +120,8 @@ class Sampler:
         if cell_id not in self._fs.all_cells():
             return 0.0
         candidates = [cid for cid in self._fs.all_cells()
-                      if self._weight(cid, snap) > 0.0]
+                      if self._weight(cid, snap) > 0.0
+                      and not self._closed(cid, snap)]
         total = sum(self._weight(cid, snap) for cid in candidates)
         if total <= 0.0:
             return 0.0
@@ -161,6 +167,17 @@ class Sampler:
             return int(entry.get("visit", 0))
         except (TypeError, ValueError):
             return 0  # 脏数据按未访问处理
+
+    @staticmethod
+    def _closed(cell_id: str, snap: Dict[str, dict]) -> bool:
+        """humans #42①：格是否被显式关闭（定谳/负清单标记）。
+
+        标记通道（cells state）：closed=true / verdict_closed=true——
+        adjust modify_cell 或 human 直写 state；读侧防御性支持（未标
+        记的格行为零变化）。weight=0 灭绝通道与 closed 通道独立并存。
+        """
+        entry = snap.get(cell_id) or {}
+        return bool(entry.get("closed") or entry.get("verdict_closed"))
 
     @staticmethod
     def _weight(cell_id: str, snap: Dict[str, dict]) -> float:

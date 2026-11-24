@@ -76,6 +76,11 @@ EVENT_TYPES = frozenset({
     "experiment_resumed_fallback",  # resume 失败回退正常链
     "pending_item_skipped",    # pending 重评估：坏项防御跳过（缺字段/路径不可解析）
     "pending_item_error",      # pending 重评估：单项异常（不炸整轮）
+    "adjust_step_resumed",     # humans #35：adjust 步骤级断点续跑（跳过已完成步骤）
+    "backlog_dispatch",        # humans #37：积压清单直派（消费出队）
+    "zero_change_aa_fastpath", # humans #38：同码容差带直通（免 debug 派发）
+    "elite_replace_vetoed",    # humans #36：debug keep_original 否决替换
+    "gpu_window_advisory",     # humans #43：GPU 窗口拥挤 advisory（log-only）
                                   # 优雅停机（认证/配额/供应商级故障，非实验失败）
     "cell_created",               # cell_id/descriptor/name/method（迭代8：adjust new_cell）
     "cell_modified",              # cell_id/method/source_refs/rationale（迭代8：modify_cell）
@@ -196,6 +201,11 @@ EVENT_SCHEMAS: Dict[str, tuple] = {
     "experiment_resumed_fallback": ("iteration_id", "cell_id", "reason"),
     "pending_item_skipped": ("cell_id", "code_path", "reason"),
     "pending_item_error": ("cell_id", "error", "reason"),
+    "adjust_step_resumed": ("step", "role", "iteration_id", "reason"),
+    "backlog_dispatch": ("iteration_cursor", "cell_id", "reason"),
+    "zero_change_aa_fastpath": ("iteration_id", "cell_id", "reason"),
+    "elite_replace_vetoed": ("iteration_id", "cell_id", "reason"),
+    "gpu_window_advisory": ("iteration_id", "cell_id", "mode"),
     "cell_limit_reached": ("current_cells", "max_cells"),
     "new_cell_rejected": ("reason",),
     "turn_budget_alert": ("role", "soft_warn"),

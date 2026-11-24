@@ -266,14 +266,27 @@ def _brief(ws):
         elites = [("%s=%.1f×" % (r[0][8:38], r[1])) for r in conn.execute(
             "SELECT cell_id, score FROM experiments WHERE status='admitted' "
             "ORDER BY score DESC LIMIT 3").fetchall()]
-        # ③ human 待裁决（proposal 队列未 applied）
+        # ③ human 待裁决（proposal 队列未 applied）+ 最老在队时长
+        #（humans #33 裁剪版：停滞观测——不做自动 adjudicator（human 裁决权）
         pending = conn.execute(
             "SELECT count(*) FROM humans WHERE queue_type='proposal' "
             "AND applied=0").fetchone()[0]
+        oldest_h = None
+        try:
+            oldest = conn.execute(
+                "SELECT min(created_at) FROM humans WHERE "
+                "queue_type='proposal' AND applied=0").fetchone()[0]
+            if oldest:
+                from datetime import datetime
+                t = datetime.strptime(oldest[:19], "%Y-%m-%dT%H:%M:%S")
+                oldest_h = round((datetime.now() - t).total_seconds() / 3600, 1)
+        except Exception:
+            pass
         conn.close()
         return {"adjust_decisions": decisions or ["无"],
                 "elites_top3": elites or ["无"],
-                "human_pending": pending}
+                "human_pending": pending,
+                "human_pending_oldest_h": oldest_h}
     except Exception:
         return {"adjust_decisions": ["采集失败"], "elites_top3": ["采集失败"],
                 "human_pending": "?"}

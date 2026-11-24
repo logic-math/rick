@@ -65,6 +65,11 @@ class TestConstants(unittest.TestCase):
         "experiment_resumed_fallback",  # resume 回退
         "pending_item_skipped",         # pending 坏项防御
         "pending_item_error",           # pending 单项异常
+        "adjust_step_resumed",          # humans #35 步骤续跑
+        "backlog_dispatch",             # humans #37 积压直派
+        "zero_change_aa_fastpath",      # humans #38 同码直通
+        "elite_replace_vetoed",         # humans #36 替换否决
+        "gpu_window_advisory",          # humans #43 GPU advisory
         "self_check_skip_debug",
         # 迭代13/task57：熔断探活恢复 + 产物抢救
         "api_outage_recovered",

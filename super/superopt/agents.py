@@ -468,10 +468,43 @@ class PiAgentClient:
                 "输出契约，只输出那个 JSON 代码块（```json ... ```），"
                 "不要任何其它内容。")
 
+        # humans #44：收尾相位 kill 全损根修——超时 kill 后 fresh 工件在盘
+        # 而仍 invalid（收尾输出/自检发射被截）⟹ 一次性「只输出最终 JSON」
+        # 收尾 resume（iter183 判例：7200s 精确 kill 于发射相位，实质工件
+        # 7/7 在盘而 final JSON 未发射 → 全损）。短超时 300s；产物仍走
+        # self_check/gate/debug 三层稽核（收尾只补发射不补验证）。
+        if (not result.valid and not result.data
+                and (result.truncated
+                     or (result.exit_code not in (0, None)))):
+            fresh = self._find_fresh_artifact(workdir, t_start)
+            if fresh:
+                result = self._final_emit_resume(
+                    role, workdir, model, session_id, result)
+
         # 产物定位（task57 R2）：本轮新落盘的候选（client 侧可观测物证；
         # 调度器另有 mtime 同规的 _rescue_artifact 扫描，两处同一契约）
         result.artifact_path = self._find_fresh_artifact(workdir, t_start)
         return result
+
+    def _final_emit_resume(self, role: str, workdir: str,
+                           model: Optional[str], session_id: str,
+                           prev: "AgentResult") -> "AgentResult":
+        """humans #44：一次性收尾 resume（只补 JSON 发射，不补新工作）。
+
+        短超时（300s）：指令极小（产物已落盘，立即只输出最终 JSON）；
+        usage/wall 归并 prev（成本归因真实总消耗）。
+        """
+        resumed = self._run_once(
+            role, "", workdir, 300, model, None, session_id, 0,
+            resume=True,
+            message="你的产物已全部落盘（工作目录内），不要做任何新工作，"
+                    "立即只输出最终 JSON 代码块（含 self_check metrics），"
+                    "不要任何其它内容。")
+        if (resumed.usage or {}).get("total_tokens", 0) == 0:
+            resumed.usage = dict(prev.usage)
+        resumed.wall_ms = resumed.wall_ms + prev.wall_ms
+        resumed.final_emit_recovered = True
+        return resumed
 
     @staticmethod
     def _is_quota_error(result: "AgentResult") -> bool:

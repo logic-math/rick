@@ -2420,9 +2420,13 @@ class TestDebugThreeTriggers(LoopTestBase):
         self.assertEqual(rechecks[-1]["payload"]["verdict"], "keep_original")
         ev = self.events_of("iteration_ended")[-1]["payload"]
         self.assertEqual(ev["recheck_verdict"], "keep_original")
-        # keep_original → 原候选照常入格（两个迭代各有一次入格事件）
+        # humans #36①：keep_original（异码）→ 不 replace（debug 否决替换，
+        # 维持原精英——cell 51 幻增益判例）+ vetoed 事件留痕。iter1 建基线
+        # 1 次入格；iter2 的可疑替换被否决（不再入格）。
         admits = [e for e in self.self_admit_events()]
-        self.assertGreaterEqual(len(admits), 2)
+        self.assertEqual(len(admits), 1, "keep_original 后维持原精英（不替换）")
+        vetoed = self.events_of("elite_replace_vetoed")
+        self.assertEqual(len(vetoed), 1, "替换否决应留 elite_replace_vetoed")
 
     def self_admit_events(self):
         return [e for e in self.read_events()
@@ -4248,3 +4252,117 @@ class TestPendingReevalLoop(LoopTestBase):
         errs = self.events_of("pending_item_error")
         self.assertEqual(len(errs), 1, "单项异常应发 error 事件")
         sched.gate.verify = orig
+
+
+class TestApprovedProposals(LoopTestBase):
+    """humans 批准提案（#35/#37/#38/#39/#42）关键逻辑单测。"""
+
+    def test_39_candidate_path_multi_base(self):
+        """#39①：相对 diff 多基解析（ws 根相对形态 → 三级回退命中）。"""
+        from superopt.loop import Scheduler
+        cell = self._mk_39_cell()
+        iter_dir = os.path.join(self.ws, "codes", "9-202611241200")
+        os.makedirs(iter_dir, exist_ok=True)
+        # 真文件在 iter_dir/solution.py；agent 声称 ws 根相对路径
+        with open(os.path.join(iter_dir, "solution.py"), "w",
+                  encoding="utf-8") as f:
+            f.write("# real\n")
+        result = _agent_result("coding", valid=True,
+                               data={"diff_path":
+                                     "codes/9-202611241200/solution.py"})
+        p = Scheduler._candidate_path(result, iter_dir, self.ws)
+        self.assertEqual(p, os.path.join(iter_dir, "solution.py"),
+                         "ws 根相对路径应三级回退命中真实文件")
+        # 绝对路径直通
+        abs_p = os.path.join(iter_dir, "solution.py")
+        r2 = _agent_result("coding", valid=True, data={"diff_path": abs_p})
+        self.assertEqual(Scheduler._candidate_path(r2, iter_dir, self.ws), abs_p)
+
+    def _mk_39_cell(self):
+        return "impl=naive|mem=row"
+
+    def test_38_same_code_as_elite(self):
+        """#38：候选与精英同码判定（MD5 客观判据）。"""
+        sched = self.make_scheduler({"max_iterations": 1})
+        cell = "impl=naive|mem=row"
+        elite_p = os.path.join(self.ws, "elite_sol.py")
+        with open(elite_p, "w", encoding="utf-8") as f:
+            f.write("# elite code\n")
+        from superopt.loop import _code_digest
+        sched.archive.admit(cell, {
+            "descriptor": {}, "elite": {
+                "code_path": elite_p, "perf_value": 1.0,
+                "code_hash": _code_digest(elite_p)}},
+            record_path=None, code_hash=_code_digest(elite_p))
+        sched.archive.save()
+        self.assertTrue(sched._same_code_as_elite(elite_p, cell))
+        other = os.path.join(self.ws, "other.py")
+        with open(other, "w", encoding="utf-8") as f:
+            f.write("# other\n")
+        self.assertFalse(sched._same_code_as_elite(other, cell))
+
+    def test_42_sampler_closed_cell(self):
+        """#42①：closed 标记格自动除名（weight>0 仍采样不到）。"""
+        from superopt.sampler import Sampler
+        cell = "impl=naive,mem=row"
+        # 手工置格状态：weight 1.0 + closed=true
+        sched = self.make_scheduler({"max_iterations": 1})
+        sched.archive.set_weight(cell, 1.0)
+        try:
+            sched.archive._data["cells"][cell]["closed"] = True
+        except Exception:
+            pass
+        sched.archive.save()
+        snap = sched.archive.cells()
+        self.assertTrue((snap.get(cell) or {}).get("closed"))
+        self.assertTrue(Sampler._closed(cell, snap))
+        self.assertFalse(Sampler._closed("impl=blocked|mem=row", snap))
+
+    def test_37_backlog_dispatch(self):
+        """#37：backlog manifest 优先直派 + 消费出队。"""
+        sched = self.make_scheduler({"max_iterations": 3})
+        cell = "impl=naive|mem=row"
+        target = "impl=blocked|mem=row"
+        skills = os.path.join(self.ws, "env", "skills")
+        os.makedirs(skills, exist_ok=True)
+        with open(os.path.join(skills, "backlog_manifest.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump([{"cell_id": target, "priority": 1},
+                       {"cell_id": "invalid-cell", "priority": 2}], f)
+        got = sched._backlog_dispatch_and_lock()
+        self.assertEqual(got, target, "清单非空按 priority 直派（无效项跳过）")
+        # 消费出队
+        with open(os.path.join(skills, "backlog_manifest.json"),
+                  encoding="utf-8") as f:
+            rem = json.load(f)
+        self.assertNotIn(target, [i.get("cell_id") for i in rem],
+                         "消费后清单出队")
+        self.assertEqual(len(self.events_of("backlog_dispatch")), 1)
+        sched.cell_locks.release(target)
+        # 清单剩无效项 → None 回退随机采样
+        self.assertIsNone(sched._backlog_dispatch_and_lock())
+
+    def test_35_adjust_step_resume_check(self):
+        """#35：已完成步骤双判据（JSON+事件）→ 跳过重派保真重建。"""
+        sched = self.make_scheduler({"max_iterations": 1})
+        adjust_dir = os.path.join(self.ws, "codes", "adjust", "iter_1")
+        os.makedirs(adjust_dir, exist_ok=True)
+        # 无 JSON → None（重派）
+        self.assertIsNone(sched._adjust_step_resume_check(
+            "adjust_fact", "", adjust_dir, 1, 1))
+        # JSON valid 但无事件 → None（事件是完成权威）
+        with open(os.path.join(adjust_dir, "agent_adjust_fact.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"valid": True, "summary": "done",
+                       "data": {"facts_path": "x.md"}}, f)
+        self.assertIsNone(sched._adjust_step_resume_check(
+            "adjust_fact", "", adjust_dir, 1, 1))
+        # 补事件 → 重建（data 保真）
+        sched.events.append("adjust_step_ended", {
+            "step": 1, "role": "adjust_fact", "valid": True,
+            "wall_ms": 100, "iteration_id": 1}, "scheduler")
+        r = sched._adjust_step_resume_check(
+            "adjust_fact", "", adjust_dir, 1, 1)
+        self.assertIsNotNone(r)
+        self.assertTrue(r.valid)
+        self.assertEqual((r.data or {}).get("facts_path"), "x.md")

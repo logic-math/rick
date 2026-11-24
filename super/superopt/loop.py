@@ -707,7 +707,10 @@ class Scheduler:
             while (len(slots) < self.max_parallel_experiments
                    and not self.stop_requested
                    and (max_iter <= 0 or self.iteration_cursor < max_iter)):
-                cell_id = self._sample_and_lock()
+                # humans #37：backlog-aware——槽位释放先读积压清单直派
+                cell_id = self._backlog_dispatch_and_lock()
+                if cell_id is None:
+                    cell_id = self._sample_and_lock()
                 if cell_id is None:
                     break  # 全格被占/溢出停机（事件已落）
                 cursor = self._alloc_cursor()
@@ -943,6 +946,59 @@ class Scheduler:
             self._step_locked(cell_id)
         finally:
             self.cell_locks.release(cell_id)
+
+    def _backlog_dispatch_and_lock(self) -> Optional[str]:
+        """humans #37：backlog-aware dispatch——积压清单优先直派。
+
+        槽位释放路径先读积压清单（env/skills/backlog_manifest.json——
+        机器可读 priority 序）：非空按 priority 序直派（跳过已锁/无效项），
+        消费后清单同步出队（写回原子替换）；清单空/不可读 → None（回归
+        纯随机采样）。risk 缓解：清单消费后即出队（防清单吞没随机探索）。
+        """
+        try:
+            mp = os.path.join(self.env_dir, "skills",
+                              "backlog_manifest.json")
+            if not os.path.isfile(mp):
+                return None
+            with open(mp, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, ValueError):
+            return None
+        items = manifest if isinstance(manifest, list) else (
+            manifest.get("items") if isinstance(manifest, dict) else None)
+        if not isinstance(items, list) or not items:
+            return None
+        taken = None
+        for it in items:
+            cid = it.get("cell_id") if isinstance(it, dict) else None
+            if not isinstance(cid, str) or not cid:
+                continue
+            if cid not in self.fs.all_cells():
+                continue  # 无效项（空间外）：跳过不消费（留 manifest 维护方清理）
+            if self.cell_locks.acquire(cid):
+                taken = cid
+                break
+            # 已锁项跳过（别的槽在跑）——不消费（下轮再看）
+        if taken is None:
+            return None
+        # 消费出队（写回剩余清单：原子替换）
+        try:
+            remaining = [it for it in items
+                         if not (isinstance(it, dict)
+                                 and it.get("cell_id") == taken)]
+            tmp = mp + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(remaining, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, mp)
+        except OSError:
+            pass
+        self.events.append("backlog_dispatch", {
+            "iteration_cursor": self.iteration_cursor,
+            "cell_id": taken,
+            "manifest_remaining": len(remaining),
+            "reason": "humans #37 backlog-aware 直派（清单消费出队）",
+        }, "scheduler")
+        return taken
 
     def _sample_and_lock(self) -> Optional[str]:
         """采样 + 格锁（迭代9/task45，human fix 2）。
@@ -2062,7 +2118,7 @@ class Scheduler:
         else:
             self._record_updated = False
 
-        candidate = self._candidate_path(result, iter_dir)
+        candidate = self._candidate_path(result, iter_dir, self.ws)
         self_check = self._self_check_of(result)
         # task57 R1：outcome 分类标记（agent 是否真实报告了自检内容）。
         # 仅计 data.self_check 里的真实报告（有 metrics/stage 内容）；
@@ -2123,7 +2179,7 @@ class Scheduler:
             debug_t0 = time.time()
             debug_result = self._run_debug(plan, cell_id, cursor, iter_dir,
                                            attempt, m, self_check, last_err)
-            dpath = self._candidate_path(debug_result, iter_dir)
+            dpath = self._candidate_path(debug_result, iter_dir, self.ws)
             dcheck = self._final_check_of(debug_result)
             self.events.append("candidate_produced", {
                 "iteration_id": cursor, "cell_id": cell_id,
@@ -2271,13 +2327,25 @@ class Scheduler:
         return "%s %s --candidate ." % (self._python_cmd(), sc)
 
     @staticmethod
-    def _candidate_path(result: Any, iter_dir: str) -> Optional[str]:
+    def _candidate_path(result: Any, iter_dir: str,
+                        ws_root: str = "") -> Optional[str]:
         diff = result.data.get("diff_path")
         if isinstance(diff, str) and diff.strip():
-            p = diff if os.path.isabs(diff) else os.path.join(iter_dir, diff)
-            if os.path.exists(p):
-                return p
-            return p  # agent 声称的路径（门禁 stage1 会验存在性）
+            if os.path.isabs(diff):
+                if os.path.exists(diff):
+                    return diff
+                return diff  # agent 声称的路径（门禁 stage1 会验存在性）
+            # humans #39①：相对 diff 多基解析（iter155 路径双写全损判例：
+            # ws 根相对路径盲 join iter_dir → 双写路径 → stage1 not found
+            # → 全损）。三级回退：iter_dir/diff → iter_dir/basename →
+            # ws_root/diff（覆盖 ws 根相对形态）；全部不存在才返回声称路径。
+            for cand in (os.path.join(iter_dir, diff),
+                         os.path.join(iter_dir, os.path.basename(diff)),
+                         (os.path.join(ws_root, diff)
+                          if ws_root else "")):
+                if cand and os.path.exists(cand):
+                    return cand
+            return os.path.join(iter_dir, diff)  # 声称路径（stage1 兜底验存在）
         # 缺省：找工作区里最像候选的 py
         for name in ("solution.py", "candidate.py"):
             p = os.path.join(iter_dir, name)
@@ -2309,6 +2377,7 @@ class Scheduler:
     def _verify_and_admit(self, candidate: str, cell_id: str, cursor: int,
                           plan: Dict[str, Any]) -> Any:
         """框架终验 + 入格。返回 GateResult（供 _step 的 gate→debug 判断）。"""
+        self._gpu_window_advisory(cell_id, cursor)
         self._probe_dbg("verify-admit", "%s %s" % (cell_id[:28], str(candidate)[-36:]))
         entry = self._cell_entry(cell_id)
         elite = entry.get("elite")
@@ -2339,10 +2408,29 @@ class Scheduler:
             # 防作弊/误测的性能结论进精英地图）②软门禁容差带内（无明显收益）。
             # 每迭代至多 1 次；debug 结论 keep_original → 原候选照常入格。
             reason = self._recheck_reason(gr, cell_id)
+            # humans #38：零改动/同码复验直通——tolerance_band 且候选 MD5 ==
+            # 精英 MD5（客观判据）⟹ 直通 measurement_refresh 免 debug 派发
+            # （A/A 族 debug 税结构性根除：同码 gain=0 by design ⟹ delta 必
+            # 落容差带 ⟹ 结论可先验；MD5 不同维持既有复验路径不动）。
+            if (reason == "tolerance_band_recheck"
+                    and self._same_code_as_elite(candidate, cell_id)):
+                self._recheck_verdict = "keep_original_zero_change"
+                self.events.append("zero_change_aa_fastpath", {
+                    "iteration_id": cursor, "cell_id": cell_id,
+                    "code_path": candidate,
+                    "gate_perf": (gr.metrics or {}).get("perf", {}).get("value"),
+                    "elite_perf": (elite or {}).get("perf_value"),
+                    "reason": "zero_change_aa（humans #38：同码容差带直通"
+                              " measurement_refresh，免 debug 派发）",
+                }, "scheduler", experiment_id=getattr(self, "_cur_exp_id", None))
+                self._admit(candidate, cell_id, cursor, plan, gr,
+                            had_elite=bool(elite))
+                self.env_fail_streak = 0
+                return gr
             if reason is not None and not self._recheck_done_this_iter:
                 self._recheck_done_this_iter = True
                 iter_dir = os.path.dirname(os.path.abspath(candidate))
-                fixed, verdict = self._run_recheck_debug(
+                fixed, verdict, recheck_valid = self._run_recheck_debug(
                     plan, cell_id, cursor, iter_dir, gr, reason)
                 self._recheck_verdict = verdict
                 if fixed is not None:
@@ -2353,12 +2441,63 @@ class Scheduler:
                                            recheck=True)
                     if gr2.passed:
                         candidate, gr = fixed, gr2
+                elif verdict == "keep_original" and recheck_valid:
+                    # humans #36①：debug verdict=keep_original ⟹ 不 replace
+                    # （幻增益防线：cell 51 判例——debug 判幻增益/测噪但写侧
+                    # 仍替换了精英值，噪声棘轮自增强）。同码 → _admit 的
+                    # measurement_refresh 分支（只刷测量值不 replace）；
+                    # 异码 keep_original → 维持原精英（不替换，事件留痕）。
+                    if not self._same_code_as_elite(candidate, cell_id):
+                        self._last_admit_verdict = "keep_original"
+                        self._last_reject_reason = (
+                            "debug_verdict_keep_original（humans #36："
+                            "复验否决替换——维持原精英）")
+                        self.events.append("elite_replace_vetoed", {
+                            "iteration_id": cursor, "cell_id": cell_id,
+                            "code_path": candidate,
+                            "vetoed_perf": (gr.metrics or {}).get(
+                                "perf", {}).get("value"),
+                            "elite_perf": (elite or {}).get("perf_value"),
+                            "reason": "debug_verdict_keep_original",
+                        }, "scheduler",
+                            experiment_id=getattr(self, "_cur_exp_id", None))
+                        self.env_fail_streak = 0
+                        return gr
+                    # 同码 keep_original：走 _admit（同码分支 → refresh）
             self._admit(candidate, cell_id, cursor, plan, gr, had_elite=bool(elite))
             self.env_fail_streak = 0
             return gr
 
         stage = gr.failure_stage or ""
         if stage.startswith("stage1"):
+            # humans #39②：stage1「candidate not found」类 env 路由失败 →
+            # 产物抢救（iter155 判例：真文件在盘而路径双写误报 → 全损）。
+            # fresh-mtime 候选在盘即代位重跑 gate（终验才是真判据——与
+            # agent_completed_but_no_json 抢救同一路径）。
+            _detail = str(gr.details or "")
+            if "candidate not found" in _detail.lower():
+                iter_dir = os.path.dirname(os.path.abspath(candidate))
+                rescued = self._rescue_artifact(iter_dir, time.time() - 86400)
+                if rescued is not None and rescued != candidate:
+                    self.events.append("artifact_rescued", {
+                        "iteration_id": cursor, "cell_id": cell_id,
+                        "code_path": rescued,
+                        "reason": "stage1_candidate_not_found_rescue"
+                                  "（humans #39：路径解析失败产物代位）",
+                        "original_claim": str(candidate)[:200],
+                    }, "scheduler",
+                        experiment_id=getattr(self, "_cur_exp_id", None))
+                    gr2 = self.gate.verify(
+                        rescued,
+                        elite_perf=(elite or {}).get("perf_value"),
+                        history=history)
+                    self._emit_gate_result(gr2, cursor, cell_id)
+                    if gr2.passed:
+                        self._admit(rescued, cell_id, cursor, plan, gr2,
+                                    had_elite=bool(elite))
+                        self.env_fail_streak = 0
+                        return gr2
+                    # 代位也失败 → 走原 stage1 结论化（真实失败）
             # 环境失败结论化：诊断包 + 连续计数（超限停止）
             self.env_fail_streak += 1
             self.events.append("env_failure_concluded", {
@@ -2414,7 +2553,7 @@ class Scheduler:
                 "reason": "门禁失败 debug 反思后确认实验失败，跳过端到端重验",
             }, "agent:debug", experiment_id=self._cur_exp_id)
             return None
-        dpath = self._candidate_path(result, iter_dir)
+        dpath = self._candidate_path(result, iter_dir, self.ws)
         self.events.append("candidate_produced", {
             "iteration_id": cursor, "cell_id": cell_id,
             "role": "debug", "attempt": 100,
@@ -2549,8 +2688,16 @@ class Scheduler:
         # ---- 延迟入库判定（L2-Q6：三者任一） ----
         _w = self._cell_entry(cell_id).get("weight")
         weight = float(_w) if isinstance(_w, (int, float)) else 1.0
+        # humans #36②：k=1 单读数 replace（suspicious_gain 复验通过的替换单）
+        # 一律 pending 化（confidence<0.8）直至 A/A 复验落带解除——与既有
+        # pending new_cell 机制同构（噪声棘轮防线：单读数幻增益不直接换精英）
+        _k1_replace = bool(had_elite and getattr(self, "_recheck_verdict", None)
+                           and self._recheck_verdict != "keep_original")
         if gr.tolerance_band:
             reason = "tolerance_band"
+        elif _k1_replace:
+            reason = "k1_recheck_replace"
+            entry["elite"]["confidence"] = 0.5
         elif not had_elite:
             reason = "new_cell"
         elif weight < 1.0:
@@ -2710,6 +2857,51 @@ class Scheduler:
         am = self.conf.get("agent_models") or {}
         return am.get(role) or am.get("adjust")
 
+    def _adjust_step_resume_check(self, role: str, prompt_suffix: str,
+                                  adjust_dir: str, iteration_id: int,
+                                  step_no: int) -> Any:
+        """humans #35：已完成步骤检测（双判据）→ 保真重建或 None（重派）。
+
+        判据（提案 risk①：adjust_step_ended 事件为完成权威，文件存在不可
+        信——半写可能）：①agent_{role}{suffix}.json 在盘且可解析且 valid=true
+        ②事件流有同 iteration 的 adjust_step_ended（step 对应）valid=true。
+        data 从 JSON 读回（#35 落盘增强后的新 JSON；旧 JSON 无 data → None
+        → 下游走标准产物路径 fallback——向后兼容）。
+        """
+        prompt_role = ("%s%s" % (role, prompt_suffix)) if prompt_suffix else role
+        jp = os.path.join(adjust_dir, "agent_%s.json" % prompt_role)
+        try:
+            with open(jp, "r", encoding="utf-8") as f:
+                j = json.load(f)
+        except (OSError, ValueError):
+            return None
+        if not isinstance(j, dict) or not j.get("valid"):
+            return None
+        # 事件权威（半写 JSON 防线）：同 iteration + step 的 valid ended
+        try:
+            ended = [ev for ev in self.events.read_all()
+                     if ev.get("type") == "adjust_step_ended"
+                     and (ev.get("payload") or {}).get("step") == step_no
+                     and (ev.get("payload") or {}).get("valid")
+                     and (ev.get("payload") or {}).get("iteration_id")
+                     == iteration_id]
+            if not ended:
+                return None
+        except Exception:  # noqa: BLE001 事件读失败保守重派
+            return None
+        from superopt.agents import AgentResult as _AR
+        data = j.get("data")
+        return _AR(
+            role=role, valid=True,
+            summary=("[resumed] %s" % str(j.get("summary") or ""))[:400],
+            usage=dict(j.get("usage") or {}),
+            wall_ms=int(j.get("wall_ms") or 0),
+            exit_code=0, tool_calls=[], model=str(j.get("model") or ""),
+            truncated=bool(j.get("truncated")), turn_warn=bool(j.get("turn_warn")),
+            json_repair=int(j.get("json_repair") or 0),
+            session_id=str(j.get("session_id") or ""),
+            data=(data if isinstance(data, dict) else None))
+
     def _pipeline_step(self, step_no: int, role: str, ctx: Dict[str, Any],
                        adjust_dir: str, iteration_id: int,
                        step_timeout: int, deadline: float,
@@ -2732,6 +2924,21 @@ class Scheduler:
             if remaining <= 120:
                 raise _PipelineBudgetExhausted(
                     "adjust 总预算耗尽（剩余 %.0fs）——跳至收尾" % remaining)
+            # ---- humans #35：步骤级断点续跑（杀波损失从整链降为当前步）----
+            # 双判据（提案 risk①：事件为完成权威——半写 JSON 不可信）：
+            # agent JSON 在盘且可解析且 valid=true + adjust_step_ended
+            # 事件（同 iteration/step）valid=true → 跳过重派，JSON data 保真
+            # 重建（改动前旧 JSON 无 data 字段 → 空 data 走下游 fallback）。
+            resumed = self._adjust_step_resume_check(
+                role, prompt_suffix, adjust_dir, iteration_id, step_no)
+            if resumed is not None:
+                self.events.append("adjust_step_resumed", {
+                    "step": step_no, "role": role,
+                    "iteration_id": iteration_id,
+                    "reason": "humans #35：已完成步骤跳过重派（断点续跑）",
+                }, "scheduler", experiment_id=make_experiment_id(
+                    role, iteration_id))
+                return resumed
             timeout = int(min(step_timeout, remaining))
             prompt = render(role, self.ws, ctx)
             prompt_role = ("%s%s" % (role, prompt_suffix)) if prompt_suffix else role
@@ -4357,6 +4564,81 @@ class Scheduler:
             return round((pv - ref) / abs(ref) * 100.0, 3)
         return round((ref - pv) / abs(ref) * 100.0, 3)
 
+    def _gpu_window_advisory(self, cell_id: str, cursor: int) -> None:
+        """humans #43（advisory 版）：E2E 派发前 GPU 窗口拥挤提示。
+
+        iter175 判例：8/8 满并发挤 5 机 H20 池 → E2E 三连 >3600s 全损。
+        advisory 档（先观察再收紧）：本地信号（在飞实验数 vs 5 机池 +
+        近窗 E2E 无读数/超时事件）拥挤判定 → log-only 事件（不阻塞不
+        延迟派发）。远程 GPU 余量实读通道（env/skills/gpu_window.py）
+        部署后接线升级 blocking 档（三证伪条款见 cell 40 v4.2）。
+        """
+        try:
+            pool = int(self.conf.get("gpu_pool_size", 5) or 5)
+            inflight = 0
+            for ev in self.events.read_all()[-200:]:
+                t = ev.get("type")
+                if t == "experiment_started":
+                    inflight += 1
+                elif t == "experiment_finished":
+                    inflight = max(0, inflight - 1)
+            recent_no_reading = sum(
+                1 for ev in self.events.read_all()[-50:]
+                if ev.get("type") == "gate_result"
+                and (ev.get("payload") or {}).get("score") == -6)
+            crowded = inflight >= pool or recent_no_reading >= 2
+            # 实读通道（humans #43）：gpu_window.py 远程探针（~10s 只读）——
+            # advisory 档关窗读数也 log-only（先观察再收紧；升级 blocking 档
+            # 的三证伪条款见 cell 40 v4.2）。探针失败/超时 → 本地信号兜底。
+            window = None
+            try:
+                gw = os.path.join(self.env_dir, "skills", "gpu_window.py")
+                if os.path.isfile(gw):
+                    r = subprocess.run(
+                        [self._python_cmd(), gw], capture_output=True,
+                        text=True, timeout=45)
+                    for line in reversed((r.stdout or "").splitlines()):
+                        line = line.strip()
+                        if line.startswith("{"):
+                            try:
+                                w = json.loads(line)
+                                if isinstance(w, dict) and \
+                                        "window_open" in w:
+                                    window = w
+                                    break
+                            except ValueError:
+                                continue
+            except Exception:  # noqa: BLE001 探针失败零影响
+                window = None
+            window_closed = bool(window and not window.get("window_open"))
+            if crowded or window_closed:
+                self.events.append("gpu_window_advisory", {
+                    "iteration_id": cursor, "cell_id": cell_id,
+                    "inflight_experiments": inflight,
+                    "gpu_pool_size": pool,
+                    "recent_no_reading_gates": recent_no_reading,
+                    "gpu_window_open": (None if window is None
+                                        else bool(window.get("window_open"))),
+                    "eligible_machines": ((window or {}).get(
+                        "eligible_machines")
+                        if window else None),
+                    "mode": "advisory（humans #43：log-only 不阻塞——关窗"
+                            "拥挤读数落档，升级 blocking 档经三证伪裁决）",
+                }, "scheduler",
+                    experiment_id=getattr(self, "_cur_exp_id", None))
+        except Exception:  # noqa: BLE001 advisory 失败零影响
+            pass
+
+    def _same_code_as_elite(self, candidate: str, cell_id: str) -> bool:
+        """humans #38/#36：候选与该格精英同码（MD5 客观判据）。"""
+        try:
+            old_hash = self.archive.get_code_hash(cell_id)
+            if not old_hash:
+                return False
+            return _code_digest(candidate) == old_hash
+        except Exception:  # noqa: BLE001
+            return False
+
     def _recheck_reason(self, gr: Any, cell_id: str) -> Optional[str]:
         """复验原因（None=不复验）：suspicious_gain / tolerance_band_recheck。"""
         policy = self._debug_policy()
@@ -4397,6 +4679,11 @@ class Scheduler:
             data.get("fix_report"), dict) else {}
         verdict = str(data.get("verdict") or fix_report.get("verdict")
                       or "keep_original")
+        # humans #36① 语义边界：keep_original 仅在**有效复验**（result.valid
+        # =true，debug 真跑并明确判定）时是否决证据；复验失败/降级
+        # （valid=false——agent 异常/无脚本）的缺省 keep_original 维持旧行为
+        # （原候选照常入格——复验失败≠幻增益否决证据）。
+        recheck_valid = bool(result.valid)
         fixed = None  # type: Optional[str]
         if verdict == "fixed":
             fixed = self._candidate_path(result, iter_dir)
@@ -4411,7 +4698,7 @@ class Scheduler:
             "self_check": {"passed": verdict != "failed",
                            "stage": "recheck", "metrics": {}},
         }, "agent:debug")
-        return fixed, verdict
+        return fixed, verdict, recheck_valid
 
     def _emit_gate_result(self, gr: Any, cursor: int, cell_id: str,
                           recheck: bool = False) -> None:
@@ -5041,11 +5328,14 @@ class Scheduler:
         else:
             self._turn_warn_streak[role] = 0
 
-        # 迭代物证：agent final 落盘
+        # 迭代物证：agent final 落盘（humans #35：data 保真——事件 payload
+        # 不带 data 防膨胀，落盘 JSON 带完整 data 供步骤级断点续跑保真重建）
         try:
+            dump_payload = dict(payload)
+            dump_payload["data"] = getattr(result, "data", None)
             with open(os.path.join(workdir, "agent_%s.json" % role), "w",
                       encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+                json.dump(dump_payload, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
         return result
