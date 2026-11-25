@@ -9,15 +9,13 @@ import (
 )
 
 // requiredRickAgents 是 rick 自定义 agent 的清单（对应 AgentDir()/agents/<name>.md）。
-// human-loop v7.x 四 agent（重生型）由 env 职责 3 落盘（task9 机制）并在此注册
-// 为就绪 check 的必需项：任一文件缺失即报未就绪。
-// v7.2（job_50）：交互型环节（费曼演绎/ZPD 档案/探索流）收回 parent 会话内联
-// 执行，agent 收缩为 4 个；zpd-assessor/feynman/originality-sparker 移除。
+// 由 env 职责 3 落盘（task9 机制）并在此注册为就绪 check 的必需项：任一文件
+// 缺失即报未就绪。
+// v8（job_57）：human-loop 重构为 SENSE 五阶段思考门禁 loop，agent 清单收缩为
+// 单 orig（调研启发者；旧四教学 agent research/syllabus-builder/lesson-writer/
+// recall-review 全部下线）。
 var requiredRickAgents = []string{
-	"research",
-	"syllabus-builder",
-	"lesson-writer",
-	"recall-review",
+	"orig",
 }
 
 // IsPIReady 汇总所有功能点就绪判定，返回 (ok, missing)。ok=true 且 missing 为空
@@ -71,9 +69,8 @@ func CheckExtensionVersionDrift() []string {
 	return drift
 }
 
-// CheckRickAgents 检查 rick 自定义 agent（v7.x 四 agent：research + 三个重生型
-// 教学 agent）是否落盘到 AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回
-// 缺失 agent 名。
+// CheckRickAgents 检查 rick 自定义 agent（v8 单 orig）是否落盘到
+// AgentDir()/agents/<name>.md。就绪返回 nil，缺失时返回缺失 agent 名。
 func CheckRickAgents() []string {
 	var missing []string
 	for _, name := range requiredRickAgents {

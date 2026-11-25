@@ -56,14 +56,37 @@ func TestHumanLoopCreatesDraftDirs(t *testing.T) {
 
 	for _, sub := range []string{
 		"draft",
-		filepath.Join("draft", "rfc"),
-		filepath.Join("draft", "concepts"),
-		filepath.Join("draft", "human-learning"),
 		filepath.Join("draft", "loops"),
 	} {
 		p := filepath.Join(workDir, ".rick", sub)
 		if _, err := os.Stat(p); os.IsNotExist(err) {
 			t.Errorf("expected directory %s to exist", p)
+		}
+	}
+
+	// v8 产物结构：本次 loop_N 目录下预建 orig/ 中间结构目录 + 初始化 thought_path.md。
+	loopsRoot := filepath.Join(workDir, ".rick", "draft", "loops")
+	entries, err := os.ReadDir(loopsRoot)
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("expected at least one loop_N dir under %s (err=%v)", loopsRoot, err)
+	}
+	loopDir := filepath.Join(loopsRoot, entries[0].Name())
+	if _, err := os.Stat(filepath.Join(loopDir, "orig")); os.IsNotExist(err) {
+		t.Errorf("expected orig dir under loop dir %s", loopDir)
+	}
+	if _, err := os.Stat(filepath.Join(loopDir, "thought_path.md")); os.IsNotExist(err) {
+		t.Errorf("expected thought_path.md under loop dir %s", loopDir)
+	}
+
+	// v7 遗留目录不再创建（v8 极简：仅 draft/loops 与 loop 产物目录）。
+	for _, gone := range []string{
+		filepath.Join("draft", "rfc"),
+		filepath.Join("draft", "concepts"),
+		filepath.Join("draft", "human-learning"),
+	} {
+		p := filepath.Join(workDir, ".rick", gone)
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("v7 legacy dir should no longer be created: %s", p)
 		}
 	}
 }
@@ -111,6 +134,18 @@ func TestHumanLoopDryRunContainsDraftDir(t *testing.T) {
 	}
 	if !strings.Contains(output, "draft") {
 		t.Error("dry-run output does not contain 'draft'")
+	}
+	// v8 核心机制锚词：思考门禁 + orig 启发 + thought_path 唯一产出。
+	for _, anchor := range []string{"门禁", "orig", "thought_path"} {
+		if !strings.Contains(output, anchor) {
+			t.Errorf("dry-run output missing v8 anchor %q", anchor)
+		}
+	}
+	// v7 教学机制不得回流。
+	for _, gone := range []string{"ZPD", "费曼", "教学", "价值裁决", "mission"} {
+		if strings.Contains(output, gone) {
+			t.Errorf("dry-run output should not contain v7 teaching keyword %q", gone)
+		}
 	}
 }
 
@@ -193,16 +228,7 @@ func TestHumanLoopCmdWithMockClaude(t *testing.T) {
 	// Override config load by patching env or using direct call
 	cfg := &config.Config{PiPath: mockPath}
 
-	// Create prompt manager and generate prompt file manually to test the flow
-	rfcDir := filepath.Join(workDir, ".rick", "draft", "rfc")
-	if err := os.MkdirAll(rfcDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify rfc dir is under draft
-	if _, err := os.Stat(rfcDir); os.IsNotExist(err) {
-		t.Error("rfc directory was not created under draft")
-	}
+	// v8：不再预建 draft/rfc（v7 历史 RFC 目录）；产物目录为 loop_N/{orig,thought_path.md}。
 
 	// Test runtime.CallCLI with mock (interactive mode)
 	promptFile := filepath.Join(tmpDir, "prompt.md")

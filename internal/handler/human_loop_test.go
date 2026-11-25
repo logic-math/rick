@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// TestRenderHumanLoopPrompt 验证 v7 教学提示词构建（update-pi 渲染冒烟的底层）：
-// 非空、含 v7 协议标题与核心节锚词、且无未替换的 {{placeholder}}。
+// TestRenderHumanLoopPrompt 验证 v8 思考门禁提示词构建（update-pi 渲染冒烟的底层）：
+// 非空、含 v8 协议核心锚词（五阶段门禁 + orig 启发 + thought_path 唯一产出）、
+// 无未替换的 {{placeholder}}、无 v7 教学机制残留。
 func TestRenderHumanLoopPrompt(t *testing.T) {
 	content, err := RenderHumanLoopPrompt("render smoke test")
 	if err != nil {
@@ -15,25 +16,31 @@ func TestRenderHumanLoopPrompt(t *testing.T) {
 	if strings.TrimSpace(content) == "" {
 		t.Fatal("rendered human-loop prompt is empty")
 	}
-	if !strings.Contains(content, "教学会话 v7") {
-		t.Error("rendered prompt should contain the v7 teaching session protocol header")
-	}
-	// v7.2 核心节锚词：SENSE 第一步新名 + 核心循环机制（费曼演绎内联+探索流）+ 五步编排。
-	for _, anchor := range []string{"问题还原", "费曼", "ZPD", "探索流", "文件状态机", "价值裁决"} {
+	// v8 核心锚词：五阶段名（human 裁决表述）+ 门禁 + orig + thought_path。
+	for _, anchor := range []string{
+		"问题还原", "视角生产", "判断矛盾", "辩证逆转", "良质批判",
+		"门禁", "orig", "thought_path.md", "推进权",
+	} {
 		if !strings.Contains(content, anchor) {
-			t.Errorf("rendered prompt should contain v7 core anchor %q", anchor)
+			t.Errorf("rendered prompt should contain v8 core anchor %q", anchor)
 		}
 	}
-	// 六 agent 名（连字符 pi agent 名）。
-	// v7.2：四个重生型 agent + 三个 parent 内联方法论 skill。
-	for _, agent := range []string{"syllabus-builder", "lesson-writer", "recall-review", "research"} {
-		if !strings.Contains(content, agent) {
-			t.Errorf("rendered prompt should reference v7.2 agent %q", agent)
-		}
-	}
-	for _, skill := range []string{"skill_zpd.md", "skill_feynman.md", "skill_exploration_stream.md"} {
+	// v8 skill 引用：五阶段 + orig + sense canon。
+	for _, skill := range []string{
+		"skill_sense_reconstruct.md", "skill_sense_perspective.md", "skill_sense_contradiction.md",
+		"skill_sense_reversal.md", "skill_sense_critique.md", "skill_orig.md", "skill_sense.md",
+	} {
 		if !strings.Contains(content, skill) {
-			t.Errorf("rendered prompt should reference parent inline methodology skill %q", skill)
+			t.Errorf("rendered prompt should reference v8 skill %q", skill)
+		}
+	}
+	// v7 教学机制不得残留。
+	for _, gone := range []string{
+		"教学会话 v7", "ZPD", "费曼", "探索流", "文件状态机", "价值裁决",
+		"mission.md", "values.md", "syllabus", "lesson-writer", "recall-review",
+	} {
+		if strings.Contains(content, gone) {
+			t.Errorf("rendered prompt should not contain v7 teaching keyword %q", gone)
 		}
 	}
 	if strings.Contains(content, "{{") {

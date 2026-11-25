@@ -34,50 +34,23 @@ type rickAgentSpec struct {
 const fullTools = "read, grep, find, ls, bash, write, edit, web_search, fetch_content, subagent"
 
 // rickAgents 是 rick 经 env 职责 3 注册为 pi 自定义 agent 的清单
-// （human-loop v7.x 四 agent：重生型）。system prompt = 对应源码 skill 的 wiki 正文。
-// v4.1.1 起各 agent 工具全量开放（fullTools），行为约束交给各自 system prompt。
-// v7（job_50）：teach 下线；v7.1 加 feynman；**v7.2：交互型环节收回 parent 内联
-// 执行（费曼演绎/ZPD 档案/探索流），agent 收缩为 4 个重生型**
-// （research/syllabus-builder/lesson-writer/recall-review）；
-// zpd-assessor、feynman、originality-sparker 三 agent 移除，
-// 对应 skill 改为 parent 会话内联方法论（skills/{zpd,feynman,exploration_stream}.md）。
+// （human-loop v8 单 agent：orig）。system prompt = 对应源码 skill 的 wiki 正文。
+// 工具全量开放（fullTools），行为约束交给各自 system prompt。
+// v8（job_57）：human-loop 彻底重构为 SENSE 五阶段思考门禁 loop——旧四教学
+// agent（research/syllabus-builder/lesson-writer/recall-review）全部下线，
+// 仅保留 orig（基于用户思考进度调研、返回启发内容；唯一提示词：「给用户
+// 返回怎样的内容才能引导他完成本阶段的思考目标？」）。
 var rickAgents = []rickAgentSpec{
 	{
-		name:           "research",
-		description:    "尽调树 + 信源加权方法论（澄清事实模糊性到极限；预估内容过多时拆叶子 worker 递归尽调）",
+		name:           "orig",
+		description:    "调研启发者（基于用户当前思考进度搜索调研信息，返回启发内容——不是答案；唯一提示词：给用户返回怎样的内容才能引导他完成本阶段的思考目标）",
 		tools:          fullTools,
 		defaultContext: "fresh",
-		// 递归外包 + 自落盘：research 自落盘事实材料（write 首块 + bash cat >> 分批
-		// 追加），预估内容过多时拆叶子各写各的叶子文件；bash 支撑「运行时行为」信源验证。
+		// 多 provider 调研 + 自落盘：调研素材 write 首块 + bash 分批追加落盘
+		// orig/stage{N}_{seq}.md（立即可交付性优先）；单一搜索源限流时降级
+		// curl 直连 API（OpenAlex/arXiv 等开放 API）。
 		thinking:  "high",
-		timeoutMs: 3600000, // 60min：实测 E 阶段 research（首轮 8.5min + 叶子扇出 14.4min）≈27-35min，默认 30min 超时恰在落盘前掐死
-	},
-	{
-		name:           "syllabus-builder",
-		description:    "教学大纲生成（SENSE 问题还原留痕 + 教学序列与每块判据；独写 syllabus.md；syllabus/syllabus-update 两模式）",
-		skill:          "syllabus_builder",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
-	},
-	{
-		name:           "lesson-writer",
-		description:    "课程内容生成（ZPD 详略呈现：弱少而精/强加速；先判图/文；事实层给满推导层留白；一课一事；独写 lessons/teach_N.md）",
-		skill:          "lesson_writer",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
-	},
-	{
-		name:           "recall-review",
-		description:    "收口复习与可重访锚蒸馏（每课≤5 条关键词+卡点原话+未解矛盾；独写 anchors.md；下次探针的原料）",
-		skill:          "recall_review",
-		tools:          fullTools,
-		defaultContext: "fresh",
-		thinking:       "high",
-		timeoutMs:      3600000,
+		timeoutMs: 3600000, // 60min：上游模型单轮 TTFB 可达 8 分钟，默认 30min 会在交付前一刻掐死子运行
 	},
 }
 
