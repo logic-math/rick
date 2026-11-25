@@ -108,7 +108,24 @@ class Sampler:
                      if self._visit(cid, snap) == 0]
         if unvisited:
             return self._weighted_choice(unvisited, snap)
-        return self._weighted_choice(candidates, snap)
+        # KR1 覆盖优先（OKR 对齐——human 裁决：未覆盖格应有更高采样优先）：
+        # 存在无 elite 格时，null 格采样权重 ×null_boost（默认 5.0——
+        # w=3.0 的 null 格有效权重 15 → 单格份额 ~8%+；boost=1 关闭）。
+        # 语义：覆盖闭合（KR1）优先于重访深挖（KR2/KR3）——boost 可经
+        # conf null_boost 调节。
+        return self._weighted_choice(candidates, snap,
+                                     null_boost=self._null_boost(candidates, snap))
+
+    def _null_boost(self, candidates, snap) -> float:
+        """KR1 覆盖优先的 null 格权重倍增系数（存在 null 格才 boost）。"""
+        if not any(not (snap.get(cid) or {}).get("elite")
+                   for cid in candidates):
+            return 1.0
+        try:
+            boost = float(getattr(self, "null_boost_conf", 0) or 0)
+        except (TypeError, ValueError):
+            boost = 0.0
+        return boost if boost > 1.0 else 1.0
 
     def weight_share(self, cell_id: str) -> float:
         """该格在当前候选集中的采样份额（= weight / 候选集总 weight）。
@@ -155,9 +172,19 @@ class Sampler:
 
     # ---- 内部 ----
 
-    def _weighted_choice(self, cell_ids, snap: Dict[str, dict]) -> str:
-        """存活格按 weight 比例随机（唯一采样原语）。"""
-        weights = [self._weight(cid, snap) for cid in cell_ids]
+    def _weighted_choice(self, cell_ids, snap: Dict[str, dict],
+                          null_boost: float = 1.0) -> str:
+        """存活格按 weight 比例随机（唯一采样原语）。
+
+        null_boost > 1 时：无 elite 格的权重乘 boost（KR1 覆盖优先）。
+        """
+        if null_boost > 1.0:
+            weights = [self._weight(cid, snap) * (
+                           null_boost if not (snap.get(cid) or {}).get("elite")
+                           else 1.0)
+                       for cid in cell_ids]
+        else:
+            weights = [self._weight(cid, snap) for cid in cell_ids]
         return self._rng.choices(cell_ids, weights=weights, k=1)[0]
 
     @staticmethod

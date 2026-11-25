@@ -419,8 +419,15 @@ class Scheduler:
                 # 注入的外部 Archive 无 bump_visit：内存补一层（visit 真相在事件）
                 self._visit_shadow = {}  # type: Dict[str, int]
                 on_visit = self._shadow_bump
-            self.sampler = sampler or Sampler(
+            _sam = sampler or Sampler(
                 self.archive, self.fs, on_visit=on_visit)
+            # KR1 覆盖优先（OKR 对齐）：null 格采样 boost（conf 可配，默认 5）
+            try:
+                _sam.null_boost_conf = float(
+                    self.conf.get("null_boost", 5.0) or 5.0)
+            except (TypeError, ValueError):
+                _sam.null_boost_conf = 5.0
+            self.sampler = _sam
             self.client = agent_client or PiAgentClient(
                 pi_path=str(conf.get("pi_path") or ""))
             self.gate = gate or CascadeGate(self.env_dir, self.gates_dir,
