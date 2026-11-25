@@ -95,6 +95,12 @@ func Ensure() error {
 	// 来源）。非 clone cwd 不动 config；失败非致命。
 	_ = recordSourceTreeIfRepo()
 
+	// Step 1.7（静默，无输出基线影响）：cwd 在 rick clone 内时把 super 运行时
+	// （super/ python 树 + 9 件资产）安装快照到 ~/.rick（job_55 迭代 5 自包含
+	// 安装——resolveRepoRoot ③ 回退与 SuperAssetFallbackPath 回退链的源头）。
+	// 非 clone cwd 绝不动既有副本；失败非致命（旧副本继续可用）。
+	_ = deploySuperRuntime()
+
 	// Step 2: subagent 扩展注册（缺失则安装）。非致命。
 	if err := EnsureNpmExtension("pi-subagents", "pi-subagents"); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  subagent extension: %v\n", err)

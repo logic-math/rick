@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,11 +51,6 @@ import (
 
 // DreamRunner runs one dream pass in the background (non-interactive).
 type DreamRunner func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error
-
-// deploySuperAssets 是 super 资产自动分发的可注入 seam（job_55，测试
-// fake 化）：生产 = superpkg.DeploySuperAssets（resolveRepoRoot 定位 rick
-// 树，只补缺失不覆盖）；web 测试用它固化「分发不可用 → 原显式报错」契约。
-var deploySuperAssets = superpkg.DeploySuperAssets
 
 // SessionManager orchestrates the whole session lifecycle. It is safe for
 // concurrent use; state transitions are serialized under mu.
@@ -2281,21 +2275,19 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 				"super session requires a non-empty requirement（进化使命）")
 		}
 		title := paramString(params, "title")
-		// job_55：外部工作区首次用 super 不再撞「缺失 super-loop.md」——
-		// 前置检查前先从 rick 树自动分发缺失的 9 件标准资产（只补缺失、
-		// 绝不覆盖工作区已有定制）；失败/树无资产 → 静默落回下方原显式报错
-		// （行为与 job_48 严格加载时代完全一致）。
-		if deployed, err := deploySuperAssets(rickDir); err == nil && len(deployed) > 0 {
-			log.Printf("[super] auto-deployed %d asset(s) from rick tree to %s: %v", len(deployed), rickDir, deployed)
-		}
-		for _, asset := range []struct{ path, hint string }{
-			{filepath.Join(rickDir, "loops", "super-loop.md"),
-				"super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
-			{filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"),
-				"super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},
+		// job_55 迭代 5（human 裁决 2026-11-26 自包含安装）：前置检查走
+		// SuperAssetFallbackPath 回退链——工作区存在 → 通过（定制 override）；
+		// 否则 ~/.rick 安装副本（init-pi 部署）存在 → 通过。不再逐工作区
+		// 拷贝（job_55 的 auto-deploy 已移除：跨工作区统一从安装副本读，避免
+		// 各工作区副本版本漂移；BuildSuperPrompt 同链）。
+		for _, asset := range []struct{ rel, hint string }{
+			{"loops/super-loop.md", "super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
+			{"skills/gen_env_skill/skill.md", "super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},
 		} {
-			if _, err := os.Stat(asset.path); err != nil {
-				return nil, newWebError(http.StatusBadRequest, "invalid_params", "%s：缺失文件 %s", asset.hint, asset.path)
+			path := superpkg.SuperAssetFallbackPath(rickDir, asset.rel)
+			if _, err := os.Stat(path); err != nil {
+				return nil, newWebError(http.StatusBadRequest, "invalid_params",
+					"%s：工作区与 ~/.rick 安装副本均无——请运行 rick tools init-pi（在 rick clone 内）安装 super 运行时：缺失文件 %s", asset.hint, path)
 			}
 		}
 		envID, err := scanNextEnvID(rickDir)

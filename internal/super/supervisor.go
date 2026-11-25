@@ -506,14 +506,23 @@ func exitReason(err error, closed bool) string {
 //     "No module named superopt" (job_47 field report 2026-10-31). The
 //     executable chain is the natural fallback: the binary was *built from*
 //     a repo that ships super/superopt.
-//  3. **fallback: the config source_tree pointer** (job_55 方案 2) —
-//     install.sh copies the binary to ~/.rick/bin/rick, so for a copied
-//     install neither 1 nor 2 ever finds the clone it was built from;
-//     `rick tools init-pi` run from inside the clone records it in
-//     ~/.rick/config.json ("source_tree"), and this fallback resolves it.
-//     dev-e2e field report 2026-11-24: fresh install + external cwd hit
-//     "No module named superopt" / missing super assets before this.
-//  4. final fallback: the process cwd (legacy behavior for external installs).
+//  3. **fallback: the ~/.rick super installation snapshot** (job_55 迭代 5，
+//     human 裁决 2026-11-26 自包含安装) — `rick tools init-pi` run from
+//     inside a clone copies the whole super/ python tree to
+//     <rickRoot>/super (DeploySuperRuntimeFromSrc); this fallback resolves
+//     that snapshot. It ranks ABOVE the source_tree pointer because the
+//     snapshot is the install-time copy of exactly the source the binary
+//     was built from (strict version pairing), while the pointer targets a
+//     clone that may have drifted forward via git pull (source newer than
+//     binary → subtle half-version behavior). Field report 9fdd3d9a
+//     (2026-11-25): a cross-tree symlink install (/Users/logic/bin/rick →
+//     <repo>/bin/releases/current/rick) resolves 2 to the symlink's PARENT
+//     directory, never the target repo — the snapshot fallback (and before
+//     it existed, a hand-written source_tree pointer) is what saved it.
+//  4. fallback: the config source_tree pointer (job_55 方案 2) — kept for
+//     compatibility with installs that recorded a pointer but have not yet
+//     re-run init-pi to get the snapshot.
+//  5. final fallback: the process cwd (legacy behavior for external installs).
 func resolveRepoRoot() string {
 	start, err := os.Getwd()
 	if err != nil {
@@ -527,10 +536,54 @@ func resolveRepoRoot() string {
 			return root
 		}
 	}
+	if root := installedSuperSnapshot(); root != "" {
+		return root
+	}
 	if root := sourceTreePointer(); root != "" {
 		return root
 	}
 	return start
+}
+
+// installedSuperSnapshot resolves the ~/.rick super installation snapshot
+// (③): the rick root whose super/superopt/__main__.py marker validates. The
+// rick root is HOME-derived (same resolution as runtime.AgentDir's chain) so
+// tests can inject HOME/RICK_PI_AGENT_DIR.
+func installedSuperSnapshot() string {
+	root := rickRootFromAgentEnv()
+	if root == "" {
+		return ""
+	}
+	if root == findSuperRoot(root) {
+		return root
+	}
+	return ""
+}
+
+// rickRootFromAgentEnv derives the rick state root (~/.rick) for the
+// installed-super-runtime resolution. HOME-based only: the installed
+// runtime (super/ tree + 9 assets) lives in the rick state root beside
+// config.json / web.json — that root is HOME-derived in rick everywhere
+// (internal/config GetConfigPath, env.home). RICK_PI_AGENT_DIR is
+// deliberately NOT consulted: it overrides only the pi agent dir
+// (~/.rick/pi/agent), and injecting it must not relocate the state root
+// (web tests set both HOME and RICK_PI_AGENT_DIR to independent temps;
+// supervisor subprocess tests inject HOME only — both shapes stay
+// correct under HOME-basis).
+func rickRootFromAgentEnv() string {
+	d := os.Getenv("RICK_PI_AGENT_DIR")
+	if d != "" {
+		const suffix = "pi" + string(filepath.Separator) + "agent"
+		if strings.HasSuffix(d, suffix) {
+			return filepath.Dir(d)
+		}
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".rick")
 }
 
 // sourceTreePointer resolves the config source_tree pointer
