@@ -177,24 +177,28 @@ func copySuperTree(src, dst string) error {
 }
 
 // SuperAssetFallbackPath 是 super 资产读取回退链的统一 helper（job_55
-// 迭代 5）：wsRickDir 下存在 → 返回工作区路径（定制 override 优先）；
-// 否则 ~/.rick 安装副本（installedRickDir() + rel）存在 → 返回之；都缺 →
-// 返回工作区路径（调用方按既有风格报「缺失文件 <工作区路径>」——错误
-// 信息落在工作区侧，语义更贴近用户可操作面）。
+// 迭代 6 优先级翻转，human 裁决 2026-11-26「直接读 ~/.rick 下的 superopt
+// 不需要再读工作区中的了，这样可以保持一致」）：~/.rick 安装副本存在 →
+// 返回安装路径（最优先——与二进制同版本配套，跨工作区一致）；否则工作区
+// 存在 → 返回之（定制兼容回退：~/.rick 无该件但工作区有定制版时仍可用）；
+// 都缺 → 返回 ~/.rick 路径（报错指向安装侧——提示 init-pi）。
 //
 // 两处调用方共用本链（语义必须一致）：web 前置检查（internal/web
 // sessions.go）与 BuildSuperPrompt 的 readInline（internal/super
 // session.go）。
 func SuperAssetFallbackPath(wsRickDir, rel string) string {
-	wsPath := filepath.Join(wsRickDir, filepath.FromSlash(rel))
-	if _, err := os.Stat(wsPath); err == nil {
-		return wsPath
-	}
+	// ① ~/.rick 安装副本最优先（human 裁决：直接读 ~/.rick 保持一致）。
 	instPath := filepath.Join(installedRickDir(), filepath.FromSlash(rel))
 	if _, err := os.Stat(instPath); err == nil {
 		return instPath
 	}
-	return wsPath
+	// ② 工作区 fallback（定制兼容：~/.rick 无该件但工作区有定制版时仍可用）。
+	wsPath := filepath.Join(wsRickDir, filepath.FromSlash(rel))
+	if _, err := os.Stat(wsPath); err == nil {
+		return wsPath
+	}
+	// ③ 都缺 → 报 ~/.rick 侧路径（安装侧，提示 init-pi）。
+	return instPath
 }
 
 // installedRickDir 返回 super 安装副本所在的 rick 根（~/.rick）。与

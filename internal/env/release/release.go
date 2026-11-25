@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/sunquan/rick/internal/env/procfs"
+	superpkg "github.com/sunquan/rick/internal/super"
 )
 
 // proc 是进程信息抽象的注入 seam：生产代码用 procfs.New()（linux 走 /proc，
@@ -339,6 +340,9 @@ type Result struct {
 	GCRemoved  []string       `json:"gc_removed,omitempty"`
 	Overlay    string         `json:"overlay,omitempty"`
 	Restart    *RestartResult `json:"restart,omitempty"`
+	// Warnings 收集非致命告警（如 superopt 快照部署失败——不阻断 release，
+	// 旧快照仍可用，下次 init-pi / release 再覆盖）。
+	Warnings []string `json:"warnings,omitempty"`
 	// Merge 记录 --merge-source 的源码合并结果（未开启时为 nil）。
 	Merge *MergeResult `json:"merge,omitempty"`
 	Plan  PlanSummary  `json:"plan"`
@@ -689,6 +693,17 @@ func (p Plan) Promote(rel Release) (Result, error) {
 	}
 	if err := p.ensureBinLink(); err != nil {
 		return res, &StageError{Stage: "promote", Err: err}
+	}
+	// job_55 迭代 6（human 裁决 2026-11-26）：release 联动部署 superopt
+	// 快照到 ~/.rick/super ——每次 release 整目录覆盖，保证二进制与 superopt
+	// 版本严格配套。非致命（失败只 warn：旧快照仍可用，下次 init-pi/release
+	// 再覆盖）。
+	if err := superpkg.DeploySuperRuntimeFromSrc(p.DevTree, p.StateDirPath()); err != nil {
+		warn := fmt.Sprintf("superopt snapshot deploy (non-fatal, old snapshot still active): %v", err)
+		fmt.Fprintf(os.Stderr, "[rick release] ⚠️  %s\n", warn)
+		res.Warnings = append(res.Warnings, warn)
+	} else {
+		fmt.Fprintf(os.Stderr, "[rick release] superopt snapshot deployed to %s/super (release %s)\n", p.StateDirPath(), rel.Version)
 	}
 	overlay, err := p.syncOverlay(rel)
 	if err != nil {

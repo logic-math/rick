@@ -2275,11 +2275,10 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 				"super session requires a non-empty requirement（进化使命）")
 		}
 		title := paramString(params, "title")
-		// job_55 迭代 5（human 裁决 2026-11-26 自包含安装）：前置检查走
-		// SuperAssetFallbackPath 回退链——工作区存在 → 通过（定制 override）；
-		// 否则 ~/.rick 安装副本（init-pi 部署）存在 → 通过。不再逐工作区
-		// 拷贝（job_55 的 auto-deploy 已移除：跨工作区统一从安装副本读，避免
-		// 各工作区副本版本漂移；BuildSuperPrompt 同链）。
+		// job_55 迭代 6（human 裁决 2026-11-26 优先级翻转）：前置检查走
+		// SuperAssetFallbackPath 回退链——~/.rick 安装副本存在 → 通过（最优先，
+		// 与二进制同版本配套，跨工作区一致）；否则工作区存在 → 通过（定制兼容）。
+		// 不再逐工作区拷贝（job_55 的 auto-deploy 已移除；BuildSuperPrompt 同链）。
 		for _, asset := range []struct{ rel, hint string }{
 			{"loops/super-loop.md", "super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
 			{"skills/gen_env_skill/skill.md", "super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},

@@ -121,3 +121,86 @@ func TestResolveRepoRootConfigPointerFallback(t *testing.T) {
 		t.Errorf("markerless pointer: resolveRepoRoot = %q, want cwd fallback %q", got, wantCwd)
 	}
 }
+
+// TestResolveRepoRootInstalledSnapshotFirst（job_55 迭代 6 优先级翻转）：
+// ~/.rick/super 安装快照存在时，resolveRepoRoot 必须最优先返回它——即使
+// cwd 也在 rick repo 内（human 裁决「直接读 ~/.rick 保持一致」）。
+// 复现方式与 ConfigPointerFallback 同：子进程 helper 模式。
+func TestResolveRepoRootInstalledSnapshotFirst(t *testing.T) {
+	if os.Getenv("RICK_SUPER_HELPER_RESOLVE") != "" {
+		fmt.Println("RESULT " + resolveRepoRoot())
+		os.Exit(0)
+	}
+
+	tmp := t.TempDir()
+
+	// 假安装快照（~/.rick/super/superopt/__main__.py）。
+	instHome := filepath.Join(tmp, "insthome")
+	instSuper := filepath.Join(instHome, ".rick", "super", "superopt")
+	if err := os.MkdirAll(instSuper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instSuper, "__main__.py"), []byte("#!py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 假 repo（cwd 侧也有 marker——但优先级低于安装快照）。
+	cwdRepo := filepath.Join(tmp, "cwdrepo")
+	if err := os.MkdirAll(filepath.Join(cwdRepo, "super", "superopt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwdRepo, "super", "superopt", "__main__.py"), []byte("#!py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 拷贝测试二进制到 cwdRepo/bin（exe 也在 repo 内——同样应低于安装快照）。
+	helper := filepath.Join(cwdRepo, "bin", "helper.test")
+	if err := os.MkdirAll(filepath.Dir(helper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testExe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(testExe)
+	if err != nil {
+		t.Fatalf("read test binary: %v", err)
+	}
+	if err := os.WriteFile(helper, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// 跑 helper：HOME 指向 instHome（安装快照存在）、cwd 在 cwdRepo（marker 也在）。
+	// 期望：安装快照最优先（human 裁决——与二进制同版本配套，保持一致）。
+	cmd := exec.Command(helper, "-test.run=TestResolveRepoRootInstalledSnapshotFirst")
+	cmd.Dir = cwdRepo
+	var env []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "PWD=") || strings.HasPrefix(kv, "HOME=") || strings.HasPrefix(kv, "RICK_PI_AGENT_DIR=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = append(env, "HOME="+instHome, "RICK_SUPER_HELPER_RESOLVE=1")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("helper: %v\n%s", err, out)
+	}
+	var got string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.HasPrefix(line, "RESULT ") {
+			got = strings.TrimSpace(strings.TrimPrefix(line, "RESULT "))
+			break
+		}
+	}
+	if got == "" {
+		t.Fatalf("helper output missing RESULT line: %q", out)
+	}
+	want := filepath.Join(instHome, ".rick")
+	// macOS /var ↔ /private/var 双形归一。
+	wantResolved, _ := filepath.EvalSymlinks(want)
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	if gotResolved != wantResolved {
+		t.Errorf("installed snapshot first: resolveRepoRoot = %q, want %q (got %q vs want %q)", got, want, gotResolved, wantResolved)
+	}
+}

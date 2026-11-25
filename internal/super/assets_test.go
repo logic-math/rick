@@ -155,3 +155,72 @@ func TestDeploySuperAssetsFromResolvedTree(t *testing.T) {
 		t.Fatalf("super-loop.md content = %q, want %q（应来自假 rick 树）", data, want)
 	}
 }
+
+// TestSuperAssetFallbackPath_PriorityFlip（job_55 迭代 6）：human 裁决
+// 2026-11-26——~/.rick 安装副本最优先（与二进制同版本配套，跨工作区一致），
+// 工作区文件降为定制兼容回退；都缺时报 ~/.rick 侧路径。
+func TestSuperAssetFallbackPath_PriorityFlip(t *testing.T) {
+	rel := "loops/super-loop.md"
+
+	t.Run("installed-first", func(t *testing.T) {
+		// ~/.rick 有 + 工作区也有 → ~/.rick 优先（human 裁决「保持一致」）。
+		tmp := t.TempDir()
+		ws := filepath.Join(tmp, "ws", ".rick")
+		inst := filepath.Join(tmp, "inst", ".rick")
+		for _, d := range []string{ws, inst} {
+			p := filepath.Join(d, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte("v"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(inst, "pi", "agent"))
+		got := SuperAssetFallbackPath(ws, rel)
+		want := filepath.Join(inst, filepath.FromSlash(rel))
+		if got != want {
+			t.Errorf("installed-first: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("installed-missing-workspace-fallback", func(t *testing.T) {
+		// ~/.rick 无 + 工作区有 → 工作区兜底（定制兼容）。
+		tmp := t.TempDir()
+		ws := filepath.Join(tmp, "ws", ".rick")
+		inst := filepath.Join(tmp, "inst", ".rick")
+		if err := os.MkdirAll(filepath.Join(ws, "loops"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(inst, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(ws, "loops", "super-loop.md"), []byte("v"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(inst, "pi", "agent"))
+		got := SuperAssetFallbackPath(ws, rel)
+		want := filepath.Join(ws, filepath.FromSlash(rel))
+		if got != want {
+			t.Errorf("workspace-fallback: got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("both-missing-report-installed-path", func(t *testing.T) {
+		// 都缺 → 报 ~/.rick 侧路径（提示 init-pi）。
+		tmp := t.TempDir()
+		ws := filepath.Join(tmp, "ws", ".rick")
+		inst := filepath.Join(tmp, "inst", ".rick")
+		for _, d := range []string{ws, inst} {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(inst, "pi", "agent"))
+		got := SuperAssetFallbackPath(ws, rel)
+		want := filepath.Join(inst, filepath.FromSlash(rel))
+		if got != want {
+			t.Errorf("both-missing: got %q, want %q", got, want)
+		}
+	})
+}
