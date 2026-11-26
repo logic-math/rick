@@ -2404,29 +2404,31 @@ class TestAdjustFourStep(LoopTestBase):
 class TestDebugThreeTriggers(LoopTestBase):
     """迭代8 KR6：debug 三类触发 + keep_original 仍入格。"""
 
-    def test_suspicious_gain_triggers_recheck_and_keeps_original(self):
-        """② 异常收益（≥阈值）→ attempt=200 复验；keep_original 仍入格。"""
+    def test_suspicious_gain_no_longer_intercepted(self):
+        """human 裁决（2026-11-26）：大涨幅不再拦截——直接 admit（无复验）。
+
+        旧语义（收益 ≥ 阈值 → suspicious_gain 复验 + keep_original veto）
+        已移除：大涨幅是进化系统的核心价值面（代数塌缩类真突破），
+        拦截复验惩罚真突破。新语义：大涨幅候选直接入格（无 debug
+        复验、无 veto），iter2 的 99% 收益立即 replace 精英。
+        """
         self.client.queue("debug", [_debug_result(passed=True)])
         sched = self.make_scheduler(cfg_overrides={"max_iterations": 2,
                                                    "debug_gain_threshold_pct": 20})
         self.gate.queue(_gate_pass(100.0))   # iter1：建立精英基线 100ms
-        self.gate.queue(_gate_pass(1.0))     # iter2：99% 收益 → 可疑
+        self.gate.queue(_gate_pass(1.0))     # iter2：99% 收益 → 直接 admit
         sched.run()
+        # 不再触发复验（suspicious_gain 拦截已移除）
         rechecks = [e for e in self.events_of("candidate_produced")
-                    if e["payload"].get("attempt") == 200]
-        self.assertTrue(rechecks, "异常收益应触发复验 debug")
-        self.assertEqual(rechecks[-1]["payload"]["recheck_reason"],
-                         "suspicious_gain")
-        self.assertEqual(rechecks[-1]["payload"]["verdict"], "keep_original")
-        ev = self.events_of("iteration_ended")[-1]["payload"]
-        self.assertEqual(ev["recheck_verdict"], "keep_original")
-        # humans #36①：keep_original（异码）→ 不 replace（debug 否决替换，
-        # 维持原精英——cell 51 幻增益判例）+ vetoed 事件留痕。iter1 建基线
-        # 1 次入格；iter2 的可疑替换被否决（不再入格）。
+                    if e["payload"].get("attempt") == 200
+                    and e["payload"].get("recheck_reason") == "suspicious_gain"]
+        self.assertEqual(rechecks, [], "大涨幅不应触发 suspicious_gain 复验")
+        # 大涨幅直接入格（两次 admit：iter1 建基线 + iter2 replace）
         admits = [e for e in self.self_admit_events()]
-        self.assertEqual(len(admits), 1, "keep_original 后维持原精英（不替换）")
+        self.assertEqual(len(admits), 2, "大涨幅候选应直接入格（无拦截）")
+        # 无 veto（拦截链整体移除）
         vetoed = self.events_of("elite_replace_vetoed")
-        self.assertEqual(len(vetoed), 1, "替换否决应留 elite_replace_vetoed")
+        self.assertEqual(vetoed, [], "无拦截 → 无 veto 事件")
 
     def self_admit_events(self):
         return [e for e in self.read_events()

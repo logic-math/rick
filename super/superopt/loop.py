@@ -2449,12 +2449,16 @@ class Scheduler:
                     if gr2.passed:
                         candidate, gr = fixed, gr2
                 elif verdict == "keep_original" and recheck_valid:
-                    # humans #36①：debug verdict=keep_original ⟹ 不 replace
-                    # （幻增益防线：cell 51 判例——debug 判幻增益/测噪但写侧
-                    # 仍替换了精英值，噪声棘轮自增强）。同码 → _admit 的
-                    # measurement_refresh 分支（只刷测量值不 replace）；
-                    # 异码 keep_original → 维持原精英（不替换，事件留痕）。
-                    if not self._same_code_as_elite(candidate, cell_id):
+                    # humans #36①（语义分域修订，env_5 判例）：keep_original
+                    # 的否决语义只适用 tolerance_band 复验（幻增益防线：cell
+                    # 51 判例——debug 判幻增益/测噪但写侧仍替换了精英值，
+                    # 噪声棘轮自增强；同码 → _admit 的 measurement_refresh
+                    # 分支只刷测量值不 replace；异码 → 维持原精英，事件留痕）。
+                    # suspicious_gain 复验的 keep_original = 「候选门禁结论成立
+                    # （增益经四读数+作弊排查确认为真）」（env_5 iter2 判例：
+                    # +64.6% 真增益被 36①语义误杀否决）→ 异码照常入格。
+                    if (reason == "tolerance_band_recheck"
+                            and not self._same_code_as_elite(candidate, cell_id)):
                         self._last_admit_verdict = "keep_original"
                         self._last_reject_reason = (
                             "debug_verdict_keep_original（humans #36："
@@ -4672,12 +4676,16 @@ class Scheduler:
             return False
 
     def _recheck_reason(self, gr: Any, cell_id: str) -> Optional[str]:
-        """复验原因（None=不复验）：suspicious_gain / tolerance_band_recheck。"""
+        """复验原因（None=不复验）：tolerance_band_recheck。
+
+        human 裁决（2026-11-26）：去掉 suspicious_gain 上限拦截——大涨幅
+        （≥20%/超几倍）是进化系统的核心价值面（代数塌缩类真突破），
+        拦截复验是在惩罚真突破（51 号格 68× 三解霸榜实证：数学等价
+        变换 one-shot 不可能自发发现，进化多轮积累才捕获）。只保留
+        tolerance_band（±5% 噪声带）复验——小涨幅属测量噪声，复验
+        防噪声误判仍合理。
+        """
         policy = self._debug_policy()
-        gain = self._perf_gain_pct(gr, cell_id)
-        thr = float(policy["gain_threshold_pct"])
-        if isinstance(gain, (int, float)) and thr > 0 and gain >= thr:
-            return "suspicious_gain"
         if bool(getattr(gr, "tolerance_band", False)) and \
                 policy["recheck_tolerance_band"]:
             return "tolerance_band_recheck"

@@ -463,9 +463,9 @@ def adjust_pipeline_role(prompt, role):
         base.update({"summary": "沉淀 1 条知识 + 1 条验证器提案",
                      "domain_knowledge_appended": appended,
                      "env_proposals": [
-                         {"kind": "noise", "title": "计时中位数入 domain_knowledge",
+                         {"kind": "verifier", "title": "计时中位数入 domain_knowledge",
                           "finding": "iter 1：单次计时波动 ~5%",
-                          "proposal": "benchmark 计时提到 5 次取中位",
+                          "proposal": "benchmark 计时提到 5 次取中位（验证器类：计时协议属 gates 侧）",
                           "risk": "耗时略增"}]})
         final(base)
     else:
@@ -526,7 +526,17 @@ def main():
         _append_record("coding：执行过程与结论",
                        "先写测试看到红 → 实现 → 绿 → 重构保绿；self_check passed。")
         slow_first = os.environ.get("MOCK_CODING_MODE") == "slow_first"
-        if slow_first and n == 1:
+        band_second = os.environ.get("MOCK_CODING_MODE") == "band_second"
+        if band_second and n >= 2:
+            # 次解同码好解（实测同分 → 落相对带内 verdict=band）
+            with open("solution.py", "w") as f:
+                f.write(GOOD_SOLUTION)
+            final({"valid": True, "score": 0.85, "perf_value": None,
+                   "summary": "带内实现（略低于首解）",
+                   "diff_path": "solution.py",
+                   "self_check": {"passed": True, "stage": "self_check",
+                                  "metrics": {"max_error": 1e-09}}})
+        elif slow_first and n == 1:
             # 慢但正确的首解（构造后续 suspicious_gain 的基线）
             with open("solution.py", "w") as f:
                 f.write(SLOW_SOLUTION)
@@ -1336,20 +1346,43 @@ class TestRecheckTriggers(unittest.TestCase):
                 for e in read_events(ws) if e["type"] == "candidate_produced"
                 and e["payload"].get("role") == "debug"]
 
-    def test_suspicious_gain_triggers_recheck(self):
-        """首解慢、次解快 → 收益 ≥ 阈值 → suspicious_gain 复验。"""
+    def test_suspicious_gain_no_longer_intercepted(self):
+        """human 裁决（2026-11-26）：大涨幅不再拦截——直接 admit（无复验）。
+
+        旧语义（收益 ≥ 阈值 → suspicious_gain 复验）已移除：大涨幅是
+        进化系统的核心价值面（代数塌缩类真突破），拦截复验惩罚真突破。
+        新语义：大涨幅直接入格，recheck 原因只剩 tolerance_band_recheck。
+        """
         ws, state = self._make("gain", gain_threshold=20, max_iterations=2)
         self._run(ws, state, max_iterations=2, coding_mode="slow_first")
-        self.assertIn("suspicious_gain", self._reasons(ws),
-                      "收益超阈值应触发复验（attempt=200）")
+        self.assertNotIn("suspicious_gain", self._reasons(ws),
+                         "大涨幅不应触发复验（human 裁决：移除上限拦截）")
+        # 大涨幅直接 admit（不因复验被拦/丢弃）
+        self.assertGreaterEqual(count_events(ws, "elite_admitted"), 1,
+                                "大涨幅候选应直接入格")
 
     def test_tolerance_band_triggers_recheck(self):
-        """收益不异常但落在软门禁容差带内 → tolerance_band_recheck 复验。"""
+        """带内好解 → tolerance_band 判定 + 同码走 #38 A/A 快路径（免 debug）。
+
+        语义更新（2026-11-26）：#38（零改动/同码复验直通）上线后，同码带内
+        解由 A/A 快路径接管（zero_change_aa_fastpath + measurement_refresh
+        ——免 debug 复验，设计内行为）。本测试验证带内判定链：
+        verdict=band → tolerance_band=True → 同码 → fastpath（非 debug recheck）。
+        真换码的带内候选（MD5 不同）仍走 tolerance_band_recheck 复验（生产行为）。
+        """
         ws, state = self._make("band", gain_threshold=100000,
                                relative_band=0.5, max_iterations=2)
-        self._run(ws, state, max_iterations=2)
-        self.assertIn("tolerance_band_recheck", self._reasons(ws),
-                      "容差带内应触发复验")
+        self._run(ws, state, max_iterations=2, coding_mode="band_second")
+        # 带内判定链验证：gate_result verdict=band + tolerance_band=True
+        bands = [e["payload"] for e in read_events(ws)
+                 if e["type"] == "gate_result"
+                 and ((e["payload"].get("metrics") or {}).get("soft") or {})
+                 .get("tolerance_band")]
+        self.assertTrue(bands, "带内解应产生 tolerance_band=True 的 gate_result")
+        # 同码带内 → #38 A/A 快路径（免 debug 复验——设计内）
+        fast = [e for e in read_events(ws)
+                if e["type"] == "zero_change_aa_fastpath"]
+        self.assertTrue(fast, "同码带内应走 #38 A/A 快路径（免 debug）")
 
     def test_gate_failure_debug_and_keep_original(self):
         """门禁失败 → debug（attempt=100）；复验 keep_original 不误杀原候选。"""
