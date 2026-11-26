@@ -721,6 +721,12 @@ func (m *SessionManager) SessionAbort(w http.ResponseWriter, r *http.Request) {
 	if line, err := (runtime.NewRpcClient()).Abort(); err == nil {
 		_ = worker.Send(line)
 	}
+	// 兜底清脏 busy：如果 worker 已经不在 streaming（例如悬挂 toolCall 或上游异常
+	// 导致 turn_end 丢失），abort 不会触发新的 turn_end，必须立即清回 idle，
+	// 避免前端永远卡在「生成中——输入即纠偏（steer），或中止」且丢失用户输入。
+	if st := worker.State(); st == nil || !st.IsStreaming {
+		m.setBusy(entry.ID, false, "abort_idle")
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
@@ -1170,6 +1176,8 @@ func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.W
 		m.recordFailed(recoveryItemOf(entry, reason))
 		return nil, false, fmt.Errorf("%s", reason)
 	}
+	// 新 spawn 的 worker 处于空闲等待输入态，必须清零旧持久化里可能残留的 Busy=true。
+	entry.Busy = false
 	m.updateStatus(entry, SessionStatusActive, "resumed")
 	// Resuming an archived session means the user wants it back in active use:
 	// clear the archive marker so it returns to the default session list.
@@ -2133,6 +2141,9 @@ func (m *SessionManager) updateStatus(entry SessionEntry, status, reason string)
 	entry.Status = status
 	if strings.TrimSpace(reason) != "" {
 		entry.LastReason = reason
+	}
+	if status == SessionStatusClosed || status == SessionStatusError || status == SessionStatusSuspended {
+		entry.Busy = false
 	}
 	if status == SessionStatusClosed || status == SessionStatusError {
 		entry.ClosedAt = time.Now()
