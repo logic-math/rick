@@ -5,9 +5,11 @@ import (
 	"os"
 )
 
-// humanLoopSkills 是 human-loop v8 会话需要复制到 loop 目录 prompts/ 的 skill 清单
-// （7 个：SENSE canon + 五个阶段 skill + orig agent 的 system prompt 副本，
-// 供会话内按需读取与留痕）。
+// humanLoopSkills 是 human-loop v8.1 会话需要复制到 loop 目录 prompts/ 的 skill 清单
+// （8 个：SENSE canon + 五个阶段 skill + orig agent 的 system prompt 副本 +
+// 教学润色 skill，供会话内按需读取与留痕）。
+// v8.1（job_57 实测反馈）：新增 teacher_polish（呈现层方法论——orig 启发内容
+// 经科普视角润色后呈现：短句/一句一义/主动语态/主语明确/少嵌套 + 三态标注）。
 // v8（job_57）：human-loop 彻底重构为 SENSE 五阶段思考门禁 loop——旧八个教学
 // skill 副本（zpd/feynman/exploration_stream/syllabus_builder/lesson_writer/
 // recall_review/research）全部下线，改为五阶段 skill（sense_reconstruct/
@@ -24,6 +26,7 @@ var humanLoopSkills = []struct {
 	{"skill_sense_reversal.md", "sense_reversal"},
 	{"skill_sense_critique.md", "sense_critique"},
 	{"skill_orig.md", "orig"},
+	{"skill_teacher_polish.md", "teacher_polish"},
 }
 
 // GenerateHumanLoopPrompt generates the human-loop (v8 thinking-gate loop)
@@ -55,8 +58,9 @@ func GenerateHumanLoopPrompt(topic string, rfcDir string, draftDir string, manag
 	return content, nil
 }
 
-// setV8SkillVars injects the v8 skill path variables shared by the dry-run and
-// file-rendering variants: SENSE canon + five stage skills + orig agent skill.
+// setV8SkillVars injects the v8.1 skill path variables shared by the dry-run and
+// file-rendering variants: SENSE canon + five stage skills + orig agent skill +
+// teacher_polish skill (呈现层).
 func setV8SkillVars(builder *PromptBuilder, loopDir string) {
 	builder.SetVariable("sense_skill_path", loopDir+"/prompts/skill_sense.md")
 	builder.SetVariable("sense_reconstruct_skill_path", loopDir+"/prompts/skill_sense_reconstruct.md")
@@ -65,6 +69,7 @@ func setV8SkillVars(builder *PromptBuilder, loopDir string) {
 	builder.SetVariable("sense_reversal_skill_path", loopDir+"/prompts/skill_sense_reversal.md")
 	builder.SetVariable("sense_critique_skill_path", loopDir+"/prompts/skill_sense_critique.md")
 	builder.SetVariable("orig_skill_path", loopDir+"/prompts/skill_orig.md")
+	builder.SetVariable("teacher_polish_skill_path", loopDir+"/prompts/skill_teacher_polish.md")
 }
 
 // setV8ArtifactVars injects the v8 artifact path convention into a template

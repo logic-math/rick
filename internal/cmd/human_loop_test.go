@@ -141,8 +141,14 @@ func TestHumanLoopDryRunContainsDraftDir(t *testing.T) {
 			t.Errorf("dry-run output missing v8 anchor %q", anchor)
 		}
 	}
-	// v7 教学机制不得回流。
-	for _, gone := range []string{"ZPD", "费曼", "教学", "价值裁决", "mission"} {
+	// v8.1 呈现层锚词：教学润色（科普视角呈现）。
+	for _, anchor := range []string{"教学润色"} {
+		if !strings.Contains(output, anchor) {
+			t.Errorf("dry-run output missing v8.1 polish anchor %q", anchor)
+		}
+	}
+	// v7 教学机制不得回流（精确词：v8.1 的「教学润色」是合法新机制，不在此列）。
+	for _, gone := range []string{"ZPD", "费曼", "教学大纲", "每课教学回合", "价值裁决", "mission"} {
 		if strings.Contains(output, gone) {
 			t.Errorf("dry-run output should not contain v7 teaching keyword %q", gone)
 		}

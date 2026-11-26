@@ -45,7 +45,7 @@ func TestGenerateHumanLoopPromptFileWritesV8FileSet(t *testing.T) {
 		t.Errorf("main prompt does not contain draftDir %q", draftDir)
 	}
 
-	// v8 skill 副本集（7 个）：SENSE canon + 五个阶段 skill + orig agent。
+	// v8.1 skill 副本集（8 个）：SENSE canon + 五个阶段 skill + orig agent + 教学润色。
 	skills := []string{
 		"skill_sense.md",
 		"skill_sense_reconstruct.md",
@@ -54,6 +54,7 @@ func TestGenerateHumanLoopPromptFileWritesV8FileSet(t *testing.T) {
 		"skill_sense_reversal.md",
 		"skill_sense_critique.md",
 		"skill_orig.md",
+		"skill_teacher_polish.md",
 	}
 	for _, skill := range skills {
 		path := promptsDir + "/" + skill
@@ -97,11 +98,11 @@ func TestGenerateHumanLoopPromptFileWritesV8FileSet(t *testing.T) {
 		}
 	}
 
-	// 主 prompt 引用 v8 路径约定：thought_path + orig stage 落盘 + 五阶段 skill + orig skill。
+	// 主 prompt 引用 v8.1 路径约定：thought_path + orig stage 落盘 + 五阶段 skill + orig skill + 教学润色 skill。
 	for _, want := range []string{
 		"thought_path.md", "orig/stage", "skill_sense.md", "skill_sense_reconstruct.md",
 		"skill_sense_perspective.md", "skill_sense_contradiction.md", "skill_sense_reversal.md",
-		"skill_sense_critique.md", "skill_orig.md",
+		"skill_sense_critique.md", "skill_orig.md", "skill_teacher_polish.md",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("main prompt missing v8 path reference %q", want)
@@ -126,6 +127,12 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 	for _, want := range []string{"thought_path.md", "orig"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("dry-run output missing v8 artifact path %q", want)
+		}
+	}
+	// v8.1 呈现层关键词：教学润色（科普视角呈现）。
+	for _, want := range []string{"教学润色"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("dry-run output missing v8.1 polish keyword %q", want)
 		}
 	}
 	// v8 五阶段名（human 裁决表述）。
@@ -163,6 +170,7 @@ func TestSenseLoopTemplateIsV8GateLoop(t *testing.T) {
 		"推进权", "human",
 		"{{sense_reconstruct_skill_path}}", "{{sense_perspective_skill_path}}", "{{sense_contradiction_skill_path}}",
 		"{{sense_reversal_skill_path}}", "{{sense_critique_skill_path}}", "{{orig_skill_path}}", "{{sense_skill_path}}",
+		"{{teacher_polish_skill_path}}", "教学润色",
 		"stage", "workflowScript", "runs.run",
 	} {
 		if !strings.Contains(tpl.Content, kw) {
@@ -213,7 +221,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "sense_reconstruct",
 			required: []string{
 				"问题还原", origPrompt, "门禁", "未过门禁", "推进权",
-				"期望", "现状", "事实", "价值", "stage",
+				"期望", "现状", "差距", "事实", "价值", "stage",
 			},
 			forbid: forbiddenV7Teaching,
 		},
@@ -221,7 +229,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "sense_perspective",
 			required: []string{
 				"视角生产", origPrompt, "门禁", "未过门禁", "推进权",
-				"强相关", "弱相关", "收敛", "发散", "stage",
+				"强相关", "弱相关", "收敛", "发散", "应用价值", "因果运动", "stage",
 			},
 			forbid: forbiddenV7Teaching,
 		},
@@ -229,7 +237,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "sense_contradiction",
 			required: []string{
 				"判断矛盾", origPrompt, "门禁", "未过门禁", "推进权",
-				"全局性", "根本性", "决定性", "多个备选", "stage",
+				"全局性", "根本性", "决定性", "多个备选", "因果运动", "stage",
 			},
 			forbid: forbiddenV7Teaching,
 		},
@@ -237,7 +245,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "sense_reversal",
 			required: []string{
 				"辩证逆转", origPrompt, "门禁", "未过门禁", "推进权",
-				"X 是 Y 必然成立的前提", "多个可行的解决方案", "stage",
+				"X 是 Y 必然成立的前提", "多个可行的解决方案", "必要条件", "stage",
 			},
 			forbid: forbiddenV7Teaching,
 		},
@@ -245,7 +253,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "sense_critique",
 			required: []string{
 				"良质批判", origPrompt, "门禁", "未过门禁", "推进权",
-				"假设", "置信", "缺口", "stage",
+				"假设", "可证伪", "逻辑性", "stage",
 			},
 			forbid: forbiddenV7Teaching,
 		},
@@ -253,7 +261,16 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			skill: "orig",
 			required: []string{
 				origPrompt, "web_search", "OpenAlex", "stage",
-				"启发", "不是答案", "缺口",
+				"启发", "不是答案", "缺口", "概念跳跃", "差异性", "同一性",
+			},
+			forbid: nil,
+		},
+		{
+			skill: "teacher_polish",
+			required: []string{
+				"科普视角", "短句", "一句一义", "主动语态", "主语明确", "少嵌套",
+				"准确", "通俗", "有逻辑", "有趣味",
+				"已知结论", "争议", "知识边界",
 			},
 			forbid: nil,
 		},

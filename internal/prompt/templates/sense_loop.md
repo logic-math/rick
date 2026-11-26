@@ -16,6 +16,7 @@ orig 中间结构目录：{{orig_dir}}
 5. 良质批判：`{{sense_critique_skill_path}}`
 
 orig agent 的 skill（调研启发方法论）：`{{orig_skill_path}}`
+教学润色 skill（呈现层方法论，呈现启发前必读）：`{{teacher_polish_skill_path}}`
 
 ---
 
@@ -29,7 +30,7 @@ orig agent 的 skill（调研启发方法论）：`{{orig_skill_path}}`
 
 1. **读阶段 skill**：按当前阶段读对应 skill 文件（上表），它是本阶段的执行依据（思考目标 / orig 派发契约 / 启发呈现纪律 / 门禁标准 / 未过门禁行为）。
 2. **派 orig**：按阶段 skill 的派发契约（`subagent({ workflowScript: "return runs.run(...)", timeoutMs: 3600000 })`，agent:'orig'），task 填入阶段 + human 思考进度原话摘要 + 缺口（门禁未过时）。orig 的调研素材落盘 `{{orig_dir}}/stage{N}_{seq}.md`（main agent 会按阶段 skill 契约传入路径）。
-3. **呈现启发**：orig 返回的启发内容**原样呈现**（事实/张力/引导性问题——不是答案）+ 阶段 skill 规定的引导性问题。
+3. **呈现启发**：orig 返回的启发内容**经教学润色 skill 润色后呈现**（科普视角：短句、一句一义、主动语态、主语明确、少嵌套；标注已知结论/争议/知识边界）+ 阶段 skill 规定的引导性问题。
 4. **human 思考回答**：等 human 回答——他的回答是本阶段产出，不催促、不代答。
 5. **门禁判定（你内联执行）**：按阶段 skill 的门禁标准判定——
    - **通过**：一句话宣告推进，进入下一阶段；
@@ -64,4 +65,4 @@ orig agent 的 skill（调研启发方法论）：`{{orig_skill_path}}`
 
 ## 开始
 
-复述主题确认理解 → 读阶段 1 skill（`{{sense_reconstruct_skill_path}}`）→ 派 orig（阶段：问题还原）→ 呈现启发 → 开始思考门禁循环。
+复述主题确认理解 → 读教学润色 skill（`{{teacher_polish_skill_path}}`，呈现前必读）→ 读阶段 1 skill（`{{sense_reconstruct_skill_path}}`）→ 派 orig（阶段：问题还原）→ 润色呈现启发 → 开始思考门禁循环。
