@@ -338,9 +338,11 @@ class TestFullLoopSequence(LoopTestBase):
         seqs = [e["seq"] for e in evs_all]
         self.assertEqual(seqs, list(range(1, len(evs_all) + 1)))
 
-        # 第一迭代的完整事件链严格有序（过滤运维事件 heartbeat）
+        # 第一迭代的完整事件链严格有序（过滤运维事件 heartbeat）。
+        # human 裁决（2026-11-26 v2）：admission_review 每实验复核——gate
+        # 通过后先跑 debug 复核（agent_started/ended）再 admit。
         evs = [e for e in evs_all if e["type"] != "heartbeat"]
-        first_types = [e["type"] for e in evs[:10]]
+        first_types = [e["type"] for e in evs[:13]]
         self.assertEqual(first_types, [
             "session_started",            # 0
             "iteration_started",          # 1
@@ -349,7 +351,9 @@ class TestFullLoopSequence(LoopTestBase):
             "agent_started", "agent_ended",   # coding    # 5,6
             "candidate_produced",         # 7
             "gate_result",                # 8
-            "elite_admitted",             # 9
+            "agent_started", "agent_ended",   # debug admission_review # 9,10
+            "candidate_produced",         # 11（debug 复核载体事件）
+            "elite_admitted",             # 12
         ])
         self.assertEqual(evs[3]["payload"]["role"], "builder")
         self.assertEqual(evs[5]["payload"]["role"], "coding")
@@ -537,7 +541,8 @@ class TestDebugLoop(LoopTestBase):
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
         debug_runs = [e for e in self.events_of("agent_started")
                       if e["payload"]["role"] == "debug"]
-        self.assertEqual(len(debug_runs), 2)
+        # v2 admission_review：+1 次复核（attempt=200）→ 共 3 次
+        self.assertEqual(len(debug_runs), 3)
 
 
 class TestExperimentChainTask4(LoopTestBase):
@@ -1717,22 +1722,28 @@ class TestGateToDebug(LoopTestBase):
         # debug 被派发一次，attempt=100（与自检 debug 区分）
         debug_starts = [e for e in self.events_of("agent_started")
                         if e["payload"]["role"] == "debug"]
-        self.assertEqual(len(debug_starts), 1)
+        # v2 admission_review：修复成功 admit 前再 +1 次复核 → 共 2 次
+        self.assertEqual(len(debug_starts), 2)
         cands = [e for e in self.events_of("candidate_produced")
                  if e["payload"].get("role") == "debug"]
-        self.assertEqual(len(cands), 1)
+        # v2 admission_review：attempt=100 修复 + attempt=200 复核 → 2 条
+        self.assertEqual(len(cands), 2)
         self.assertEqual(cands[0]["payload"]["attempt"], 100)
+        self.assertEqual(cands[1]["payload"]["attempt"], 200)
         # 重验通过 → 入格
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
-        # debug prompt 含框架失败上下文
-        iter_dirs = sorted(d for d in os.listdir(os.path.join(self.ws, "codes"))
-                           if _is_experiment_dir(d))
-        dp = os.path.join(self.ws, "codes", iter_dirs[0], "prompt_debug.md")
-        self.assertTrue(os.path.exists(dp))
-        dprompt = open(dp, encoding="utf-8").read()
-        self.assertIn("框架门禁失败详情", dprompt)    # gate_failure 标签
-        self.assertIn("stage2_correctness", dprompt)  # gate_failure 值
-        self.assertIn("relative_band", dprompt)       # gate_defs 值
+        # debug prompt 含框架失败上下文（v2 admission_review 会覆盖写第二次
+        # prompt_debug.md——attempt=200 复核的 prompt；门禁失败上下文在事件流验证）
+        cands = [e for e in self.events_of("candidate_produced")
+                 if e["payload"].get("role") == "debug"
+                 and e["payload"].get("attempt") == 100]
+        self.assertEqual(len(cands), 1, "门禁失败 debug（attempt=100）恰一次")
+        # debug prompt 上下文注入验证：读 attempt=100 覆盖前的事件流断言
+        # （prompt_debug.md 被 attempt=200 复核覆盖——改用 agent_started 顺序验证）
+        dbg_starts = [e for e in self.events_of("agent_started")
+                      if e["payload"]["role"] == "debug"]
+        self.assertEqual(len(dbg_starts), 2,
+                         "v2：attempt=100 修复 + attempt=200 复核 = 2 次 debug")
 
     def test_gate_failure_debug_still_fails_records_reject(self):
         # 门禁失败 → debug → 重验仍失败：记 reject、不崩、无入格
@@ -2447,14 +2458,19 @@ class TestDebugThreeTriggers(LoopTestBase):
                          "tolerance_band_recheck")
 
     def test_tolerance_band_recheck_can_be_disabled(self):
-        """③ 关闭开关 → 容差带内不复验。"""
+        """③ 关闭开关 → 容差带内不复验（但 admission_review 仍复核——v2 无条件）。"""
         sched = self.make_scheduler(cfg_overrides={
             "max_iterations": 1, "debug_recheck_tolerance_band": False})
         self.gate.queue(_gate_pass(100.0, band=True))
         sched.run()
         rechecks = [e for e in self.events_of("candidate_produced")
                     if e["payload"].get("attempt") == 200]
-        self.assertEqual(rechecks, [])
+        # human 裁决（2026-11-26 v2）：admission_review 无条件复核——容差带
+        # 开关只关 tolerance_band 语义，admission_review 仍每次执行
+        self.assertEqual(len(rechecks), 1,
+                         "容差带复验关闭但 admission_review 仍复核恰 1 次")
+        self.assertEqual(rechecks[0]["payload"]["recheck_reason"],
+                         "admission_review")
 
     def test_gate_failure_still_triggers_debug(self):
         """① 门禁失败 → 既有 debug 通道（attempt=100）仍生效。"""
@@ -2550,7 +2566,9 @@ class TestCostAttribution(LoopTestBase):
         ev = self.events_of("iteration_ended")[-1]["payload"]
         self.assertIn("by_role", ev, "iteration_ended 缺 by_role（成本可解释性）")
         by_role = ev["by_role"]
-        self.assertEqual(set(by_role), {"builder", "coding"})
+        # human 裁决（2026-11-26 v2）：admission_review 每实验复核 → debug
+        # 也在 by_role（即使自检通过也有 1 次复核派发）
+        self.assertEqual(set(by_role), {"builder", "coding", "debug"})
         for role in ("builder", "coding"):
             self.assertEqual(set(by_role[role]), {"tokens", "wall_ms", "tool_calls"})
         self.assertEqual(by_role["builder"],
@@ -2603,9 +2621,11 @@ class TestCostAttribution(LoopTestBase):
                                     client=client)
         sched.run()
         ev = self.events_of("iteration_ended")[-1]["payload"]
-        # 自检失败 → debug 循环；两次 debug 的 tokens/wall/tool_calls 累加
+        # 自检失败 → debug 循环；两次 debug 的 tokens/wall/tool_calls 累加。
+        # human 裁决（2026-11-26 v2）：admission_review 复核再 +1 次 debug
+        # （queue 尾项重复消费：30/200/2）→ 总计 100+30=130 tokens。
         self.assertEqual(ev["by_role"]["debug"],
-                         {"tokens": 100, "wall_ms": 600, "tool_calls": 4})
+                         {"tokens": 130, "wall_ms": 800, "tool_calls": 6})
 
 
 class TestCellLockIntegration(LoopTestBase):
@@ -3375,10 +3395,12 @@ class TestArtifactRescue(LoopTestBase):
         self.assertEqual(payload["role"], "coding")
         self.assertTrue(payload["code_path"].endswith("solution.py"))
         self.assertFalse(payload["agent_valid"])
-        # 不触发 debug 重做（做完了但没说 ≠ 没做——debug 从头重做是
-        # env_11 实测最大的 token 浪费源）
-        self.assertFalse([c for c in client.calls if c["role"] == "debug"],
-                         "产物抢救后不该再派 debug")
+        # 不触发 debug **重做**（做完了但没说 ≠ 没做——debug 从头重做是
+        # env_11 实测最大的 token 浪费源）。human 裁决（2026-11-26 v2）：
+        # admission_review 每实验复核仍派 1 次（审查模式 ≠ 重做模式）。
+        dbg = [c for c in client.calls if c["role"] == "debug"]
+        self.assertEqual(len(dbg), 1,
+                         "抢救后恰 1 次 admission_review 复核（无重做循环）")
         # 产物走框架终验（与正常 candidate 同路）→ 入格
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
         ended = self.events_of("iteration_ended")
@@ -3398,7 +3420,10 @@ class TestArtifactRescue(LoopTestBase):
         self.assertEqual(len(rescued), 1)
         payload = rescued[0]["payload"]
         self.assertTrue(payload["agent_truncated"])
-        self.assertFalse([c for c in client.calls if c["role"] == "debug"])
+        # human 裁决（2026-11-26 v2）：admission_review 每实验复核——抢救产物
+        # admit 前仍过 1 次 debug 复核（attempt=200）
+        dbg = [c for c in client.calls if c["role"] == "debug"]
+        self.assertEqual(len(dbg), 1, "抢救后恰 1 次 admission_review 复核")
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
 
     def test_debug_attempt_artifact_rescued(self):
@@ -3423,7 +3448,15 @@ class TestArtifactRescue(LoopTestBase):
         self.assertTrue(rescued[0]["payload"]["code_path"].endswith("solution.py"))
         # 抢救发生在第 1 次 debug 尝试后（不再烧第 2/3 次）
         debug_calls = [c for c in client.calls if c["role"] == "debug"]
-        self.assertEqual(len(debug_calls), 1)
+        # human 裁决（2026-11-26 v2）：admission_review 每实验复核——修复
+        # 抢救产物 admit 前再过 1 次 debug 复核（attempt=200）
+        self.assertEqual(len(debug_calls), 2,
+                         "1 次修复循环 + 1 次无条件 admission_review 复核")
+        rechecks = [e for e in self.events_of("candidate_produced")
+                    if e["payload"].get("attempt") == 200]
+        self.assertEqual(len(rechecks), 1, "admission_review 复核恰一次")
+        self.assertEqual(rechecks[0]["payload"]["recheck_reason"],
+                         "admission_review")
         self.assertEqual(len(self.events_of("elite_admitted")), 1)
 
     def test_no_artifact_no_rescue(self):

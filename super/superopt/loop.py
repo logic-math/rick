@@ -2411,10 +2411,11 @@ class Scheduler:
         self._emit_gate_result(gr, cursor, cell_id)
 
         if gr.passed:
-            # 迭代8/KR6：门禁通过后仍可能复验——①异常收益（超 human 确认阈值，
-            # 防作弊/误测的性能结论进精英地图）②软门禁容差带内（无明显收益）。
+            # 迭代8/KR6 → human 裁决（2026-11-26 v2）：**每次 admit 前都跑
+            # debug 复核**（debug agent 每实验执行——独立审查视角：即使自检
+            # 通过的候选也过一遍 debug 复核，拦截假阳性自检/发现改进空间）。
             # 每迭代至多 1 次；debug 结论 keep_original → 原候选照常入格。
-            reason = self._recheck_reason(gr, cell_id)
+            reason = self._recheck_reason(gr, cell_id) or "admission_review"
             # humans #38：零改动/同码复验直通——tolerance_band 且候选 MD5 ==
             # 精英 MD5（客观判据）⟹ 直通 measurement_refresh 免 debug 派发
             # （A/A 族 debug 税结构性根除：同码 gain=0 by design ⟹ delta 必
