@@ -72,6 +72,9 @@ export interface UserItem extends SeqAnchor {
   text: string;
   /** epoch ms（历史=entry 时间戳；live=事件到达时）——气泡相对时间显示用 */
   ts?: number;
+  /** Bug 4（human 2026-11-27）：乐观渲染中（尚未被服务端 echo 确认）——显示
+   * 「⏳ 等待 Agent 响应」提示，告知用户消息已发送但前序回合仍在生成。 */
+  pending?: boolean;
 }
 
 export interface AssistantTextItem extends SeqAnchor {
@@ -880,6 +883,18 @@ export function buildHistoryItems(entries: HistoryEntry[]): HistoryBuildResult {
           fingerprints.add(fingerprint("tool", callId));
           blockIdx += 1;
         }
+      }
+      // Bug 3 修复（human 2026-11-27）：stopReason=error 的历史条目重建时也渲染错误通知——
+      // 旧版只在 live 事件流（applyMessageEnd）渲染，刷新后历史重建丢失错误消息，
+      // 时序断裂（用户看到的「模型无响应」消失，后续消息衔接不上）。
+      if (m.stopReason === "error") {
+        items.push({
+          kind: "notice",
+          id: eid(`err`),
+          level: "error",
+          text: `模型响应错误：${messageText(m).slice(0, 300) || "（无详情）"}`,
+          entryId: typeof entry.id === "string" ? entry.id : undefined,
+        });
       }
       continue;
     }

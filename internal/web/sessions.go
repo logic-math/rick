@@ -1545,7 +1545,36 @@ func (m *SessionManager) SessionModels(w http.ResponseWriter, r *http.Request) {
 	if payload.Models == nil {
 		payload.Models = []ModelInfo{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": nil})
+	// Bug 6 修复（human 2026-11-27）：current 必须返回实际当前模型——旧版硬编码 nil
+	// 导致前端模型切换弹窗每次打开都不知道当前选中的是哪个模型（刷新后选中态丢失）。
+	// 从 get_state RPC 拿 session.model（当前模型 id），在可用列表中找到完整信息。
+	var current *ModelInfo
+	if stEv, stErr := m.rpcRequest(entry.ID, func(c *runtime.RpcClient) ([]byte, error) { return c.GetState() }); stErr == nil {
+		var stPayload struct {
+			Model struct {
+				ID       string `json:"id"`
+				Provider string `json:"provider"`
+			} `json:"model"`
+		}
+		if err := json.Unmarshal(stEv.Data, &stPayload); err == nil && stPayload.Model.ID != "" {
+			for i := range payload.Models {
+				if payload.Models[i].ID == stPayload.Model.ID && payload.Models[i].Provider == stPayload.Model.Provider {
+					current = &payload.Models[i]
+					break
+				}
+			}
+			// 找不到完整匹配时退回仅 id 匹配
+			if current == nil {
+				for i := range payload.Models {
+					if payload.Models[i].ID == stPayload.Model.ID {
+						current = &payload.Models[i]
+						break
+					}
+				}
+			}
+			}
+		}
+	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": current})
 }
 
 // SessionSetModel handles POST /api/sessions/{id}/model {provider, model_id}:
