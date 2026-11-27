@@ -270,9 +270,11 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			required: []string{
 				"科普视角", "短句", "一句一义", "主动语态", "主语明确", "少嵌套",
 				"准确", "通俗", "有逻辑", "有趣味",
-				"已知结论", "争议", "知识边界",
+				"每个概念", "讲清楚",
 			},
-			forbid: nil,
+			forbid: []string{
+				"已知结论", "知识边界", "三态标注", "张力", "引导性问题",
+			},
 		},
 	}
 	for _, c := range cases {
