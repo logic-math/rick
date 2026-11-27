@@ -135,6 +135,12 @@ func TestGenerateHumanLoopPromptDryRunNoUnreplacedVars(t *testing.T) {
 			t.Errorf("dry-run output missing v8.1 polish keyword %q", want)
 		}
 	}
+	// v8.3 概念随机游走 + 收尾引导关键词：概念地图与用户自己的表达。
+	for _, want := range []string{"概念地图", "用自己的话"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("dry-run output missing v8.3 concept-map keyword %q", want)
+		}
+	}
 	// v8 五阶段名（human 裁决表述）。
 	for _, want := range []string{"问题还原", "视角生产", "判断矛盾", "辩证逆转", "良质批判"} {
 		if !strings.Contains(content, want) {
@@ -262,6 +268,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 			required: []string{
 				origPrompt, "web_search", "OpenAlex", "stage",
 				"启发", "不是答案", "缺口", "概念跳跃", "差异性", "同一性",
+				"随机游走", "同中有异", "异中有同",
 			},
 			forbid: nil,
 		},
@@ -271,6 +278,7 @@ func TestV8SkillsCoreContracts(t *testing.T) {
 				"科普视角", "短句", "一句一义", "主动语态", "主语明确", "少嵌套",
 				"准确", "通俗", "有逻辑", "有趣味",
 				"每个概念", "讲清楚",
+				"递归解释", "通识", "概念地图", "用自己的话", "串联",
 			},
 			forbid: []string{
 				"已知结论", "知识边界", "三态标注", "张力", "引导性问题",

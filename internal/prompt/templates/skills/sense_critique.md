@@ -21,7 +21,7 @@ subagent({ workflowScript: "return runs.run('orig-stage5', { agent: 'orig', task
 ## 启发呈现纪律
 
 - orig 返回的启发内容经教学润色 skill 润色后呈现（每个概念科普讲清楚，见 teacher_polish skill）：所选领域的假设检验/置信度实践（带来源）——**不是答案**。
-- 不替用户批判；呈现后自然问用户一个开放问题（如「把你的方案倒过来推——哪一步最先塌？」），用户的批判是本阶段产出。
+- 不替用户批判；呈现完概念后按 teacher_polish 的收尾引导，引导用户串联概念、用自己的话表达思想（表达将接受门禁判定），用户的批判是本阶段产出。
 
 ## 门禁标准（main agent 判定）
 
