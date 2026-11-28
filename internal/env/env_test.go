@@ -579,21 +579,24 @@ func TestCheckRickHooks_Missing(t *testing.T) {
 
 // TestCheckRickAgents_Missing verifies the not-ready boundary: with no agents
 // deployed yet, CheckRickAgents reports all required agents missing.
-// v7.2（job_50）：四 agent 清单（research + 三个重生型教学 agent；交互型环节收回 parent 内联）。
+// v8（job_57）：单 orig agent（human-loop 思考门禁 loop 的调研启发者）。
 func TestCheckRickAgents_Missing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	m := CheckRickAgents()
-	if len(m) != 4 {
-		t.Errorf("CheckRickAgents should report 4 missing agents, got %v", m)
+	if len(m) != 1 {
+		t.Errorf("CheckRickAgents should report 1 missing agent, got %v", m)
 	}
 	for _, name := range requiredRickAgents {
 		if !containsString(m, name) {
 			t.Errorf("CheckRickAgents missing %q in report %v", name, m)
 		}
 	}
-	for _, gone := range []string{"teach", "zpd-assessor", "feynman", "originality-sparker"} {
+	for _, gone := range []string{
+		"research", "syllabus-builder", "lesson-writer", "recall-review",
+		"teach", "zpd-assessor", "feynman", "originality-sparker",
+	} {
 		if containsString(m, gone) {
-			t.Errorf("CheckRickAgents should no longer require %q (v7.2 收回 parent 内联)", gone)
+			t.Errorf("CheckRickAgents should no longer require %q (v8 已删除)", gone)
 		}
 	}
 }
@@ -610,15 +613,14 @@ func TestCheckRickAgents_Ready(t *testing.T) {
 	}
 }
 
-// TestDeployRickAgents verifies 职责 3 的 agent 定制：四文件落盘（v7.2）+ frontmatter
-// 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义（v7：teach 下线、新增五教学
-// agent；agent 名连字符、skill 源文件名下划线由 skill 字段映射）。
+// TestDeployRickAgents verifies 职责 3 的 agent 定制：orig 落盘（v8 单 agent）+
+// frontmatter 字段 + 非空 wiki 正文 + 幂等 + rick 标记覆盖语义。
 func TestDeployRickAgents(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	agentsDir := filepath.Join(home, ".rick", "pi", "agent", "agents")
 
-	// 正常路径：四文件落盘（v7.2：agent 收缩为 4 个重生型）+ frontmatter + 非空正文。
+	// 正常路径：orig 落盘（v8：agent 收缩为 1 个）+ frontmatter + 非空正文。
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents: %v", err)
 	}
@@ -691,21 +693,21 @@ func TestDeployRickAgents(t *testing.T) {
 		t.Errorf("zpd-assessor.md without rick-managed: true should not be overwritten")
 	}
 
-	// 覆盖语义：含 rick 标记的陈旧文件被覆盖为最新 wiki 正文。
-	researchPath := filepath.Join(agentsDir, "research.md")
-	stale := "---\nname: research\ndescription: stale\ntools: read\ndefaultContext: fresh\nrick-managed: true\n---\nSTALE BODY\n"
-	if err := os.WriteFile(researchPath, []byte(stale), 0644); err != nil {
+	// 覆盖语义：含 rick 标记的陈旧文件被覆盖为最新 wiki 正文（v8 用 orig 验证）。
+	origPath := filepath.Join(agentsDir, "orig.md")
+	stale := "---\nname: orig\ndescription: stale\ntools: read\ndefaultContext: fresh\nrick-managed: true\n---\nSTALE BODY\n"
+	if err := os.WriteFile(origPath, []byte(stale), 0644); err != nil {
 		t.Fatal(err)
 	}
 	if err := deployRickAgents(); err != nil {
 		t.Fatalf("deployRickAgents (marker overwrite): %v", err)
 	}
-	got, _ := os.ReadFile(researchPath)
+	got, _ := os.ReadFile(origPath)
 	if strings.Contains(string(got), "STALE BODY") {
-		t.Errorf("research.md with rick-managed: true should be overwritten")
+		t.Errorf("orig.md with rick-managed: true should be overwritten")
 	}
-	if !strings.Contains(string(got), "skill:research") {
-		t.Errorf("research.md after overwrite missing skill:research body")
+	if !strings.Contains(string(got), "skill:orig") {
+		t.Errorf("orig.md after overwrite missing skill:orig body")
 	}
 }
 

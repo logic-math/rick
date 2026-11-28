@@ -112,10 +112,16 @@ func TestPrepareHumanLoopDirsIn(t *testing.T) {
 	if loopDir != filepath.Join(rickDir, "draft", "loops", "loop_1") {
 		t.Errorf("first loop should be loop_1, got %s", loopDir)
 	}
-	// Directory tree ensured
-	for _, sub := range []string{"draft", "draft/rfc", "draft/concepts", "draft/human-learning", "draft/loops"} {
+	// Directory tree ensured（v8 极简：仅 draft 与 draft/loops；
+	// v7 的 draft/rfc、concepts、human-learning 遗留目录不再创建）。
+	for _, sub := range []string{"draft", "draft/loops"} {
 		if _, err := os.Stat(filepath.Join(rickDir, sub)); err != nil {
 			t.Errorf("expected %s: %v", sub, err)
+		}
+	}
+	for _, gone := range []string{"draft/rfc", "draft/concepts", "draft/human-learning"} {
+		if _, err := os.Stat(filepath.Join(rickDir, gone)); !os.IsNotExist(err) {
+			t.Errorf("v7 legacy dir should no longer be created: %s", gone)
 		}
 	}
 	// Second allocation without a materialized loop_1 dir returns loop_1

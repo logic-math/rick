@@ -1,6 +1,6 @@
 # skill:sense（SENSE 思考范式 canon）
 
-> **全局 canon**：human-loop（四 agent：research / syllabus-builder / lesson-writer / recall-review；三个 parent 内联方法论 skill：zpd / feynman / exploration_stream）与 dream 共用本文件。
+> **全局 canon**：human-loop（v8：五阶段思考门禁 skill + orig agent）与 dream 共用本文件。
 > **SENSE 是思考范式，不是流程清单**：它规定一次思考必须回答哪些问题，不规定呈现形式、顺序与篇幅。内容形式自由、结构自由、顺序自由、篇幅自由——只要回答范式要求的这些问题。**不要把 SENSE 写成固定模板，也不要按模板套用它。**
 
 ---

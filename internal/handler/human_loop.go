@@ -10,8 +10,8 @@ import (
 	"github.com/sunquan/rick/internal/runtime"
 )
 
-// HumanLoop executes the complete human-loop thinking session (migrated from
-// cmd.runHumanLoop). It allocates a loop_N directory, builds the SENSE prompt
+// HumanLoop executes the complete human-loop thinking session (v8 thinking-
+// gate loop). It allocates a loop_N directory, builds the sense_loop prompt
 // files, and launches the interactive pi session.
 func HumanLoop(topic string, opts Options) error {
 	rickDir, err := rickDirFromCwd()
@@ -45,7 +45,7 @@ func HumanLoopIn(rickDir string, topic string, opts Options) error {
 	if opts.Verbose {
 		fmt.Printf("[INFO] Loop directory: %s\n", loopDir)
 		fmt.Printf("[INFO] Human-loop prompt saved to: %s\n", mainFile)
-		fmt.Printf("[INFO] rfc directory: %s\n", rfcDir)
+		fmt.Printf("[INFO] Thought path: %s/thought_path.md\n", loopDir)
 	}
 
 	// v4.4.9: 会话持久化——loop_N/session_id；`rick human-loop --resume loop_N` 恢复。
@@ -65,7 +65,7 @@ func HumanLoopIn(rickDir string, topic string, opts Options) error {
 
 // ResumeHumanLoop resumes a previous human-loop session by loop id (e.g.
 // loop_1 → .rick/draft/loops/loop_1)：读 loop 目录的 session_id，以 --session-id
-// 恢复完整 pi 会话（SENSÉ 五阶段进度、此前 human 判断全在上下文中）。
+// 恢复完整 pi 会话（v8 五阶段思考门禁进度、此前 human 判断全在上下文中）。
 func ResumeHumanLoop(loopID string, opts Options) error {
 	rickDir, err := rickDirFromCwd()
 	if err != nil {
@@ -146,13 +146,16 @@ func RenderHumanLoopPromptIn(rickDir string, topic string) (string, error) {
 	return content, nil
 }
 
-// PrepareHumanLoopDirsIn resolves the draft/rfc/loop directories under an
+// PrepareHumanLoopDirsIn resolves the draft/loop directories under an
 // explicit rickDir and ensures the draft directory tree exists (idempotent
-// MkdirAll, same as the original cmd.runHumanLoop setup). Exported for the web
+// MkdirAll). v8（job_57）：human-loop 重构为 SENSE 五阶段思考门禁 loop——
+// 产物仅在 loop_N/ 下（thought_path.md + orig/，由 GenerateHumanLoopPromptFile
+// 创建）；v7 的 draft/rfc、draft/concepts、draft/human-learning 遗留目录不再
+// 创建（rfcDir 返回值保留仅作签名兼容，不再落盘）。Exported for the web
 // layer (task11) which spawns rpc sessions from workspace-anchored paths.
 func PrepareHumanLoopDirsIn(rickDir string) (draftDir, rfcDir, loopDir string, err error) {
 	draftDir = filepath.Join(rickDir, "draft")
-	rfcDir = filepath.Join(draftDir, "rfc")
+	rfcDir = filepath.Join(draftDir, "rfc") // 保留返回值（签名兼容）；v8 不创建该目录
 
 	// Allocate next loop_N directory (path-parameterized helper).
 	loopID, err := nextLoopIDIn(draftDir)
@@ -163,9 +166,6 @@ func PrepareHumanLoopDirsIn(rickDir string) (draftDir, rfcDir, loopDir string, e
 
 	for _, sub := range []string{
 		draftDir,
-		rfcDir,
-		filepath.Join(draftDir, "concepts"),
-		filepath.Join(draftDir, "human-learning"),
 		filepath.Join(draftDir, "loops"),
 	} {
 		if err := os.MkdirAll(sub, 0755); err != nil {
