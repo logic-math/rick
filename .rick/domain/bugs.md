@@ -892,3 +892,21 @@ grep -n 'Already compacted' web/src/components/chat/viewModel.ts   # 验证 no-o
 ```
 
 **首次发现**: job_53（2026-11-18，task49；无头浏览器+代码分析双重实锤）  **验证状态**: ✅ 已修复（66f4f0f，两层防护 + E2E bundle 断言）
+
+### dev-web 管理命令禁 go run + status fingerprint=MISMATCH 竞态（一条两症状）
+
+**症状一**：`go run ./cmd/rick tools dev-web up/restart` 起的服务进程「起来即死」——dev.log 显示正常 starting/listening 但 ps 查无进程、curl 连不上；改直跑 `<dev-tree>/bin/rick`（或 dev-home/bin 产物）稳定。
+
+**症状二**：`dev-web status` 报 `build_id=（空）fingerprint=MISMATCH` 而 dev.log/health 实际正常——status 的状态文件读取与进程写入存在竞态，**以 `curl http://127.0.0.1:8414/api/health` 的 build_id 为真值**。
+
+**根因（症状一）**：go run 父进程退出时收割 exec 派生的 dev web 服务进程（Setsid 在 devweb.go 内部已设置，但 go run 的进程管理仍连带）——go run 编译产物的子进程生命周期与 go run 父进程绑定。
+
+**精确解决步骤**:
+```bash
+# dev-web 管理一律直跑二进制（dev 树 bin/rick 或 dev-home/bin 产物）：
+cd /Users/logic/workdir/rick-dev && RICK_DEV_HOME=/Users/logic/workdir/rick-dev-home ./bin/rick tools dev-web up
+# 判定真值不用 status，用 health：
+curl -sS --noproxy '*' http://127.0.0.1:8414/api/health   # build_id 字段为准
+```
+
+**首次发现**: job_57（2026-11-27/28，v8.1-v8.3 四轮部署实测——go run 起死 5 次，改直跑后 0 次） **验证状态**: ✅ 已沉淀（prompt-template-iteration-loop 工具表 + dev_session_migration_skill 关联节同步）

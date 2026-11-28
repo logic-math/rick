@@ -26,7 +26,7 @@ wiki/
     ├── prompt.md                # 提示词模板与管理
     ├── workspace.md             # 路径管理
     ├── config.md                # 配置管理
-    └── human-loop.md            # SENSE 深度思考
+    └── human-loop.md            # SENSE 五阶段思考门禁会话
 ```
 
 ## 文档导航
@@ -58,7 +58,7 @@ wiki/
 - **[提示词管理模块](modules/prompt.md)** - 模板管理、上下文注入
 - **[工作空间管理](modules/workspace.md)** - 路径解析
 - **[配置管理](modules/config.md)** - `~/.rick/config.json`
-- **[human-loop 模块](modules/human-loop.md)** - SENSE 深度思考
+- **[human-loop 模块](modules/human-loop.md)** - SENSE 五阶段思考门禁会话（orig 概念随机游走 + 递归解释 + thought_path）
 
 ## 核心命令速查
 

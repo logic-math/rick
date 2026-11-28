@@ -198,7 +198,7 @@ rick tools theme             # 主题管理
 | 命令 | 职责 |
 |------|------|
 | `rick easy` | 交互式 AI coding（白箱，人类把控） |
-| `rick human-loop` | SENSE 五阶段深度思考会话 |
+| `rick human-loop` | SENSE 五阶段思考门禁会话（orig 概念随机游走启发 + 递归解释呈现 + thought_path 思考轨迹唯一产出） |
 | `rick dream` | 跨 job 全局反思与知识进化 |
 | `rick super` | 自进化环境（env_N 中控） |
 | `rick web` | Web UI 服务器（多工作区/多端） |
@@ -224,7 +224,7 @@ rick tools theme             # 主题管理
 | 类型 | 说明 | 恢复方式 |
 |------|------|----------|
 | easy | 交互式 AI coding（白箱） | `rick easy --resume job_N` |
-| human-loop | SENSE 深度思考 | `rick human-loop --resume loop_N` |
+| human-loop | 思考门禁（SENSE 五阶段） | `rick human-loop --resume loop_N` |
 | dream | 跨 job 反思（后台） | Web UI 恢复 |
 | super | 自进化环境 | Web UI 恢复 |
 

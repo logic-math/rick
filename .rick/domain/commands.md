@@ -62,19 +62,19 @@
 
 ## rick human-loop
 
-- 命令：`rick human-loop <topic>`
-- 通过 SENSE 方法论引导 5 阶段深度思考（v3.1，四文件架构），产出存入 `.rick/draft/rfc/` 目录（`GetRFCDir()` 返回 `.rick/draft/rfc`，不是旧 `.rick/RFC/`）
-- **四文件 sub agent 模板**（sense_loop/think/research/exporter）通过 Go embed 编译进二进制，运行时写出到 `{{loop_dir}}/prompts/`（loop_dir = `draft/loops/loop_N`），并写 4 个对应 skill 文件到 `templates/skills/`
-- 自动创建目录（MkdirAll，幂等）：`draft/rfc/`、`draft/concepts/`、`draft/human-learning/`、`draft/loops/loop_N/`（loop id 由 `NextLoopID()` 分配）
-- dry-run 输出中 sub agent 路径为占位符格式（`<draft>/loops/loop_N/prompts/*.md`），不含真实路径
-- 配置项：`.rick/config.json` 的 `human_loop` 嵌套字段（`max_retries` 默认 5、`sense_max_backflows` 默认 3、`think_top_n`、`think_min_assumptions` 默认 5、`research_source_weights`）
+- 命令：`rick human-loop <topic>`——启发 human 原创性思考的思考门禁会话（v8.3，job_57 彻底重构，删除 v7 教学机制）
+- **架构**：SENSE 五阶段思考门禁（问题还原/视角生产/判断矛盾/辩证逆转/良质批判），每阶段一个 skill；单 agent（orig：概念随机游走调研启发）；teacher_polish 递归解释呈现
+- **产物结构（v8）**：`draft/loops/loop_N/` 下 `thought_path.md`（唯一产出物：human 原话 + AI 启发时间线）+ `orig/stage{N}_{seq}.md`（orig 中间结构）+ `prompts/`（启动时渲染快照——模板更新后旧会话不继承，须新 loop 承接）+ `session_id`（`--resume loop_N` 恢复）
+- **模板文件**（Go embed）：`templates/sense_loop.md`（极薄编排层）+ `templates/skills/{sense,orig,teacher_polish,sense_reconstruct,sense_perspective,sense_contradiction,sense_reversal,sense_critique}.md`
+- 无阈值配置：门禁无重试上限（推进权在 human）；config 旧 `human_loop` 嵌套字段（think_top_n/sense_max_backflows 等）v8 起无消费者
 - 复用 `callClaudeCodeCLI`（plan.go 中定义，同包内共享，不重复声明）
 
 ### human-loop 验证
 
 ```bash
-# 验证 dry-run 输出含关键词（不依赖特定 --phase/--keywords 参数）
-./bin/rick human-loop --dry-run '测试主题' | grep "sense_loop"
+# 验证 dry-run 输出含 v8 关键词（占位符全渲染 + 新关键字在 + 旧概念零残留）
+./bin/rick human-loop --dry-run '测试主题' | grep -c '{{'   # 期望 0
+./bin/rick human-loop --dry-run '测试主题' | grep -c 'thought_path'
 ```
 
 ## NDJSON 解析规范（internal/callcli 或 actpath）
