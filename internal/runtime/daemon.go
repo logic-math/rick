@@ -62,6 +62,28 @@ const unixSocketPathMax = 96
 // suffix must still fit).
 const minStemLen = 18
 
+
+// daemonLogTail reads the last ~size bytes of a daemon stdio log file
+// (diagnostics for probe failures / post-mortem). Missing file → "".
+func daemonLogTail(path string, size int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	var off int64
+	if fi.Size() > int64(size) {
+		off = fi.Size() - int64(size)
+	}
+	buf := make([]byte, int64(size))
+	n, _ := f.ReadAt(buf, off)
+	return string(buf[:n])
+}
+
 // ErrDaemonAlive reports a Spawn onto a session whose daemon socket already
 // answers — the caller should Attach instead (one session, one pi worker).
 var ErrDaemonAlive = errors.New("supervisor: live daemon already exists for session — use Attach")
@@ -230,6 +252,7 @@ func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 	// (the shim unlinks on exit, but a SIGKILLed shim leaves residue).
 	_ = os.Remove(socketPath)
 	_ = os.Remove(socketPath + ".meta.json")
+	_ = os.Remove(socketPath + ".log")
 
 	piBin := s.cfg.PiPath
 	if piBin == "" {
@@ -274,17 +297,24 @@ func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 	// leaves the group untouched.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stdout, err := cmd.StdoutPipe()
+	// stdio decoupling（真 e2e 实测修复 2026-11-28）：shim/pi 的 stdout/stderr
+	// 绝不能是连回本进程的管道——本进程（web server）死亡时管道断裂，
+	// pi 及其子进程任何一次 stderr 写入就 EPIPE 崩溃（dev 实测：detach 正常
+	// 执行后 2 秒内 pi 仍死）。全部落日志文件 <stem>.log，进程生命周期与
+	// web 完全解耦；探活失败的诊断从文件尾部读取。
+	logPath := socketPath + ".log"
+	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("supervisor: stdout pipe: %w", err)
+		return nil, fmt.Errorf("supervisor: open daemon log: %w", err)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: stderr pipe: %w", err)
-	}
+	cmd.Stdout = logf
+	cmd.Stderr = logf
 	if err := cmd.Start(); err != nil {
+		logf.Close()
 		return nil, fmt.Errorf("supervisor: start shim: %w", err)
 	}
+	// 子进程持有自己的 FD 副本；父侧句柄即可关闭。
+	logf.Close()
 
 	w := &Worker{
 		sup:          s,
@@ -298,34 +328,12 @@ func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 		abandonC:     make(chan struct{}),
 		lastActivity: time.Now(),
 	}
-	w.stderrTail = newByteRing(stderrTailSize)
+	w.daemonLogPath = logPath
 
 	go func() {
 		w.waitErr = cmd.Wait()
 		close(w.waitCh)
 		w.markDead(fmt.Sprintf("exited: %v", w.waitErr))
-	}()
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stderr.Read(buf)
-			if n > 0 {
-				w.stderrTail.Write(buf[:n])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	// Defensive drain: the shim logs to stderr only, but a blocked stdout
-	// pipe must never wedge the group.
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			if _, err := stdout.Read(buf); err != nil {
-				return
-			}
-		}
 	}()
 
 	// Probe: dial the shim's socket (node startup included in the window).
@@ -540,6 +548,7 @@ func (s *Supervisor) CleanupSessionFiles(sessionID string) {
 	socketPath := s.socketPath(sessionID)
 	_ = os.Remove(socketPath)
 	_ = os.Remove(socketPath + ".meta.json")
+	_ = os.Remove(socketPath + ".log")
 }
 
 // CleanupOrphansExcept removes daemon sockets whose session id is NOT in
@@ -577,6 +586,7 @@ func (s *Supervisor) CleanupOrphansExcept(keep []string) []string {
 		}
 		_ = os.Remove(socketPath)
 		_ = os.Remove(socketPath + ".meta.json")
+		_ = os.Remove(socketPath + ".log")
 		cleaned = append(cleaned, stem)
 	}
 	return cleaned

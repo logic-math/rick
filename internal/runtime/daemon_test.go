@@ -415,3 +415,40 @@ func TestDaemonDisabledAttach(t *testing.T) {
 		t.Fatalf("expected ErrDaemonDisabled, got %v", err)
 	}
 }
+
+// TestDaemonStdioDecoupledToLogFile 回归守护（dev 真 e2e 实测 2026-11-28）：
+// shim/pi 的 stdout/stderr 必须路由到 <stem>.log 文件，绝不能是连回本进程的
+// 管道——web 进程死亡时管道断裂，pi 任何一次 stderr 写入就 EPIPE 崩溃
+// （dev 实测：detach 正常执行后 2 秒内 pi 仍死）。shim 启动必写
+// "[pi-daemon-shim] listening" 到 stderr——日志文件含该行即证明
+// stderr→文件路由成立（管道实现下该文件恒为空，测试立刻红）。
+func TestDaemonStdioDecoupledToLogFile(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "stdin.log")
+	pi := fakePiDaemon(t, logPath)
+	sup := daemonTestSupervisor(t, pi, nil)
+
+	w, err := sup.Spawn(daemonSpec("sess-stdio"))
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	t.Cleanup(func() { w.Close() })
+
+	// Round trip proves the daemon is serving RPC before inspecting stdio.
+	client := NewRpcClient()
+	line, _ := client.Prompt("hello", "")
+	if err := w.Send(line); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if ev := drainUntil(t, w.Events(), func(ev *RpcEvent) bool { return ev.Type == "turn_end" }, 10*time.Second); ev == nil {
+		t.Fatal("no turn_end from round trip")
+	}
+
+	socketPath := sup.socketPath("sess-stdio")
+	data, err := os.ReadFile(socketPath + ".log")
+	if err != nil {
+		t.Fatalf("read daemon log: %v", err)
+	}
+	if !strings.Contains(string(data), "pi-daemon-shim") {
+		t.Fatalf("daemon log missing shim stderr output (stdio not decoupled to file?): %q", string(data))
+	}
+}
