@@ -116,6 +116,12 @@ func TestDeploySuperAssetsPartialSourceTree(t *testing.T) {
 // DeploySuperAssets 经 resolveRepoRoot cwd 上溯解析到假树并部署。
 // ⚠️ 含 chdir，不并行（本包测试全串行）。
 func TestDeploySuperAssetsFromResolvedTree(t *testing.T) {
+	// 环境隔离（release 门禁实测 2026-11-28）：resolveRepoRoot ① ~/.rick 安装
+	// 快照优先于 ② cwd 上溯——HOST HOME 指向带 super 快照的环境（release 门禁
+	// 用 dev HOME，其 .rick/super/superopt marker 存在）时 ① 抢先命中，本测试
+	// 期望的「② cwd 上溯」路径被环境破坏（deployed=[]）。注入空 RICK_PI_AGENT_DIR
+	// 派生链使 ① 确定性落空，任何 HOME 下都走 ②。
+	t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(t.TempDir(), "isolated", ".rick", "pi", "agent"))
 	tmp := t.TempDir()
 	repo := filepath.Join(tmp, "fakerepo")
 	// superopt marker（resolveRepoRoot 的 cwd 上溯判据）
