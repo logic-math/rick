@@ -101,6 +101,16 @@ type SupervisorConfig struct {
 	PiPath string
 	// ExtraArgs are passed through to pi (e.g. --provider/--model/--api-key).
 	ExtraArgs []string
+	// DaemonSocketDir switches workers to daemon mode (daemon.go) when
+	// non-empty: each pi runs behind a node shim owning its stdin/stdout,
+	// exposed on <DaemonSocketDir>/<session>.sock, so the web server can
+	// restart (detach → re-attach) without killing pi — in-flight tool
+	// calls and subagents keep running across server upgrades. Empty = the
+	// legacy direct-pipe transport (server restart kills pi).
+	DaemonSocketDir string
+	// NodeBin overrides the node binary used to run the daemon shim
+	// (default "node" from PATH).
+	NodeBin string
 	// OnDead fires once per worker death (process exit, heartbeat timeout,
 	// idle reap) with the session id and the last known entry cursor. Called
 	// on its own goroutine; must not block.
@@ -142,6 +152,13 @@ type Supervisor struct {
 
 	mu      sync.RWMutex
 	workers map[string]*Worker
+
+	// detachedMu guards the detached list (workers whose daemon survives a
+	// DetachAll — production leaves them for the next server's
+	// CleanupOrphansExcept; tests reap them with KillDetached so fakes do
+	// not leak past the test binary).
+	detachedMu sync.Mutex
+	detached   []*Worker
 }
 
 // NewSupervisor returns a Supervisor with defaults applied for zero fields.
@@ -169,31 +186,17 @@ func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 
 // Spawn launches one pi rpc subprocess per spec and probes it alive.
 // The worker is registered under spec.SessionID; a duplicate id is rejected.
+// Daemon mode (DaemonSocketDir != "") dispatches to spawnDaemon (daemon.go).
 func (s *Supervisor) Spawn(spec SpawnSpec) (*Worker, error) {
-	if spec.SessionIDFlag == "" {
-		return nil, ErrEmptySessionFlag
+	if s.cfg.DaemonSocketDir != "" {
+		return s.spawnDaemon(spec)
 	}
+	if err := s.precheckSpawn(spec); err != nil {
+		return nil, err
+	}
+	// Normalize (precheckSpawn normalizes its own copy for the dup check).
 	if spec.SessionID == "" {
 		spec.SessionID = spec.SessionIDFlag
-	}
-
-	// Concurrency cap: count live workers under the read lock, then
-	// re-verify under the write lock on insert (small race window is fine —
-	// the insert itself is serialized).
-	s.mu.RLock()
-	live := 0
-	for _, w := range s.workers {
-		if !w.IsDead() {
-			live++
-		}
-	}
-	if _, dup := s.workers[spec.SessionID]; dup {
-		s.mu.RUnlock()
-		return nil, fmt.Errorf("supervisor: session %q already has a worker", spec.SessionID)
-	}
-	s.mu.RUnlock()
-	if live >= s.cfg.MaxActive {
-		return nil, ErrMaxActive
 	}
 
 	piBin := s.cfg.PiPath
@@ -325,6 +328,33 @@ func (s *Supervisor) Spawn(spec SpawnSpec) (*Worker, error) {
 	return w, nil
 }
 
+// precheckSpawn validates the spec and enforces the duplicate-id and
+// concurrency caps shared by both transports (legacy pipes / daemon socket).
+// It normalizes spec.SessionID (empty inherits the pi session flag).
+func (s *Supervisor) precheckSpawn(spec SpawnSpec) error {
+	if spec.SessionIDFlag == "" {
+		return ErrEmptySessionFlag
+	}
+	if spec.SessionID == "" {
+		spec.SessionID = spec.SessionIDFlag
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	live := 0
+	for _, w := range s.workers {
+		if !w.IsDead() {
+			live++
+		}
+	}
+	if _, dup := s.workers[spec.SessionID]; dup {
+		return fmt.Errorf("supervisor: session %q already has a worker", spec.SessionID)
+	}
+	if live >= s.cfg.MaxActive {
+		return ErrMaxActive
+	}
+	return nil
+}
+
 // Get returns the worker registered for sessionID (nil if absent).
 func (s *Supervisor) Get(sessionID string) *Worker {
 	s.mu.RLock()
@@ -387,6 +417,17 @@ type Worker struct {
 	lastEntryID  string
 	state        *WorkerState
 	hbDeadline   time.Time
+
+	// Daemon-mode (socket transport, daemon.go): pgid is the process group
+	// to kill on Close (spawned: the shim's pid; attached: read from the
+	// shim's meta file). attached marks an Attach()ed worker (no child
+	// process — Close falls back to killGroupDetached). detached marks a
+	// detach()ed worker: no OnDead callback, no error transitions — the
+	// daemon keeps running for a future Attach.
+	pgid       int
+	attached   bool
+	detached   atomic.Bool
+	detachOnce sync.Once
 
 	events chan *RpcEvent // buffered eventChanBuffer; closed on death
 	// queue staging: scanner → pending → pump → events
@@ -501,6 +542,8 @@ func (w *Worker) touch() {
 
 // Close terminates the worker: best-effort rpc abort → SIGTERM the process
 // group → TermGrace → SIGKILL the group. Idempotent.
+// Attached daemon workers (no child process) use the recorded pgid with the
+// killGroupDetached ladder (daemon.go) — the semantics match.
 func (w *Worker) Close() {
 	w.mu.Lock()
 	if w.closed {
@@ -515,20 +558,21 @@ func (w *Worker) Close() {
 		_ = w.writeLine(line)
 	}
 
-	if w.cmd.Process != nil {
+	if w.cmd != nil && w.cmd.Process != nil {
 		_ = syscall.Kill(-w.cmd.Process.Pid, syscall.SIGTERM)
-	}
-	select {
-	case <-w.waitCh:
-	case <-time.After(w.sup.cfg.TermGrace):
-		if w.cmd.Process != nil {
-			_ = syscall.Kill(-w.cmd.Process.Pid, syscall.SIGKILL)
-		}
 		select {
 		case <-w.waitCh:
-		case <-time.After(2 * time.Second):
-			// Refused to die even under KILL; wait goroutine still owns Wait.
+		case <-time.After(w.sup.cfg.TermGrace):
+			_ = syscall.Kill(-w.cmd.Process.Pid, syscall.SIGKILL)
+			select {
+			case <-w.waitCh:
+			case <-time.After(2 * time.Second):
+				// Refused to die even under KILL; wait goroutine still owns Wait.
+			}
 		}
+	} else {
+		// Attached daemon worker: no child, no waitCh — poll the group.
+		killGroupDetached(w.pgid, w.sup.cfg.TermGrace)
 	}
 
 	w.writeMu.Lock()
@@ -541,6 +585,31 @@ func (w *Worker) Close() {
 	// Release the pump (consumer may still be draining buffered events; the
 	// once-guard makes this safe after a natural drain).
 	w.abandon()
+}
+
+// Detached reports whether this worker was detach()ed (server shutdown in
+// daemon mode): the daemon keeps running; callers must not treat the event
+// channel close as a worker crash (the web pump uses this to leave the
+// session active for the next server to attach).
+func (w *Worker) Detached() bool {
+	return w.detached.Load()
+}
+
+// detach closes the socket connection WITHOUT touching the daemon processes
+// (server shutdown / upgrade path, supervisor.DetachAll). Idempotent. No
+// markDead/OnDead is fired — the death transition belongs to the process,
+// which stays alive; the pump drains what pi already emitted and then exits.
+func (w *Worker) detach() {
+	w.detachOnce.Do(func() {
+		w.detached.Store(true)
+		w.writeMu.Lock()
+		if w.stdin != nil {
+			_ = w.stdin.Close()
+			w.stdin = nil
+		}
+		w.writeMu.Unlock()
+		w.abandon()
+	})
 }
 
 // abandon unblocks the pump's send path after termination.
@@ -603,6 +672,14 @@ func (w *Worker) scanLoop(stdout io.Reader) {
 		}
 		w.intercept(ev)
 		w.stage(ev)
+	}
+	// EOF: the pipe/socket source is gone. For attached daemon workers this
+	// is the ONLY death signal (no child process, no wait goroutine — the
+	// shim closes the conn when pi exits). Spawned workers race with their
+	// wait goroutine — markDead is once-guarded, first reason wins. Detached
+	// workers must NOT transition (the daemon lives on for the next server).
+	if !w.detached.Load() {
+		w.markDead("daemon connection closed")
 	}
 	w.endSupply()
 }
@@ -831,6 +908,12 @@ func (w *Worker) reapLoop(idle time.Duration) {
 		case <-w.abandonC:
 			return
 		case <-ticker.C:
+			// Detached (server shutdown in daemon mode): the daemon must
+			// survive — idle reaping would kill pi out from under the next
+			// server's Attach.
+			if w.detached.Load() {
+				return
+			}
 			w.mu.Lock()
 			last := w.lastActivity
 			st := w.state

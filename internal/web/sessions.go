@@ -192,18 +192,43 @@ func (m *SessionManager) BackfillTitles() {
 // 不是执行失败；误写成 error 会让 UI 显示「已中断（agent 进程不在）」，人无法分辨
 // 「平台升级掉起」与「真的炸了」。suspended 表示状态完整、可一键继续。
 //
-// ⚠️ 这里**不 spawn 任何 worker**——恢复动作只能由人显式触发
-// （POST /api/sessions/{id}/continue）。调研依据 research-L6 §3.3 P1：pi resume
-// 不自动续跑；而悬挂 toolCall 自动续跑会重复副作用（§3.5）。
+// AutoResumeOnStart（human 2026-11-28 裁决：重启后会话不挂起）：config
+// auto_resume_on_start=true 时，对账刚标为 suspended 的**交互型**会话自动调
+// ensureInteractiveWorker 恢复（spawn pi --session worker）。pi --session
+// 恢复 = 加载历史 + 等输入（实测 busy=false，不自动续跑）——原先 J-L6-6/7
+// 「不自动续跑」的担忧（悬挂 toolCall 自动重放）不适用于此：恢复不发送任何消息。
+// 后台 dream 不自动恢复（goroutine 随进程消亡，continueBackground 走任务
+// 归一化路径，复杂度高，首轮不覆盖）。恢复失败的会话保持 suspended（下次
+// 手动恢复仍可）。
 func (m *SessionManager) ReconcileOnStart() {
+	var autoResumed []SessionEntry
+	daemon := m.daemonEnabled()
 	for _, e := range m.sessions.List() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue
 		}
 		if e.Type == SessionTypeDream {
-			// 后台型 goroutine 随进程消亡——掉起（可人工继续重跑剩余 task）
+			// 后台 dream：goroutine 随进程消亡——挂起（可人工继续重跑剩余 task）。
+			// 交互 dream：也走 worker 恢复（pi --session，等输入不续跑）。
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
+			if dreamMode(e.Params) != DreamModeBackground {
+				autoResumed = append(autoResumed, e)
+			}
 			continue
+		}
+		// Daemon 模式：交互型会话（有 PISessionID）先试 socket 探活 attach——活着的
+		// pi（重启期间工具调用/子代理一直在跑）直接接管，**保持 active 零中断**；
+		// 只有 socket 死了才落回 suspended 路径（pi 真的炸了，走 spawn 恢复/
+		// auto-resume）。后台型 running 会话没有 pi worker（goroutine 驱动）——
+		// PISessionID 为空不探活，直接走挂起。
+		if daemon && m.sup != nil && e.PISessionID != "" {
+			if w, err := m.sup.Attach(e.ID); err == nil {
+				m.pumpWorker(e.ID, w)
+				m.syncBusyFromState(e.ID)
+				fmt.Fprintf(os.Stderr, "[rick-web] re-attached session %s to live pi daemon\n", e.ID)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "[rick-web] daemon attach session %s failed (pi gone?): falling back to suspend\n", e.ID)
 		}
 		if m.sup == nil {
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
@@ -211,10 +236,46 @@ func (m *SessionManager) ReconcileOnStart() {
 		}
 		if w := m.sup.Get(e.ID); w == nil || w.IsDead() {
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
+			autoResumed = append(autoResumed, e)
 		}
 	}
 	// 恢复报告：suspended 清单以注册表为权威（人据此一键继续）
 	m.refreshSuspendedReport()
+
+	// auto_resume_on_start：交互型会话自动恢复（human 2026-11-28）
+	if cfg, err := config.LoadConfig(); err == nil && cfg.AutoResumeOnStart {
+		for _, e := range autoResumed {
+			// 重新读条目（updateStatus 可能已改写）
+			cur, ok := m.sessions.Get(e.ID)
+			if !ok || cur.Status != SessionStatusSuspended {
+				continue
+			}
+			// 交互 dream（mode=interactive）也走 worker 恢复；后台 dream 不在此列（上面已 continue）
+			if _, _, err := m.ensureInteractiveWorker(cur); err != nil {
+				// 恢复失败：保持 suspended，下次手动仍可恢复
+				fmt.Fprintf(os.Stderr, "[rick-web] auto-resume session %s failed: %v\n", e.ID, err)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "[rick-web] auto-resumed session %s\n", e.ID)
+		}
+	}
+
+	// Daemon 模式收尾：清理无人认领的孤儿 socket（会话已 close/不在注册表/
+	// attach 失败的死 socket）—— 杀进程组 + 删文件，防止孤儿 pi 占着会话文件。
+	if daemon && m.sup != nil {
+		keep := make([]string, 0, 8)
+		for _, e := range m.sessions.List() {
+			if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
+				continue
+			}
+			if wk := m.sup.Get(e.ID); wk != nil && !wk.IsDead() {
+				keep = append(keep, e.ID)
+			}
+		}
+		for _, stem := range m.sup.CleanupOrphansExcept(keep) {
+			fmt.Fprintf(os.Stderr, "[rick-web] cleaned orphan daemon socket %s\n", stem)
+		}
+	}
 }
 
 // ---- HTTP handlers ----
@@ -773,6 +834,9 @@ func (m *SessionManager) closeSession(entry SessionEntry, reason string) {
 		if worker := m.sup.Get(entry.ID); worker != nil {
 			worker.Close()
 			m.sup.Remove(entry.ID)
+			// Daemon 模式：显式 close 杀了整组（shim+pi+工具进程）—— 兑底
+			// 清 socket/meta 文件（SIGKILL 杀 shim 时它来不及自清）。
+			m.cleanupDaemonFiles(entry.ID)
 		}
 	}
 	// easy 会话正常关闭 = 需求完成：把合成 tasks.json 标 success（创建时是
@@ -1151,6 +1215,23 @@ func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.W
 	}
 	if m.sup == nil {
 		return nil, false, errNoSupervisor
+	}
+
+	// Daemon 模式幂等保证：活 daemon socket 存在 → Attach 复用，绝不 spawn
+	// 第二个 pi（一个会话永远只有一个 pi worker）。覆盖两类场景：
+	//   - 服务重启后首次 ensure（ReconcileOnStart 未 attach 的）
+	//   - worker 在本进程内丢失但 pi 还活着（心跳假阴性等）→ 免重开直接接管
+	if m.daemonEnabled() && entry.PISessionID != "" {
+		if w, err := m.sup.Attach(entry.ID); err == nil {
+			m.updateStatus(entry, SessionStatusActive, "re-attached to live pi daemon")
+			if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
+				entry = e2
+			}
+			m.pumpWorker(entry.ID, w)
+			m.syncBusyFromState(entry.ID)
+			m.recordRecovered(recoveryItemOf(entry, "re-attached to live pi daemon"))
+			return w, false, nil
+		}
 	}
 
 	spec := runtime.SpawnSpec{
@@ -2037,10 +2118,12 @@ func (m *SessionManager) pumpWorker(sessionID string, worker *runtime.Worker) {
 		// map, already handled) from a crash (transition to error here —
 		// 终止/中断语义：worker 异常退出=error，前端显示 Resume 恢复；
 		// closed 保留给主动 close）。
+		// Daemon detach（服务重启）例外：worker 被主动断开但 pi 还活着——
+		// 保持 active，下一个服务 Attach 回来（human 2026-11-28）。
 		m.mu.Lock()
 		userClosing := m.closing[sessionID]
 		m.mu.Unlock()
-		if !userClosing {
+		if !userClosing && !worker.Detached() {
 			if entry, ok := m.sessions.Get(sessionID); ok && entry.Status == SessionStatusActive {
 				m.markWorkerLost(entry)
 			}
@@ -2124,8 +2207,19 @@ func (m *SessionManager) BackfillJobParams() {
 // 连带杀掉它们——不显式收尸就会留下孤儿 pi 进程继续占着会话文件，下次启动
 // Resume 时出现「新 worker 起不来 / 起来就死」的诡异现象（实测：job_69 导入后
 // 反复变 error 的根因就是上一次服务重启留下的孤儿 worker）。
+//
+// Daemon 模式（daemon.go，human 2026-11-28）：服务退出**不杀 pi**——只断开
+// socket 连接（DetachAll），注册表 status 保持 active 落盘；pi 继续跑（工具
+// 调用/子代理不断），shim 缓冲 stdout，重启后的服务 ReconcileOnStart 会 Attach
+// 回来继续。孤儿风险由重启对账的 CleanupOrphans 收拾（会话已 close/不在注册
+// 表的 daemon 才杀）。
 func (m *SessionManager) ShutdownWorkers() {
 	if m == nil {
+		return
+	}
+	if m.daemonEnabled() {
+		fmt.Fprintf(os.Stderr, "[rick-web] shutdown: detaching %d daemon worker(s) (pi keeps running)\n", m.sup.Count())
+		m.sup.DetachAll()
 		return
 	}
 	// 先把「在跑的会话」写成挂起（关停快照 + 注册表状态落盘），再收 worker。
@@ -2151,6 +2245,42 @@ func agentEndWillRetry(ev *runtime.RpcEvent) bool {
 		return false
 	}
 	return probe.WillRetry
+}
+
+// daemonEnabled 报告 supervisor 是否运行在 daemon 模式（socket 传输，
+// daemon.go）：服务重启 → DetachAll + Attach 回来，pi 全程不断。
+func (m *SessionManager) daemonEnabled() bool {
+	return m != nil && m.sup != nil && m.sup.DaemonEnabled()
+}
+
+// syncBusyFromState 从活 worker 的 get_state 快照同步服务端权威 Busy
+//（reattach 后恢复真实的流式状态——重启期间 pi 可能正在跑工具）。
+// 错误只记日志（Busy 同步失败不应影响 attach 本身）。
+func (m *SessionManager) syncBusyFromState(sessionID string) {
+	ev, err := m.rpcRequest(sessionID, func(c *runtime.RpcClient) ([]byte, error) { return c.GetState() })
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[rick-web] reattach get_state %s failed: %v\n", sessionID, err)
+		return
+	}
+	var st struct {
+		Data struct {
+			IsStreaming bool `json:"isStreaming"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(ev.Raw, &st); err != nil {
+		fmt.Fprintf(os.Stderr, "[rick-web] reattach get_state %s decode failed: %v\n", sessionID, err)
+		return
+	}
+	m.setBusy(sessionID, st.Data.IsStreaming, "reattach")
+}
+
+// cleanupDaemonFiles 防御性清理会话的 daemon socket 残留（显式 close 后：
+// shim 退出会自己 unlink，这里兑底。不存在 = 无操作）。
+func (m *SessionManager) cleanupDaemonFiles(sessionID string) {
+	if !m.daemonEnabled() {
+		return
+	}
+	m.sup.CleanupSessionFiles(sessionID)
 }
 
 // markWorkerLost 标记会话为 error（终止/中断语义）：worker 失活（崩溃/心跳超时/

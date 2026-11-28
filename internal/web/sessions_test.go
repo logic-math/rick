@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sunquan/rick/internal/config"
 	"github.com/sunquan/rick/internal/handler"
 	"github.com/sunquan/rick/internal/runtime"
 	superpkg "github.com/sunquan/rick/internal/super"
@@ -2155,5 +2156,155 @@ func TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName(t *testing.T)
 	// 两次失败都不消耗编号、不留工作区
 	if _, err := os.Stat(filepath.Join(env.rickDir, "super")); !os.IsNotExist(err) {
 		t.Fatalf("failed creates must not leave super/ dir: %v", err)
+	}
+}
+
+// TestReconcileOnStart_AutoResume（human 2026-11-28：重启后会话不挂起）：
+// config auto_resume_on_start=true → 对账后自动恢复交互型 suspended 会话
+// （spawn worker + 状态回 active）。默认 false 不恢复（TestReconcileOnStart_DoesNotAutoResume 已覆盖）。
+func TestReconcileOnStart_AutoResume(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil)
+
+	// 写 config：auto_resume_on_start = true（写到 HOME/.rick/config.json——newTestEnv 的 HOME 已隔离）
+	home := os.Getenv("HOME")
+	cfgDir := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = filepath.Join(cfgDir, "config.json")
+	cfg := config.GetDefaultConfig()
+	cfg.AutoResumeOnStart = true
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	// 造两个交互型（easy + super）+ 一个后台 dream
+	orphan := SessionEntry{
+		ID: "auto-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
+		Status: SessionStatusActive, PISessionID: "pi-auto-1",
+		Params: map[string]any{"requirement": "x"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(orphan); err != nil {
+		t.Fatal(err)
+	}
+	orphan2 := SessionEntry{
+		ID: "auto-2", WorkspaceID: env.wsEntry.ID, Type: SessionTypeSuper,
+		Status: SessionStatusActive, PISessionID: "pi-auto-2",
+		Params: map[string]any{"requirement": "y"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(orphan2); err != nil {
+		t.Fatal(err)
+	}
+	bgDream := SessionEntry{
+		ID: "auto-3", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDream,
+		Status: SessionStatusRunning,
+		Params: map[string]any{"mode": DreamModeBackground, "job": "job_1"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(bgDream); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ReconcileOnStart()
+
+	// 交互型：自动恢复（active + worker spawn）
+	for _, id := range []string{"auto-1", "auto-2"} {
+		e, ok := env.sessions.Get(id)
+		if !ok {
+			t.Fatalf("%s missing", id)
+		}
+		if e.Status != SessionStatusActive {
+			t.Fatalf("auto-resume %s: status = %q, want active", id, e.Status)
+		}
+		if w := env.sup.Get(id); w == nil {
+			t.Fatalf("auto-resume %s: worker not spawned", id)
+		}
+		if e.Busy {
+			t.Fatalf("auto-resume %s: Busy should be false (new worker is idle)", id)
+		}
+	}
+	// 后台 dream：不自动恢复（保持 suspended）
+	d, _ := env.sessions.Get("auto-3")
+	if d.Status != SessionStatusSuspended {
+		t.Fatalf("background dream should stay suspended, got %q", d.Status)
+	}
+	if w := env.sup.Get("auto-3"); w != nil {
+		t.Fatal("background dream should not have a spawned worker")
+	}
+}
+
+// TestReconcileOnStart_AutoResumeDisabledByDefault：config 无 auto_resume_on_start
+// 字段（或 false）→ 不自动恢复（suspended 保持——与 DoesNotAutoResume 互补：那个用
+// 默认 config，这个显式写 false 到 config 文件确认读取链路正确）。
+func TestReconcileOnStart_AutoResumeDisabledByDefault(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil)
+
+	// 显式写 config：auto_resume_on_start = false
+	home := os.Getenv("HOME")
+	cfgDir := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.GetDefaultConfig()
+	cfg.AutoResumeOnStart = false
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	orphan := SessionEntry{
+		ID: "no-auto-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeEasy,
+		Status: SessionStatusActive, PISessionID: "pi-no-auto-1",
+		Params: map[string]any{"requirement": "x"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(orphan); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ReconcileOnStart()
+
+	e, _ := env.sessions.Get("no-auto-1")
+	if e.Status != SessionStatusSuspended {
+		t.Fatalf("auto_resume=false: status = %q, want suspended", e.Status)
+	}
+	if w := env.sup.Get("no-auto-1"); w != nil {
+		t.Fatal("auto_resume=false: worker should not be spawned")
+	}
+}
+
+// TestReconcileOnStart_AutoResumeInteractiveDream：mode=interactive 的 dream
+// 是交互型（走 worker 恢复），在 auto_resume 下也应被恢复。
+func TestReconcileOnStart_AutoResumeInteractiveDream(t *testing.T) {
+	env := newTestEnv(t)
+	m := env.managerWith(t, nil)
+
+	home := os.Getenv("HOME")
+	cfgDir := filepath.Join(home, ".rick")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.GetDefaultConfig()
+	cfg.AutoResumeOnStart = true
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	interactiveDream := SessionEntry{
+		ID: "dream-int-1", WorkspaceID: env.wsEntry.ID, Type: SessionTypeDream,
+		Status: SessionStatusActive, PISessionID: "pi-dream-int-1",
+		Params: map[string]any{"mode": DreamModeInteractive, "job": "job_1"}, CreatedAt: time.Now(),
+	}
+	if err := env.sessions.Add(interactiveDream); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ReconcileOnStart()
+
+	e, _ := env.sessions.Get("dream-int-1")
+	if e.Status != SessionStatusActive {
+		t.Fatalf("interactive dream auto-resume: status = %q, want active", e.Status)
+	}
+	if w := env.sup.Get("dream-int-1"); w == nil {
+		t.Fatal("interactive dream auto-resume: worker not spawned")
 	}
 }
