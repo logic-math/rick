@@ -96,3 +96,11 @@
 （等待 human 思考回答，回答后补全）
 ### 门禁判定
 （待判定——按阶段 2 门禁标准：视角应用价值 + 内在因果运动）
+
+## [阶段 2 · 视角生产 · 第 2 轮（loop_26 v8.3 继承重呈现）] — 2026-11-29 00:30
+### orig 启发（引用）
+（继承重呈现轮，未重派 orig——素材来自既有 orig/orig/orig/orig/orig/stage2_2.md 融合 orig/orig/orig/stage2_3.md，按 v8.3 模板递归解释零领域专用词汇呈现）十块概念地图：①码长（Kolmogorov 复杂度=最短指令清单长度；Levin 编码定理每 +1bit 概率减半；Solomonoff 1978 支配性）②条件码长 K(y|x)=git diff 直觉；Dingle 2022 rsif.2022.0694 P(x→y)≲2^(−K(y|x)) 每 −1bit 概率翻倍、RNA 86%/蛋白 79%、r=0.91/0.93；Fig 1c 无条件码长不预测、相似性预测跳跃非简单性③表型偏差（P(x)≲2^(−aK̃(x)−b) Dingle 2020 NMI/Johnston 2022 PNAS；§4.6 流形间 K(y|x)≈K(y) 退化无条件被偏差锁死；Gurkan 2026 GECCO Comp 无引导 LLM 87%/93% 塌缩流形内）④两个流形分家（统计流形点=分布 vs 基因型网络点=序列/程序；human「代码=离散低维流形」接近后者、穿越点只能定义在后者）⑤Wagner 网络（覆盖半径 15≪50 Schuster-Fontana 1994；穿越点位置依赖 Huynen 1996 PNAS；一步可及表型库≈8× 平均 525.7 个 Biophys J 2014；极限分布=主特征向量 PNAS 1999 定理级；交集=穿越点对应物 Bendixsen-Hayden 2019 PLOS Biol 16484 变体 9032 双功能、漂 400 代登顶）⑥IGO（Fisher 度量 Chentsov 唯一性；自然梯度 Amari 1998；IGO 统一 CMA-ES/CEM/EDA JMLR 2017；边界=单一分布族内上升流换族不在框架；QD 有几何机器无 Fisher 论述唯 GECCO'22 Salehi 分析非定理；无人做 P_LLM 当 IGO 分布族/QD 档案 Fisher 化）⑦不可判定墙（程序等价不可判定 Budd-Angluin；NID 不可半计算→NCD 可计算近似 Cilibrasi-Vitányi 2005；穿越点必然代理量检索、LLM=不可计算先验的可计算代理）⑧LLM 条件码长（−log₂P_LLM(子代|上下文)；LM-is-compression Delétang ICLR 2024 算术编码预测⟺压缩、Chinchilla 43.4%/16.4% vs PNG 58.5%/FLAC 30.3%；催化剂 K(y|x,c)≪K(y|x) 压低 b bit⟹概率上界×2^b；Pass 2608.16438 prompt 价值 b bit=互信息=好获得 2^b 可有效估计；Perrier 2604.20897 算法催化剂正式定义 η bit/加速≤互信息——单作者热力学框架无进化循环未接 Dingle）⑨现役系统盘点（FunSearch 分数+偏好更短=无条件方向；AlphaEvolve 多标量+LLM-judge 简单性；MCE UCB 奖励=进档案比例只能事后统计；novelty k 近邻距离=落点稀疏非可达性；无任何系统用条件码长做选择量）⑩四空位划界（空间大部分现成一处要拼=档案=流形/穿越点=交集合并视角；代理量零件现成成品没有=2^(−K̃(y|x)) 先验预测进档案率/双低候选查无此物；检索对象必须发明=「检索使 K(y|x,c)≪K(y|x) 成立的 c」无人提出 Dingle 自认 GA 应用 future work；因果运动定理现成接线自己来=催化剂压低 b bit⟹×2^b⟹进档案率先验预测叙事线无人连成句；轴：流形内 K(y|x) 支配 vs 流形间 K(y) 支配可换强/弱标注，Dingle 数学本身就是这根轴）。收尾引导：十块拼图填模板「在__空间上，以__代理量为可计算指标，检索使__被压低的__」+三细化（代理量指名/因果链说全/轴表态）。
+### human 原话
+（等待 human 思考回答，回答后补全）
+### 门禁判定
+（待判定——按阶段 2 门禁标准：视角应用价值 + 内在因果运动）
