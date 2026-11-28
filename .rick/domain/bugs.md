@@ -910,3 +910,49 @@ curl -sS --noproxy '*' http://127.0.0.1:8414/api/health   # build_id 字段为�
 ```
 
 **首次发现**: job_57（2026-11-27/28，v8.1-v8.3 四轮部署实测——go run 起死 5 次，改直跑后 0 次） **验证状态**: ✅ 已沉淀（prompt-template-iteration-loop 工具表 + dev_session_migration_skill 关联节同步）
+
+## sqlite conn 跨线程裸用致 C 层 segfault（superopt 多线程域）
+
+**症状**: superopt 调度器进程 Segmentation fault: 11（无 Python traceback——C 层崩溃），全量测试间歇挂、单独跑绿。
+
+**根因**: `db.py` 新增查询方法裸用 `self._conn.execute`（未持 `self._lock`）——与心跳线程（`last_seq`）/adjust 线程（`events.append`）并发访问同一 sqlite conn（`check_same_thread=False` 依赖 RLock 串行化；漏锁 = C 层数据竞争崩溃）。
+
+**精确解决步骤**:
+```bash
+# 规则：SuperDB 所有公开方法（读/写）必须 `with self._lock:` 包住 conn 操作
+# 检查法（新方法都查一遍）：
+cd /Users/logic/workdir/AI_CODING/rick
+grep -n "self\._conn\.execute" super/superopt/db.py | while IFS=: read l _; do
+  sed -n "$((l-4)),$l p" super/superopt/db.py | grep -q "with self._lock" || echo "缺锁: $l"
+done
+```
+
+**首次发现**: job_56（2026-11-24，find_resumable_experiment 漏锁——test_events+test_loop 组合必崩、单跑绿）  **验证状态**: ✅ 已修复（持锁 + 585 tests 全绿）
+
+## watchdog restart 的 stop→start 竞态致多 wrapper 混战（superopt 运维域）
+
+**症状**: `--restart` 后 super.log 出现连环 `exit_nonzero: 5`（进程锁冲突）+ 调度器反复被杀重启——表象为「探针秒级轮转僵死循环」（实际是每次重启的启动序列重放）。
+
+**根因**: stop 杀 Go wrapper 后旧 py 调度器残活 3-15 秒；新 start 的 py 撞 `scheduler.pid` 活锁 → exit 5 → wrapper 重启 → 再撞（3 次超限 failed）——**多个 wrapper 并存时互杀对方 py**。
+
+**精确解决步骤**:
+```bash
+# restart 手柄已内置彻底清理（super/tools/watchdog.py --restart）：
+# 杀 wrapper → 杀 py → 等死透（15s 轮询）→ SIGKILL 兜底 → 清 scheduler.pid → sleep 2 → start
+# 手工恢复（撞锁 failed 后）：
+pkill -f "rick super start --name <ws>"; pkill -f "superopt --workdir <ws>"; sleep 3
+pkill -9 -f "superopt --workdir <ws>"; rm -f <ws>/env/scheduler.pid
+cd /Users/logic/workdir/AI_CODING/rick && ./bin/rick super start --name <ws> --daemon
+```
+
+**首次发现**: job_56（2026-11-23/24 两次实证：11h 空窗后重启 + 僵死循环误诊期）  **验证状态**: ✅ 已修复（restart 手柄彻底清理 + 实测两次干净重启）
+
+## epoch 边界 pending 重评估串行堵主循环 1.7h（superopt 设计内成本）
+
+**症状**: 每 epoch 边界（cursor%10==0）恰逢 slots 空 → `_reevaluate_pending` 逐项 ×M 次复测（每项 5-15 分钟远程 E2E）串行跑满——期间零 experiment_started、主循环空转（epoch 150/300 各堵 ~1.7h）。
+
+**根因**: 设计内行为（防单次噪声误判精英）——但重评估与实验派发不并行、且「30min 零事件」表象曾被误诊为死循环（真死循环是老 pending 相对路径 + drain 未持久化，已另修）。
+
+**处置**: 非故障识别纪律——「epoch 边界 + slots 空 + 探针在跑」= 正常慢；改进提案（并行化/限时限项）在 humans 队列。
+
+**首次发现**: job_56（2026-11-24/25，epoch 150 与 300 两轮实证）  **验证状态**: ⚠️ 设计内成本（改进提案在队）

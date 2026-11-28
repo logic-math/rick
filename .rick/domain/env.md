@@ -137,3 +137,11 @@
 - **门禁在 dev 树跑且 HOME=dev-home**：`rick tools release` 的 `runGates`（internal/env/release/release.go）在 **dev 工作树**执行 `go test ./... -p 1 -timeout 1800s`，且 `Plan.buildEnv` 的 HOME 取 **DevHomeOr**（dev 树祖父目录的 rick-dev-home）——不是生产 HOME。该 HOME 与 **dev web 实例**（端口 8414，state=rick-dev-home/.rick）共享 pi runtime/sessions 目录。
 - **后果与纪律**：dev web 有活动会话时，web 测试 spawn 的 worker 与其竞争 pi sessions → TempDir 清理竞态（见 bugs.md「internal/web 测试 TempDir」条）→ 门禁连挂。**release 期间必须 `rick tools dev-web down`，完成后 `rick tools dev-web up --no-build` 恢复**（迁移中的教学会话产物已落盘 loop 目录，无损失；全流程见 rick_release_ops_skill 条目 8）。
 - 验证命令: `grep -n "DevHomeOr" internal/env/release/release.go && HOME=/Users/logic/workdir/rick-dev-home go test ./internal/web/`（低载时单包可过，全量门禁负载下才复现竞态）
+
+## superopt 生产运行时链（job_56 定稿）
+
+- **读取优先级**: ~/.rick 安装快照最优先（release 联动部署，与二进制同版）→ exe 相对链（releases/current → 仓库）→ cwd
+- **bin/rick**: `~/.rick/bin/rick`（install.sh 实体拷贝）vs `/Users/logic/bin/rick`（软链 → releases/current——随发版更新）；PATH 解析到软链（新）而非安装实体（老）
+- **安装快照唯一真源**: `~/.rick/super/superopt/`——老独立克隆（INFER_RSI/superopt）已清理（打档 /tmp/superopt-legacy-archive-261129.tgz）
+- **GPU 环境链**: 源码沙箱（ssh -p 8420 hadoop-recsys@10.128.229.113）→ sshpass 密码通道 → H20_POOL 四台（33.229.1.97/.85/33.229.29.190/33.229.60.179）——4 台轮询、单机单卡独占计时（.bench_lock）
+- **模型隔离**: 中控 GLM（friday-selfdeploy）vs runtime catpaw-proxy/deepseek-v4-pro——同源故障隔离（catpaw 日额 00:00 重置）
