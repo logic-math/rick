@@ -332,19 +332,15 @@ export default function Settings() {
           <ErrorBanner message={serverErr} />        ) : server ? (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-4">
             <div>
-              <dt className="text-xs text-ink-3">API 版本</dt>
-              <dd className="text-ink">{server.version}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-ink-3">构建</dt>
-              {/* Bug #7 版本探针：跨设备排查新旧 bundle（SW 缓存旧版时两设备 build 不同） */}
+              <dt className="text-xs text-ink-3">rick 版本</dt>
+              {/* 单一版本源（human 2026-11-28）：rick 版本 = 构建指纹 build_id
+                  （release --version 注入；旧 VERSION 源码常量已删——它从不
+                  随发版更新，与 build_id 并列形成双版本误导）。
+                  Bug #7 版本探针语义保留：跨设备排查新旧 bundle（SW 缓存旧版
+                  时两设备版本不同）。 */}
               <dd className="font-mono text-xs text-ink-2" title="服务端构建标识（/api/health 的 build_id）">
                 {server.build_id ?? server.version ?? "?"}
               </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-ink-3">rick 版本</dt>
-              <dd className="text-ink">{server.rick_version}</dd>
             </div>
             <div>
               <dt className="text-xs text-ink-3">端口</dt>
