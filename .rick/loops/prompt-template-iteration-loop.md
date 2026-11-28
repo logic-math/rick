@@ -69,7 +69,7 @@ Domain 搜索：`.rick/domain/env.md`（网络出口/dev 拓扑）、`.rick/doma
 
 ```bash
 cd <dev-tree> && git merge main --no-edit                                        # ① 源码同步
-cd <prod-tree> && env -u http_proxy -u https_proxy go run ./cmd/rick tools dev-web restart   # ② dev 重启（干净 env）
+cd <dev-tree> && RICK_DEV_HOME=<dev-home> ./bin/rick tools dev-web restart   # ② dev 重启（直跑二进制禁 go run，干净 env）
 cd <dev-tree> && HOME=<dev-home> <dev-home>/bin/rick.dev.<new-ver> tools init-pi               # ③ agents 部署
 ls <dev-home>/.rick/pi/agent/agents/                                             # ④ 清单核对 + rm 已下线 agent 的 .md
 ```
