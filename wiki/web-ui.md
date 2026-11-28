@@ -25,7 +25,7 @@
 | learning | 交互聊天 | job | 知识沉淀 |
 | dream | 双模 | job-num + mode（交互/后台） | 交互=聊天；后台=监控看板 |
 
-- **交互聊天型**：pi `--mode rpc` 常驻子进程；事件流实时渲染（assistant 文本流式、工具调用折叠卡、thinking 折叠）；输入框可发送 prompt，agent 运行中自动转为 steer（中途纠偏）；abort 按钮中止。
+- **交互聊天型**：pi `--mode rpc` 常驻 daemon worker（unix socket 架构，见 modules/runtime.md）——**web 服务重启/升级不中断会话**（pi 及工具调用/子代理持续运行，重连后状态保持 active 零感知）；事件流实时渲染（assistant 文本流式、工具调用折叠卡、thinking 折叠）；输入框可发送 prompt，agent 运行中自动转为 steer（中途纠偏）；abort 按钮中止。
 - **监控型**：goroutine + pi `--mode json` 一次性执行；看板实时刷新（tasks.json watcher → SSE）。
 - **closed 会话**：离线浏览（读 pi session JSONL，不起进程）；**Resume** 按钮重启（`--session` 恢复原 pi 会话 + 增量补流）。
 - agent 需要人确认时（confirm/select/input/editor）会弹出 **web 表单对话框**（extension_ui 双向桥）。

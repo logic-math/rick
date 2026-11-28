@@ -488,41 +488,6 @@ func TestDaemonE2E_CrashedPiSuspends(t *testing.T) {
 	}
 }
 
-// TestDaemonE2E_LegacyUnaffected: with NO DaemonSocketDir (legacy transport)
-// the classic flow still works — create, prompt round trip, close.
-func TestDaemonE2E_LegacyUnaffected(t *testing.T) {
-	env := newTestEnv(t)
-	m := env.managerWith(t, nil)
-	coll := startCollector(env.hub)
-	defer coll.stop()
-
-	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, "easy", map[string]any{
-		"requirement": "legacy still works",
-	})
-	if code != http.StatusCreated {
-		t.Fatalf("create legacy session: %d %v", code, body)
-	}
-	waitLog(t, env.piLog, "开始：按系统提示词中的 rick 协议立即执行你的职责")
-	if w := env.sup.Get(id); w == nil || w.IsDead() {
-		t.Fatal("legacy worker missing")
-	}
-	if len(coll.waitMatching(t, 3*time.Second, func(e Envelope) bool {
-		return e.Type == EventTypeSessionEvent && e.SessionID == id
-	})) == 0 {
-		t.Fatal("legacy session events missing")
-	}
-	rec := post(t, m.SessionPrompt, "/api/sessions/"+id+"/prompt", map[string]any{"message": "hi"})
-	if rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
-		t.Fatalf("legacy prompt: %d %s", rec.Code, rec.Body.String())
-	}
-	// Legacy shutdown still kills everything (suspendRunning + CloseAll).
-	m.ShutdownWorkers()
-	entry := waitStatus(t, env.sessions, id, SessionStatusSuspended)
-	if entry.Busy {
-		t.Fatal("legacy suspend must clear Busy")
-	}
-}
-
 // TestDaemonE2E_SuspendedSessionReattachesToLiveDaemon 回归守护（dev e2e
 // 实测 2026-11-28）：旧二进制（无 daemon 意识）重启时把活跃会话错标
 // suspended；随后新二进制启动对账——live daemon 存在时「suspended」是

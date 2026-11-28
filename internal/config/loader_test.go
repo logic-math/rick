@@ -62,57 +62,6 @@ func TestLoadConfig_RuntimeDefault(t *testing.T) {
 	}
 }
 
-// TestLoadConfig_WebDaemonWorkersDefault: the daemon transport defaults to
-// TRUE — an older config file without the key keeps the new architecture
-// (restart-safe pi workers), while an explicit false is honored (legacy
-// opt-out) (human 2026-11-28).
-func TestLoadConfig_WebDaemonWorkersDefault(t *testing.T) {
-	tmpDir := t.TempDir()
-	testConfigPath := filepath.Join(tmpDir, "config.json")
-
-	oldGetConfigPath := getConfigPath
-	getConfigPath = func() (string, error) {
-		return testConfigPath, nil
-	}
-	defer func() { getConfigPath = oldGetConfigPath }()
-
-	// Absent key (older config file) → default TRUE.
-	if err := os.WriteFile(testConfigPath, []byte(`{}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := LoadConfig()
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if !cfg.WebDaemonWorkers {
-		t.Error("absent web_daemon_workers: want default true (daemon transport)")
-	}
-
-	// Explicit false → legacy transport.
-	if err := os.WriteFile(testConfigPath, []byte(`{"web_daemon_workers":false}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = LoadConfig()
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if cfg.WebDaemonWorkers {
-		t.Error("explicit web_daemon_workers=false: want false (legacy transport)")
-	}
-
-	// Explicit true stays true (round-trip through SaveConfig).
-	if err := os.WriteFile(testConfigPath, []byte(`{"web_daemon_workers":true}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err = LoadConfig()
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-	if !cfg.WebDaemonWorkers {
-		t.Error("explicit web_daemon_workers=true: want true")
-	}
-}
-
 func TestLoadConfigFileNotExists(t *testing.T) {
 	// Temporarily override getConfigPath to use a non-existent file
 	oldGetConfigPath := getConfigPath

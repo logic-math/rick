@@ -62,7 +62,6 @@ const unixSocketPathMax = 96
 // suffix must still fit).
 const minStemLen = 18
 
-
 // daemonLogTail reads the last ~size bytes of a daemon stdio log file
 // (diagnostics for probe failures / post-mortem). Missing file → "".
 func daemonLogTail(path string, size int) string {
@@ -87,15 +86,6 @@ func daemonLogTail(path string, size int) string {
 // ErrDaemonAlive reports a Spawn onto a session whose daemon socket already
 // answers — the caller should Attach instead (one session, one pi worker).
 var ErrDaemonAlive = errors.New("supervisor: live daemon already exists for session — use Attach")
-
-// ErrDaemonDisabled reports Attach/Detach use with daemon mode not configured.
-var ErrDaemonDisabled = errors.New("supervisor: daemon mode is not configured (empty DaemonSocketDir)")
-
-// DaemonEnabled reports whether this supervisor runs workers in daemon mode
-// (socket transport via the node shim) instead of direct pipes.
-func (s *Supervisor) DaemonEnabled() bool {
-	return s.cfg.DaemonSocketDir != ""
-}
 
 // socketStem derives the socket filename stem for a session id: the
 // sanitized id when it fits, else a stable truncation (id head + sha256
@@ -225,9 +215,10 @@ func killGroupDetached(pgid int, grace time.Duration) {
 	}
 }
 
-// spawnDaemon is the Spawn path for daemon mode (supervisor.go Spawn
-// dispatches here when DaemonSocketDir != ""). Builds pi args exactly like
-// the legacy path, then wraps them in the shim behind a unix socket.
+// spawnDaemon is Spawn's single implementation (human 2026-11-28 单轨化：
+// the direct-pipe transport is deleted). Builds the pi argv, wraps it in the
+// node shim behind a unix socket, dials it, and gives the pair a probe
+// window to die (bad flags / missing node surface as a Spawn error).
 func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 	if err := s.precheckSpawn(spec); err != nil {
 		return nil, err
@@ -369,6 +360,20 @@ func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 		conn = res.conn
 	}
 
+	// Settle window（probe 语义，承接 legacy probe 的职责）：dial 成功只证明
+	// shim 活着——再给 ProbeTimeout 让「秒死对」（bad flag 的 pi、启动即退的
+	// shim）把 waitCh 落下来，调用方拿到同步 Spawn 错误而不是「成功后立刻
+	// 异步死」。健康的 shim 在窗口内不会退出，代价只是每次 spawn 多等一个
+	// ProbeTimeout（默认 500ms；测试可调小）。
+	select {
+	case <-w.waitCh:
+		w.abandon()
+		_ = conn.Close()
+		return nil, fmt.Errorf("supervisor: shim exited during probe: %v (stderr: %s)", w.waitErr, w.StderrTail())
+	case <-time.After(s.cfg.ProbeTimeout):
+		// alive
+	}
+
 	s.mu.Lock()
 	if _, dup := s.workers[spec.SessionID]; dup {
 		s.mu.Unlock()
@@ -412,9 +417,6 @@ func (s *Supervisor) spawnDaemon(spec SpawnSpec) (*Worker, error) {
 // 5s timeout → session wrongly degraded). Attach therefore refuses to hand
 // out a worker until the daemon actually answers.
 func (s *Supervisor) Attach(sessionID string) (*Worker, error) {
-	if s.cfg.DaemonSocketDir == "" {
-		return nil, ErrDaemonDisabled
-	}
 	s.mu.RLock()
 	if _, dup := s.workers[sessionID]; dup {
 		s.mu.RUnlock()
@@ -540,11 +542,8 @@ func (s *Supervisor) KillDetached() {
 
 // CleanupSessionFiles removes one session's daemon socket + meta files
 // (explicit-close path: the shim unlinks them on exit, but a SIGKILLed
-// shim can leave residue). No-op in legacy mode / when absent.
+// shim can leave residue). No-op when absent.
 func (s *Supervisor) CleanupSessionFiles(sessionID string) {
-	if s.cfg.DaemonSocketDir == "" {
-		return
-	}
 	socketPath := s.socketPath(sessionID)
 	_ = os.Remove(socketPath)
 	_ = os.Remove(socketPath + ".meta.json")
@@ -559,9 +558,6 @@ func (s *Supervisor) CleanupSessionFiles(sessionID string) {
 // stems itself (stems can be length-truncated, so callers never derive
 // them by hand).
 func (s *Supervisor) CleanupOrphansExcept(keep []string) []string {
-	if s.cfg.DaemonSocketDir == "" {
-		return nil
-	}
 	keepSet := make(map[string]bool, len(keep))
 	for _, id := range keep {
 		keepSet[s.socketStem(id)] = true

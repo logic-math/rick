@@ -202,12 +202,11 @@ func (m *SessionManager) BackfillTitles() {
 // 手动恢复仍可）。
 func (m *SessionManager) ReconcileOnStart() {
 	var autoResumed []SessionEntry
-	daemon := m.daemonEnabled()
 	// Daemon 探活修复（dev e2e 实测 2026-11-28）：suspended 会话也要探活——
 	// live daemon 存在时「suspended」是谎言（pi 从没死过，重启期间一直在跑；
 	// 典型场景：旧二进制（无 daemon 意识）先启动把会话错标 suspended，随后
 	// 换新二进制接管）。探活成功 → 恢复 active 零中断。
-	if daemon && m.sup != nil {
+	if m.sup != nil {
 		for _, e := range m.sessions.List() {
 			if e.Status != SessionStatusSuspended || e.Type == SessionTypeDream || e.PISessionID == "" {
 				continue
@@ -233,12 +232,12 @@ func (m *SessionManager) ReconcileOnStart() {
 			}
 			continue
 		}
-		// Daemon 模式：交互型会话（有 PISessionID）先试 socket 探活 attach——活着的
+		// 交互型会话（有 PISessionID）先试 socket 探活 attach——活着的
 		// pi（重启期间工具调用/子代理一直在跑）直接接管，**保持 active 零中断**；
 		// 只有 socket 死了才落回 suspended 路径（pi 真的炸了，走 spawn 恢复/
 		// auto-resume）。后台型 running 会话没有 pi worker（goroutine 驱动）——
 		// PISessionID 为空不探活，直接走挂起。
-		if daemon && m.sup != nil && e.PISessionID != "" {
+		if m.sup != nil && e.PISessionID != "" {
 			if w, err := m.sup.Attach(e.ID); err == nil {
 				m.pumpWorker(e.ID, w)
 				m.syncBusyFromState(e.ID)
@@ -277,9 +276,9 @@ func (m *SessionManager) ReconcileOnStart() {
 		}
 	}
 
-	// Daemon 模式收尾：清理无人认领的孤儿 socket（会话已 close/不在注册表/
+	// 收尾：清理无人认领的孤儿 daemon socket（会话已 close/不在注册表/
 	// attach 失败的死 socket）—— 杀进程组 + 删文件，防止孤儿 pi 占着会话文件。
-	if daemon && m.sup != nil {
+	if m.sup != nil {
 		keep := make([]string, 0, 8)
 		for _, e := range m.sessions.List() {
 			if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
@@ -1234,11 +1233,11 @@ func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.W
 		return nil, false, errNoSupervisor
 	}
 
-	// Daemon 模式幂等保证：活 daemon socket 存在 → Attach 复用，绝不 spawn
+	// 幂等保证：活 daemon socket 存在 → Attach 复用，绝不 spawn
 	// 第二个 pi（一个会话永远只有一个 pi worker）。覆盖两类场景：
 	//   - 服务重启后首次 ensure（ReconcileOnStart 未 attach 的）
 	//   - worker 在本进程内丢失但 pi 还活着（心跳假阴性等）→ 免重开直接接管
-	if m.daemonEnabled() && entry.PISessionID != "" {
+	if entry.PISessionID != "" {
 		if w, err := m.sup.Attach(entry.ID); err == nil {
 			m.updateStatus(entry, SessionStatusActive, "re-attached to live pi daemon")
 			if e2, ok2 := m.sessions.Get(entry.ID); ok2 {
@@ -1670,8 +1669,8 @@ func (m *SessionManager) SessionModels(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			}
 		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": current})
 }
 
@@ -1998,8 +1997,10 @@ func parseSessionEntries(file, since string, limit int, before string) (*entries
 // injectCompactionEstimates 为 entries 中的 compaction 条目注入 estimatedTokensAfter
 // （human 2026-11-14 反馈：历史压缩卡要显示压缩后 token 与压缩比例）。pi 的 JSONL
 // 不持久化该字段（只在实时 rpc 响应里）；此处后端复刻 pi 的 chars/4 估算口径：
-//   est = ceil(len(summary)/4) + Σ ceil(messageChars/4)，其中消息范围 =
-//   firstKeptEntryId 起 → 该压缩点为止的 message 条目（kept 范围）。
+//
+//	est = ceil(len(summary)/4) + Σ ceil(messageChars/4)，其中消息范围 =
+//	firstKeptEntryId 起 → 该压缩点为止的 message 条目（kept 范围）。
+//
 // 与 pi 实时值同族（均不含 system prompt 的启发式估算）。
 // 必须在分页/since 裁剪前的全量列表上调用（kept 范围可能跨窗口）；窗口受限时
 // kept 边界缺失的条目自降级跳过（前端如实显示压缩前规模）。
@@ -2234,19 +2235,14 @@ func (m *SessionManager) ShutdownWorkers() {
 	if m == nil {
 		return
 	}
-	if m.daemonEnabled() {
-		fmt.Fprintf(os.Stderr, "[rick-web] shutdown: detaching %d daemon worker(s) (pi keeps running)\n", m.sup.Count())
-		m.sup.DetachAll()
-		return
-	}
-	// 先把「在跑的会话」写成挂起（关停快照 + 注册表状态落盘），再收 worker。
-	// 顺序不可调换：CloseAll 之后 pump 的 markWorkerLost 会把还处于
-	// active/running 的行刷成 error（userClosing 除外），把升级掉起弄成「失败」。
-	m.suspendRunning(SuspendReasonRelease)
 	if m.sup == nil {
 		return
 	}
-	m.sup.CloseAll()
+	// 单轨化（human 2026-11-28）：关停只 detach——pi 全程活着，注册表
+	// status 保持 active 落盘（重启后 ReconcileOnStart 探活 attach 回来，
+	// 零中断）。孤儿风险由下次启动的 CleanupOrphansExcept 收拾。
+	fmt.Fprintf(os.Stderr, "[rick-web] shutdown: detaching %d daemon worker(s) (pi keeps running)\n", m.sup.Count())
+	m.sup.DetachAll()
 }
 
 // agentEndWillRetry reports ev.willRetry==true (agent_end is not terminal when
@@ -2264,14 +2260,8 @@ func agentEndWillRetry(ev *runtime.RpcEvent) bool {
 	return probe.WillRetry
 }
 
-// daemonEnabled 报告 supervisor 是否运行在 daemon 模式（socket 传输，
-// daemon.go）：服务重启 → DetachAll + Attach 回来，pi 全程不断。
-func (m *SessionManager) daemonEnabled() bool {
-	return m != nil && m.sup != nil && m.sup.DaemonEnabled()
-}
-
 // syncBusyFromState 从活 worker 的 get_state 快照同步服务端权威 Busy
-//（reattach 后恢复真实的流式状态——重启期间 pi 可能正在跑工具）。
+// （reattach 后恢复真实的流式状态——重启期间 pi 可能正在跑工具）。
 // 错误只记日志（Busy 同步失败不应影响 attach 本身）。
 func (m *SessionManager) syncBusyFromState(sessionID string) {
 	ev, err := m.rpcRequest(sessionID, func(c *runtime.RpcClient) ([]byte, error) { return c.GetState() })
@@ -2294,7 +2284,7 @@ func (m *SessionManager) syncBusyFromState(sessionID string) {
 // cleanupDaemonFiles 防御性清理会话的 daemon socket 残留（显式 close 后：
 // shim 退出会自己 unlink，这里兑底。不存在 = 无操作）。
 func (m *SessionManager) cleanupDaemonFiles(sessionID string) {
-	if !m.daemonEnabled() {
+	if m == nil || m.sup == nil {
 		return
 	}
 	m.sup.CleanupSessionFiles(sessionID)
@@ -2496,8 +2486,8 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 		}
 		return &prep{promptFile: promptFile, methodFile: methodFile,
 			persistDir: filepath.Dir(promptFile),
-			title: prepTitleFromInput(orDefault(title, ""), prepTitleFromInput(requirement, "super "+envID)),
-			IDTag: envID}, nil
+			title:      prepTitleFromInput(orDefault(title, ""), prepTitleFromInput(requirement, "super "+envID)),
+			IDTag:      envID}, nil
 
 	case SessionTypeDream:
 		// interactive dream: same prompt as the CLI dream run
@@ -2544,14 +2534,14 @@ func initSuperEnvSkeleton(ws string) error {
 	if _, err := os.Stat(superJSONPath); os.IsNotExist(err) {
 		d := config.DefaultSuperConfig()
 		skeleton := map[string]any{
-			"state":           "idle",
+			"state":            "idle",
 			"iteration_cursor": 0,
-			"pid":             nil,
-			"worker_pid":      nil,
-			"daemon":          false,
-			"preverify_red":   true,
-			"heartbeat_path":  filepath.Join(ws, "heartbeat.json"),
-			"budget":          map[string]any{"wall_start": nil, "max_wall_time_h": 24.0},
+			"pid":              nil,
+			"worker_pid":       nil,
+			"daemon":           false,
+			"preverify_red":    true,
+			"heartbeat_path":   filepath.Join(ws, "heartbeat.json"),
+			"budget":           map[string]any{"wall_start": nil, "max_wall_time_h": 24.0},
 			"config": map[string]any{
 				"adjust_interval":      d.AdjustInterval,
 				"debug_max_attempts":   d.DebugMaxAttempts,

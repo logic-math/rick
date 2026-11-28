@@ -53,19 +53,11 @@ type Config struct {
 	// the abort/close escape hatch).
 	AutoResumeOnStart bool `json:"auto_resume_on_start,omitempty"`
 
-	// WebDaemonWorkers (human 2026-11-28): when true (the DEFAULT — older
-	// config files without the key keep the new behavior), web session
-	// workers run in daemon mode: each pi --mode rpc sits behind a node
-	// shim owning its stdin/stdout, exposed on a unix socket, so a rick web
-	// restart (or version upgrade) detaches and re-attaches WITHOUT killing
-	// pi — in-flight tool calls and subagents keep running. Explicit false
-	// restores the legacy direct-pipe transport (restart kills pi; sessions
-	// suspend and resume from disk). loader.go backfills the default for
-	// config files that predate the key.
-	WebDaemonWorkers bool `json:"web_daemon_workers"`
-	// WebDaemonSocketDir overrides where daemon sockets live (default
-	// <agent-dir>/sockets — i.e. under RICK_PI_AGENT_DIR, so tests are
-	// isolated automatically). Empty = the default.
+	// WebDaemonSocketDir overrides where per-session daemon sockets live
+	// (default <agent-dir>/sockets — i.e. under RICK_PI_AGENT_DIR). The
+	// daemon transport (node shim + unix socket, restart-safe) is the ONLY
+	// transport since human 2026-11-28 单轨化 — the web_daemon_workers
+	// toggle is gone. Empty = the default.
 	WebDaemonSocketDir string `json:"web_daemon_socket_dir,omitempty"`
 	// WebNodeBin overrides the node binary used to run the daemon shim
 	// (default "node" from PATH).
@@ -107,8 +99,8 @@ type SuperConfig struct {
 	// HeartbeatIntervalMs / HeartbeatTimeoutMs / TermGraceMs parameterize the
 	// Go-side PySupervisor (defaults 30000/90000/5000).
 	HeartbeatIntervalMs int `json:"heartbeat_interval_ms,omitempty"`
-	HeartbeatTimeoutMs int `json:"heartbeat_timeout_ms,omitempty"`
-	TermGraceMs        int `json:"term_grace_ms,omitempty"`
+	HeartbeatTimeoutMs  int `json:"heartbeat_timeout_ms,omitempty"`
+	TermGraceMs         int `json:"term_grace_ms,omitempty"`
 	// AdjustInterval is the adjust-agent cadence in iterations (default 5).
 	AdjustInterval int `json:"adjust_interval,omitempty"`
 	// DebugMaxAttempts is the debug agent retry budget M (default 3).
@@ -119,12 +111,12 @@ type SuperConfig struct {
 // DEFAULTS in super/superopt/config.py).
 func DefaultSuperConfig() SuperConfig {
 	return SuperConfig{
-		DefaultSuperDir:    "",
-		PythonPath:         "python3",
+		DefaultSuperDir:     "",
+		PythonPath:          "python3",
 		HeartbeatIntervalMs: 30000,
-		HeartbeatTimeoutMs: 90000,
-		TermGraceMs:        5000,
-		AdjustInterval:     5,
-		DebugMaxAttempts:   3,
+		HeartbeatTimeoutMs:  90000,
+		TermGraceMs:         5000,
+		AdjustInterval:      5,
+		DebugMaxAttempts:    3,
 	}
 }
