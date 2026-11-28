@@ -1,11 +1,7 @@
 /**
- * Settings 页：token 设置 / 服务器信息 / 前端自迭代（Customize / Reset）。
+ * Settings 页：token 设置 / 服务器信息 / 自动压缩 / 模型兜底配置。
  *
  * - token：输入 + 保存 localStorage + 「测试连接」（调 /api/config 验证）
- * - Customize UI：POST /api/web/customize → {ok, scaffolded}；
- *   scaffolded=false 表示覆盖层已存在跳过；提示「在任意会话中让 agent 修改
- *   ~/.rick/web/src 后 npm run build——watcher 会推 frontend_reload 自动刷新」
- * - Reset to baseline：确认弹窗 → POST /api/web/reset（删覆盖层回 embed 基线）
  * - 服务器信息：GET /api/config（version / rick_version / port / auth_required）
  */
 
@@ -20,9 +16,7 @@ import {
   type StarfieldMode,
 } from "../components/starfield/starfieldMode";
 import Button from "../components/common/Button";
-import Dialog from "../components/common/Dialog";
 import ErrorBanner from "../components/common/ErrorBanner";
-import Portal from "../components/starfield/Portal";
 import {
   readHistoryCacheConfig,
   HISTORY_CACHE_CONFIG_KEY,
@@ -99,11 +93,6 @@ export default function Settings() {
   const [serverErr, setServerErr] = useState<string | null>(null);
 
   // customize / reset
-  const [customizing, setCustomizing] = useState(false);
-  const [customizeMsg, setCustomizeMsg] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [resetMsg, setResetMsg] = useState<string | null>(null);
   // 模型兜底配置（Bug 5, human 2026-11-27）
   const [fallbackModels, setFallbackModels] = useState<string>(() => localStorage.getItem("rick-web:fallback-models") ?? "");
   const [fallbackRetryCount, setFallbackRetryCount] = useState<number>(() => Number(localStorage.getItem("rick-web:fallback-retry")) || 3);
@@ -116,7 +105,6 @@ export default function Settings() {
     setFallbackSaveMsg("已保存（前端配置）——服务端自动切换逻辑待下轮迭代，手动配置请在 ~/.rick/config.json 加 fallback_models 字段");
     setTimeout(() => setFallbackSaveMsg(null), 5000);
   }
-  const [actionErr, setActionErr] = useState<string | null>(null);
 
   // 星空背景模式（job_43 KR4d）：auto=移动端静态/桌面动画（默认），animated=强制动画，static=强制静态
   const [starfieldMode, setStarfieldMode] = useState<StarfieldMode>(() => readStarfieldMode());
@@ -160,41 +148,6 @@ export default function Settings() {
       setTestMsg(e instanceof Error ? e.message : String(e));
     } finally {
       setTesting(false);
-    }
-  }
-
-  async function handleCustomize(): Promise<void> {
-    setCustomizing(true);
-    setCustomizeMsg(null);
-    setActionErr(null);
-    try {
-      const result = await api.customize();
-      setCustomizeMsg(
-        result.scaffolded
-          ? "基线源码已抽取到 ~/.rick/web/src——在任意 agent 会话中说「修改 rick web 前端：…」即可开始自迭代（agent 编辑后 npm run build，页面自动刷新）"
-          : "覆盖层已存在（~/.rick/web/src）——直接在任意会话中让 agent 修改即可",
-      );
-    } catch (e) {
-      setActionErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCustomizing(false);
-    }
-  }
-
-  async function handleReset(): Promise<void> {
-    setResetting(true);
-    setResetMsg(null);
-    setActionErr(null);
-    try {
-      await api.reset();
-      setConfirmReset(false);
-      setResetMsg("已复位——删除 ~/.rick/web/{src,dist}，回到内嵌 baseline（页面即将自动刷新）");
-      // 服务端 watcher 会推 frontend_reload；保险起见延迟刷新一次
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (e) {
-      setActionErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setResetting(false);
     }
   }
 
@@ -407,51 +360,7 @@ export default function Settings() {
         )}
       </Section>
 
-      {/* 前端自迭代 */}
-      <Section
-        title="前端自迭代"
-        desc="通过对话改造 rick web 自身：抽取基线源码到可写层 → 在任意 agent 会话中让 agent 编辑 ~/.rick/web/src 并 npm run build → watcher 推送 frontend_reload 自动生效；改坏了随时复位回内嵌 baseline。"
-      >
-        <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => void handleCustomize()} loading={customizing}>
-            Customize UI
-          </Button>
-          <Button variant="danger" onClick={() => setConfirmReset(true)}>
-            Reset to baseline
-          </Button>
-        </div>
-        {customizeMsg && <p className="text-xs leading-relaxed text-portal">{customizeMsg}</p>}
-        {resetMsg && <p className="text-xs leading-relaxed text-morty">{resetMsg}</p>}
-        <ErrorBanner message={actionErr} onDismiss={() => setActionErr(null)} />
-      </Section>
-
-      <p className="flex items-center gap-2 text-xs text-ink-3">
-        <Portal size={14} spin /> rick web · 对抗上下文熵增 · AICoding = Humans + Agents
-      </p>
-
-      {/* Reset 确认弹窗 */}
-      <Dialog
-        open={confirmReset}
-        onClose={() => setConfirmReset(false)}
-        title={<span className="flex items-center gap-2">⚠️ 复位前端自定义层</span>}
-        contentClassName="w-[min(92vw,420px)]"
-      >
-        <div className="flex flex-col gap-4">
-          <p className="text-sm leading-relaxed text-ink-2">
-            将删除 <code className="rounded bg-white/5 px-1">~/.rick/web/</code> 下的 src 与 dist
-            （工作区注册表与会话记录保留），前端回到内嵌 baseline。
-            agent 的全部自迭代修改将丢失——确认？
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setConfirmReset(false)}>
-              取消
-            </Button>
-            <Button variant="danger" onClick={() => void handleReset()} loading={resetting}>
-              确认复位
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      {/* 前端自迭代已移除（human 裁决 2026-11-28：不允许自迭代） */}
     </div>
   );
 }
