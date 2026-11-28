@@ -164,3 +164,11 @@ func Generate(session AgentSession, outputFile string) error
 - **星空移动端静态化（starfieldMode.ts）**：`rick.starfield.mode`（auto/animated/static，localStorage）+ 窄屏判定 + prefers-reduced-motion 统一 resolveShouldAnimate；移动端默认静态一帧（空闲 GPU 成本归零）；窄屏 dpr 封顶 1.5；窄屏动画降级走 theme.css `@media (max-width:767px)`（SMIL 在组件内条件渲染——CSS 管不到 SMIL）
 - **输入框**：单发送按钮；Enter 固定=换行（enterMode 模式已删）；Ctrl/Cmd+Enter 发送、Ctrl+J 换行（隐形快捷键）；空行不发送；textarea scrollHeight 自适应（上限 240px 后内滚）
 - **移动端性能结构**：流式 flush 窄屏 110ms 定时节流（宽屏 rAF 保持，stores/events.ts）；空态飞船全局静态、运行期动画窄屏关闭、ToolElapsed 窄屏 5s
+
+## rick 分身体系（avatar，job_55 2026-11-29）
+
+- **定位**：四 skill + avatar-control-loop = **RSI 大 loop 的分布式执行层**——主身决策 + 分身执行 + 通信控制；dev rick 是本机特殊分身的完整代码级先例（不是类比，是同构）。
+- **四个 skill**：avatar_provision（分身机制：ssh 连接发现 → 二进制三路安装 → 知识资产复制 → 环境适配五项 → 全量记忆迁移）；avatar_session_replication（分身复制：单 job 三件套定向迁移 = sessions 注册表条目 + pi jsonl + job 数据，resume 带历史续答）；avatar_upgrade_debug（分身升级调试：远程 release 五步 + build_id 指纹复核 + 远程调试三件套）；avatar_communication（分身通信：**web API 即分身控制协议**——POST prompt=发消息 / steer=纠偏 / abort=中止 / GET sessions=观察，token 认证）。
+- **dev rick = 特殊分身**（四要素）：隔离树（git worktree）+ 独立状态（dev HOME + 8414 实例）+ 指纹校验（health build_id ↔ dev HEAD sha7）+ 单向提升（release --merge-source 回流 main）。远程分身 = 把这四要素从「同机 worktree」泛化到「跨机 ssh」。
+- **daemon 单轨是分身通信的存活地基**：pi 常驻 daemon worker 跨 web 重启存活（见「web 会话执行层」节）→ 远程控制的会话永不因分身升级/重启而断——升级与控制解耦。
+- **未覆盖空白**（skill 内已标注待实战补全）：sshpass 密码安全 / 分身主动上报（推模式）/ 多分身编排拓扑 / 远程 Linux 服务管理（systemd vs launchd）。

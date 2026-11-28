@@ -956,3 +956,53 @@ cd /Users/logic/workdir/AI_CODING/rick && ./bin/rick super start --name <ws> --d
 **处置**: 非故障识别纪律——「epoch 边界 + slots 空 + 探针在跑」= 正常慢；改进提案（并行化/限时限项）在 humans 队列。
 
 **首次发现**: job_56（2026-11-24/25，epoch 150 与 300 两轮实证）  **验证状态**: ⚠️ 设计内成本（改进提案在队）
+### release 门禁环境差异（HOME=dev-home）——测试依赖宿主 HOME 状态时本地绿门禁挂
+
+**症状**: `rick tools release` 门禁两次确定性挂 `internal/super`（TestDeploySuperAssetsFromResolvedTree: deployed=[] want 9），本地同命令全绿（隔离跑 + 全量跑 + 3 连跑均过）。并发嫌疑排查（干净 HEAD 对照）也排除——只有门禁环境必挂。
+
+**根因**: 门禁 buildEnv 的 HOME=dev-home（env.md「release 门禁环境」节，job_50 首实证），该 HOME 下 `~/.rick/super/superopt/__main__.py` marker 存在 → `resolveRepoRoot()` 的优先级链 ① `~/.rick` 安装快照抢先命中，测试期望的「② cwd 上溯到假树」路径被宿主环境状态破坏。本地 HOME=`/Users/logic` 无 marker → ① 落空走 ② → 恒绿。**模式：测试依赖宿主 HOME/RICK_PI_AGENT_DIR 状态时，「本地测试环境 ≠ 门禁环境」是结构性盲区**。
+
+**精确解决步骤**:
+```bash
+# 复现门禁环境（本地验证测试的环境鲁棒性）：
+HOME=<dev-home> go test ./internal/super/ -count=1
+# 修复模式：测试内注入隔离环境（t.Setenv 派生链使 ① 确定性落空）——
+# internal/super/assets_test.go TestDeploySuperAssetsFromResolvedTree 开头：
+# t.Setenv("RICK_PI_AGENT_DIR", filepath.Join(t.TempDir(), "isolated", ".rick", "pi", "agent"))
+```
+
+**首次发现**: job_55（2026-11-28，release 门禁 ×2 确定性挂 + HOME 对照复现）  **验证状态**: ✅ 已修复（8c3d5f9，t.Setenv 隔离；门禁 + 本地双环境验证过）
+
+### 并发 release 抢跑——旧 dev HEAD 构建出「新版本号的旧代码」（8.2.0 抢跑实战）
+
+**症状**: 已合入 dev 树的修复（73aa226 版本单源化）发布后线上不生效：新 release `8.2.0` 的 `/api/config` rick_version 仍是旧常量 6.0.0、bundle 仍是旧 UI——health 却正常报 build_id=8.2.0，掩盖了构建源缺失。
+
+**根因**: 两个 release 并发：一方（00:02 起）门禁+构建耗时 ~2min，期间另一方把修复合入 dev 树（00:0x）；前者构建从**抢跑时刻的旧 dev HEAD（5e59492）**取源——版本号是新的、代码是旧的。`RELEASE_BUILD` 不校验「构建期间 dev HEAD 是否已推进」。
+
+**精确解决步骤**:
+```bash
+# ① 发版前确认无并发 release（别人可能正在发）：
+ps aux | grep "tools release" | grep -v grep
+cat ~/.rick/release-state.json | python3 -m json.tool | grep -E "at|version|stage|ok"
+# ② 被抢跑后的补救：确认当前 dev HEAD 含目标修复再重发：
+git -C <dev-tree> merge-base --is-ancestor <fix-sha> HEAD && echo 含修复
+grep -m1 "dev HEAD" <prod-repo>/bin/releases/<ver>/CHANGES   # 构建源实证
+```
+
+**首次发现**: job_55（2026-11-29 00:04，8.2.0 抢跑 73aa226；重发 8.2.1 收敛）  **验证状态**: ✅ 已恢复（8.2.1 重发 + dist/bundle/CHANGES 三重验证）；工具级根治（release 互斥锁/构建期 HEAD 快照校验）backlog 未做
+
+### 生产树脏数据阻塞 release merge 门禁——并发会话持续写 .rick/jobs/<job>/
+
+**症状**: `RELEASE_FAIL stage=merge detail=生产工作树不干净，已中止源码合并`——merge 门禁要求生产 worktree（main）干净，但并发 job 会话（如 job_57 learning）持续写 `.rick/jobs/<job>/`、`.rick/draft/loops/`，快照提交后又出新文件（job_55 一晚挂 2 次）。
+
+**根因**: `release --merge-source` 在生产树做 dev→main 合并，合并前置检查工作树必须干净；多会话共享生产树时 job 数据随时在写——「快照提交 → 立即 release」之间存在新写入窗口。
+
+**精确解决步骤**:
+```bash
+# 快照提交解锁（发版前的标准动作，job_55 实战 3 次）：
+git add .rick/ && git -c user.name=rick -c user.email=rick@local commit -m "chore: 快照（解锁 release merge 门禁）"
+# 发版失败重试前再看一眼（learning/doing 会话可能又写了）：
+git status --porcelain | head -3
+```
+
+**首次发现**: job_55（2026-11-28/29，并发 job_57 learning 两次阻塞 8.1.13/8.2.1）  **验证状态**: ✅ 规避模式沉淀（快照提交；job 数据入库版本化是仓库既有惯例）
