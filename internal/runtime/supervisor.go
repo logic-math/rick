@@ -447,6 +447,10 @@ type Worker struct {
 	deadReason atomic.Value // string
 
 	stderrTail *byteRing
+	// daemonLogPath: daemon 模式 worker 的 shim/pi 输出日志文件（stdio 与
+	// web 进程完全解耦——管道会在 web 死亡时断裂杀 pi）。非空时 StderrTail
+	// 直接读文件尾，stderrTail ring 不再使用。
+	daemonLogPath string
 }
 
 // SessionID returns the web-session id this worker was spawned for.
@@ -479,7 +483,12 @@ func (w *Worker) Dropped() int64 { return w.dropped.Load() }
 func (w *Worker) Events() <-chan *RpcEvent { return w.events }
 
 // StderrTail returns the last ~4KB of the subprocess stderr.
-func (w *Worker) StderrTail() string { return w.stderrTail.String() }
+func (w *Worker) StderrTail() string {
+	if w.daemonLogPath != "" {
+		return daemonLogTail(w.daemonLogPath, stderrTailSize)
+	}
+	return w.stderrTail.String()
+}
 
 // State returns the latest heartbeat snapshot (nil before the first
 // get_state response arrives).
