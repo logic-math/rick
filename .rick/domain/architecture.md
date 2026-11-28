@@ -173,6 +173,14 @@ learning 阶段注入 `{{draft_dir}}` 变量,路径为 `.rick/jobs/{job_id}/draf
 - **RSI 制度**：`.rick/loops/rick-rsi-loop.md`（普通 loop，标准 Loops 目录发现，无专属会话类型）；状态机 S0设计→S1隔离开发→S2门禁→S3演练→S4人类确认→S5提升→S6挂起恢复→S7 `rick tools rsi_check` 留痕（6 项机器契约，含生产 build_id 实时证伪）。
 - **纪律**：job 数据只写 dev 树（main 只经 --merge-source 改动）；冲突即中止报错交 AI 修复；S5 会自挂起 web 承载的 RSI 会话。
 
+## web 会话执行层：pi daemon worker 单轨架构（job_55，2026-11-28）
+
+- **形态**：Go web（可重启/升级）── unix socket（`<AgentDir>/sockets/<session>.sock`）── pi-daemon-shim（node，独立进程组，持有 pi stdin 永不 EOF + 断线环形缓冲 2000 行 + stdio 落 `<stem>.log`）── pi `--mode rpc`（工具调用/子代理全程不断）。
+- **单轨**（human 裁决）：旧「直连管道」架构已删除，`web_daemon_workers` 开关不存在；配置只剩 `web_daemon_socket_dir`（默认 `<AgentDir>/sockets`）与 `web_node_bin`（默认 node）。
+- **生命周期**：Spawn（活 socket → `ErrDaemonAlive` 幂等拒重）；服务重启/升级 = ShutdownWorkers → DetachAll（不杀 pi，注册表保持 active，shim 缓冲断线输出）；启动对账 = ReconcileOnStart 探活 attach（active/suspended 都探——live daemon 存在时 suspended 是谎言；`get_state` 端到端验证防幻影 attach 竞态），死 → suspended + auto-resume 兜底 + CleanupOrphansExcept 孤儿收割；显式 close = kill(-pgid) 整组 + 清 `.sock/.meta.json/.log`。
+- **两条硬约束**（违反即 pi 静默死亡）：① pi `--mode rpc` stdin EOF 即退出——pi 的 stdin/stdout 只能由 shim 持有；② shim/pi 的 stdio 绝不能连回 web 进程管道——web 死亡管道断裂，pi 任何 stderr 写入即 EPIPE 崩溃（dev 真 e2e 实测抓到，Go 单测抓不到——测试进程活着管道不断）。
+- **重启连续性验证法**（e2e 标准动作）：创建会话 → prompt 触发长任务/子代理 → `ps` 记录 shim/pi/子代理 pid → kill web + `dev-web up` → 断言：三进程 pid 不变存活 + 会话 status=active（无 suspended）+ Busy 正确同步 + 回合跨重启自然完成 + 显式 close 整组收割。全套回归脚本见 `internal/web/daemon_e2e_test.go`。
+
 ## web 前端关键结构（job_43 六轮增量，5.0.12-5.0.13）
 
 - **MessageList 虚拟化（react-virtuoso）**：渲染层虚拟化（≤500 envelope 只渲染可视区），数据层不动。要点：`followOutput="auto"` + `scrollToIndex(LAST)` 双通道贴底 / `firstItemIndex` 前置插入防跳 / `computeItemKey` 稳定身份锚（展开态 overrides 状态提升不丢）/ **components.Scroller 必须 `...rest` 全量转发 props**（P0 教训：丢 `data-virtuoso-scroller` → 测量回调 null 崩 → 全空白）/ 底部间距走 `components.Footer` spacer（12px，计入 footerHeight；容器 padding 不进 Virtuoso 贴底计算）——详见 virtualization_component_protocol skill

@@ -99,17 +99,6 @@ func LoadConfig() (*Config, error) {
 		cfg.Runtime = "pi"
 	}
 
-	// WebDaemonWorkers defaults to TRUE (the daemon transport is the new
-	// default architecture, human 2026-11-28) — but a plain bool cannot
-	// distinguish "absent" (older config file) from "explicit false"
-	// (legacy opt-out). Probe the raw object for the key's presence.
-	var presence map[string]json.RawMessage
-	if err := json.Unmarshal(data, &presence); err == nil {
-		if _, ok := presence["web_daemon_workers"]; !ok {
-			cfg.WebDaemonWorkers = true
-		}
-	}
-
 	return &cfg, nil
 }
 

@@ -6,5 +6,7 @@
   "git": {
     "user_name": "Your Name",
     "user_email": "your.email@example.com"
-  }
+  },
+  "web_daemon_socket_dir": "",
+  "web_node_bin": ""
 }

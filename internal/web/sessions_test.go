@@ -109,17 +109,33 @@ func newTestEnv(t *testing.T) *testEnv {
 	logPath := filepath.Join(t.TempDir(), "stdin.log")
 	pi := fakePiRPC(t, logPath)
 
+	// 单轨化（human 2026-11-28）：daemon 是唯一传输——测试也走 node shim。
+	// socket 目录必须短（unix sun_path 上限 104 字节，t.TempDir() 的
+	// <agent-dir>/sockets 派生路径会超限）——系统 tmp 下的 MkdirTemp 恒短。
+	nodeBin := requireNodeWeb(t)
+	socketDir, err := os.MkdirTemp("", "rickweb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+
 	sup := runtime.NewSupervisor(runtime.SupervisorConfig{
 		HeartbeatInterval: 0, // disabled: tests do not rely on heartbeats
 		IdleTimeout:       0,
+		ProbeTimeout:      150 * time.Millisecond, // fast probe window (healthy shims never exit in it)
 		PiPath:            pi,
+		NodeBin:           nodeBin,
+		DaemonSocketDir:   socketDir,
 	})
 	// Bug #8 第二批（2026-11-15 根治 TempDir 竞态）：CloseAll 的 w.Close() 只等
 	// sh 主进程退出（cmd.Wait），fake pi 的孙进程（printf/sed fork）在进程组
 	// kill 后仍有毫秒级写窗口 → t.TempDir RemoveAll 竞态「directory not empty」
 	// （job_50 起 3 个 job 反复骚扰的 backlog）。grace 100ms 等孙进程 flush。
+	// KillDetached：daemon 单轨下 ShutdownWorkers 只 detach——测试里模拟
+	// 「重启」留下的活 daemon 必须被测试收尸（生产由下次启动的孤儿清理收）。
 	t.Cleanup(func() {
 		sup.CloseAll()
+		sup.KillDetached()
 		time.Sleep(100 * time.Millisecond)
 	})
 
@@ -1672,7 +1688,7 @@ func TestSessionContinue_InteractiveSuspended(t *testing.T) {
 		Status: SessionStatusSuspended, Title: "suspended easy",
 		PISessionID: "pi-susp-easy",
 		Params:      map[string]any{"requirement": "r"},
-		CreatedAt:   time.Now(), LastReason: SuspendReasonRelease,
+		CreatedAt:   time.Now(), LastReason: SuspendReasonRestart,
 	}
 	if err := env.sessions.Add(entry); err != nil {
 		t.Fatal(err)
@@ -1814,7 +1830,6 @@ func TestCreateSessionRSITypeRemoved(t *testing.T) {
 	}
 }
 
-
 // TestSessionCompact 验证 POST /api/sessions/{id}/compact：active 会话把 pi 的
 // compact 命令写到 worker stdin（线格式正确）；非 active 会话 409。
 // （此前 /compact 在 web 上完全无入口：pi 协议有命令、rick 未封装、无路由、前端无分支。）
@@ -1930,14 +1945,14 @@ func TestSessionCreateSuper_PromptStrictlyLoadsAssets(t *testing.T) {
 	prompt := string(data)
 	superWS := filepath.Join(env.rickDir, "super", "env_1")
 	for _, want := range []string{
-		"门禁系统设计引导",                  // gen_env skill 全文 inline（严格加载）
-		"super 中控（测试替身）",            // super-loop 全文 inline
-		superWS,                          // 工作区速查段含 super/env_1 绝对路径
-		"优化 512×512 矩阵乘，从纯 Python 三重循环起点进化", // requirement 使命注入
+		"门禁系统设计引导",       // gen_env skill 全文 inline（严格加载）
+		"super 中控（测试替身）", // super-loop 全文 inline
+		superWS,          // 工作区速查段含 super/env_1 绝对路径
+		"优化 512×512 矩阵乘，从纯 Python 三重循环起点进化",      // requirement 使命注入
 		filepath.Join(superWS, "requirement.md"), // 使命锚点路径
-		"Skill: grilling",                // grilling skill embedded inline
-		"设计树",                          // grilling 协议关键词
-		"## 工作流程（三步，按序推进）",        // 三步工作流（grilling→gen_env→运行）
+		"Skill: grilling",                        // grilling skill embedded inline
+		"设计树",                                    // grilling 协议关键词
+		"## 工作流程（三步，按序推进）",                       // 三步工作流（grilling→gen_env→运行）
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("super prompt missing %q (len=%d)", want, len(prompt))
@@ -2124,7 +2139,7 @@ func TestSessionCreateSuper_UsesInstalledAssets(t *testing.T) {
 }
 
 // TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName：参数校验
-//（requirement 必填；旧 name 出现即拒——目录模型 v2）。
+// （requirement 必填；旧 name 出现即拒——目录模型 v2）。
 func TestSessionCreateSuper_RejectsMissingRequirementAndLegacyName(t *testing.T) {
 	env := newTestEnv(t)
 	seedSuperAssets(t, env.rickDir)

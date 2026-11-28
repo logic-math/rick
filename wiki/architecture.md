@@ -54,7 +54,7 @@ flowchart TD
 | 第二层 调度聚合 | `internal/handler` | 编排 env → builder → runtime，并把 sessionID 持久化到 job 目录 |
 | 第三层 执行 | `internal/env` | 保证运行环境就绪（env 四职责） |
 | 第三层 执行 | `internal/builder` | 拼接提示词产物（templates + pibuilder + xxxxbuilder） |
-| 第三层 执行 | `internal/runtime` | 拉起 pi + 内部校验 session 就绪 + 采集行为轨迹 |
+| 第三层 执行 | `internal/runtime` | 拉起 pi + 内部校验 session 就绪 + 采集行为轨迹；web 会话走 daemon worker 单轨（unix socket，服务重启不中断 pi——见 modules/runtime.md） |
 | 第四层 基础设施 | `pi` / `internal/workspace` / `internal/config` | 当前 runtime / 路径解析 / 配置加载 |
 
 ### 边界规则

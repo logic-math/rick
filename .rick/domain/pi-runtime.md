@@ -110,3 +110,8 @@ deepseek-v4-flash 默认带 thinking（思考慢），可用 `--thinking off` �
 - **保险箱**：`$HOME/.rick/accounts/tokens/{me,zwm}`（600/700）+ `_prev` 快照（restore 与 _prev 互换）；每次写前自动 `.bak.<时间戳>`
 - **额度按天计**（次日 00:00 重置）；耗尽判别用 `switch.sh verify` 探针（`ok` / `401` / `额度已使用完毕` 三态可区分）
 - **dev 侧现状（2026-10-21 19:12）**：dev HOME 已建 vault（`me`=dad328…、`zwm`=cd818d…），当前生效 **zwm**，探针 `ok`；prod HOME 独立保持在 zwm 并装有 launchd `com.rick.mcopilot-switchback`（每日 00:00 切回 me，日志 `~/.rick/accounts/switchback.log`）—— **dev 未装该定时任务**，需要「每日自动切回 me」须另建 launchd 条目并注入 `HOME=/Users/logic/workdir/rick-dev-home`
+
+## pi `--mode rpc` 的 stdin EOF 死亡语义（web daemon 架构的根因事实）
+
+- pi `--mode rpc` 检测到 stdin EOF **立即退出**（rpc-mode.js `onInputEnd → shutdown`）——任何持有方（web 直连/测试工具）关闭管道就杀会话。所以 rick web 的 pi 常驻 worker 必须由独立 shim（`internal/runtime/daemon_shim.mjs`，node）持有管道，经 unix socket 与 web 通信——web 重启零影响。
+- EPIPE 陷阱：进程树里任何一层的 stdio 若是连回某父进程的管道，父进程死亡 → 管道断 → 下一次写入即 SIGPIPE/EPIPE 崩溃。**跨进程生死亡的进程树，stdio 一律落文件**（`<stem>.log`），不共享管道。

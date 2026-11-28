@@ -6,62 +6,30 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
-// 挂起/恢复的磁盘契约（设计依据 research-L6 §3.2 / §3.6）：
+// 恢复报告的磁盘契约（human 2026-11-28 单轨化后）：
 //
-//	<stateDir>/suspend.json          关停快照（旧进程的「遗嘱」：关停那一刻谁在跑）
 //	<stateDir>/recovery-report.json  恢复报告（挂起清单 + 已恢复 + 失败）
 //
-// ⚠️ 本增量**不做自动恢复**（human 裁决 J-L6-6/J-L6-7：实测 pi 不修复悬挂
-// toolCall → 自动续跑会重复副作用；配额耗尽不报错 → 自动恢复会静默空转）。
-// 因此这两个文件的职责被刻意收窄为：
+// Daemon 单轨（关停 = detach，pi 全程活着）后，关停不再打断任何会话——
+// 旧的 suspend.json「关停快照」（关停那一刻谁在跑的「遗嘱」）随之废弃并
+// 删除。挂起的唯一来源变成「pi 真的死了」（进程崩溃/被杀）——注册表
+// status=suspended 即权威，ReconcileOnStart 会探活恢复 live daemon。
 //
-//	① 关停快照 = 「平台升级」这一动作的可审计证据 + 供人/脚本查看谁被打断；
-//	② 恢复报告 = 让 UI 明确「谁因平台升级挂起」、并记录人工恢复的结果。
-//
-// 真正的恢复动作只有一个人工入口：POST /api/sessions/{id}/continue。
+// ⚠️ 不做自动续跑（human 裁决 J-L6-6/J-L6-7：实测 pi 不修复悬挂
+// toolCall → 自动续跑会重复副作用）；真正的恢复动作只有一个人工入口：
+// POST /api/sessions/{id}/continue（auto_resume_on_start 只做 spawn 恢复兜底）。
 const (
-	// ShutdownSnapshotFile 是关停快照文件名（位于 state dir 根）。
-	ShutdownSnapshotFile = "suspend.json"
 	// RecoveryReportFile 是恢复报告文件名（位于 state dir 根）。
 	RecoveryReportFile = "recovery-report.json"
 	// recoveryReportVersion 是恢复报告的 schema 版本。
 	recoveryReportVersion = 1
 )
 
-// SuspendReasonRelease 是「人类主动提升/重启平台」导致的挂起原因。
-const SuspendReasonRelease = "platform upgrade (release)"
-
-// SuspendReasonRestart 是「服务重启（非 release 路径）」导致的挂起原因。
+// SuspendReasonRestart 是「服务重启/pi 消亡」导致的挂起原因。
 const SuspendReasonRestart = "server restart"
-
-// SuspendRecord is one session that was running when the server shut down.
-// Mirrors the resume-relevant fields of SessionEntry plus the worker's durable
-// cursor (research-L6 §3.2：快照比「重启后反推」可靠得多).
-type SuspendRecord struct {
-	SessionID   string    `json:"session_id"`
-	Type        string    `json:"type"`
-	WorkspaceID string    `json:"workspace_id,omitempty"`
-	JobID       string    `json:"job_id,omitempty"`
-	PISessionID string    `json:"pi_session_id,omitempty"`
-	LastEntryID string    `json:"last_entry_id,omitempty"`
-	Busy        bool      `json:"busy,omitempty"`
-	At          time.Time `json:"at"`
-}
-
-// ShutdownSnapshot is the atomic "last will" written before workers are killed.
-// It is written even when nothing is running (an explicit empty snapshot is
-// meaningful: 「本次关停没有任何在跑的会话」).
-type ShutdownSnapshot struct {
-	Version   int             `json:"version"`
-	StoppedAt time.Time       `json:"stopped_at"`
-	PID       int             `json:"pid,omitempty"`
-	Reason    string          `json:"reason,omitempty"`
-	Sessions  []SuspendRecord `json:"sessions"`
-}
 
 // RecoveryItem is one row of the recovery report (UI 可读).
 type RecoveryItem struct {
@@ -93,55 +61,8 @@ func newRecoveryReport() RecoveryReport {
 	}
 }
 
-func shutdownSnapshotPath(stateDir string) string {
-	return filepath.Join(stateDir, ShutdownSnapshotFile)
-}
-
 func recoveryReportPath(stateDir string) string {
 	return filepath.Join(stateDir, RecoveryReportFile)
-}
-
-// WriteShutdownSnapshot persists the snapshot atomically (tmp+rename).
-func WriteShutdownSnapshot(stateDir string, snap ShutdownSnapshot) error {
-	if stateDir == "" {
-		return fmt.Errorf("write shutdown snapshot: empty state dir")
-	}
-	if snap.Version == 0 {
-		snap.Version = recoveryReportVersion
-	}
-	if snap.StoppedAt.IsZero() {
-		snap.StoppedAt = time.Now()
-	}
-	if snap.Sessions == nil {
-		snap.Sessions = []SuspendRecord{}
-	}
-	data, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal shutdown snapshot: %w", err)
-	}
-	return writeFileAtomic(shutdownSnapshotPath(stateDir), append(data, '\n'), 0644)
-}
-
-// ReadShutdownSnapshot loads the last snapshot; a missing file is not an error.
-func ReadShutdownSnapshot(stateDir string) (ShutdownSnapshot, error) {
-	var snap ShutdownSnapshot
-	if stateDir == "" {
-		return snap, nil
-	}
-	data, err := os.ReadFile(shutdownSnapshotPath(stateDir))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return snap, nil
-		}
-		return snap, fmt.Errorf("read shutdown snapshot: %w", err)
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return snap, nil
-	}
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return snap, fmt.Errorf("parse shutdown snapshot: %w", err)
-	}
-	return snap, nil
 }
 
 // WriteRecoveryReport persists the report atomically.
@@ -172,6 +93,8 @@ func WriteRecoveryReport(stateDir string, rep RecoveryReport) error {
 }
 
 // ReadRecoveryReport loads the report; a missing/corrupt file yields an empty
+// report (报告是展示层的，读不到绝不能让接口 500)。
+
 // report (报告是展示层的，读不到绝不能让接口 500）。
 func ReadRecoveryReport(stateDir string) RecoveryReport {
 	rep := newRecoveryReport()
@@ -214,51 +137,6 @@ func (m *SessionManager) stateDir() string {
 // ReadRecoveryReport exposes the persisted report for GET /api/recovery.
 func (m *SessionManager) ReadRecoveryReport() RecoveryReport {
 	return ReadRecoveryReport(m.stateDir())
-}
-
-// suspendRunning 是关停路径的核心：把「当前在跑」的会话写进关停快照并标为
-// suspended（**写盘**，不是只发事件），返回快照里的记录。必须在
-// Supervisor.CloseAll 之前调用——否则 worker 死亡回调会先把状态刷成 error。
-//
-// 语义细节：即使没有任何会话在跑也会落一份空快照（显式空快照 = 本次关停没有
-// 被打断的会话，是可审计的事实）。
-func (m *SessionManager) suspendRunning(reason string) []SuspendRecord {
-	if m == nil {
-		return nil
-	}
-	records := make([]SuspendRecord, 0, 4)
-	now := time.Now()
-	for _, e := range m.sessions.List() {
-		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
-			continue
-		}
-		rec := SuspendRecord{
-			SessionID:   e.ID,
-			Type:        e.Type,
-			WorkspaceID: e.WorkspaceID,
-			JobID:       jobParamOf(e),
-			PISessionID: e.PISessionID,
-			Busy:        e.Busy,
-			At:          now,
-		}
-		if w := m.sup.Get(e.ID); w != nil {
-			rec.LastEntryID = w.LastEntryID()
-		}
-		records = append(records, rec)
-		// 先落状态再收 worker：CloseAll 之后 pump 的 markWorkerLost 只会作用于
-		// active/running（suspended 不在其列），因此这里的状态不会被覆盖。
-		m.updateStatus(e, SessionStatusSuspended, reason)
-	}
-	if err := WriteShutdownSnapshot(m.stateDir(), ShutdownSnapshot{
-		Version:   recoveryReportVersion,
-		StoppedAt: now,
-		PID:       os.Getpid(),
-		Reason:    reason,
-		Sessions:  records,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "[rick-web] write shutdown snapshot failed: %v\n", err)
-	}
-	return records
 }
 
 // refreshSuspendedReport 重建恢复报告的 suspended 清单（启动对账后调用）：

@@ -407,15 +407,6 @@ func TestCleanupOrphans(t *testing.T) {
 	_ = syscall.Kill(-wantedPgid, syscall.SIGKILL)
 }
 
-// TestDaemonDisabledAttach: Attach without daemon mode is a clear error.
-func TestDaemonDisabledAttach(t *testing.T) {
-	isolateRuntimeEnv(t)
-	sup := NewSupervisor(SupervisorConfig{PiPath: "/bin/false"})
-	if _, err := sup.Attach("sess-x"); err != ErrDaemonDisabled {
-		t.Fatalf("expected ErrDaemonDisabled, got %v", err)
-	}
-}
-
 // TestDaemonStdioDecoupledToLogFile 回归守护（dev 真 e2e 实测 2026-11-28）：
 // shim/pi 的 stdout/stderr 必须路由到 <stem>.log 文件，绝不能是连回本进程的
 // 管道——web 进程死亡时管道断裂，pi 任何一次 stderr 写入就 EPIPE 崩溃

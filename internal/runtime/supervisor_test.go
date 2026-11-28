@@ -124,17 +124,36 @@ func isolateRuntimeEnv(t *testing.T) {
 	t.Setenv(rickAgentDirEnv, t.TempDir())
 }
 
-// testSupervisor builds an isolated supervisor with a fast heartbeat.
+// testSupervisor builds an isolated supervisor with a fast heartbeat. Daemon
+// 单轨（human 2026-11-28）：socket 目录必须显式给短的（unix sun_path 上限
+// 104 字节；t.TempDir() 派生的默认目录会超限）——系统 tmp 下 MkdirTemp 恒短。
 func testSupervisor(t *testing.T, piPath string, onDead func(string, string)) *Supervisor {
 	t.Helper()
 	isolateRuntimeEnv(t)
-	return NewSupervisor(SupervisorConfig{
+	return NewSupervisor(testDaemonConfig(t, piPath, onDead))
+}
+
+// testDaemonConfig builds the common daemon-mode config for tests: a short
+// socket dir under the system tmp, the node shim binary, and a fast probe
+// window (healthy shims never exit in it; the window only catches pairs that
+// die at startup).
+func testDaemonConfig(t *testing.T, piPath string, onDead func(string, string)) SupervisorConfig {
+	t.Helper()
+	socketDir, err := os.MkdirTemp("", "rickrt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	return SupervisorConfig{
 		HeartbeatInterval: 50 * time.Millisecond,
 		HeartbeatTimeout:  250 * time.Millisecond,
 		IdleTimeout:       0, // disabled unless a test opts in
+		ProbeTimeout:      150 * time.Millisecond,
 		PiPath:            piPath,
+		NodeBin:           requireNode(t),
+		DaemonSocketDir:   socketDir,
 		OnDead:            onDead,
-	})
+	}
 }
 
 // recvEvent reads one event or fails after timeout.
@@ -194,16 +213,45 @@ func TestSupervisor_BootstrapMessageExport(t *testing.T) {
 }
 
 func TestSupervisor_SpawnProbeFail(t *testing.T) {
+	// Daemon 单轨后 probe 语义：dial 成功只证明 shim 活着——settle 窗口
+	//（ProbeTimeout）内「秒死对」（bad flag 的 pi 启动即退）会把 waitCh 落下
+	// 来，Spawn 同步报错。Gatekeeper 首执行延迟 ~616ms < 3s 窗口，确定性成立。
 	pi := fakePiExitNow(t)
-	sup := testSupervisor(t, pi, nil)
+	cfg := testDaemonConfig(t, pi, nil)
+	cfg.ProbeTimeout = 3 * time.Second
+	sup := NewSupervisor(cfg)
 	defer sup.CloseAll()
 
 	_, err := sup.Spawn(spec("probe-fail", pi))
 	if err == nil {
 		t.Fatal("Spawn must fail when pi exits during probe")
 	}
+	if !strings.Contains(err.Error(), "shim exited during probe") {
+		t.Errorf("probe error must be the shim-exit diagnosis, got: %v", err)
+	}
 	if !strings.Contains(err.Error(), "boom") {
-		t.Errorf("probe error should surface stderr tail, got: %v", err)
+		t.Errorf("probe error should surface the pi stderr tail (via the daemon log), got: %v", err)
+	}
+	if n := sup.Count(); n != 0 {
+		t.Errorf("failed spawn must not register a worker, count=%d", n)
+	}
+}
+
+// TestSupervisor_SpawnFailBadNode: a missing node binary fails Spawn at
+// exec time (deterministic — no timing involved).
+func TestSupervisor_SpawnFailBadNode(t *testing.T) {
+	pi := fakePiResponsive(t, "", 0)
+	cfg := testDaemonConfig(t, pi, nil)
+	cfg.NodeBin = "/nonexistent/node-for-tests"
+	sup := NewSupervisor(cfg)
+	defer sup.CloseAll()
+
+	_, err := sup.Spawn(spec("bad-node", pi))
+	if err == nil {
+		t.Fatal("Spawn must fail when the node binary is missing")
+	}
+	if !strings.Contains(err.Error(), "start shim") {
+		t.Errorf("want a start-shim error, got: %v", err)
 	}
 	if n := sup.Count(); n != 0 {
 		t.Errorf("failed spawn must not register a worker, count=%d", n)
@@ -243,7 +291,9 @@ func TestSupervisor_CommandRoundTrip(t *testing.T) {
 		t.Errorf("state cache mismatch: %+v", st)
 	}
 
-	// Non-heartbeat command: prompt → agent events + response.
+	// Non-heartbeat command: prompt → agent events + response. Daemon 模式下
+	// 心跳 get_state 的 response 会与本回合事件交错（shim 的转发多一跳）——
+	// drain 到 agent_start，跳过路上的 housekeeping response。
 	pl, err := NewRpcClient().Prompt("hello", "")
 	if err != nil {
 		t.Fatalf("build prompt: %v", err)
@@ -251,9 +301,9 @@ func TestSupervisor_CommandRoundTrip(t *testing.T) {
 	if err := w.Send(pl); err != nil {
 		t.Fatalf("Send prompt: %v", err)
 	}
-	ev = recvEvent(t, w.Events(), 3*time.Second)
-	if ev.Type != "agent_start" {
-		t.Errorf("expected agent_start after prompt, got %s", ev.Type)
+	ev = drainUntil(t, w.Events(), func(e *RpcEvent) bool { return e.Type == "agent_start" }, 3*time.Second)
+	if ev == nil {
+		t.Errorf("expected agent_start after prompt")
 	}
 }
 
@@ -384,13 +434,10 @@ func TestSupervisor_GroupKillReachesGrandchild(t *testing.T) {
 
 func TestSupervisor_MaxActive(t *testing.T) {
 	pi := fakePiResponsive(t, "", 0)
-	isolateRuntimeEnv(t)
-	sup := NewSupervisor(SupervisorConfig{
-		MaxActive:         1,
-		HeartbeatInterval: 50 * time.Millisecond,
-		IdleTimeout:       0,
-		PiPath:            pi,
-	})
+	cfg := testDaemonConfig(t, pi, nil)
+	cfg.MaxActive = 1
+	cfg.HeartbeatInterval = 50 * time.Millisecond
+	sup := NewSupervisor(cfg)
 	defer sup.CloseAll()
 
 	if _, err := sup.Spawn(spec("max-1", pi)); err != nil {
@@ -500,20 +547,17 @@ func TestSupervisor_OnDeadOnExternalKill(t *testing.T) {
 
 func TestSupervisor_IdleReap(t *testing.T) {
 	pi := fakePiResponsive(t, "", 0)
-	isolateRuntimeEnv(t)
 	dead := make(chan string, 1)
-	sup := NewSupervisor(SupervisorConfig{
-		HeartbeatInterval: 20 * time.Millisecond, // keep state fresh
-		HeartbeatTimeout:  500 * time.Millisecond,
-		IdleTimeout:       150 * time.Millisecond,
-		PiPath:            pi,
-		OnDead: func(sessionID, _ string) {
-			select {
-			case dead <- sessionID:
-			default:
-			}
-		},
+	cfg := testDaemonConfig(t, pi, func(sessionID, _ string) {
+		select {
+		case dead <- sessionID:
+		default:
+		}
 	})
+	cfg.HeartbeatInterval = 20 * time.Millisecond // keep state fresh
+	cfg.HeartbeatTimeout = 500 * time.Millisecond
+	cfg.IdleTimeout = 150 * time.Millisecond
+	sup := NewSupervisor(cfg)
 	defer sup.CloseAll()
 
 	w, err := sup.Spawn(spec("idle-1", pi))
@@ -544,20 +588,17 @@ func TestSupervisor_IdleReap(t *testing.T) {
 // The web composition root relies on this for persistent sessions.
 func TestSupervisor_IdleDisabledNegative(t *testing.T) {
 	pi := fakePiResponsive(t, "", 0)
-	isolateRuntimeEnv(t)
 	dead := make(chan string, 1)
-	sup := NewSupervisor(SupervisorConfig{
-		HeartbeatInterval: 20 * time.Millisecond, // keep state fresh
-		HeartbeatTimeout:  500 * time.Millisecond,
-		IdleTimeout:       IdleDisabled,           // 负值：禁用空闲回收
-		PiPath:            pi,
-		OnDead: func(sessionID, _ string) {
-			select {
-			case dead <- sessionID:
-			default:
-			}
-		},
+	cfg := testDaemonConfig(t, pi, func(sessionID, _ string) {
+		select {
+		case dead <- sessionID:
+		default:
+		}
 	})
+	cfg.HeartbeatInterval = 20 * time.Millisecond // keep state fresh
+	cfg.HeartbeatTimeout = 500 * time.Millisecond
+	cfg.IdleTimeout = IdleDisabled // 负值：禁用空闲回收
+	sup := NewSupervisor(cfg)
 	defer sup.CloseAll()
 
 	w, err := sup.Spawn(spec("idle-keep", pi))
@@ -693,11 +734,36 @@ func TestSupervisor_SpawnFlagSemantics(t *testing.T) {
 	sup := testSupervisor(t, script, nil)
 	defer sup.CloseAll()
 
+	// Daemon 模式下 Spawn 在 dial+settle 后即返回——fake pi 脚本可能尚未完成
+	// 首次执行（macOS Gatekeeper 对新脚本的首执行延迟 ~616ms 实测）。argv 落盘
+	// 是本测试的同步点：等 fake 写出对应 flag 行再 Close（否则组 kill 可能
+	// 先于脚本首执行，argv 永远不落盘）。
+	waitArgv := func(want ...string) {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if b, err := os.ReadFile(argvFile); err == nil {
+				ok := true
+				for _, w := range want {
+					if !strings.Contains(string(b), w) {
+						ok = false
+						break
+					}
+				}
+				if ok {
+					return
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("fake pi never wrote argv (want %v)", want)
+	}
+
 	// CreateNew: --session-id <flag>
 	w, err := sup.Spawn(SpawnSpec{SessionID: "new-1", SessionIDFlag: "uuid-A", CreateNew: true})
 	if err != nil {
 		t.Fatalf("spawn create: %v", err)
 	}
+	waitArgv("uuid-A")
 	w.Close()
 
 	// Resume: --session <flag>
@@ -705,6 +771,7 @@ func TestSupervisor_SpawnFlagSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn resume: %v", err)
 	}
+	waitArgv("uuid-B")
 	w2.Close()
 
 	data, err := os.ReadFile(argvFile)
@@ -744,11 +811,9 @@ func TestSupervisor_SpawnDirAndEnv(t *testing.T) {
 
 	agentDir := t.TempDir()
 	t.Setenv(rickAgentDirEnv, agentDir)
-	sup := NewSupervisor(SupervisorConfig{
-		HeartbeatInterval: 0,
-		IdleTimeout:       0,
-		PiPath:            script,
-	})
+	cfg := testDaemonConfig(t, script, nil)
+	cfg.HeartbeatInterval = 0
+	sup := NewSupervisor(cfg)
 	defer sup.CloseAll()
 
 	w, err := sup.Spawn(SpawnSpec{SessionID: "env-1", SessionIDFlag: "uuid-C", Dir: dir, CreateNew: true})

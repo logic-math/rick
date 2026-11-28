@@ -11,6 +11,12 @@
 // single-pid kill — the Setpgid/-pgid pattern is lifted from pi's own
 // subagent extension, as is the SIGTERM→grace→SIGKILL ladder).
 //
+// Transport (human 2026-11-28 裁决：单轨化)：every worker runs in DAEMON mode
+// (daemon.go) — pi sits behind a node shim that owns its pipes and exposes a
+// unix socket, so a rick web restart detaches and re-attaches WITHOUT
+// killing pi (in-flight tool calls / subagents keep running). There is no
+// direct-pipe transport anymore.
+//
 // Crash recovery is deliberately NOT automatic: when a worker dies the
 // OnDead(sessionID, lastEntryID) callback fires and the web layer decides
 // whether to respawn (spawn + `--session` + get_entries(since) replay).
@@ -51,7 +57,7 @@ const (
 	// untouched (only == 0 falls back to DefaultIdleTimeout) and skips the
 	// reapLoop start in Spawn (only > 0 starts it) — web 会话持久持有，
 	// server 存续期间不主动断开（心跳杀保留，真卡死进程仍会被清理）。
-	IdleDisabled = -time.Second
+	IdleDisabled             = -time.Second
 	DefaultHeartbeatInterval = 30 * time.Second // get_state liveness cadence
 	DefaultProbeTimeout      = 500 * time.Millisecond
 	DefaultTermGrace         = 5 * time.Second
@@ -101,15 +107,15 @@ type SupervisorConfig struct {
 	PiPath string
 	// ExtraArgs are passed through to pi (e.g. --provider/--model/--api-key).
 	ExtraArgs []string
-	// DaemonSocketDir switches workers to daemon mode (daemon.go) when
-	// non-empty: each pi runs behind a node shim owning its stdin/stdout,
-	// exposed on <DaemonSocketDir>/<session>.sock, so the web server can
-	// restart (detach → re-attach) without killing pi — in-flight tool
-	// calls and subagents keep running across server upgrades. Empty = the
-	// legacy direct-pipe transport (server restart kills pi).
+	// DaemonSocketDir is where per-session daemon sockets live (the node
+	// shim binds <DaemonSocketDir>/<session>.sock — see daemon.go). Empty
+	// defaults to DefaultDaemonSocketDir() (<agent-dir>/sockets, following
+	// RICK_PI_AGENT_DIR). NOTE: unix sun_path caps at 104 bytes — a too-long
+	// dir fails Spawn with an explicit error; tests point it at a short
+	// temp dir.
 	DaemonSocketDir string
-	// NodeBin overrides the node binary used to run the daemon shim
-	// (default "node" from PATH).
+	// NodeBin is the node binary used to run the daemon shim. Empty
+	// defaults to "node" from PATH.
 	NodeBin string
 	// OnDead fires once per worker death (process exit, heartbeat timeout,
 	// idle reap) with the session id and the last known entry cursor. Called
@@ -181,156 +187,27 @@ func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 	if cfg.TermGrace <= 0 {
 		cfg.TermGrace = DefaultTermGrace
 	}
+	// 单轨化（human 2026-11-28）：daemon 传输是唯一的传输——空目录/空 node
+	// 都取默认（<agent-dir>/sockets、"node"）。
+	if cfg.DaemonSocketDir == "" {
+		cfg.DaemonSocketDir = DefaultDaemonSocketDir()
+	}
+	if cfg.NodeBin == "" {
+		cfg.NodeBin = "node"
+	}
 	return &Supervisor{cfg: cfg, workers: make(map[string]*Worker)}
 }
 
-// Spawn launches one pi rpc subprocess per spec and probes it alive.
+// Spawn launches one pi rpc daemon worker per spec and probes it alive
+// (spawnDaemon in daemon.go — the only transport, human 2026-11-28 单轨化).
 // The worker is registered under spec.SessionID; a duplicate id is rejected.
-// Daemon mode (DaemonSocketDir != "") dispatches to spawnDaemon (daemon.go).
 func (s *Supervisor) Spawn(spec SpawnSpec) (*Worker, error) {
-	if s.cfg.DaemonSocketDir != "" {
-		return s.spawnDaemon(spec)
-	}
-	if err := s.precheckSpawn(spec); err != nil {
-		return nil, err
-	}
-	// Normalize (precheckSpawn normalizes its own copy for the dup check).
-	if spec.SessionID == "" {
-		spec.SessionID = spec.SessionIDFlag
-	}
-
-	piBin := s.cfg.PiPath
-	if piBin == "" {
-		piBin = piPathOrDefault(nil)
-	}
-
-	// Args are assembled as a slice — Go's variadic spread cannot be followed
-	// by more positional args (spec note).
-	args := make([]string, 0, 4+len(s.cfg.ExtraArgs))
-	args = append(args, "--mode", "rpc")
-	args = append(args, s.cfg.ExtraArgs...)
-	if spec.MethodFile != "" {
-		args = append(args, "--append-system-prompt", spec.MethodFile)
-	}
-	if spec.PromptFile != "" {
-		args = append(args, "--append-system-prompt", spec.PromptFile)
-	}
-	if spec.CreateNew {
-		args = append(args, "--session-id", spec.SessionIDFlag)
-	} else {
-		args = append(args, "--session", spec.SessionIDFlag)
-	}
-
-	cmd := exec.Command(piBin, args...)
-	if spec.Dir != "" {
-		cmd.Dir = spec.Dir
-	}
-	cmd.Env = AgentEnv()
-	// Own process group: pi's bash tool spawns grandchildren that must die
-	// with the worker — kill(-pgid) reaches the whole tree.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: stdin pipe: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("supervisor: stderr pipe: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("supervisor: start pi: %w", err)
-	}
-
-	w := &Worker{
-		sup:          s,
-		sessionID:    spec.SessionID,
-		cmd:          cmd,
-		stdin:        stdin,
-		client:       NewRpcClient(),
-		events:       make(chan *RpcEvent, eventChanBuffer),
-		notify:       make(chan struct{}, 1),
-		waitCh:       make(chan struct{}),
-		deadCh:       make(chan struct{}),
-		abandonC:     make(chan struct{}),
-		lastActivity: time.Now(),
-	}
-	w.stderrTail = newByteRing(stderrTailSize)
-
-	// The wait goroutine owns cmd.Wait (exactly once) and declares death on
-	// process exit — whichever of scanner-EOF / heartbeat-timeout / wait
-	// fires first wins, the rest no-op through deadOnce.
-	go func() {
-		w.waitErr = cmd.Wait()
-		close(w.waitCh)
-		w.markDead(fmt.Sprintf("exited: %v", w.waitErr))
-	}()
-
-	// stderr drain: keeps the pipe from filling (a full stderr pipe would
-	// block the child) and retains a tail for probe-failure diagnostics.
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			n, err := stderr.Read(buf)
-			if n > 0 {
-				w.stderrTail.Write(buf[:n])
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	// Probe: give the process a window to die (exec failures, bad flags).
-	select {
-	case <-w.waitCh:
-		tail := w.StderrTail()
-		w.abandon()
-		return nil, fmt.Errorf("supervisor: pi exited during probe: %v (stderr: %s)", w.waitErr, tail)
-	case <-time.After(s.cfg.ProbeTimeout):
-		// alive
-	}
-
-	s.mu.Lock()
-	if _, dup := s.workers[spec.SessionID]; dup {
-		s.mu.Unlock()
-		w.Close()
-		return nil, fmt.Errorf("supervisor: session %q already has a worker", spec.SessionID)
-	}
-	if s.liveCountLocked() >= s.cfg.MaxActive {
-		s.mu.Unlock()
-		w.Close()
-		return nil, ErrMaxActive
-	}
-	s.workers[spec.SessionID] = w
-	s.mu.Unlock()
-
-	// Event pipeline: scanner parses stdout lines, intercepts housekeeping
-	// responses (get_state / get_entries), stages everything on a queue; the
-	// pump drains the queue into the buffered channel. Slow consumers make
-	// the queue grow until maxPendingEvents, then the OLDEST events are
-	// dropped (overflow counter exposed via Dropped()).
-	go w.scanLoop(stdout)
-	go w.pumpLoop()
-
-	// Heartbeat: get_state cadence; unanswered heartbeats declare death.
-	if s.cfg.HeartbeatInterval > 0 {
-		go w.heartbeatLoop(s.cfg.HeartbeatInterval, s.cfg.HeartbeatTimeout)
-	}
-	// Idle reaping: quiet, non-streaming workers are closed and reported.
-	if s.cfg.IdleTimeout > 0 {
-		go w.reapLoop(s.cfg.IdleTimeout)
-	}
-	return w, nil
+	return s.spawnDaemon(spec)
 }
 
 // precheckSpawn validates the spec and enforces the duplicate-id and
-// concurrency caps shared by both transports (legacy pipes / daemon socket).
-// It normalizes spec.SessionID (empty inherits the pi session flag).
+// concurrency caps before any process is started. It normalizes
+// spec.SessionID (empty inherits the pi session flag).
 func (s *Supervisor) precheckSpawn(spec SpawnSpec) error {
 	if spec.SessionIDFlag == "" {
 		return ErrEmptySessionFlag
