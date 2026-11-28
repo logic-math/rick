@@ -684,7 +684,7 @@ export default function ChatView({ sessionId }: ChatViewProps) {
       else after.push(it);
     }
     const opt = [
-      { kind: "user" as const, id: "optimistic-user", text: optimisticUser, seq: anchor + 1 },
+      { kind: "user" as const, id: "optimistic-user", text: optimisticUser, seq: anchor + 1, pending: true },
     ];
     const merged = [...before, ...opt, ...after];
     return history ? [...history.items, ...merged] : merged;

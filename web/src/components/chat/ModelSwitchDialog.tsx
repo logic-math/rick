@@ -61,12 +61,15 @@ export default function ModelSwitchDialog({
         if (cancelled) return;
         setModels(res.models ?? []);
         setCurrent(res.current ?? null);
-        const curId = res.current?.id ?? currentModel ? undefined : res.models[0]?.id;
-        // 优先当前模型 id；当前不在列表里则选第一项
-        const preferred = res.models.find((m) => m.id === res.current?.id)?.id
-          ?? res.models.find((m) => m.id === currentModel)?.id
-          ?? curId
-          ?? "";
+        // Bug 6 修复（human 2026-11-27）：优先服务端 current（session 当前模型）；
+        // 兼容旧版（current=null）：用 props currentModel；都无 → 第一项。
+        // 旧版后端 current 硬编码 null + 前端 curId 三元运算符优先级 bug
+        // 导致刷新后选中态丢失。
+        const preferred =
+          res.models.find((m) => m.id === res.current?.id && m.provider === res.current?.provider)?.id ??
+          res.models.find((m) => m.id === currentModel)?.id ??
+          res.models[0]?.id ??
+          "";
         setSelectedId(preferred);
       })
       .catch((e) => {

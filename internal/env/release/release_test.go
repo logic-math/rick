@@ -1320,3 +1320,45 @@ exec %s web --listen 127.0.0.1 --port %d --state-dir %s --token %s
 		t.Fatal("失败未附日志尾部")
 	}
 }
+
+// TestPromoteDeploysSuperoptSnapshot（job_55 迭代 6）：release promote 必须
+// 联动部署 superopt 快照到 <StateDir>/super（human 裁决 2026-11-26——每次
+// release 整目录覆盖，保证二进制与 superopt 版本配套）。
+func TestPromoteDeploysSuperoptSnapshot(t *testing.T) {
+	p := newFakeProd(t)
+
+	// DevTree 放 super/ 树（marker）+ .rick 9 件（源侧就绪）。
+	srcSuper := filepath.Join(p.DevTree, "super", "superopt")
+	mustMkdir(t, srcSuper)
+	mustWrite(t, filepath.Join(srcSuper, "__main__.py"), "#!py\n")
+	mustMkdir(t, filepath.Join(p.DevTree, ".rick", "loops"))
+	mustWrite(t, filepath.Join(p.DevTree, ".rick", "loops", "super-loop.md"), "loop v6")
+	mustMkdir(t, filepath.Join(p.DevTree, ".rick", "skills", "gen_env_skill"))
+	mustWrite(t, filepath.Join(p.DevTree, ".rick", "skills", "gen_env_skill", "skill.md"), "skill v6")
+
+	rel := buildAndCheck(t, p)
+	res, err := p.Promote(rel)
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+
+	// superopt 快照落位：<StateDir>/super/superopt/__main__.py。
+	dstMarker := filepath.Join(p.StateDirPath(), "super", "superopt", "__main__.py")
+	if data, err := os.ReadFile(dstMarker); err != nil || string(data) != "#!py\n" {
+		t.Fatalf("superopt marker not deployed to %s: %v", dstMarker, err)
+	}
+	// 9 件资产落位（抽 2 件代表）。
+	if data, err := os.ReadFile(filepath.Join(p.StateDirPath(), "loops", "super-loop.md")); err != nil || string(data) != "loop v6" {
+		t.Fatalf("super-loop.md not deployed: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(p.StateDirPath(), "skills", "gen_env_skill", "skill.md")); err != nil || string(data) != "skill v6" {
+		t.Fatalf("gen_env skill not deployed: %v", err)
+	}
+	// 无 superopt 部署告警。
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "superopt") {
+			t.Fatalf("unexpected superopt warning: %s", w)
+		}
+	}
+	_ = res // silence unused if no warnings check above
+}

@@ -87,6 +87,16 @@ export const UserBubble = memo(
           <div className="w-max max-w-full rounded-2xl rounded-tl-sm border border-nebula/50 bg-nebula/[0.08] px-4 py-2.5">
             <LongText text={item.text} />
           </div>
+          {item.pending && (
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-ink-3">
+              <span
+                className="inline-block h-2 w-2 rounded-full border border-portal border-t-transparent"
+                style={{ animation: "rm-portal-spin 0.8s linear infinite" }}
+                aria-hidden="true"
+              />
+              <span>等待前序响应中——agent 将在当前回合结束后处理此消息</span>
+            </div>
+          )}
         </div>
       </div>
     );

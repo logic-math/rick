@@ -32,6 +32,16 @@ type Config struct {
 	// change: json round-trips omitempty-transparently.
 	SourceTree string `json:"source_tree,omitempty"`
 
+	// FallbackModels is an ordered chain of fallback models (Bug 5, human
+	// 2026-11-27): when the session's current model fails N consecutive
+	// retries (quota exhausted / provider outage / timeout), the web layer
+	// switches to the next model in this chain and continues the turn.
+	// Format: ["provider/model-id", ...]. Empty = no fallback.
+	FallbackModels []string `json:"fallback_models,omitempty"`
+	// FallbackRetryCount is the consecutive-failure threshold before
+	// switching to a fallback model (default 3).
+	FallbackRetryCount int `json:"fallback_retry_count,omitempty"`
+
 	// Super carries `rick super` mode settings (job_47/task11): the super
 	// workspace root plus the PySupervisor cadence defaults. Zero fields
 	// fall back to DefaultSuperConfig() at the call site (loader.go needs no

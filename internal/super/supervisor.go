@@ -496,41 +496,93 @@ func exitReason(err error, closed bool) string {
 // --- repo-root resolution & env ---
 
 // resolveRepoRoot finds the repo containing super/superopt/__main__.py (the
-// module we spawn). Lookup order:
-//  1. walk up from the process cwd (repo-internal usage: dev tree, tests);
-//  2. **fallback: the rick binary's own repo** via the executable path —
-//     production deploys run `rick` from <repo>/bin/rick (a symlink chain
-//     through bin/releases/current/rick); when a web super session spawns
-//     `rick super start` from an *external workspace* (cwd=MT_INFER etc.)
-//     the cwd walk finds nothing and the scheduler used to die with
-//     "No module named superopt" (job_47 field report 2026-10-31). The
-//     executable chain is the natural fallback: the binary was *built from*
-//     a repo that ships super/superopt.
-//  3. **fallback: the config source_tree pointer** (job_55 方案 2) —
-//     install.sh copies the binary to ~/.rick/bin/rick, so for a copied
-//     install neither 1 nor 2 ever finds the clone it was built from;
-//     `rick tools init-pi` run from inside the clone records it in
-//     ~/.rick/config.json ("source_tree"), and this fallback resolves it.
-//     dev-e2e field report 2026-11-24: fresh install + external cwd hit
-//     "No module named superopt" / missing super assets before this.
-//  4. final fallback: the process cwd (legacy behavior for external installs).
+// module we spawn). Lookup order (job_55 迭代 6，human 裁决 2026-11-26
+// 优先级翻转——「新版的 rick 二进制应该直接读 ~/.rick 下的 superopt，
+// 不需要再读工作区中的了，这样可以保持一致」):
+//
+//  1. **~/.rick super installation snapshot (最优先)** — `rick tools init-pi`
+//     run from inside a clone copies the whole super/ python tree to
+//     <rickRoot>/super (DeploySuperRuntimeFromSrc); `rick tools release`
+//     promote also deploys it (迭代 6 联动). The snapshot is the
+//     install-time copy of exactly the source the binary was built from
+//     (strict version pairing) — reading it FIRST guarantees consistency
+//     across all workspaces (human 裁决「保持一致」).
+//  2. walk up from the process cwd (dev 树内开发迭代场景的兼容回退);
+//  3. walk up from the executable path (in-tree binary / releases chain
+//     的兼容回退);
+//  4. config source_tree pointer (job_55 方案 2 兼容);
+//  5. final fallback: the process cwd (legacy behavior for external installs).
 func resolveRepoRoot() string {
 	start, err := os.Getwd()
 	if err != nil {
 		return "."
 	}
+	// ① ~/.rick 安装快照最优先（human 裁决 2026-11-26：与二进制同版本
+	// 配套——release promote 联动部署（迭代 6）/ init-pi 安装时部署（迭代 5）。
+	if root := installedSuperSnapshot(); root != "" {
+		return root
+	}
+	// ② cwd 上溯（dev 树内开发迭代——无安装快照时仍可用）。
 	if root := findSuperRoot(start); root != "" {
 		return root
 	}
+	// ③ exe 上溯（树内二进制 / releases 链的兼容回退）。
 	if exe, err := os.Executable(); err == nil {
 		if root := findSuperRoot(exe); root != "" {
 			return root
 		}
 	}
+	// ④ source_tree 指针（兼容）。
 	if root := sourceTreePointer(); root != "" {
 		return root
 	}
+	// ⑤ cwd 兜底。
 	return start
+}
+
+// installedSuperSnapshot resolves the ~/.rick super installation snapshot
+// (①，job_55 迭代 6 最优先): the rick root whose super/superopt/__main__.py
+// marker validates. The rick root is HOME-derived (same resolution as
+// runtime.AgentDir's chain) so tests can inject HOME/RICK_PI_AGENT_DIR.
+// 直接 stat marker（不走 findSuperRoot 的 symlink 归一比较——路径双形
+// /var↔/private/var 会让 == 比较恒假）。
+func installedSuperSnapshot() string {
+	root := rickRootFromAgentEnv()
+	if root == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(root, "super", "superopt", "__main__.py")); err == nil {
+		return root
+	}
+	return ""
+}
+
+// rickRootFromAgentEnv derives the rick state root (~/.rick) for the
+// installed-super-runtime resolution. HOME-based only: the installed
+// runtime (super/ tree + 9 assets) lives in the rick state root beside
+// config.json / web.json — that root is HOME-derived in rick everywhere
+// (internal/config GetConfigPath, env.home). RICK_PI_AGENT_DIR is
+// deliberately NOT consulted: it overrides only the pi agent dir
+// (~/.rick/pi/agent), and injecting it must not relocate the state root
+// (web tests set both HOME and RICK_PI_AGENT_DIR to independent temps;
+// supervisor subprocess tests inject HOME only — both shapes stay
+// correct under HOME-basis).
+func rickRootFromAgentEnv() string {
+	d := os.Getenv("RICK_PI_AGENT_DIR")
+	if d != "" {
+		const suffix = "pi" + string(filepath.Separator) + "agent"
+		if strings.HasSuffix(d, suffix) {
+			// 剥两层（pi/agent → <root>）：filepath.Dir 只剥一层会停在
+			// <root>/pi——迭代 6 修复（实测 e2e 复现）。
+			return filepath.Dir(filepath.Dir(d))
+		}
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".rick")
 }
 
 // sourceTreePointer resolves the config source_tree pointer

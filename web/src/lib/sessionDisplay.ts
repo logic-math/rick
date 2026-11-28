@@ -45,11 +45,16 @@ export function deriveSessionDisplay(session: SessionInfo): SessionDisplay {
         ? truncate(p.topic)
         : "";
 
+  // Bug 1 修复（human 2026-11-27）：session.title 优先于 themeText——用户创建时填
+  // 写的别名存入 session.title，而 themeText（params.requirement/topic 截断）
+  // 总是覆盖它导致别名不生效。安全论证：自动生成的 title = truncate(requirement)
+  // = themeText（同一截断口径），所以对自动生成场景两者相同、优先级反转无影响；
+  // 用户填写别名时 title ≠ themeText，反转后别名正确显示。
   const title =
     session.name?.trim() ||
     session.job_name?.trim() ||
-    themeText ||
     session.title ||
+    themeText ||
     `${session.type} · ${session.id.slice(0, 8)}`;
   return { title, idTag };
 }

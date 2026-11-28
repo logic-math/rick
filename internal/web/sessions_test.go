@@ -2039,14 +2039,10 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 	seedSuperAssets(t, env.rickDir)
 	m := env.managerWith(t, nil)
 
-	// job_55：资产缺失时先走自动分发（deploySuperAssets seam）；本用例固化
-	// 「分发不可用 → 原显式报错」契约——stub 成失败，下面的 400 行为与
-	// job_48 严格加载时代一字不差。
-	oldDeploy := deploySuperAssets
-	deploySuperAssets = func(string) ([]string, error) {
-		return nil, fmt.Errorf("no rick tree")
-	}
-	defer func() { deploySuperAssets = oldDeploy }()
+	// job_55 迭代 5：前置检查走 SuperAssetFallbackPath 回退链（工作区 →
+	// ~/.rick 安装副本）。本用例固化「两处均缺 → 400 显式报错」契约：
+	// newTestEnv 的 HOME 指向临时目录（无安装副本）+ 工作区资产被删 →
+	// 创建拒绝，错误含缺失路径与新提示语（init-pi 指引）。
 
 	// 缺 gen_env skill → 400 invalid_params，错误含缺失路径（严格加载，
 	// 不静默降级）。
@@ -2064,6 +2060,9 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 		if !strings.Contains(msg, filepath.Join(env.rickDir, "skills", "gen_env_skill", "skill.md")) {
 			t.Fatalf("error message lacks missing-file path: %q", msg)
 		}
+	}
+	if !strings.Contains(msg, "init-pi") {
+		t.Fatalf("error message should hint init-pi (installed-runtime guidance): %q", msg)
 	}
 
 	// 缺 super-loop.md 同样拒绝。
@@ -2084,35 +2083,41 @@ func TestSessionCreateSuper_MissingAssetFailsStrictly(t *testing.T) {
 	}
 }
 
-// TestSessionCreateSuper_AutoDeploysAssets（job_55）：裸 .rick 工作区（无
-// super 资产）创建 super session 时，自动从 rick 树分发 9 件标准资产
-// （deploySuperAssets 生产实现：resolveRepoRoot 从测试进程 cwd 上溯命中
-// 真实 repo 树）→ 创建成功且资产落盘——外部工作区首次用 super 不再撞
-// 「缺失 super-loop.md」400。
-func TestSessionCreateSuper_AutoDeploysAssets(t *testing.T) {
+// TestSessionCreateSuper_UsesInstalledAssets（job_55 迭代 5）：裸 .rick 工作区
+// （无 super 资产）+ HOME 侧 ~/.rick 安装副本（super 9 件 + super/ python 树）
+// → super 会话创建成功（回退链命中安装副本——跨工作区统一读 ~/.rick，
+// 不再逐工作区拷贝：工作区文件不落盘）。
+func TestSessionCreateSuper_UsesInstalledAssets(t *testing.T) {
 	env := newTestEnv(t)
-	// 不 seed：裸 .rick（newTestEnv 只建空目录，super 资产全缺）
+	// 不 seed 工作区：裸 .rick。newTestEnv 已把 HOME/RICK_PI_AGENT_DIR 指向
+	// 临时目录——往 HOME 的 .rick 安装副本（9 件 + python 树 marker）。
+	inst := superpkg.SuperInstallTargetRickDir()
+	seedSuperAssets(t, inst) // 9 件（含前置 2 件）落到 ~/.rick 安装副本根（与运行时回退同根单源）
+	// python 树 marker（resolveRepoRoot ③ 语义完整性——本用例主要验证 web
+	// 侧回退链，marker 顺手落上保持安装副本结构真实）。
+	if err := os.MkdirAll(filepath.Join(inst, "super", "superopt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inst, "super", "superopt", "__main__.py"), []byte("#!py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	m := env.managerWith(t, nil)
 
 	coll := startCollector(env.hub)
 	defer coll.stop()
 	id, code, body := createSessionViaHTTP(t, m, env.wsEntry.ID, SessionTypeSuper,
-		map[string]any{"requirement": "外部工作区首次创建 super 会话：资产应自动分发"})
+		map[string]any{"requirement": "外部工作区首次创建 super 会话：应回退到 ~/.rick 安装副本"})
 	if code != http.StatusCreated {
-		t.Fatalf("create super session (bare .rick): status %d body %v, want 201", code, body)
+		t.Fatalf("create super session (bare .rick + installed assets): status %d body %v, want 201", code, body)
 	}
 	if _, ok := env.sessions.Get(id); !ok {
 		t.Fatal("session not persisted in registry")
 	}
-	// 9 件标准资产全部自动分发落盘（单源清单：前置检查 2 件 + 运行期 7 件）
+	// 不再逐工作区拷贝（human 裁决）：工作区 9 件必须不落盘（回退链只读不写）。
 	for _, rel := range superpkg.SuperAssetPaths {
 		p := filepath.Join(env.rickDir, filepath.FromSlash(rel))
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("auto-deployed asset missing %s: %v", p, err)
-		}
-		if len(data) == 0 {
-			t.Fatalf("auto-deployed asset empty: %s", p)
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("asset must NOT be copied into workspace (installed-runtime read): %s", p)
 		}
 	}
 }

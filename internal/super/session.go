@@ -186,10 +186,12 @@ func BuildSuperPrompt(rickDir, ws, requirement string) (methodFile, promptFile s
 	}
 
 	// inline 材料：super-loop 全文 + gen_env skill 全文（缺失降级为显式提示，
-	// 不静默——中控会话缺工作法必须可见）。
-	superLoop := readInline(filepath.Join(rickDir, "loops", "super-loop.md"),
-		"（super-loop.md 缺失：请先按 .rick/loops 规范落盘 super-loop）")
-	genEnvSkill := readInline(filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"),
+	// 不静默——中控会话缺工作法必须可见）。路径走 SuperAssetFallback 回退链
+	// （job_55 迭代 5）：工作区存在 → 工作区（定制 override）；否则 → ~/.rick
+	// 安装副本（init-pi 部署的统一版）。
+	superLoop := readInline(SuperAssetFallbackPath(rickDir, "loops/super-loop.md"),
+		"（super-loop.md 缺失：请先按 .rick/loops 规范落盘）")
+	genEnvSkill := readInline(SuperAssetFallbackPath(rickDir, "skills/gen_env_skill/skill.md"),
 		"（gen_env_skill/skill.md 缺失：请先按三段式规范落盘）")
 
 	var b strings.Builder

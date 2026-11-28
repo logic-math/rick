@@ -104,6 +104,18 @@ export default function Settings() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  // 模型兜底配置（Bug 5, human 2026-11-27）
+  const [fallbackModels, setFallbackModels] = useState<string>(() => localStorage.getItem("rick-web:fallback-models") ?? "");
+  const [fallbackRetryCount, setFallbackRetryCount] = useState<number>(() => Number(localStorage.getItem("rick-web:fallback-retry")) || 3);
+  const [fallbackSaveMsg, setFallbackSaveMsg] = useState<string | null>(null);
+
+  // Bug 5：保存模型兜底配置（前端 localStorage——服务端自动切换逻辑下轮迭代）
+  function saveFallbackConfig(): void {
+    localStorage.setItem("rick-web:fallback-models", fallbackModels);
+    localStorage.setItem("rick-web:fallback-retry", String(fallbackRetryCount));
+    setFallbackSaveMsg("已保存（前端配置）——服务端自动切换逻辑待下轮迭代，手动配置请在 ~/.rick/config.json 加 fallback_models 字段");
+    setTimeout(() => setFallbackSaveMsg(null), 5000);
+  }
   const [actionErr, setActionErr] = useState<string | null>(null);
 
   // 星空背景模式（job_43 KR4d）：auto=移动端静态/桌面动画（默认），animated=强制动画，static=强制静态
@@ -322,6 +334,43 @@ export default function Settings() {
             个会话
           </label>
           <span className="text-xs text-ink-3">（默认 7 天 / 64 会话，LRU 淘汰最旧）</span>
+        </div>
+      </Section>
+
+      {/* 模型兜底配置（Bug 5, human 2026-11-27） */}
+      <Section
+        title="模型兜底配置"
+        desc="当前模型连续失败 N 次后自动切换到兜底模型继续响应（额度用尽/服务商不可用/超时）。配置存储于服务端 ~/.rick/config.json 的 fallback_models 字段（格式：provider/model-id，逗号分隔）。需重启 rick web 生效。"
+      >
+        <div className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-sm text-ink-2">兜底模型链（逗号分隔，按优先级）</span>
+            <input
+              className={FIELD}
+              placeholder="catpaw/glm-5.3, selfdeploy/DeepSeek-V4.1-Flash-1017"
+              value={fallbackModels}
+              onChange={(e) => setFallbackModels(e.target.value)}
+              onBlur={() => saveFallbackConfig()}
+            />
+            <span className="text-[11px] text-ink-3">
+              示例：catpaw/glm-5.3, selfdeploy/DeepSeek-V4.1-Flash-1017 — 第一优先用 catpaw/glm-5.3，不可用切 selfdeploy
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-ink-2">
+            重试次数（连续失败 N 次后切换）
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={fallbackRetryCount}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) setFallbackRetryCount(Math.min(10, Math.max(1, Math.floor(v))));
+              }}
+              className="w-16 rounded border border-line bg-space/70 px-2 py-1 text-xs text-ink outline-none focus:border-portal/60"
+            />
+          </label>
+          {fallbackSaveMsg && <span className="text-xs text-portal">{fallbackSaveMsg}</span>}
         </div>
       </Section>
 

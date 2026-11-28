@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,11 +51,6 @@ import (
 
 // DreamRunner runs one dream pass in the background (non-interactive).
 type DreamRunner func(ctx context.Context, rickDir string, jobNum int, progress func(handler.DreamEvent)) error
-
-// deploySuperAssets 是 super 资产自动分发的可注入 seam（job_55，测试
-// fake 化）：生产 = superpkg.DeploySuperAssets（resolveRepoRoot 定位 rick
-// 树，只补缺失不覆盖）；web 测试用它固化「分发不可用 → 原显式报错」契约。
-var deploySuperAssets = superpkg.DeploySuperAssets
 
 // SessionManager orchestrates the whole session lifecycle. It is safe for
 // concurrent use; state transitions are serialized under mu.
@@ -727,6 +721,12 @@ func (m *SessionManager) SessionAbort(w http.ResponseWriter, r *http.Request) {
 	if line, err := (runtime.NewRpcClient()).Abort(); err == nil {
 		_ = worker.Send(line)
 	}
+	// 兜底清脏 busy：如果 worker 已经不在 streaming（例如悬挂 toolCall 或上游异常
+	// 导致 turn_end 丢失），abort 不会触发新的 turn_end，必须立即清回 idle，
+	// 避免前端永远卡在「生成中——输入即纠偏（steer），或中止」且丢失用户输入。
+	if st := worker.State(); st == nil || !st.IsStreaming {
+		m.setBusy(entry.ID, false, "abort_idle")
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
@@ -1176,6 +1176,8 @@ func (m *SessionManager) ensureInteractiveWorker(entry SessionEntry) (*runtime.W
 		m.recordFailed(recoveryItemOf(entry, reason))
 		return nil, false, fmt.Errorf("%s", reason)
 	}
+	// 新 spawn 的 worker 处于空闲等待输入态，必须清零旧持久化里可能残留的 Busy=true。
+	entry.Busy = false
 	m.updateStatus(entry, SessionStatusActive, "resumed")
 	// Resuming an archived session means the user wants it back in active use:
 	// clear the archive marker so it returns to the default session list.
@@ -1543,7 +1545,36 @@ func (m *SessionManager) SessionModels(w http.ResponseWriter, r *http.Request) {
 	if payload.Models == nil {
 		payload.Models = []ModelInfo{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": nil})
+	// Bug 6 修复（human 2026-11-27）：current 必须返回实际当前模型——旧版硬编码 nil
+	// 导致前端模型切换弹窗每次打开都不知道当前选中的是哪个模型（刷新后选中态丢失）。
+	// 从 get_state RPC 拿 session.model（当前模型 id），在可用列表中找到完整信息。
+	var current *ModelInfo
+	if stEv, stErr := m.rpcRequest(entry.ID, func(c *runtime.RpcClient) ([]byte, error) { return c.GetState() }); stErr == nil {
+		var stPayload struct {
+			Model struct {
+				ID       string `json:"id"`
+				Provider string `json:"provider"`
+			} `json:"model"`
+		}
+		if err := json.Unmarshal(stEv.Data, &stPayload); err == nil && stPayload.Model.ID != "" {
+			for i := range payload.Models {
+				if payload.Models[i].ID == stPayload.Model.ID && payload.Models[i].Provider == stPayload.Model.Provider {
+					current = &payload.Models[i]
+					break
+				}
+			}
+			// 找不到完整匹配时退回仅 id 匹配
+			if current == nil {
+				for i := range payload.Models {
+					if payload.Models[i].ID == stPayload.Model.ID {
+						current = &payload.Models[i]
+						break
+					}
+				}
+			}
+			}
+		}
+	writeJSON(w, http.StatusOK, map[string]any{"models": payload.Models, "current": current})
 }
 
 // SessionSetModel handles POST /api/sessions/{id}/model {provider, model_id}:
@@ -2140,6 +2171,9 @@ func (m *SessionManager) updateStatus(entry SessionEntry, status, reason string)
 	if strings.TrimSpace(reason) != "" {
 		entry.LastReason = reason
 	}
+	if status == SessionStatusClosed || status == SessionStatusError || status == SessionStatusSuspended {
+		entry.Busy = false
+	}
 	if status == SessionStatusClosed || status == SessionStatusError {
 		entry.ClosedAt = time.Now()
 	}
@@ -2281,21 +2315,18 @@ func (m *SessionManager) prepareInteractive(rickDir, sessionType string, params 
 				"super session requires a non-empty requirement（进化使命）")
 		}
 		title := paramString(params, "title")
-		// job_55：外部工作区首次用 super 不再撞「缺失 super-loop.md」——
-		// 前置检查前先从 rick 树自动分发缺失的 9 件标准资产（只补缺失、
-		// 绝不覆盖工作区已有定制）；失败/树无资产 → 静默落回下方原显式报错
-		// （行为与 job_48 严格加载时代完全一致）。
-		if deployed, err := deploySuperAssets(rickDir); err == nil && len(deployed) > 0 {
-			log.Printf("[super] auto-deployed %d asset(s) from rick tree to %s: %v", len(deployed), rickDir, deployed)
-		}
-		for _, asset := range []struct{ path, hint string }{
-			{filepath.Join(rickDir, "loops", "super-loop.md"),
-				"super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
-			{filepath.Join(rickDir, "skills", "gen_env_skill", "skill.md"),
-				"super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},
+		// job_55 迭代 6（human 裁决 2026-11-26 优先级翻转）：前置检查走
+		// SuperAssetFallbackPath 回退链——~/.rick 安装副本存在 → 通过（最优先，
+		// 与二进制同版本配套，跨工作区一致）；否则工作区存在 → 通过（定制兼容）。
+		// 不再逐工作区拷贝（job_55 的 auto-deploy 已移除；BuildSuperPrompt 同链）。
+		for _, asset := range []struct{ rel, hint string }{
+			{"loops/super-loop.md", "super session requires .rick/loops/super-loop.md（super 中控 loop，缺失：请先按 .rick/loops 规范落盘）"},
+			{"skills/gen_env_skill/skill.md", "super session requires .rick/skills/gen_env_skill/skill.md（env 建设引导 skill，缺失：请先按三段式规范落盘）"},
 		} {
-			if _, err := os.Stat(asset.path); err != nil {
-				return nil, newWebError(http.StatusBadRequest, "invalid_params", "%s：缺失文件 %s", asset.hint, asset.path)
+			path := superpkg.SuperAssetFallbackPath(rickDir, asset.rel)
+			if _, err := os.Stat(path); err != nil {
+				return nil, newWebError(http.StatusBadRequest, "invalid_params",
+					"%s：工作区与 ~/.rick 安装副本均无——请运行 rick tools init-pi（在 rick clone 内）安装 super 运行时：缺失文件 %s", asset.hint, path)
 			}
 		}
 		envID, err := scanNextEnvID(rickDir)
