@@ -305,12 +305,18 @@ func webServeComposition(ctx context.Context, opts handler.WebOptions, token str
 //   - MaxActive: config.json `web_max_active` 覆盖；0/负值 → 包默认
 //     runtime.DefaultMaxActive（64）。会话持久持有后并发 worker 累积，
 //     缺省给充裕上限。
+//   - DaemonSocketDir（human 2026-11-28 新架构）：`web_daemon_workers`
+//     （默认 true，loader.go 对旧 config 文件回填 true）为真时启用 daemon
+//     传输——worker 跑在 node shim 后面（unix socket），服务重启/升级
+//     Detach+Attach，pi 及工具调用/子代理全程不断。`web_daemon_socket_dir`
+//     覆盖 socket 目录（默认 <agent-dir>/sockets，跟 RICK_PI_AGENT_DIR 走）。
+//     显式 false 回退 legacy 直连管道（重启杀 pi、会话挂起）。
 func resolveSupervisorConfig(cfg *config.Config) runtime.SupervisorConfig {
 	maxActive := cfg.WebMaxActive
 	if maxActive <= 0 {
 		maxActive = runtime.DefaultMaxActive
 	}
-	return runtime.SupervisorConfig{
+	sc := runtime.SupervisorConfig{
 		PiPath:    cfg.PiPath,
 		ExtraArgs: cfg.PiExtraArgs,
 		// 负值 = 禁用空闲回收（详见 supervisor.SupervisorConfig.IdleTimeout
@@ -320,6 +326,14 @@ func resolveSupervisorConfig(cfg *config.Config) runtime.SupervisorConfig {
 		// HeartbeatInterval/HeartbeatTimeout/ProbeTimeout/TermGrace 保持包默认
 		// （30s / 2×30s / 500ms / 5s）——心跳杀语义不动（KR1c）。
 	}
+	if cfg.WebDaemonWorkers {
+		sc.DaemonSocketDir = cfg.WebDaemonSocketDir
+		if sc.DaemonSocketDir == "" {
+			sc.DaemonSocketDir = runtime.DefaultDaemonSocketDir()
+		}
+		sc.NodeBin = cfg.WebNodeBin
+	}
+	return sc
 }
 
 // newWebCustomizeCmd deploys the frontend source scaffold for agent-driven

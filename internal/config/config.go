@@ -53,6 +53,24 @@ type Config struct {
 	// the abort/close escape hatch).
 	AutoResumeOnStart bool `json:"auto_resume_on_start,omitempty"`
 
+	// WebDaemonWorkers (human 2026-11-28): when true (the DEFAULT — older
+	// config files without the key keep the new behavior), web session
+	// workers run in daemon mode: each pi --mode rpc sits behind a node
+	// shim owning its stdin/stdout, exposed on a unix socket, so a rick web
+	// restart (or version upgrade) detaches and re-attaches WITHOUT killing
+	// pi — in-flight tool calls and subagents keep running. Explicit false
+	// restores the legacy direct-pipe transport (restart kills pi; sessions
+	// suspend and resume from disk). loader.go backfills the default for
+	// config files that predate the key.
+	WebDaemonWorkers bool `json:"web_daemon_workers"`
+	// WebDaemonSocketDir overrides where daemon sockets live (default
+	// <agent-dir>/sockets — i.e. under RICK_PI_AGENT_DIR, so tests are
+	// isolated automatically). Empty = the default.
+	WebDaemonSocketDir string `json:"web_daemon_socket_dir,omitempty"`
+	// WebNodeBin overrides the node binary used to run the daemon shim
+	// (default "node" from PATH).
+	WebNodeBin string `json:"web_node_bin,omitempty"`
+
 	// Super carries `rick super` mode settings (job_47/task11): the super
 	// workspace root plus the PySupervisor cadence defaults. Zero fields
 	// fall back to DefaultSuperConfig() at the call site (loader.go needs no
