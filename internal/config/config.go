@@ -42,6 +42,17 @@ type Config struct {
 	// switching to a fallback model (default 3).
 	FallbackRetryCount int `json:"fallback_retry_count,omitempty"`
 
+	// AutoResumeOnStart (human 2026-11-28): when true, rick web auto-resumes
+	// all suspended interactive sessions after a restart (ReconcileOnStart
+	// spawns workers for them via ensureInteractiveWorker). Conservative
+	// default false — existing behavior (suspended + manual resume) unchanged.
+	// Background dream sessions are never auto-resumed (goroutine lifetime
+	// is process-bound; their continue semantics differ). pi --session
+	// resumes load history and wait for input (no auto-replay), so this is
+	// safe even with dangling toolCalls (the Busy-stuck fix 4f6265c provides
+	// the abort/close escape hatch).
+	AutoResumeOnStart bool `json:"auto_resume_on_start,omitempty"`
+
 	// Super carries `rick super` mode settings (job_47/task11): the super
 	// workspace root plus the PySupervisor cadence defaults. Zero fields
 	// fall back to DefaultSuperConfig() at the call site (loader.go needs no

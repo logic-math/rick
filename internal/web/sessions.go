@@ -192,17 +192,27 @@ func (m *SessionManager) BackfillTitles() {
 // 不是执行失败；误写成 error 会让 UI 显示「已中断（agent 进程不在）」，人无法分辨
 // 「平台升级掉起」与「真的炸了」。suspended 表示状态完整、可一键继续。
 //
-// ⚠️ 这里**不 spawn 任何 worker**——恢复动作只能由人显式触发
-// （POST /api/sessions/{id}/continue）。调研依据 research-L6 §3.3 P1：pi resume
-// 不自动续跑；而悬挂 toolCall 自动续跑会重复副作用（§3.5）。
+// AutoResumeOnStart（human 2026-11-28 裁决：重启后会话不挂起）：config
+// auto_resume_on_start=true 时，对账刚标为 suspended 的**交互型**会话自动调
+// ensureInteractiveWorker 恢复（spawn pi --session worker）。pi --session
+// 恢复 = 加载历史 + 等输入（实测 busy=false，不自动续跑）——原先 J-L6-6/7
+// 「不自动续跑」的担忧（悬挂 toolCall 自动重放）不适用于此：恢复不发送任何消息。
+// 后台 dream 不自动恢复（goroutine 随进程消亡，continueBackground 走任务
+// 归一化路径，复杂度高，首轮不覆盖）。恢复失败的会话保持 suspended（下次
+// 手动恢复仍可）。
 func (m *SessionManager) ReconcileOnStart() {
+	var autoResumed []SessionEntry
 	for _, e := range m.sessions.List() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue
 		}
 		if e.Type == SessionTypeDream {
-			// 后台型 goroutine 随进程消亡——掉起（可人工继续重跑剩余 task）
+			// 后台 dream：goroutine 随进程消亡——挂起（可人工继续重跑剩余 task）。
+			// 交互 dream：也走 worker 恢复（pi --session，等输入不续跑）。
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
+			if dreamMode(e.Params) != DreamModeBackground {
+				autoResumed = append(autoResumed, e)
+			}
 			continue
 		}
 		if m.sup == nil {
@@ -211,10 +221,29 @@ func (m *SessionManager) ReconcileOnStart() {
 		}
 		if w := m.sup.Get(e.ID); w == nil || w.IsDead() {
 			m.updateStatus(e, SessionStatusSuspended, SuspendReasonRestart)
+			autoResumed = append(autoResumed, e)
 		}
 	}
 	// 恢复报告：suspended 清单以注册表为权威（人据此一键继续）
 	m.refreshSuspendedReport()
+
+	// auto_resume_on_start：交互型会话自动恢复（human 2026-11-28）
+	if cfg, err := config.LoadConfig(); err == nil && cfg.AutoResumeOnStart {
+		for _, e := range autoResumed {
+			// 重新读条目（updateStatus 可能已改写）
+			cur, ok := m.sessions.Get(e.ID)
+			if !ok || cur.Status != SessionStatusSuspended {
+				continue
+			}
+			// 交互 dream（mode=interactive）也走 worker 恢复；后台 dream 不在此列（上面已 continue）
+			if _, _, err := m.ensureInteractiveWorker(cur); err != nil {
+				// 恢复失败：保持 suspended，下次手动仍可恢复
+				fmt.Fprintf(os.Stderr, "[rick-web] auto-resume session %s failed: %v\n", e.ID, err)
+				continue
+			}
+			fmt.Fprintf(os.Stderr, "[rick-web] auto-resumed session %s\n", e.ID)
+		}
+	}
 }
 
 // ---- HTTP handlers ----
