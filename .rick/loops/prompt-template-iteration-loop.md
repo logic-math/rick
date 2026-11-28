@@ -6,7 +6,7 @@ scope: "全局（easy/doing 会话可加载；反馈对象=模板/agent 层用�
 
 # Loop: prompt 模板实测反馈迭代
 
-把「human 实跑会话后的体验反馈」变成一轮**定向模板增量 + dev 生效 + 新会话继承实测**。job_50 实测 7 轮（human-loop v7→v7.6.2），每轮定向增量到下一轮实测 ≈15 分钟。
+把「human 实跑会话后的体验反馈」变成一轮**定向模板增量 + dev 生效 + 新会话继承实测**。job_50 实测 7 轮（human-loop v7→v7.6.2）；job_57 实测 4 轮（human-loop v8→v8.3，每轮建新 loop_N+1 承接链迁移实测）——每轮定向增量到下一轮实测 ≈15 分钟。
 
 **与相邻 loop 的分工**：首轮大形态重构（协议 v2→v3 类）先走 `protocol-redesign-loop`；本 loop 管重构后的**实测反馈轮次**。反馈轮次编排/分级思想参考 `web-feedback-iteration-loop`，但本 loop 的机制是模板层特有的：**agent 部署三连、dev 会话继承迁移、会话输出病灶分析、dry-run 冒烟**（无 gates/rsi_check——模板增量用直接验证）。
 
@@ -18,7 +18,7 @@ scope: "全局（easy/doing 会话可加载；反馈对象=模板/agent 层用�
 |--------|----------|------|
 | 生产树干净 | `git -C <prod-tree> status --porcelain -uno` | 空（增量期间生产零触碰） |
 | dev 工作树 | `git -C <dev-tree> rev-parse --abbrev-ref HEAD` | dev/ 分支 |
-| dev 实例 | `cd <prod-tree> && go run ./cmd/rick tools dev-web status` | state=up |
+| dev 实例 | `cd <dev-tree> && RICK_DEV_HOME=<dev-home> ./bin/rick tools dev-web status` | state=up（⚠️ 管理命令直跑 dev 树 bin/rick 二进制，**禁 go run**——go run 父进程退出会收割 dev web 服务进程，job_57 实测进程即死多次；status 报 fingerprint=MISMATCH 时以 health 端点 build_id 为真值） |
 | 网络出口 | `curl --noproxy '*' -sI -m 8 https://www.google.com` | 直连 200（若 403/超时见 domain/env.md——命令须带 `env -u http_proxy -u https_proxy`） |
 
 Domain 搜索：`.rick/domain/env.md`（网络出口/dev 拓扑）、`.rick/domain/commands.md`（dev-web/release/会话 API 契约——steer 字段是 `message`）。
@@ -46,7 +46,7 @@ Domain 搜索：`.rick/domain/env.md`（网络出口/dev 拓扑）、`.rick/doma
 | `runs.run`（agent:'worker'） | 派发定向增量 worker | 长任务文本先 write 任务书文件+单行指针 task（pi_orchestration_syntax_skill 派发纪律）；worker 禁 git |
 | `go run ./cmd/rick human-loop --dry-run <topic>` | 模板渲染冒烟 | `grep -c '{{'` = 0 |
 | `git -C <dev-tree> merge main --no-edit` | dev 源码同步 | 只碰 dev 树 |
-| `go run ./cmd/rick tools dev-web restart/down/up` | dev 实例管理 | 带干净 env（`env -u http_proxy -u https_proxy`） |
+| `<dev-tree>/bin/rick tools dev-web restart/down/up` | dev 实例管理（直跑二进制，**禁 go run**——父进程收割子进程，job_57 实测） | 带干净 env（`env -u http_proxy -u https_proxy`）；fingerprint=MISMATCH 竞态以 health 为准 |
 | `<dev-bin> tools init-pi` | agents 部署到 dev HOME | `HOME=<dev-home>`；`rickAgents` 下线的 agent 手动 rm |
 | `POST /api/sessions` + `POST /api/sessions/{id}/steer` | 新会话创建与继承指示 | steer 字段 `message`；先建会话再拷产物 |
 | `bin/rick tools release --merge-source --yes` | 收口提升 | release 前先 `dev-web down`（防门禁竞态），后 `up --no-build` 恢复 |
@@ -76,9 +76,11 @@ ls <dev-home>/.rick/pi/agent/agents/                                            
 
 ### parent：C. 会话继承实测（旧会话 prompts/ 是快照，模板更新必须新会话）
 
+> ⚠️ **禁止 steer 旧会话传达新模板行为**——steer 只能传达一轮对话指示，不能换 prompts 快照；模板变更一律新开 loop_N+1（job_57 实测：steer 传达新呈现风格后 human 纠正「你需要新开 loop 才能触发新的 prompt 逻辑」）。
+
 1. `POST /api/sessions`（`{"workspace_id":...,"type":"human-loop","params":{"topic":"... 继承 loop_N 进度 ..."}}`）→ **记下分配的 loop_N**（先建会话再拷产物——预建目录会使 nextLoopID 分配偏移，job_50 实测踩坑）
-2. 拷贝上一 loop 产物到新 loop_N：`cp <old>/{mission,zpd,values,syllabus,judgment}.md <new>/ && cp <old>/lessons/*.md <new>/lessons/ && cp <old>/research/*.md <new>/research/`；mission 顶部更新**继承注记**（进度到哪、从哪继续、human 指令原文）
-3. streaming 会话用 `POST /api/sessions/{id}/steer`（`{"message":"...直接从 <继承点> 继续..."}`）
+2. 拷贝上一 loop 产物到新 loop_N——**按当前模板的产物清单拷**（human-loop v8+：`cp -R <old>/orig <new>/orig && cp <old>/thought_path.md <new>/`；v7 旧版：`{mission,zpd,values,syllabus,judgment}.md + lessons/ + research/`）；thought_path/mission 顶部更新**继承注记**：承接链（loop_19→…→loop_N）+ 进度边界（哪些阶段已完成、到哪一轮）+ 下一步起点
+3. streaming 会话用 `POST /api/sessions/{id}/steer`（`{"message":"...直接从 <继承点> 继续..."}`）；suspended 会话先 `POST /api/sessions/{id}/resume`（job_57 实测：steer/prompt 均要求 active）
 4. **病灶定位**（反馈是体验类时）：`ls <dev-home>/.rick/pi/agent/sessions/*/<session_id>*.jsonl` → 分析 assistant text blocks（条数/大小/内容类型）——编排叙述暴露在 text = 输出纪律病灶；thinking 泄漏看 `hideThinkingBlock` 配置
 
 ### parent：D. COMMIT

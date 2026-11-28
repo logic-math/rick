@@ -25,11 +25,13 @@
 4. **生产接管**：若休眠期有外部进程占了 8413（如 ~/.rick/bin/rick），release 重启会 `stopped=[...]` 接管——健康校验 build_id 匹配即成功
 5. **会话挂起预期**：S5 必挂起 web 承载的 RSI 会话——恢复流程见 rick-rsi-loop S6（human 点「恢复继续」）
 6. **S3 演练阶段 proactive 触发**：本共享机做 release 前必读本 skill——勿等失败后才在争夺窗口里被动选方案。dry-run 全绿 ≠ 落点可写（Plan.DryRun 落 /tmp 暂存，结构性测不到真实提升时的 permission denied）。dry-run 后立即做 30 秒「落点可写性体检」，逐项探测并输出 `RELEASE_PREFLIGHT writable=<path>=true/false`：
+   - **第 0 项（生产工作树干净）**：`git -C <prod-repo> status --porcelain` 必须为空——job 产物（rsi/approval.md、设计树更新等）是 release 前刚写入的，天然未提交态，未 commit 会在 merge 阶段中止（job_57 实测：exit=4 stage=merge，已完成的一次完整构建被浪费；产物先 commit 再重跑即过）
    - ReleasesRoot：试建+删临时子目录
    - bin/rick 软链
    - overlay dist 目录
    - state 文件（~/.rick/release-state.json）
    - start-script（start-web.sh）
+7. **显式版本号惯例（本仓库硬规则）**：release 一律 `--version <semver>`（如 8.2.0），禁止裸跑默认 sha7-时间戳版本——本仓库生产版本链是显式 semver（…→ 8.1.12 → 8.2.0），裸跑会破坏版本链（job_57 实测：第一次 release 默认 5e59492-…，human 提醒后补打 8.2.0）。漏打时补打方式：`rick tools release --version <ver> --no-merge-source --yes --prod-repo <prodRepo>`（main 已 merge 后无需再动源码，只重打产物；RELEASE_PROMOTE 会 gc 掉错误的 sha7 版本，版本链回正）。--prod-repo 在共享开发机必传（无法自动确定生产仓库路径，缺省 exit=4 stage=promote）。backlog：①release 门禁顺序——merge 检查应在 build 前（现状 build 完成才在 merge 失败，浪费构建时间）；②命令级护栏——无 --version 且检测到 prev 为 semver 时交互提示确认
 
    出现 false 时勿自行拍板，按两条路线向 human 报价（附权衡）：
    - 解药1 `RICK_RELEASES_DIR` 重定向（internal/env/release/defaults.go:51-52 实证生效）：自助立即生效，但非 canonical 位置
