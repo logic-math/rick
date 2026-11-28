@@ -203,6 +203,23 @@ func (m *SessionManager) BackfillTitles() {
 func (m *SessionManager) ReconcileOnStart() {
 	var autoResumed []SessionEntry
 	daemon := m.daemonEnabled()
+	// Daemon 探活修复（dev e2e 实测 2026-11-28）：suspended 会话也要探活——
+	// live daemon 存在时「suspended」是谎言（pi 从没死过，重启期间一直在跑；
+	// 典型场景：旧二进制（无 daemon 意识）先启动把会话错标 suspended，随后
+	// 换新二进制接管）。探活成功 → 恢复 active 零中断。
+	if daemon && m.sup != nil {
+		for _, e := range m.sessions.List() {
+			if e.Status != SessionStatusSuspended || e.Type == SessionTypeDream || e.PISessionID == "" {
+				continue
+			}
+			if w, err := m.sup.Attach(e.ID); err == nil {
+				m.pumpWorker(e.ID, w)
+				m.syncBusyFromState(e.ID)
+				m.updateStatus(e, SessionStatusActive, "re-attached to live pi daemon")
+				fmt.Fprintf(os.Stderr, "[rick-web] re-attached suspended session %s to live pi daemon\n", e.ID)
+			}
+		}
+	}
 	for _, e := range m.sessions.List() {
 		if e.Status != SessionStatusActive && e.Status != SessionStatusRunning {
 			continue

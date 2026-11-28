@@ -522,3 +522,67 @@ func TestDaemonE2E_LegacyUnaffected(t *testing.T) {
 		t.Fatal("legacy suspend must clear Busy")
 	}
 }
+
+// TestDaemonE2E_SuspendedSessionReattachesToLiveDaemon 回归守护（dev e2e
+// 实测 2026-11-28）：旧二进制（无 daemon 意识）重启时把活跃会话错标
+// suspended；随后新二进制启动对账——live daemon 存在时「suspended」是
+// 谎言（pi 从没死过），必须探活恢复 active 零中断，而不是保留挂起或
+// 杀掉还在跑的 pi。
+func TestDaemonE2E_SuspendedSessionReattachesToLiveDaemon(t *testing.T) {
+	env := newDaemonWebEnv(t)
+	m1 := env.manager(t, env.sessions, env.workspaces, env.sup, env.hub)
+	id := env.createEasy(t, m1)
+	waitLog(t, env.piLog, "开始：按系统提示词中的 rick 协议立即执行你的职责")
+
+	// 模拟「旧二进制重启」：detach（pi 存活）+ 手工把注册表改写为
+	// suspended（旧二进制 ReconcileOnStart 的行为——不认识 daemon socket）。
+	m1.ShutdownWorkers()
+	if w := env.sup.Get(id); w != nil {
+		t.Fatal("ShutdownWorkers left the worker registered")
+	}
+	pgid := env.socketMeta(t)
+	entry, ok := env.sessions.Get(id)
+	if !ok {
+		t.Fatal("session missing")
+	}
+	entry.Status = SessionStatusSuspended
+	if err := env.sessions.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+
+	// 新 manager 对账：daemon 活着 → suspended 恢复 active 零中断。
+	sessions2, err := LoadSessionRegistry(env.sessionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup2 := env.newSupervisor(t)
+	hub2 := NewHub(128)
+	m2 := env.manager(t, sessions2, env.workspaces, sup2, hub2)
+	coll := startCollector(hub2)
+	defer coll.stop()
+
+	m2.ReconcileOnStart()
+
+	entry = waitStatus(t, sessions2, id, SessionStatusActive)
+	if entry.PISessionID == "" {
+		t.Fatal("PISessionID lost")
+	}
+	if w := sup2.Get(id); w == nil || w.IsDead() {
+		t.Fatal("no live re-attached worker for suspended-but-alive session")
+	}
+	if !groupAliveWeb(pgid) {
+		t.Fatal("pi group must never die in this flow")
+	}
+
+	// 对话继续可用（attach 后新回合正常跑）。
+	rec := post(t, m2.SessionPrompt, "/api/sessions/"+id+"/prompt", map[string]any{"message": "alive again"})
+	if rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
+		t.Fatalf("prompt after suspended-reattach: %d %s", rec.Code, rec.Body.String())
+	}
+	if len(coll.waitMatching(t, 5*time.Second, func(e Envelope) bool {
+		return e.Type == EventTypeSessionEvent && e.SessionID == id && strings.Contains(string(e.Data), "agent_settled")
+	})) == 0 {
+		t.Fatal("no round-trip events after suspended-reattach")
+	}
+	waitLog(t, env.piLog, "alive again")
+}
